@@ -1,10 +1,12 @@
 //! Rendering of the pure UI model.
 
-use ratatui::Frame;
+use ratatui::{Frame, widgets::Block};
 use tidal_player_core::ui::State;
 
-/// Draws `state` into `frame`.
-pub fn render(_state: &State, _frame: &mut Frame) {}
+/// Draws `state` into `frame`: a bordered block titled with the app name.
+pub fn render(_state: &State, frame: &mut Frame) {
+    frame.render_widget(Block::bordered().title("tidal-player"), frame.area());
+}
 
 #[cfg(test)]
 mod tests {
