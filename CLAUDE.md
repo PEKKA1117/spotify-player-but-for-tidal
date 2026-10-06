@@ -4,7 +4,7 @@ A terminal Tidal player modelled on [spotify-player](https://github.com/aome510/
 
 ## Status
 
-Greenfield. The language, toolchain and package layout are **not decided yet**. The first spec (`docs/specs/0001-architecture.md`) decides them, and the "Build & tooling" section below is filled in from it in the same change. Until then, don't add source code.
+Greenfield, in **Rust**. The toolchain and crate layout are set by `docs/specs/0001-architecture.md` (draft, awaiting approval); the "Build & tooling" section below is filled in from it once approved. Until then, don't add source code.
 
 ## Build & tooling
 
