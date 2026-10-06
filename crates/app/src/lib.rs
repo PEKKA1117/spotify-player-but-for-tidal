@@ -2,3 +2,4 @@
 //! panic hook, kept here so integration tests can import them.
 
 pub mod ui;
+pub mod panic_hook;
