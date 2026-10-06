@@ -1,6 +1,6 @@
 # 0001 — Architecture & project scaffold
 
-- **Status**: draft
+- **Status**: approved (2026-10-06)
 - **Owner**: tech-lead (primary session)
 
 ## Context

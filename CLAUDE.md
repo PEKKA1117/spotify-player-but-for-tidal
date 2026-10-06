@@ -4,7 +4,7 @@
 
 ## Status
 
-Greenfield, in **Rust**. The toolchain and crate layout are set by `docs/specs/0001-architecture.md` (draft, awaiting approval); the "Build & tooling" section below is filled in from it once approved. Until then, don't add source code.
+Greenfield, in **Rust**. The toolchain and crate layout are set by `docs/specs/0001-architecture.md` (approved); the "Build & tooling" section below is filled in from it once approved. Until then, don't add source code.
 
 ## Build & tooling
 
