@@ -28,11 +28,21 @@ pub enum Effect {
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
-pub fn update(_state: &mut State, action: Action) -> Vec<Effect> {
+pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
-        Action::Player(_) => Vec::new(),
+        Action::Player(event) => match event {
+            protocol::Event::LoginRequired => {
+                state.login_required = true;
+                Vec::new()
+            }
+            protocol::Event::LoginRestored => {
+                state.login_required = false;
+                Vec::new()
+            }
+            protocol::Event::ShuttingDown => Vec::new(),
+        },
     }
 }
 
