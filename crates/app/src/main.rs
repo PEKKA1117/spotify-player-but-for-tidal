@@ -18,7 +18,20 @@ use tidal_player_core::ui::{Action, Effect, State, update};
 /// Terminal Tidal player.
 #[derive(Debug, Parser)]
 #[command(name = "tidal-player", version, about)]
-struct Cli {}
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Command {
+    /// Log in to Tidal with the device flow.
+    Login,
+    /// Delete the stored session from this machine.
+    Logout,
+    /// Run headless (not implemented yet, spec 0005).
+    Daemon,
+}
 
 /// Leaves the alternate screen and raw mode; errors are ignored because this
 /// also runs from the panic hook, where there is nothing better to do.
@@ -48,7 +61,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let Cli {} = Cli::parse();
+    let Cli { command } = Cli::parse();
+    if command.is_some() {
+        return Ok(());
+    }
 
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);

@@ -36,7 +36,7 @@ symphonia = "0.6.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tracing = "0.1.44"
-tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 webbrowser = "1.2.4"
 wiremock = "0.6.5"
 zeroize = "1.9.1"
