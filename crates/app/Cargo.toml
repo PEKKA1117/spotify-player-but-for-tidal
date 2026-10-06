@@ -8,8 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+tidal-player-core = { workspace = true }
 
 [dev-dependencies]
+assert_cmd = { workspace = true }
+insta = { workspace = true }
+predicates = { workspace = true }
 
 [lints]
 workspace = true
