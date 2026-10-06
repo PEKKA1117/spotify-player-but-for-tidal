@@ -67,4 +67,31 @@ mod tests {
         );
         insta::assert_snapshot!(text);
     }
+
+    /// AC17: the status line never panics on a tiny terminal and is only
+    /// drawn when there is an inner row for it.
+    #[test]
+    fn ac17_login_status_tiny_terminals() {
+        let state = State {
+            login_required: true,
+        };
+        for (width, height) in [(80, 0), (80, 1), (80, 2), (80, 3), (1, 24)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| render(&state, frame)).unwrap();
+            let text = buffer_text(&terminal);
+            let rows: Vec<&str> = text.split('\n').collect();
+            if height < 3 {
+                assert!(
+                    !text.contains("Session expired"),
+                    "{width}x{height}: status drawn without an inner row:\n{text}"
+                );
+            }
+            if (width, height) == (80, 3) {
+                assert!(
+                    rows[1].contains("Session expired"),
+                    "{width}x{height}: status not on the inner row:\n{text}"
+                );
+            }
+        }
+    }
 }
