@@ -8,16 +8,26 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+age = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
+keyring = { workspace = true }
 ratatui = { workspace = true }
+rpassword = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tidal-player-api = { workspace = true }
 tidal-player-core = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
 insta = { workspace = true }
 predicates = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

@@ -3,4 +3,6 @@
 
 pub mod input;
 pub mod panic_hook;
+pub mod passphrase;
+pub mod session_store;
 pub mod ui;
