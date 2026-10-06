@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-A terminal Tidal player modelled on [spotify-player](https://github.com/aome510/spotify-player). This is a from-scratch rebuild of [tidalt](https://github.com/PEKKA1117/tidalt), which grew too buggy to keep patching. Nothing is carried over as code; behaviour worth keeping is re-specified and re-tested here first.
+**tidal-player**: a terminal Tidal player modelled on [spotify-player](https://github.com/aome510/spotify-player). This is a from-scratch rebuild of [tidalt](https://github.com/PEKKA1117/tidalt), which grew too buggy to keep patching. Nothing is carried over as code; behaviour worth keeping is re-specified and re-tested here first.
 
 ## Status
 

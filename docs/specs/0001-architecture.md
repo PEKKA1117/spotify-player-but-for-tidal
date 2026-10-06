@@ -15,6 +15,10 @@ This spec picks the stack and the crate layout, and sets up an empty workspace i
 
 ## Decisions
 
+### Name
+
+The binary, the crate prefix and the config/data directory names are **`tidal-player`** (`~/.config/tidal-player/`, `~/.local/state/tidal-player/`), in honour of the original tidalt author. "tidalt" in this spec always means the old Go project.
+
 ### Language & toolchain
 
 - Rust, edition 2024, stable toolchain pinned in `rust-toolchain.toml` (currently 1.97), with `rustfmt` and `clippy` components
@@ -26,28 +30,28 @@ This spec picks the stack and the crate layout, and sets up an empty workspace i
 Cargo.toml                 # [workspace], shared [workspace.dependencies] and [workspace.lints]
 rust-toolchain.toml
 crates/
-  core/    -> tidalt-core  # domain types, app state, Action, Effect, update(), keymap. NO I/O.
-  tidal/   -> tidalt-tidal # Tidal HTTP API client; maps API DTOs into core types
-  audio/   -> tidalt-audio # decode + output engine; Sink trait, ALSA backend behind a feature
-  tui/     -> tidalt       # the binary: CLI, terminal, event loop, rendering, effect runner
+  core/    -> tidal-player-core   # domain types, app state, Action, Effect, update(), keymap. NO I/O.
+  api/     -> tidal-player-api    # Tidal HTTP API client; maps API DTOs into core types
+  audio/   -> tidal-player-audio  # decode + output engine; Sink trait, ALSA backend behind a feature
+  tui/     -> tidal-player        # the binary: CLI, terminal, event loop, rendering, effect runner
 scripts/check-layering.sh  # enforces the dependency rules below via `cargo tree`
 .github/workflows/ci.yml
 ```
 
 Allowed dependency edges (everything else is forbidden):
 
-| crate          | may depend on                         |
-|----------------|---------------------------------------|
-| `tidalt-core`  | — (only pure libs: serde, thiserror…) |
-| `tidalt-tidal` | `tidalt-core`                         |
-| `tidalt-audio` | — (not `core`, not `tidal`)           |
-| `tidalt`       | all of the above                      |
+| crate                | may depend on                         |
+|----------------------|---------------------------------------|
+| `tidal-player-core`  | — (only pure libs: serde, thiserror…) |
+| `tidal-player-api`   | `tidal-player-core`                   |
+| `tidal-player-audio` | — (not `core`, not `api`)             |
+| `tidal-player`       | all of the above                      |
 
 ### Application pattern (the main testability fix)
 
 Elm-style, as a pure core with an imperative shell:
 
-- `tidalt-core` defines `State`, `Action` (everything that can happen: key presses already resolved through the keymap, API responses, player events, ticks) and `Effect` (everything the app wants done: fetch X, play Y, persist Z, quit)
+- `tidal-player-core` defines `State`, `Action` (everything that can happen: key presses already resolved through the keymap, API responses, player events, ticks) and `Effect` (everything the app wants done: fetch X, play Y, persist Z, quit)
 - `fn update(state: &mut State, action: Action) -> Vec<Effect>` is pure and synchronous. All behaviour that can be decided without I/O is decided here and unit-tested here
 - The binary's runtime turns terminal events, API results and player events into `Action`s, calls `update`, and executes the returned `Effect`s. It contains no decisions worth testing beyond wiring
 - Rendering is `fn render(&State, &mut Frame)`: a pure function of state, tested with ratatui's `TestBackend` + `insta` snapshots at fixed sizes
@@ -55,7 +59,7 @@ Elm-style, as a pure core with an imperative shell:
 ### Concurrency
 
 - `tokio` multi-thread runtime in the binary for HTTP and the event loop
-- Audio decode + output run on a **dedicated OS thread** owned by `tidalt-audio` (never on the async runtime), controlled through a command channel and reporting through an event channel. `tidalt-audio` exposes a synchronous API and does not depend on tokio
+- Audio decode + output run on a **dedicated OS thread** owned by `tidal-player-audio` (never on the async runtime), controlled through a command channel and reporting through an event channel. `tidal-player-audio` exposes a synchronous API and does not depend on tokio
 
 ### Key libraries
 
@@ -78,19 +82,19 @@ Elm-style, as a pure core with an imperative shell:
 - **Format**: `cargo fmt --all` (CI: `cargo fmt --all --check`)
 - **Lint**: `cargo clippy --workspace --all-targets --all-features -- -D warnings`, plus `scripts/check-layering.sh`
 - **Build**: `cargo build --workspace`
-- **Test**: `cargo test --workspace`; one crate: `cargo test -p tidalt-core`; one test: `cargo test -p tidalt-core <name>`. Snapshot changes are reviewed, never blindly accepted (`cargo insta review`, or inspect the `.snap.new` files)
-- **System deps**: `pkg-config`, `libasound2-dev` (only for the `alsa` feature). `cargo test -p tidalt-audio --no-default-features` builds without them
+- **Test**: `cargo test --workspace`; one crate: `cargo test -p tidal-player-core`; one test: `cargo test -p tidal-player-core <name>`. Snapshot changes are reviewed, never blindly accepted (`cargo insta review`, or inspect the `.snap.new` files)
+- **System deps**: `pkg-config`, `libasound2-dev` (only for the `alsa` feature). `cargo test -p tidal-player-audio --no-default-features` builds without them
 
 ## Acceptance criteria
 
-- **AC1** — On a clean checkout with the system deps installed, `cargo build --workspace` succeeds and produces a `tidalt` binary
+- **AC1** — On a clean checkout with the system deps installed, `cargo build --workspace` succeeds and produces a `tidal-player` binary
 - **AC2** — `cargo fmt --all --check`, the clippy command above, and `cargo test --workspace` all pass
-- **AC3** — `scripts/check-layering.sh` exits 0 on the scaffold and non-zero (naming the offending edge) when any forbidden edge in the table is added, and when `tidalt-core` gains any of: `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring`
-- **AC4** — `tidalt --version` prints `tidalt <version>` and exits 0; `tidalt --help` exits 0 (tested with `assert_cmd`)
-- **AC5** — `tidalt-core` exposes `State`, `Action`, `Effect` and `update`; `update(&mut State::default(), Action::Quit)` returns `[Effect::Quit]`, and any other action on the default state returns no effects (unit test)
+- **AC3** — `scripts/check-layering.sh` exits 0 on the scaffold and non-zero (naming the offending edge) when any forbidden edge in the table is added, and when `tidal-player-core` gains any of: `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring`
+- **AC4** — `tidal-player --version` prints `tidal-player <version>` and exits 0; `tidal-player --help` exits 0 (tested with `assert_cmd`)
+- **AC5** — `tidal-player-core` exposes `State`, `Action`, `Effect` and `update`; `update(&mut State::default(), Action::Quit)` returns `[Effect::Quit]`, and any other action on the default state returns no effects (unit test)
 - **AC6** — `render` of `State::default()` into an 80×24 `TestBackend` matches a committed `insta` snapshot showing an empty layout with the app name
-- **AC7** — `tidalt-audio` defines a `Sink` trait with an in-memory test sink; the ALSA backend is behind a default-on `alsa` feature, and `cargo test -p tidalt-audio --no-default-features` passes without `libasound2-dev`
-- **AC8** — `tidalt-tidal` has an injectable base URL and one `wiremock` test that serves a JSON fixture from `crates/tidal/tests/fixtures/` and asserts the request path and the parsed result. No test touches the real network
+- **AC7** — `tidal-player-audio` defines a `Sink` trait with an in-memory test sink; the ALSA backend is behind a default-on `alsa` feature, and `cargo test -p tidal-player-audio --no-default-features` passes without `libasound2-dev`
+- **AC8** — `tidal-player-api` has an injectable base URL and one `wiremock` test that serves a JSON fixture from `crates/api/tests/fixtures/` and asserts the request path and the parsed result. No test touches the real network
 - **AC9** — `.github/workflows/ci.yml` runs AC2's checks and the layering script on every push and pull request, on `ubuntu-latest`, installing `libasound2-dev`
 - **AC10** — `CLAUDE.md` "Status" and "Build & tooling" are updated from this spec, and the spec's status moves to `implemented`
 
@@ -127,6 +131,5 @@ Assumptions to verify in the spec that depends on them:
 
 ## Open questions (answer before approval)
 
-1. **Name**: the binary and crate prefix are `tidalt` here. Keep it, or rename (for example to match the repo)?
-2. **Daemon/client mode**: tidalt had a headless daemon plus a TUI client over D-Bus. Is that wanted at all? If so it only affects where the boundary between the runtime and `update` sits, which this layout already allows, but it should be on the roadmap
-3. **tidalt bugs**: which bugs or behaviours hurt most? They become explicit acceptance criteria in the follow-up specs
+1. **Daemon/client mode**: tidalt had a headless daemon plus a TUI client over D-Bus. Is that wanted at all? If so it only affects where the boundary between the runtime and `update` sits, which this layout already allows, but it should be on the roadmap
+2. **tidalt bugs**: which bugs or behaviours hurt most? They become explicit acceptance criteria in the follow-up specs
