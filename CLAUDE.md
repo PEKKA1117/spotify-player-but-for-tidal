@@ -39,7 +39,7 @@ Every feature and every bug fix, however small, follows spec-driven development 
    - Features: a numbered spec in `docs/specs/` (`NNNN-short-slug.md`), with the sections in "Spec format" below
    - Bug fixes: add a "Bugs" entry to the spec that covers the area — expected vs. actual behaviour, root cause, and the new acceptance criterion — and correct the spec if it was wrong or silent on the case. No covering spec means the area was never specified: write one
    - User-facing behaviour (keys, config, layout) is also documented in `docs/` pages for users; the spec links to them rather than duplicating them
-2. **Red (TDD)** — write a failing test per acceptance criterion (for a bug: a test that reproduces it). Run it and confirm it fails **for the expected reason**, not on a compile error or a missing fixture. Commit the red state on its own (`test: …`) so acceptance can check it out
+2. **Red (TDD)** — write the failing tests named in the spec's test plan (for a bug: a test that reproduces it). Run it and confirm it fails **for the expected reason**, not on a compile error or a missing fixture. Commit the red state on its own (`test: …`) so acceptance can check it out
 3. **Green** — write the minimal code that makes the tests pass
 4. **Refactor** — clean up with the tests green, then run every "Build & tooling" check
 
@@ -60,6 +60,7 @@ Each `docs/specs/NNNN-*.md` has:
 - **Behaviour**: what the user sees and does — inputs/outputs, keys, config, states
 - **Acceptance criteria**: numbered (`AC1`, `AC2`, …), each observable and testable; tests reference them by number in their name or comment
 - **Edge cases & errors**: network loss, expired auth, empty lists, unsupported formats, tiny terminals, …
+- **Test plan**: a table mapping every AC to the test that proves it (file :: test name, what it asserts, the expected red failure), or, for a criterion no automated test can cover, how it is checked at acceptance and why it has no test. A spec without a test plan can't be approved
 - **Out of scope**
 - **Bugs** (added over time): see step 1
 

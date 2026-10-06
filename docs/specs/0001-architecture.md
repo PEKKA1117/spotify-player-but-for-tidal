@@ -34,7 +34,8 @@ crates/
   api/     -> tidal-player-api    # Tidal HTTP API client; maps API DTOs into core types
   audio/   -> tidal-player-audio  # decode + output engine; Sink trait, ALSA backend behind a feature
   tui/     -> tidal-player        # the binary: CLI, terminal, event loop, rendering, effect runner
-scripts/check-layering.sh  # enforces the dependency rules below via `cargo tree`
+xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces the dependency rules below
+.cargo/config.toml         # `xtask` alias
 .github/workflows/ci.yml
 ```
 
@@ -46,6 +47,7 @@ Allowed dependency edges (everything else is forbidden):
 | `tidal-player-api`   | `tidal-player-core`                   |
 | `tidal-player-audio` | — (not `core`, not `api`)             |
 | `tidal-player`       | all of the above                      |
+| `xtask`              | none of the above (dev tooling only)  |
 
 ### Application pattern (the main testability fix)
 
@@ -80,7 +82,7 @@ Elm-style, as a pure core with an imperative shell:
 ### Build & tooling (copied into `CLAUDE.md` when this spec is approved)
 
 - **Format**: `cargo fmt --all` (CI: `cargo fmt --all --check`)
-- **Lint**: `cargo clippy --workspace --all-targets --all-features -- -D warnings`, plus `scripts/check-layering.sh`
+- **Lint**: `cargo clippy --workspace --all-targets --all-features -- -D warnings`, plus `cargo xtask layering`
 - **Build**: `cargo build --workspace`
 - **Test**: `cargo test --workspace`; one crate: `cargo test -p tidal-player-core`; one test: `cargo test -p tidal-player-core <name>`. Snapshot changes are reviewed, never blindly accepted (`cargo insta review`, or inspect the `.snap.new` files)
 - **System deps**: `pkg-config`, `libasound2-dev` (only for the `alsa` feature). `cargo test -p tidal-player-audio --no-default-features` builds without them
@@ -89,19 +91,44 @@ Elm-style, as a pure core with an imperative shell:
 
 - **AC1** — On a clean checkout with the system deps installed, `cargo build --workspace` succeeds and produces a `tidal-player` binary
 - **AC2** — `cargo fmt --all --check`, the clippy command above, and `cargo test --workspace` all pass
-- **AC3** — `scripts/check-layering.sh` exits 0 on the scaffold and non-zero (naming the offending edge) when any forbidden edge in the table is added, and when `tidal-player-core` gains any of: `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring`
+- **AC3** — `cargo xtask layering` exits 0 on the scaffold and non-zero, naming each offending edge, when any edge outside the table is added, or when `tidal-player-core` gains any of `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring` as a normal (non-dev) dependency, directly or transitively
 - **AC4** — `tidal-player --version` prints `tidal-player <version>` and exits 0; `tidal-player --help` exits 0 (tested with `assert_cmd`)
 - **AC5** — `tidal-player-core` exposes `State`, `Action`, `Effect` and `update`; `update(&mut State::default(), Action::Quit)` returns `[Effect::Quit]`, and any other action on the default state returns no effects (unit test)
 - **AC6** — `render` of `State::default()` into an 80×24 `TestBackend` matches a committed `insta` snapshot showing an empty layout with the app name
 - **AC7** — `tidal-player-audio` defines a `Sink` trait with an in-memory test sink; the ALSA backend is behind a default-on `alsa` feature, and `cargo test -p tidal-player-audio --no-default-features` passes without `libasound2-dev`
 - **AC8** — `tidal-player-api` has an injectable base URL and one `wiremock` test that serves a JSON fixture from `crates/api/tests/fixtures/` and asserts the request path and the parsed result. No test touches the real network
-- **AC9** — `.github/workflows/ci.yml` runs AC2's checks and the layering script on every push and pull request, on `ubuntu-latest`, installing `libasound2-dev`
-- **AC10** — `CLAUDE.md` "Status" and "Build & tooling" are updated from this spec, and the spec's status moves to `implemented`
+- **AC9** — `.github/workflows/ci.yml` runs AC2's checks and `cargo xtask layering` on every push and pull request, on `ubuntu-latest`, installing `libasound2-dev`
+- **AC10** — A panic while the TUI is running restores the terminal (raw mode off, alternate screen left) **before** the panic message is printed, via a panic hook the binary installs
+- **AC11** — `CLAUDE.md` "Status" and "Build & tooling" are updated from this spec, and the spec's status moves to `implemented`
+
+## Test plan
+
+Each automated test is named after the criterion it proves (`ac5_…`). "Red" is the failure the implementer must show before writing the code: a failing assertion, never a compile error. So the red commit already contains the stub types and functions the test calls, with stub bodies (`todo!()` is not allowed: it panics instead of failing the assertion).
+
+| AC | Test (file :: name) | What it asserts | Expected red |
+|----|---------------------|-----------------|--------------|
+| AC1 | — command check | `cargo build --workspace` exits 0 in CI, and AC4's tests run the built `tidal-player` binary | — |
+| AC2 | — command check | `cargo fmt --all --check`, clippy (`-D warnings`) and `cargo test --workspace` exit 0 | — |
+| AC3 | `xtask/src/layering.rs` :: `ac3_rules` (table-driven, over a hand-built dependency graph) | allowed graph → no violations; `core → tokio` → violation `tidal-player-core -> tokio`; `core → serde_x → tokio` (transitive) → violation; `audio → core`, `api → audio`, `core → api` → one violation each, naming the edge; `core` with `tokio` as a dev-dependency only → no violation | stub `check()` returns no violations, so every violating row fails |
+| AC3 | `xtask/tests/workspace.rs` :: `ac3_real_workspace_is_clean` | `cargo xtask layering` on the real workspace exits 0 | the stub command exits 1 |
+| AC4 | `crates/tui/tests/cli.rs` :: `ac4_version` | `tidal-player --version` stdout is exactly `tidal-player <CARGO_PKG_VERSION>\n`, exit 0 | stub `main` prints nothing |
+| AC4 | `crates/tui/tests/cli.rs` :: `ac4_help` | `tidal-player --help` exits 0 and stdout contains `Usage:` | stub `main` prints nothing |
+| AC5 | `crates/core/src/update.rs` :: `ac5_quit_emits_quit` | `update(&mut State::default(), Action::Quit) == vec![Effect::Quit]` | stub `update` returns `vec![]` |
+| AC5 | `crates/core/src/update.rs` :: `ac5_other_actions_emit_nothing` (table over every non-`Quit` variant, `Action::Tick` at minimum) | each returns `vec![]` and leaves `State` equal to the default | a second red/green cycle after `ac5_quit_emits_quit` is green: the simplest code that passes the first test (`vec![Effect::Quit]` for every action) fails this one |
+| AC6 | `crates/tui/src/ui.rs` :: `ac6_empty_state_80x24` | the 80×24 `TestBackend` buffer contains `tidal-player`, **and** matches the committed `insta` snapshot. The tech-lead reviews the snapshot by eye at acceptance | stub `render` draws nothing, so the `contains` assertion fails (a missing snapshot alone does not count as red) |
+| AC7 | `crates/audio/src/sink.rs` :: `ac7_memory_sink_records_samples` | after `open(format)` and two `write` calls, `MemorySink` reports that format and the two buffers concatenated, in order | stub `write` is a no-op |
+| AC7 | — CI job `audio-no-alsa` | `cargo test -p tidal-player-audio --no-default-features` passes on a runner **without** `libasound2-dev` | — |
+| AC8 | `crates/api/tests/harness.rs` :: `ac8_get_json_from_fixture` | `wiremock` serves `tests/fixtures/echo.json` at `GET /v1/echo`; a `Client` built with the mock server's URL returns the parsed struct; the mock's `expect(1)` verifies the path was hit exactly once | stub `get_json` returns an error without sending a request |
+| AC9 | — reviewed at acceptance | the workflow file has the AC2 steps, `cargo xtask layering` and the `audio-no-alsa` job, triggers on `push` and `pull_request`, and the PR's own CI run is green | — |
+| AC10 | `crates/tui/tests/panic_hook.rs` :: `ac10_restore_runs_before_report` (its own test binary, because panic hooks are process-global) | with a fake `restore` and a fake previous hook that each append to a shared log, `catch_unwind(\|\| panic!())` leaves the log as `["restore", "report"]` | stub `install_panic_hook` does nothing, so the log is `[]` |
+| AC11 | — reviewed at acceptance | `CLAUDE.md` matches this spec; status is `implemented` | — |
+
+Not covered by automated tests, on purpose: real terminal raw-mode handling and real ALSA output. They sit behind the `restore` and `Sink` seams above, and are exercised manually only when a later spec adds behaviour that depends on them.
 
 ## Edge cases & errors
 
 - A machine without `libasound2-dev` must still be able to run everything except the ALSA backend (AC7)
-- A terminal panic must restore the terminal (raw mode off, alternate screen left) before the panic message prints — a panic hook installed by the binary
+- A panic while the terminal is in raw mode (AC10)
 
 ## Out of scope (planned follow-up specs)
 
