@@ -4,8 +4,11 @@ use crossterm::event::{KeyCode, KeyEvent};
 use tidal_player_core::ui::Action;
 
 /// Maps a key press to the `Action` it triggers, if any.
-pub fn key_to_action(_key: KeyEvent) -> Option<Action> {
-    None
+pub fn key_to_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
