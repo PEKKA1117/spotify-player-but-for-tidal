@@ -4,17 +4,18 @@
 
 ## Status
 
-Greenfield, in **Rust**. The toolchain and crate layout are set by `docs/specs/0001-architecture.md` (approved); the "Build & tooling" section below is filled in from it once approved. Until then, don't add source code.
+Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Follow-up specs are listed in its "Out of scope" section.
 
 ## Build & tooling
 
-_To be filled in by spec 0001._ When it is, list exactly these, as commands an agent can run unattended:
+Rust toolchain pinned in `rust-toolchain.toml` (1.97, edition 2024). Run from the repo root:
 
-- **Format**: the command, run after editing any source file
-- **Lint**: the command, run before finishing a task; fix everything it reports
-- **Build**: the command
-- **Test**: the full suite, and how to run a single package/module
-- **System deps**: native libraries, CGO/FFI requirements, anything CI must install
+- **Format**: `cargo fmt --all` after editing any `.rs` file (CI: `cargo fmt --all --check`)
+- **Lint**: `cargo clippy --workspace --all-targets --all-features -- -D warnings` and `cargo xtask layering` (crate dependency rules) before finishing a task; fix everything they report
+- **Build**: `cargo build --workspace`
+- **Test**: `cargo test --workspace`; one crate: `cargo test -p <crate>` (`tidal-player-core`, `tidal-player-api`, `tidal-player-audio`, `tidal-player`, `xtask`); one test: `cargo test -p <crate> <name>`. Snapshot (`insta`) changes are reviewed, never blindly accepted: read the `.snap.new`, then accept it (`INSTA_UPDATE=always`, or `cargo insta accept`). Never commit `.snap.new`
+- **System deps**: `pkg-config` and `libasound2-dev` (only for the default `alsa` feature of `tidal-player-audio`). `cargo test -p tidal-player-audio --no-default-features` works without them
+- **Dependencies**: every third-party crate is declared once in the root `[workspace.dependencies]`; crates use `dep = { workspace = true }`. Merges regenerate `Cargo.lock` with cargo, never by hand
 
 ## Development approach: tech-lead
 

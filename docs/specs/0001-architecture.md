@@ -1,6 +1,6 @@
 # 0001 — Architecture & project scaffold
 
-- **Status**: approved (2026-10-06)
+- **Status**: implemented (2026-10-06)
 - **Owner**: tech-lead (primary session)
 
 ## Context
@@ -133,7 +133,7 @@ Each automated test is named after the criterion it proves (`ac5_…`). "Red" is
 | AC7 | — CI job `audio-no-alsa` | `cargo test -p tidal-player-audio --no-default-features` passes on a runner **without** `libasound2-dev` | — |
 | AC8 | `crates/api/tests/harness.rs` :: `ac8_get_json_from_fixture` | `wiremock` serves `tests/fixtures/echo.json` at `GET /v1/echo`; a `Client` built with the mock server's URL returns the parsed struct; the mock's `expect(1)` verifies the path was hit exactly once | stub `get_json` returns an error without sending a request |
 | AC9 | — reviewed at acceptance | the workflow file has the AC2 steps, `cargo xtask layering` and the `audio-no-alsa` job, triggers on `push` and `pull_request`, and the PR's own CI run is green | — |
-| AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report` (its own test binary, because panic hooks are process-global) | with a fake `restore` and a fake previous hook that each append to a shared log, `catch_unwind(\|\| panic!())` leaves the log as `["restore", "report"]` | stub `install_panic_hook` does nothing, so the log is `[]` |
+| AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report` (its own test binary, because panic hooks are process-global) | with a fake `restore` and a fake previous hook that each append to a shared log, `catch_unwind(\|\| panic!())` leaves the log as `["restore", "report"]` | stub `install_panic_hook` does nothing, so only the fake previous hook runs and the log is `["report"]` |
 | AC11 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (table over every `Command` and `Event` variant; `serde_json` as a dev-dependency only) | `from_str(&to_string(&v)) == v` for each | stub `Serialize` impl writes `null` (hand-written, replaced by `#[derive]` in green), so deserialising back fails |
 | AC12 | — reviewed at acceptance | `CLAUDE.md` matches this spec; status is `implemented` | — |
 
@@ -174,3 +174,7 @@ Assumptions to verify in the spec that depends on them:
 ## Open questions (answer before approval)
 
 1. **tidalt bugs**: which bugs or behaviours hurt most? They become explicit acceptance criteria in the follow-up specs
+
+## Bugs
+
+- **Test plan error, AC10 red (found at acceptance).** The plan said the stubbed hook leaves the log as `[]`. Actually the fake previous hook still runs, so the log is `["report"]`. The test was right; the plan row is corrected.
