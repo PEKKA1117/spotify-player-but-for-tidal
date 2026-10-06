@@ -34,13 +34,19 @@ mod tests {
         );
     }
 
+    /// Every variant of `Command`; extend when a variant is added.
+    fn all_commands() -> Vec<Command> {
+        vec![Command::Shutdown]
+    }
+
+    /// Every variant of `Event`; extend when a variant is added.
+    fn all_events() -> Vec<Event> {
+        vec![Event::ShuttingDown]
+    }
+
     #[test]
     fn ac11_round_trip() {
-        for c in [Command::Shutdown] {
-            round_trip(&c);
-        }
-        for e in [Event::ShuttingDown] {
-            round_trip(&e);
-        }
+        all_commands().iter().for_each(round_trip);
+        all_events().iter().for_each(round_trip);
     }
 }
