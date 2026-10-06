@@ -3,7 +3,7 @@
 //! The rules are checked on an in-memory [`Graph`], so they are unit-tested
 //! without cargo; [`check`] is pure.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 /// Kind of a dependency edge.
@@ -69,9 +69,86 @@ impl fmt::Display for Violation {
     }
 }
 
+const CORE: &str = "tidal-player-core";
+const API: &str = "tidal-player-api";
+const AUDIO: &str = "tidal-player-audio";
+const APP: &str = "tidal-player";
+
+/// External crates that `tidal-player-core` must never reach through normal dependencies.
+const CORE_FORBIDDEN: [&str; 9] = [
+    "tokio",
+    "reqwest",
+    "crossterm",
+    "ratatui",
+    "alsa",
+    "symphonia",
+    "zbus",
+    "keyring",
+    "serde_json",
+];
+
+/// Workspace crates a workspace member may depend on.
+fn allowed_members(from: &str) -> &'static [&'static str] {
+    match from {
+        API => &[CORE],
+        APP => &[CORE, API, AUDIO],
+        _ => &[],
+    }
+}
+
 /// Checks `graph` against the layering rules and returns every violation.
-pub fn check(_graph: &Graph) -> Vec<Violation> {
-    Vec::new()
+///
+/// Edges between workspace members must appear in the allowed table. For
+/// `tidal-player-core`, the normal-dependency closure must not contain any of
+/// [`CORE_FORBIDDEN`]. Edges to external crates are otherwise unrestricted.
+pub fn check(graph: &Graph) -> Vec<Violation> {
+    let mut out = Vec::new();
+
+    for member in &graph.members {
+        for (to, _kind) in graph.deps.get(member).into_iter().flatten() {
+            if graph.members.contains(to)
+                && member != to
+                && !allowed_members(member).contains(&to.as_str())
+            {
+                out.push(Violation {
+                    from: member.clone(),
+                    to: to.clone(),
+                    path: vec![member.clone(), to.clone()],
+                });
+            }
+        }
+    }
+
+    if graph.members.contains(CORE) {
+        out.extend(core_forbidden(graph));
+    }
+    out
+}
+
+/// Breadth-first walk of core's normal edges, reporting each forbidden crate once.
+fn core_forbidden(graph: &Graph) -> Vec<Violation> {
+    let mut out = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::from([CORE]);
+    let mut queue: VecDeque<Vec<&str>> = VecDeque::from([vec![CORE]]);
+    while let Some(path) = queue.pop_front() {
+        let node = path[path.len() - 1];
+        for (to, kind) in graph.deps.get(node).into_iter().flatten() {
+            if *kind != DepKind::Normal || !seen.insert(to) {
+                continue;
+            }
+            let mut next = path.clone();
+            next.push(to);
+            if CORE_FORBIDDEN.contains(&to.as_str()) {
+                out.push(Violation {
+                    from: CORE.to_string(),
+                    to: to.clone(),
+                    path: next.iter().map(|s| s.to_string()).collect(),
+                });
+            }
+            queue.push_back(next);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
