@@ -22,7 +22,7 @@ pub enum Effect {
 
 /// Applies `action` to `state` and returns the effects the caller must run.
 pub fn update(_state: &mut State, _action: Action) -> Vec<Effect> {
-    Vec::new()
+    vec![Effect::Quit]
 }
 
 #[cfg(test)]
