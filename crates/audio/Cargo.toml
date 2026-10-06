@@ -9,9 +9,11 @@ repository.workspace = true
 
 [features]
 default = ["alsa"]
-alsa = []
+alsa = ["dep:alsa"]
 
 [dependencies]
+alsa = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 
