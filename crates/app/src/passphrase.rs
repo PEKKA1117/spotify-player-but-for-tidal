@@ -122,8 +122,18 @@ pub fn resolve_passphrase(
     prompt: &mut dyn Prompt,
     purpose: Purpose<'_>,
 ) -> Result<Passphrase, PassphraseError> {
-    // stub (red)
-    let _ = (env, prompt, purpose);
+    if let Some(path) = &env.passphrase_file {
+        return read_passphrase_file(path);
+    }
+    if let Some(dir) = &env.credentials_dir {
+        let path = dir.join(CREDENTIAL_NAME);
+        if path.exists() {
+            return read_passphrase_file(&path);
+        }
+    }
+    if env.interactive {
+        return prompt_passphrase(prompt, purpose);
+    }
     Err(PassphraseError::Unavailable)
 }
 

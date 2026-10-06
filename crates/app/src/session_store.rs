@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use age::secrecy::SecretString;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tidal_player_api::auth::{Session, SessionStore, StoreError};
 use zeroize::Zeroizing;
 
@@ -154,9 +154,37 @@ impl SessionStore for EncryptedFileStore {
     }
 
     fn save(&self, session: &Session) -> Result<(), StoreError> {
-        // stub (red)
-        let _ = session;
-        Ok(())
+        let existing = self.read_file()?;
+        let passphrase = match &existing {
+            Some(bytes) => {
+                // Opening an existing file with the wrong passphrase must not
+                // let us overwrite it with a session nobody can read.
+                let verify = |p: &Passphrase| {
+                    !matches!(Self::decrypt(bytes, p), Err(StoreError::WrongPassphrase))
+                };
+                self.get_passphrase(Purpose::Unlock(&verify))?
+            }
+            None => self.get_passphrase(Purpose::Create)?,
+        };
+        let ciphertext = self.encrypt(&encode_session(session)?, &passphrase)?;
+
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| StoreError::Other("session file path has no directory".into()))?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| io_error("cannot create the session directory", &e))?;
+
+        let tmp = tmp_path(&self.path);
+        write_private(&tmp, &ciphertext)
+            .and_then(|()| std::fs::rename(&tmp, &self.path))
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                io_error("cannot write the session file", &e)
+            })
     }
 
     fn delete(&self) -> Result<(), StoreError> {
@@ -259,18 +287,31 @@ impl FallbackStore {
 }
 
 impl SessionStore for FallbackStore {
-    // stub (red): primary only
     fn load(&self) -> Result<Option<Session>, StoreError> {
-        let _ = &self.secondary;
-        self.primary.load()
+        match self.primary.load() {
+            Ok(Some(session)) => Ok(Some(session)),
+            Ok(None) | Err(StoreError::Unavailable(_)) => self.secondary.load(),
+            Err(e) => Err(e),
+        }
     }
 
     fn save(&self, session: &Session) -> Result<(), StoreError> {
-        self.primary.save(session)
+        match self.primary.save(session) {
+            Err(StoreError::Unavailable(reason)) => {
+                tracing::info!(%reason, "primary session store unavailable, using the fallback");
+                self.secondary.save(session)
+            }
+            other => other,
+        }
     }
 
     fn delete(&self) -> Result<(), StoreError> {
-        self.primary.delete()
+        let primary = match self.primary.delete() {
+            Err(StoreError::Unavailable(_)) => Ok(()),
+            other => other,
+        };
+        let secondary = self.secondary.delete();
+        primary.and(secondary)
     }
 }
 
