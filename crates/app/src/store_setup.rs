@@ -1,6 +1,17 @@
 //! Builds the session store chain from the environment (spec 0002, "Storage").
 
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use tidal_player_api::auth::SessionStore;
+
+use crate::passphrase::ProcessPassphrase;
+use crate::session_store::{EncryptedFileStore, FallbackStore, KeyringStore};
+
+/// Overrides the state directory.
+pub const STATE_DIR_VAR: &str = "TIDAL_PLAYER_STATE_DIR";
+/// `1` skips the keyring entirely.
+pub const NO_KEYRING_VAR: &str = "TIDAL_PLAYER_NO_KEYRING";
 
 /// Where the session lives and whether the keyring is tried first.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,17 +21,63 @@ pub struct StorePlan {
     pub use_keyring: bool,
 }
 
-/// Pure resolution: every input is a parameter.
+/// Pure resolution: every input is a parameter. `default_state_dir` is the
+/// platform state directory for `tidal-player` (`None` when unknown), `home`
+/// the last-resort base.
 pub fn plan_store(
-    _state_dir_var: Option<&str>,
-    _no_keyring_var: Option<&str>,
-    _default_state_dir: Option<PathBuf>,
-    _home: Option<PathBuf>,
+    state_dir_var: Option<&str>,
+    no_keyring_var: Option<&str>,
+    default_state_dir: Option<PathBuf>,
+    home: Option<PathBuf>,
 ) -> StorePlan {
+    let state_dir = state_dir_var
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or(default_state_dir)
+        .or_else(|| home.map(|h| h.join(".local/state/tidal-player")))
+        .unwrap_or_else(|| PathBuf::from(".tidal-player"));
     StorePlan {
-        state_dir: PathBuf::new(),
-        session_file: PathBuf::new(),
-        use_keyring: true,
+        session_file: state_dir.join("session.age"),
+        state_dir,
+        use_keyring: !matches!(no_keyring_var, Some("1" | "true")),
+    }
+}
+
+impl StorePlan {
+    /// The plan for this process's environment.
+    pub fn from_env() -> Self {
+        let dirs = directories::ProjectDirs::from("", "", "tidal-player");
+        plan_store(
+            std::env::var(STATE_DIR_VAR).ok().as_deref(),
+            std::env::var(NO_KEYRING_VAR).ok().as_deref(),
+            dirs.and_then(|d| d.state_dir().map(ToOwned::to_owned)),
+            directories::BaseDirs::new().map(|d| d.home_dir().to_owned()),
+        )
+    }
+
+    /// The store chain: keyring first, then the encrypted file; the file
+    /// alone when the keyring is disabled (a `KeyringStore` is then never
+    /// constructed).
+    pub fn build_store(&self) -> Arc<dyn SessionStore> {
+        let file = EncryptedFileStore::new(
+            self.session_file.clone(),
+            Arc::new(ProcessPassphrase::from_process()),
+        );
+        if self.use_keyring {
+            Arc::new(FallbackStore::new(
+                Box::new(KeyringStore::new()),
+                Box::new(file),
+            ))
+        } else {
+            Arc::new(file)
+        }
+    }
+
+    /// Whether a session is stored, decided without ever needing a
+    /// passphrase: the session file exists, or the keyring holds one.
+    pub fn has_stored_session(&self) -> bool {
+        self.session_file.exists()
+            || (self.use_keyring && matches!(KeyringStore::new().load(), Ok(Some(_))))
     }
 }
 
