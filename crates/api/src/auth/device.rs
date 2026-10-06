@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::{
     AuthConfig, AuthError, Clock, DEVICE_CODE_GRANT, PollOutcome, SCOPE, Session, SessionStore,
-    Sleeper, SystemClock, classify_poll, form_body, session_from_login,
+    Sleeper, SystemClock, classify_poll, error_code, form_body, session_from_login,
 };
 
 /// Tidal's answer to `POST /device_authorization`: what the user must open
@@ -72,13 +72,25 @@ impl DeviceCode {
 
     /// The link printed for the user: `https://` + `verificationUri`.
     pub fn login_link(&self) -> String {
-        String::new() // STUB (red)
+        https(&self.verification_uri)
     }
 
     /// The link opened in a browser: `https://` + `verificationUriComplete`
     /// when sent, else [`login_link`](Self::login_link).
     pub fn browser_link(&self) -> String {
-        String::new() // STUB (red)
+        match &self.verification_uri_complete {
+            Some(complete) => https(complete),
+            None => self.login_link(),
+        }
+    }
+}
+
+/// Prepends `https://` unless `uri` already has a scheme.
+fn https(uri: &str) -> String {
+    if uri.starts_with("https://") || uri.starts_with("http://") {
+        uri.to_owned()
+    } else {
+        format!("https://{uri}")
     }
 }
 
@@ -124,8 +136,29 @@ impl DeviceFlow {
 
     /// `POST {auth_base}/device_authorization` (AC1).
     pub async fn start_device_flow(&self) -> Result<DeviceCode, AuthError> {
-        // STUB (red): sends nothing.
-        Err(AuthError::Transport("not implemented".into()))
+        let response = self
+            .http
+            .post(self.config.auth_url("device_authorization"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(form_body(&[
+                ("client_id", &self.config.client_id),
+                ("scope", SCOPE),
+            ]))
+            .send()
+            .await
+            .map_err(|e| AuthError::transport(&e))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| AuthError::transport(&e))?;
+        if !status.is_success() {
+            return Err(AuthError::Http {
+                status: status.as_u16(),
+                code: error_code(&body).map(Into::into),
+            });
+        }
+        DeviceCode::from_json(&body)
     }
 
     /// One `POST {auth_base}/token` for `code` (AC2). A transport error is
@@ -166,16 +199,20 @@ impl DeviceFlow {
     /// Polls until the user approves, the code expires or is denied (AC2),
     /// and builds the session from the token response (AC3).
     pub async fn wait_for_session(&self, code: &DeviceCode) -> Result<Session, AuthError> {
-        // STUB (red): one request, then an empty session with a default country.
-        let _ = self.poll(code, code.interval).await;
-        let _ = (&self.sleeper, session_from_login);
-        Ok(Session {
-            access_token: String::new(),
-            refresh_token: String::new(),
-            expires_at: self.clock.now(),
-            user_id: 0,
-            country_code: "US".into(),
-        })
+        let deadline = self.clock.now() + code.expires_in;
+        let mut interval = code.interval;
+        loop {
+            match self.poll(code, interval).await? {
+                PollOutcome::Granted(grant) => {
+                    return session_from_login(&grant, self.clock.now());
+                }
+                PollOutcome::Pending { interval: next } => interval = next,
+            }
+            if self.clock.now() >= deadline {
+                return Err(AuthError::CodeExpired);
+            }
+            self.sleeper.sleep(interval).await;
+        }
     }
 
     /// [`wait_for_session`](Self::wait_for_session), then saves the session

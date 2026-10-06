@@ -58,10 +58,9 @@ pub struct Session {
 /// Redacts both tokens (AC15).
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // STUB (red): prints the tokens.
         f.debug_struct("Session")
-            .field("access_token", &self.access_token)
-            .field("refresh_token", &self.refresh_token)
+            .field("access_token", &"<redacted>")
+            .field("refresh_token", &"<redacted>")
             .field("expires_at", &self.expires_at)
             .field("user_id", &self.user_id)
             .field("country_code", &self.country_code)
@@ -350,9 +349,20 @@ impl TokenGrant {
 
     /// The account's user ID and non-empty country, or which one is missing.
     fn account(&self) -> Result<(u64, String), AuthError> {
-        let _ = self;
-        // STUB (red): defaults the country like tidalt did.
-        Ok((0, "US".into()))
+        let user_id = self.user_id.ok_or(AuthError::SessionInfo("user ID"))?;
+        let country = self
+            .country_code()
+            .ok_or(AuthError::SessionInfo("country code"))?;
+        Ok((user_id, country))
+    }
+
+    /// `user.countryCode`, when present and not empty.
+    fn country_code(&self) -> Option<String> {
+        self.user
+            .as_ref()?
+            .country_code
+            .clone()
+            .filter(|country| !country.is_empty())
     }
 }
 
@@ -373,9 +383,23 @@ pub fn session_from_login(grant: &TokenGrant, now: SystemTime) -> Result<Session
 /// `refresh_token` keeps the old one, missing account data keeps the old
 /// values (with a warning).
 pub fn session_from_refresh(previous: &Session, grant: &TokenGrant, now: SystemTime) -> Session {
-    let _ = (grant, now);
-    // STUB (red): keeps the previous session.
-    previous.clone()
+    let (user_id, country_code) = match grant.account() {
+        Ok(account) => account,
+        Err(error) => {
+            tracing::warn!(%error, "refresh response lacks account data; keeping the previous values");
+            (previous.user_id, previous.country_code.clone())
+        }
+    };
+    Session {
+        access_token: grant.access_token.clone(),
+        refresh_token: grant
+            .refresh_token
+            .clone()
+            .unwrap_or_else(|| previous.refresh_token.clone()),
+        expires_at: grant.expires_at(now),
+        user_id,
+        country_code,
+    }
 }
 
 /// What one device-code poll says to do next (AC2).
@@ -421,9 +445,24 @@ pub fn classify_poll(
     body: &str,
     interval: Duration,
 ) -> Result<PollOutcome, AuthError> {
-    let _ = (status, body);
-    // STUB (red): everything is pending.
-    Ok(PollOutcome::Pending { interval })
+    if (200..300).contains(&status) {
+        return TokenGrant::from_json(body).map(PollOutcome::Granted);
+    }
+    if status == 429 || status >= 500 {
+        return Ok(PollOutcome::Pending { interval });
+    }
+    match error_code(body) {
+        Some("authorization_pending") => Ok(PollOutcome::Pending { interval }),
+        Some("slow_down") => Ok(PollOutcome::Pending {
+            interval: interval + SLOW_DOWN_STEP,
+        }),
+        Some("expired_token") => Err(AuthError::CodeExpired),
+        Some("access_denied") => Err(AuthError::Denied),
+        code => Err(AuthError::Http {
+            status,
+            code: code.map(Into::into),
+        }),
+    }
 }
 
 /// How a failed refresh is handled (spec 0002, "When refresh fails").
@@ -438,17 +477,22 @@ pub enum RefreshFailure {
 /// Classifies a non-`2xx` refresh response (AC7). Network errors are
 /// [`RefreshFailure::Transient`] too, without reaching this function.
 pub fn classify_refresh_failure(status: u16, body: &str) -> RefreshFailure {
-    let _ = (status, body);
-    // STUB (red): everything is transient.
-    RefreshFailure::Transient
+    match (status, error_code(body)) {
+        (400 | 401, Some("invalid_grant" | "invalid_client")) => RefreshFailure::SessionLost,
+        (401, _) if body.trim().is_empty() => RefreshFailure::SessionLost,
+        // `5xx`, `429` and anything the spec's table does not list: keep the
+        // session, the next request tries again.
+        _ => RefreshFailure::Transient,
+    }
 }
 
 /// Whether `session`'s access token expires within [`REFRESH_MARGIN`] of
 /// `now`, or already has (AC4).
 pub fn needs_refresh(session: &Session, now: SystemTime) -> bool {
-    let _ = (session, now);
-    // STUB (red)
-    false
+    match session.expires_at.duration_since(now) {
+        Ok(left) => left < REFRESH_MARGIN,
+        Err(_) => true,
+    }
 }
 
 #[cfg(test)]

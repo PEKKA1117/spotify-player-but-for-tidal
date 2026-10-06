@@ -171,13 +171,15 @@ async fn ac2_poll_gives_up_after_expiry() {
     assert_eq!(result, Err(AuthError::CodeExpired));
 }
 
-/// A server that stops answering after `device_authorization` (transport
-/// error on every poll) still ends with `CodeExpired`, not a transport error.
+/// No server answering (a transport error on every poll) still ends with
+/// `CodeExpired`, not a transport error.
 #[tokio::test]
 async fn ac2_transport_errors_keep_polling() {
-    let server = MockServer::start().await;
-    let config = AuthConfig::with_bases(server.uri(), server.uri());
-    drop(server);
+    // A port nothing listens on: every request is refused.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let config = AuthConfig::with_bases(base.clone(), base);
     let clock = Arc::new(ManualClock::new(t0()));
     let flow = DeviceFlow::with_time(config, clock.clone(), clock.clone()).unwrap();
 
