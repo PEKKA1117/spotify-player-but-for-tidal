@@ -1,0 +1,45 @@
+# Spec 0001 AC9: the "Build & tooling" checks on every push and pull request.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Layering
+        run: cargo xtask layering
+      - name: Build
+        run: cargo build --workspace
+      - name: Test
+        run: cargo test --workspace
+
+  # AC7: the audio crate must build and test without the ALSA headers.
+  audio-no-alsa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make sure the ALSA headers are absent
+        run: |
+          sudo apt-get remove -y libasound2-dev || true
+          if pkg-config --exists alsa; then echo "alsa.pc still present" >&2; exit 1; fi
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Test audio without the alsa feature
+        run: cargo test -p tidal-player-audio --no-default-features
