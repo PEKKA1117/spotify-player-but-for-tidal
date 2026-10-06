@@ -15,6 +15,10 @@ pub enum Command {
 pub enum Event {
     /// The daemon is shutting down.
     ShuttingDown,
+    /// The session has expired; login is required.
+    LoginRequired,
+    /// The session has been restored after expiry.
+    LoginRestored,
 }
 
 #[cfg(test)]
@@ -41,7 +45,11 @@ mod tests {
 
     /// Every variant of `Event`; extend when a variant is added.
     fn all_events() -> Vec<Event> {
-        vec![Event::ShuttingDown]
+        vec![
+            Event::ShuttingDown,
+            Event::LoginRequired,
+            Event::LoginRestored,
+        ]
     }
 
     #[test]
