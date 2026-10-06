@@ -39,10 +39,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         } else {
             Some(Action::Tick)
         };
-        if let Some(action) = action {
-            if update(&mut state, action).contains(&Effect::Quit) {
-                return Ok(());
-            }
+        if let Some(action) = action
+            && update(&mut state, action).contains(&Effect::Quit)
+        {
+            return Ok(());
         }
     }
 }
