@@ -4,30 +4,17 @@
 use serde::{Deserialize, Serialize};
 
 /// A request a client sends to the daemon.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Command {
     /// Ask the daemon to shut down.
     Shutdown,
 }
 
 /// A notification the daemon sends to its clients.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     /// The daemon is shutting down.
     ShuttingDown,
-}
-
-// Red-step stubs: write `null` so the round trip cannot succeed.
-impl Serialize for Command {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
-}
-
-impl Serialize for Event {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
 }
 
 #[cfg(test)]
