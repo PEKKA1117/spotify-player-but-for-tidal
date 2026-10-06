@@ -3,3 +3,4 @@
 
 pub mod ui;
 pub mod panic_hook;
+pub mod input;
