@@ -1,0 +1,1 @@
+{"access_token":"FAKE-ACCESS","refresh_token":"FAKE-REFRESH","token_type":"Bearer","expires_in":14400,"scope":"r_usr w_usr w_sub","clientName":"Android Automotive HiRes","user_id":1,"user":{"userId":1,"countryCode":"","email":"user@example.com","username":"user@example.com"}}

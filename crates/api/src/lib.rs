@@ -1,7 +1,10 @@
 //! Tidal HTTP API client. See docs/specs/0001-architecture.md.
 //!
-//! The base URL is injected by the caller; there is deliberately no default
-//! production URL yet (auth and real endpoints arrive in later specs).
+//! Base URLs are always injected by the caller. The production URLs are named
+//! constants in [`auth`] (spec 0002); authenticated requests go through
+//! [`auth::Authenticator`].
+
+pub mod auth;
 
 use serde::de::DeserializeOwned;
 
