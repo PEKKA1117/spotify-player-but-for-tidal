@@ -31,6 +31,19 @@ mod tests {
 
     #[test]
     fn ac5_quit_emits_quit() {
-        assert_eq!(update(&mut State::default(), Action::Quit), vec![Effect::Quit]);
+        assert_eq!(
+            update(&mut State::default(), Action::Quit),
+            vec![Effect::Quit]
+        );
+    }
+
+    #[test]
+    fn ac5_other_actions_emit_nothing() {
+        let others = [Action::Tick];
+        for action in others {
+            let mut state = State::default();
+            assert_eq!(update(&mut state, action.clone()), vec![], "{action:?}");
+            assert_eq!(state, State::default(), "{action:?}");
+        }
     }
 }
