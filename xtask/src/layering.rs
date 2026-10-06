@@ -151,6 +151,60 @@ fn core_forbidden(graph: &Graph) -> Vec<Violation> {
     out
 }
 
+/// Builds a [`Graph`] from `cargo metadata` output, using the resolved
+/// dependency graph (so features and optional dependencies are accounted for).
+pub fn graph_from_metadata(metadata: &cargo_metadata::Metadata) -> anyhow::Result<Graph> {
+    use cargo_metadata::DependencyKind;
+
+    let resolve = metadata
+        .resolve
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("cargo metadata returned no resolved dependency graph"))?;
+    let names: BTreeMap<_, _> = metadata
+        .packages
+        .iter()
+        .map(|p| (&p.id, p.name.to_string()))
+        .collect();
+    let name_of = |id: &cargo_metadata::PackageId| {
+        names
+            .get(id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown package id {id}"))
+    };
+
+    let mut graph = Graph::new(
+        metadata
+            .workspace_members
+            .iter()
+            .map(&name_of)
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    );
+    for node in &resolve.nodes {
+        let from = name_of(&node.id)?;
+        for dep in &node.deps {
+            let to = name_of(&dep.pkg)?;
+            for info in &dep.dep_kinds {
+                let kind = match info.kind {
+                    DependencyKind::Normal => DepKind::Normal,
+                    DependencyKind::Development => DepKind::Dev,
+                    DependencyKind::Build => DepKind::Build,
+                    _ => anyhow::bail!("unknown dependency kind on {from} -> {to}"),
+                };
+                graph.add_edge(&from, &to, kind);
+            }
+        }
+    }
+    Ok(graph)
+}
+
+/// Runs `cargo metadata` in `dir` and checks the layering rules.
+pub fn check_workspace(dir: &std::path::Path) -> anyhow::Result<Vec<Violation>> {
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .current_dir(dir)
+        .exec()?;
+    Ok(check(&graph_from_metadata(&metadata)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::DepKind::{Dev, Normal};
@@ -163,6 +217,13 @@ mod tests {
         "tidal-player",
         "xtask",
     ];
+
+    /// (name, edges, expected `(from, to)` violations)
+    type Case<'a> = (
+        &'a str,
+        Vec<(&'a str, &'a str, DepKind)>,
+        Vec<(String, String)>,
+    );
 
     fn graph(edges: &[(&str, &str, DepKind)]) -> Graph {
         let mut g = Graph::new(MEMBERS);
@@ -187,7 +248,7 @@ mod tests {
         let pair = |f: &str, t: &str| (f.to_string(), t.to_string());
 
         // (name, edges, expected (from, to) violations)
-        let cases: Vec<(&str, Vec<(&str, &str, DepKind)>, Vec<(String, String)>)> = vec![
+        let cases: Vec<Case> = vec![
             (
                 "allowed graph",
                 vec![
@@ -222,21 +283,9 @@ mod tests {
                 vec![(c, "serde_json", Normal)],
                 vec![pair(c, "serde_json")],
             ),
-            (
-                "audio -> core",
-                vec![(u, c, Normal)],
-                vec![pair(u, c)],
-            ),
-            (
-                "api -> audio",
-                vec![(a, u, Normal)],
-                vec![pair(a, u)],
-            ),
-            (
-                "core -> api",
-                vec![(c, a, Normal)],
-                vec![pair(c, a)],
-            ),
+            ("audio -> core", vec![(u, c, Normal)], vec![pair(u, c)]),
+            ("api -> audio", vec![(a, u, Normal)], vec![pair(a, u)]),
+            ("core -> api", vec![(c, a, Normal)], vec![pair(c, a)]),
             (
                 "xtask -> core",
                 vec![("xtask", c, Normal)],
