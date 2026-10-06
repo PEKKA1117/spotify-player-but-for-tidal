@@ -1,0 +1,19 @@
+[package]
+name = "tidal-player-audio"
+description = "Decode and audio output engine for tidal-player"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["alsa"]
+alsa = []
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

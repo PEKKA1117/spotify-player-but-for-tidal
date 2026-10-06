@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+description = "Development tooling for the tidal-player workspace"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

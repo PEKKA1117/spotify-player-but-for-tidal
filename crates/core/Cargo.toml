@@ -1,0 +1,15 @@
+[package]
+name = "tidal-player-core"
+description = "Pure domain types, protocol and state machines for tidal-player (no I/O)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true
