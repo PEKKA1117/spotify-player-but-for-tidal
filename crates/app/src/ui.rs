@@ -33,4 +33,19 @@ mod tests {
         assert!(text.contains("tidal-player"), "app name missing:\n{text}");
         insta::assert_snapshot!(text);
     }
+
+    #[test]
+    fn ac14_login_required_80x24() {
+        let state = State {
+            login_required: true,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(&state, frame)).unwrap();
+        let text = buffer_text(&terminal);
+        assert!(
+            text.contains("tidal-player login"),
+            "status text missing:\n{text}"
+        );
+        insta::assert_snapshot!(text);
+    }
 }
