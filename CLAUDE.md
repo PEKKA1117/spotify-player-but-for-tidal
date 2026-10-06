@@ -80,5 +80,6 @@ These cost time in tidalt. Re-check each against the live API or hardware before
 
 - Tidal auth uses the OAuth2 device flow; sessions need refresh-token handling and a recovery path when the refresh fails
 - Daily Mixes: the v2 `openapi.tidal.com/v2/userRecommendations` resource was removed and 404s. tidalt used v1 `GET /v1/pages/my_collection_my_mixes` for the list and `GET /v1/mixes/{mixId}/items` for tracks; video mixes and non-`track` items must be filtered out
+- Daemon-client mode (kept, see spec 0001 "Run modes"): one binary ran standalone, as a headless daemon (systemd user service, controllable by MPRIS clients such as `playerctl`), or as a TUI client of that daemon over D-Bus. The daemon held the audio device only while playing and released it on pause so other apps could use it
 - Stream quality ladder: `HI_RES_LOSSLESS` → `LOSSLESS` → `HIGH` → `LOW`
 - Bit-perfect output meant opening ALSA `hw:` directly, negotiating the PCM format per device (some DACs advertise a broken `S16_LE` endpoint, so 16-bit sources preferred `S32_LE` first), asking PipeWire to release the card via `org.freedesktop.ReserveDevice1`, and falling back to `plughw:` only when format negotiation is refused — never on a busy device

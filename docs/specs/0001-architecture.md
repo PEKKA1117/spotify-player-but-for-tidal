@@ -30,10 +30,10 @@ The binary, the crate prefix and the config/data directory names are **`tidal-pl
 Cargo.toml                 # [workspace], shared [workspace.dependencies] and [workspace.lints]
 rust-toolchain.toml
 crates/
-  core/    -> tidal-player-core   # domain types, app state, Action, Effect, update(), keymap. NO I/O.
+  core/    -> tidal-player-core   # domain types, protocol, player + UI state machines, keymap. NO I/O.
   api/     -> tidal-player-api    # Tidal HTTP API client; maps API DTOs into core types
   audio/   -> tidal-player-audio  # decode + output engine; Sink trait, ALSA backend behind a feature
-  tui/     -> tidal-player        # the binary: CLI, terminal, event loop, rendering, effect runner
+  app/     -> tidal-player        # the binary: CLI, player runtime (in-process or daemon), TUI client, rendering
 xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces the dependency rules below
 .cargo/config.toml         # `xtask` alias
 .github/workflows/ci.yml
@@ -51,12 +51,24 @@ Allowed dependency edges (everything else is forbidden):
 
 ### Application pattern (the main testability fix)
 
-Elm-style, as a pure core with an imperative shell:
+Elm-style, as a pure core with an imperative shell, split along the **player/client boundary** so daemon-client mode (kept from tidalt) is built in from the start rather than bolted on:
 
-- `tidal-player-core` defines `State`, `Action` (everything that can happen: key presses already resolved through the keymap, API responses, player events, ticks) and `Effect` (everything the app wants done: fetch X, play Y, persist Z, quit)
-- `fn update(state: &mut State, action: Action) -> Vec<Effect>` is pure and synchronous. All behaviour that can be decided without I/O is decided here and unit-tested here
-- The binary's runtime turns terminal events, API results and player events into `Action`s, calls `update`, and executes the returned `Effect`s. It contains no decisions worth testing beyond wiring
-- Rendering is `fn render(&State, &mut Frame)`: a pure function of state, tested with ratatui's `TestBackend` + `insta` snapshots at fixed sizes
+- **Player side** — `tidal_player_core::player`: `PlayerState` (queue, current track, position, volume, shuffle/repeat, output device), `PlayerInput` (a client `Command`, an audio-engine event, an API result, a tick) and `PlayerEffect` (resolve stream, start/stop/seek the engine, persist, broadcast an `Event`). `fn update(&mut PlayerState, PlayerInput) -> Vec<PlayerEffect>`
+- **Client side** — `tidal_player_core::ui`: `State` (pages, cursors, overlays, the client's last-known copy of the player state), `Action` (key presses already resolved through the keymap, an `Event` from the player, API results for browsing, ticks) and `Effect` (send a `Command`, fetch a page of data, quit the client). `fn update(&mut State, Action) -> Vec<Effect>`
+- **Protocol** — `tidal_player_core::protocol`: `Command` (client → player: play, pause, next, seek, queue edits, volume, …) and `Event` (player → clients: state snapshots and changes). Both derive `Serialize`/`Deserialize`, because in daemon mode they cross a process boundary. The client never touches the player's state directly: everything goes through `Command`/`Event`
+- Both `update` functions are pure and synchronous. All behaviour that can be decided without I/O is decided there and unit-tested there
+- The binary's runtimes turn terminal events, socket/D-Bus messages, API results and engine events into inputs, call `update`, and execute the returned effects. They contain no decisions worth testing beyond wiring
+- Rendering is `fn render(&State, &mut Frame)`: a pure function of the client state, tested with ratatui's `TestBackend` + `insta` snapshots at fixed sizes
+
+### Run modes
+
+One binary, three modes, the same player code in each (as in tidalt):
+
+- **Standalone** (`tidal-player`, no daemon running) — player runtime and TUI client in one process, joined by an in-memory channel carrying `Command`/`Event`
+- **Daemon** (`tidal-player daemon`) — the player runtime alone, headless, accepting clients over a local transport; meant to run as a systemd user service
+- **Client** (`tidal-player` when a daemon is running) — the TUI client alone, attached to the daemon over the transport
+
+The transport (D-Bus via `zbus`, as tidalt did and as MPRIS needs anyway, or a Unix socket), attach/detach behaviour, multiple clients, one-shot CLI commands (`tidal-player playback next`, as spotify-player has) and releasing the audio device while paused (tidalt's daemon held it only while playing) are decided in spec 0005. This spec only fixes the boundary: the `Command`/`Event` types and the rule that clients reach the player through them alone.
 
 ### Concurrency
 
@@ -91,15 +103,16 @@ Elm-style, as a pure core with an imperative shell:
 
 - **AC1** — On a clean checkout with the system deps installed, `cargo build --workspace` succeeds and produces a `tidal-player` binary
 - **AC2** — `cargo fmt --all --check`, the clippy command above, and `cargo test --workspace` all pass
-- **AC3** — `cargo xtask layering` exits 0 on the scaffold and non-zero, naming each offending edge, when any edge outside the table is added, or when `tidal-player-core` gains any of `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring` as a normal (non-dev) dependency, directly or transitively
+- **AC3** — `cargo xtask layering` exits 0 on the scaffold and non-zero, naming each offending edge, when any edge outside the table is added, or when `tidal-player-core` gains any of `tokio`, `reqwest`, `crossterm`, `ratatui`, `alsa`, `symphonia`, `zbus`, `keyring`, `serde_json` as a normal (non-dev) dependency, directly or transitively
 - **AC4** — `tidal-player --version` prints `tidal-player <version>` and exits 0; `tidal-player --help` exits 0 (tested with `assert_cmd`)
-- **AC5** — `tidal-player-core` exposes `State`, `Action`, `Effect` and `update`; `update(&mut State::default(), Action::Quit)` returns `[Effect::Quit]`, and any other action on the default state returns no effects (unit test)
+- **AC5** — `tidal_player_core::ui` exposes `State`, `Action`, `Effect` and `update`; `update(&mut State::default(), Action::Quit)` returns `[Effect::Quit]`, and any other action on the default state returns no effects (unit test)
 - **AC6** — `render` of `State::default()` into an 80×24 `TestBackend` matches a committed `insta` snapshot showing an empty layout with the app name
 - **AC7** — `tidal-player-audio` defines a `Sink` trait with an in-memory test sink; the ALSA backend is behind a default-on `alsa` feature, and `cargo test -p tidal-player-audio --no-default-features` passes without `libasound2-dev`
 - **AC8** — `tidal-player-api` has an injectable base URL and one `wiremock` test that serves a JSON fixture from `crates/api/tests/fixtures/` and asserts the request path and the parsed result. No test touches the real network
 - **AC9** — `.github/workflows/ci.yml` runs AC2's checks and `cargo xtask layering` on every push and pull request, on `ubuntu-latest`, installing `libasound2-dev`
 - **AC10** — A panic while the TUI is running restores the terminal (raw mode off, alternate screen left) **before** the panic message is printed, via a panic hook the binary installs
-- **AC11** — `CLAUDE.md` "Status" and "Build & tooling" are updated from this spec, and the spec's status moves to `implemented`
+- **AC11** — `tidal_player_core::protocol` defines `Command` and `Event` deriving `Serialize`/`Deserialize`, with at least `Command::Shutdown` and `Event::ShuttingDown`; every variant survives a JSON round-trip unchanged, and `tidal-player-core` has no dependency on any transport crate (covered by AC3's forbidden list)
+- **AC12** — `CLAUDE.md` "Status" and "Build & tooling" are updated from this spec, and the spec's status moves to `implemented`
 
 ## Test plan
 
@@ -111,17 +124,18 @@ Each automated test is named after the criterion it proves (`ac5_…`). "Red" is
 | AC2 | — command check | `cargo fmt --all --check`, clippy (`-D warnings`) and `cargo test --workspace` exit 0 | — |
 | AC3 | `xtask/src/layering.rs` :: `ac3_rules` (table-driven, over a hand-built dependency graph) | allowed graph → no violations; `core → tokio` → violation `tidal-player-core -> tokio`; `core → serde_x → tokio` (transitive) → violation; `audio → core`, `api → audio`, `core → api` → one violation each, naming the edge; `core` with `tokio` as a dev-dependency only → no violation | stub `check()` returns no violations, so every violating row fails |
 | AC3 | `xtask/tests/workspace.rs` :: `ac3_real_workspace_is_clean` | `cargo xtask layering` on the real workspace exits 0 | the stub command exits 1 |
-| AC4 | `crates/tui/tests/cli.rs` :: `ac4_version` | `tidal-player --version` stdout is exactly `tidal-player <CARGO_PKG_VERSION>\n`, exit 0 | stub `main` prints nothing |
-| AC4 | `crates/tui/tests/cli.rs` :: `ac4_help` | `tidal-player --help` exits 0 and stdout contains `Usage:` | stub `main` prints nothing |
-| AC5 | `crates/core/src/update.rs` :: `ac5_quit_emits_quit` | `update(&mut State::default(), Action::Quit) == vec![Effect::Quit]` | stub `update` returns `vec![]` |
-| AC5 | `crates/core/src/update.rs` :: `ac5_other_actions_emit_nothing` (table over every non-`Quit` variant, `Action::Tick` at minimum) | each returns `vec![]` and leaves `State` equal to the default | a second red/green cycle after `ac5_quit_emits_quit` is green: the simplest code that passes the first test (`vec![Effect::Quit]` for every action) fails this one |
-| AC6 | `crates/tui/src/ui.rs` :: `ac6_empty_state_80x24` | the 80×24 `TestBackend` buffer contains `tidal-player`, **and** matches the committed `insta` snapshot. The tech-lead reviews the snapshot by eye at acceptance | stub `render` draws nothing, so the `contains` assertion fails (a missing snapshot alone does not count as red) |
+| AC4 | `crates/app/tests/cli.rs` :: `ac4_version` | `tidal-player --version` stdout is exactly `tidal-player <CARGO_PKG_VERSION>\n`, exit 0 | stub `main` prints nothing |
+| AC4 | `crates/app/tests/cli.rs` :: `ac4_help` | `tidal-player --help` exits 0 and stdout contains `Usage:` | stub `main` prints nothing |
+| AC5 | `crates/core/src/ui.rs` :: `ac5_quit_emits_quit` | `update(&mut State::default(), Action::Quit) == vec![Effect::Quit]` | stub `update` returns `vec![]` |
+| AC5 | `crates/core/src/ui.rs` :: `ac5_other_actions_emit_nothing` (table over every non-`Quit` variant, `Action::Tick` at minimum) | each returns `vec![]` and leaves `State` equal to the default | a second red/green cycle after `ac5_quit_emits_quit` is green: the simplest code that passes the first test (`vec![Effect::Quit]` for every action) fails this one |
+| AC6 | `crates/app/src/ui.rs` :: `ac6_empty_state_80x24` | the 80×24 `TestBackend` buffer contains `tidal-player`, **and** matches the committed `insta` snapshot. The tech-lead reviews the snapshot by eye at acceptance | stub `render` draws nothing, so the `contains` assertion fails (a missing snapshot alone does not count as red) |
 | AC7 | `crates/audio/src/sink.rs` :: `ac7_memory_sink_records_samples` | after `open(format)` and two `write` calls, `MemorySink` reports that format and the two buffers concatenated, in order | stub `write` is a no-op |
 | AC7 | — CI job `audio-no-alsa` | `cargo test -p tidal-player-audio --no-default-features` passes on a runner **without** `libasound2-dev` | — |
 | AC8 | `crates/api/tests/harness.rs` :: `ac8_get_json_from_fixture` | `wiremock` serves `tests/fixtures/echo.json` at `GET /v1/echo`; a `Client` built with the mock server's URL returns the parsed struct; the mock's `expect(1)` verifies the path was hit exactly once | stub `get_json` returns an error without sending a request |
 | AC9 | — reviewed at acceptance | the workflow file has the AC2 steps, `cargo xtask layering` and the `audio-no-alsa` job, triggers on `push` and `pull_request`, and the PR's own CI run is green | — |
-| AC10 | `crates/tui/tests/panic_hook.rs` :: `ac10_restore_runs_before_report` (its own test binary, because panic hooks are process-global) | with a fake `restore` and a fake previous hook that each append to a shared log, `catch_unwind(\|\| panic!())` leaves the log as `["restore", "report"]` | stub `install_panic_hook` does nothing, so the log is `[]` |
-| AC11 | — reviewed at acceptance | `CLAUDE.md` matches this spec; status is `implemented` | — |
+| AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report` (its own test binary, because panic hooks are process-global) | with a fake `restore` and a fake previous hook that each append to a shared log, `catch_unwind(\|\| panic!())` leaves the log as `["restore", "report"]` | stub `install_panic_hook` does nothing, so the log is `[]` |
+| AC11 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (table over every `Command` and `Event` variant; `serde_json` as a dev-dependency only) | `from_str(&to_string(&v)) == v` for each | stub `Serialize` impl writes `null` (hand-written, replaced by `#[derive]` in green), so deserialising back fails |
+| AC12 | — reviewed at acceptance | `CLAUDE.md` matches this spec; status is `implemented` | — |
 
 Not covered by automated tests, on purpose: real terminal raw-mode handling and real ALSA output. They sit behind the `restore` and `Sink` seams above, and are exercised manually only when a later spec adds behaviour that depends on them.
 
@@ -137,12 +151,13 @@ Numbers are provisional; each is drafted and approved on its own.
 - 0002 — Auth: OAuth2 device flow, token storage in the keyring, refresh and recovery when refresh fails
 - 0003 — Playback engine: stream resolution (quality ladder), decode, ALSA output, format negotiation, bit-perfect vs. shared output
 - 0004 — Queue & playback controls: play/pause/seek/next/prev, shuffle, repeat, auto-advance, volume
-- 0005 — Library: favorite tracks/albums/artists, playlists, artist and album pages
-- 0006 — Search
-- 0007 — Keymap & config: spotify-player-compatible key sequences and `app.toml`/`keymap.toml`
-- 0008 — Persistence: last session, volume, device, metadata cache
-- 0009 — MPRIS2 / media keys
-- 0010 — Mixes & radio
+- 0005 — Daemon & client mode: transport, `tidal-player daemon`, auto-attach, multiple clients, one-shot CLI commands, systemd user service, releasing the device while paused
+- 0006 — Library: favorite tracks/albums/artists, playlists, artist and album pages
+- 0007 — Search
+- 0008 — Keymap & config: spotify-player-compatible key sequences and `app.toml`/`keymap.toml`
+- 0009 — Persistence: last session, volume, device, metadata cache
+- 0010 — MPRIS2 / media keys
+- 0011 — Mixes & radio
 
 ## Facts vs. assumptions
 
@@ -158,5 +173,4 @@ Assumptions to verify in the spec that depends on them:
 
 ## Open questions (answer before approval)
 
-1. **Daemon/client mode**: tidalt had a headless daemon plus a TUI client over D-Bus. Is that wanted at all? If so it only affects where the boundary between the runtime and `update` sits, which this layout already allows, but it should be on the roadmap
-2. **tidalt bugs**: which bugs or behaviours hurt most? They become explicit acceptance criteria in the follow-up specs
+1. **tidalt bugs**: which bugs or behaviours hurt most? They become explicit acceptance criteria in the follow-up specs
