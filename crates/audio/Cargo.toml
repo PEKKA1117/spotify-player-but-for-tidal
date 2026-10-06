@@ -12,6 +12,7 @@ default = ["alsa"]
 alsa = []
 
 [dependencies]
+thiserror = { workspace = true }
 
 [dev-dependencies]
 
