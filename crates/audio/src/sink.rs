@@ -58,7 +58,11 @@ impl Sink for MemorySink {
         Ok(())
     }
 
-    fn write(&mut self, _samples: &[i32]) -> Result<(), SinkError> {
+    fn write(&mut self, samples: &[i32]) -> Result<(), SinkError> {
+        if self.format.is_none() {
+            return Err(SinkError::NotOpen);
+        }
+        self.samples.extend_from_slice(samples);
         Ok(())
     }
 }
