@@ -625,7 +625,8 @@ mod tests {
     /// would count any `/v1/sessions` call.
     #[tokio::test]
     async fn ac3_session_from_token_response() {
-        let cases: [(&str, Result<(u64, &str), AuthError>); 4] = [
+        type Account = Result<(u64, &'static str), AuthError>;
+        let cases: [(&str, Account); 4] = [
             ("token_granted", Ok((1, "FI"))),
             (
                 "token_granted_no_user",
