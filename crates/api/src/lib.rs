@@ -43,8 +43,12 @@ impl Client {
 
     /// Sends `GET {base_url}{path}` and decodes the JSON body as `T`.
     pub async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
-        let _ = (&self.http, self.url(path));
-        Err(ApiError::Status(0))
+        let response = self.http.get(self.url(path)).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ApiError::Status(status.as_u16()));
+        }
+        Ok(response.json().await?)
     }
 }
 
