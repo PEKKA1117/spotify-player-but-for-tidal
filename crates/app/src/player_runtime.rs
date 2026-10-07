@@ -677,7 +677,15 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
 
     /// Starts expanding an `Open`'s items; it is applied in turn.
     fn open(&mut self, items: Vec<Item>, at: Option<InsertAt>, reply: Option<(ClientId, u64)>) {
-        let _ = (items, at, reply);
+        let tag = self.next_open;
+        self.next_open += 1;
+        self.opens.push_back(PendingOpen {
+            tag,
+            at,
+            reply,
+            result: None,
+        });
+        self.jobs.expand(tag, items);
     }
 
     /// An expansion finished: applies every `Open` that is ready, in the

@@ -122,17 +122,40 @@ impl Hub {
     /// Answers `Subscribe` with `snapshot` (the state now); every later
     /// event follows.
     pub fn subscribe(&mut self, client: ClientId, snapshot: PlayerSnapshot) {
-        let _ = (client, snapshot);
+        let welcome = ServerMessage::Welcome {
+            snapshot,
+            login_required: self.login_required,
+        };
+        if self.send(client, welcome)
+            && let Some(c) = self.clients.get_mut(&client)
+        {
+            c.subscribed = true;
+        }
     }
 
     /// Sends `events` to every subscriber, in order.
     pub fn broadcast(&mut self, events: &[Event]) {
-        let _ = events;
+        if events.is_empty() {
+            return;
+        }
+        let subscribers: Vec<ClientId> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| c.subscribed)
+            .map(|(id, _)| *id)
+            .collect();
+        for client in subscribers {
+            for event in events {
+                if !self.send(client, ServerMessage::Event(event.clone())) {
+                    break;
+                }
+            }
+        }
     }
 
     /// Answers request `id` of `client`.
     pub fn reply(&mut self, client: ClientId, id: u64, result: Result<(), String>) {
-        let _ = (client, id, result);
+        self.send(client, ServerMessage::Reply { id, result });
     }
 
     /// The login status `Welcome` carries.
@@ -143,8 +166,15 @@ impl Hub {
     /// Records the authenticator's status; the event to broadcast when it
     /// changed.
     pub fn set_login_required(&mut self, required: bool) -> Option<Event> {
-        let _ = required;
-        None
+        if required == self.login_required {
+            return None;
+        }
+        self.login_required = required;
+        Some(if required {
+            Event::LoginRequired
+        } else {
+            Event::LoginRestored
+        })
     }
 
     /// Queues `message` for `client`; a full or closed outbox disconnects
