@@ -130,10 +130,10 @@ An **item** is a Tidal track ID (a bare number, as in 0003) or a Tidal link to a
 Items are expanded in the order given into one list; the metadata (title, artists, album, duration) comes from the API at the same time:
 
 - `GET {api_base}/tracks/{id}?countryCode=…`
-- `GET {api_base}/albums/{id}/tracks?countryCode=…&limit=…&offset=…`, every page
-- `GET {api_base}/playlists/{uuid}/items?countryCode=…&limit=…&offset=…`, every page, keeping `type == "track"` items
+- `GET {api_base}/albums/{id}/tracks?countryCode=…&limit=100&offset=…`, every page
+- `GET {api_base}/playlists/{uuid}/items?countryCode=…&limit=100&offset=…`, every page, keeping only `type == "track"` items (`item` holds the track)
 
-Shapes, page size and error answers are assumptions until the probe below records them (see "Facts").
+Pages are requested with `limit=100` (the largest the playlist endpoint accepts, "Facts") and `offset` advanced by the number of items received, until `offset ≥ totalNumberOfItems` or a page comes back empty. Each track maps to: `id`, `title`, `artists[].name` (in order), `album.title`, `duration` (whole seconds), and **streamable** = `allowStreaming && streamReady`. A track that is not streamable is still queued and shown, but the player handles it as a track-only failure (`Track 123 is not available in <country>`) without resolving it.
 
 ### Commands
 
@@ -191,7 +191,7 @@ Player state machine (`tidal_player_core::player`, pure; tests drive `update` wi
 - **AC4** — `CycleRepeat` goes `off → queue → track → off`; each change is in the next snapshot
 - **AC5** — Preload: a `Position` that leaves 30 s or less (or `Started` for an unknown duration) emits `Resolve { purpose: Preload }` for the next entry per the repeat table, once; its result emits `EnginePreload` with its tag; `Transitioned` with that tag makes it current without any `EnginePlay`. A queue edit, shuffle or repeat change that changes the next entry after that emits a new `Resolve`/`EnginePreload`, or `EngineCancelPreload` when there is no next entry; one that does not change it emits nothing. No preload is requested when there is no next entry
 - **AC6** — Stale inputs change nothing and emit nothing: a resolution result, `Started`, `Transitioned`, `TrackEnded` or `Error` whose tag is neither the current track's nor the pending preload's (table; the case of tidalt bug 1: `Next`, then the replaced track's `TrackEnded`, gives exactly one advance)
-- **AC7** — Failures follow the table under "Failures" (table over every error kind × resolve/engine): a track-only failure advances and shows the message; a transient, output or session failure stops on that entry, shows the message and emits no `Resolve` for another entry; 5 consecutive track-only failures (or the queue length, if smaller; repeat `queue` and `track` included) stop with `N tracks in a row could not be played`; a `Started` resets the count. An `Error` is never handled as `TrackEnded`, nor the other way round
+- **AC7** — Failures follow the table under "Failures" (table over every error kind × resolve/engine): a track-only failure advances and shows the message; a transient, output or session failure stops on that entry, shows the message and emits no `Resolve` for another entry; 5 consecutive track-only failures (or the queue length, if smaller; repeat `queue` and `track` included) stop with `N tracks in a row could not be played`; a `Started` resets the count; an entry whose track is not streamable is a track-only failure with no `Resolve` sent for it. An `Error` is never handled as `TrackEnded`, nor the other way round
 - **AC8** — `TogglePause` and seeking follow "Playback state": Playing ⇄ Paused emits `EnginePause`/`EngineResume`; toggled while `Loading`, the successful resolution emits no `EnginePlay` until toggled again; `SeekBy(-5000)` at 0:03 seeks to 0:00; `SeekBy`/`SeekTo` while `Loading` change the `start_at` of the coming `EnginePlay`; while `Stopped` they emit nothing
 - **AC9** — Volume: default 100, not muted; `ChangeVolume(±5)` clamps to 0–100; `SetVolume` sets it; each change emits `EngineSetGain((v/100)³)` (0 when muted); `ToggleMute` twice restores the previous gain; a volume change unmutes. The snapshot's `bit_perfect` is the engine's at volume 100 and not muted, else `false` with `volume below 100%` / `muted`
 - **AC10** — Queue edits follow the table under "The queue" (table over each operation × current entry before/at/after the edit × shuffle off/on): entry IDs are never reused, the same track can be queued twice, removing the current entry while playing advances (and stops with nothing next), `ClearQueue` keeps only the current entry and does not interrupt it, editing an empty queue starts nothing
@@ -207,7 +207,7 @@ Engine (`tidal-player-audio`, with 0003's fakes):
 Items and metadata:
 
 - **AC16** — `parse_item(&str) -> Result<Item, ItemError>` (in `tidal-player-core`) maps every form in the table under "Filling the queue" (table, including trailing slashes, query strings, `www.`, upper-case hosts, a bare number) and refuses artist, mix and video links, other hosts and junk
-- **AC17** — `tidal-player-api` gets `get_track`, `get_album_tracks` and `get_playlist_tracks` returning `tidal_player_core::Track` (ID, title, artists, album title, duration if present), through the `Authenticator` with `countryCode` from the session (wiremock fixtures from the probe): album and playlist fetches walk every page until `totalNumberOfItems` (one request for one page, three for a list of 2.5 pages); playlist items other than `track` are dropped; an unknown ID maps to `MetadataError::NotFound`; `LoginRequired` and transient errors are returned unchanged
+- **AC17** — `tidal-player-api` gets `get_track`, `get_album_tracks` and `get_playlist_tracks` returning `tidal_player_core::Track` (ID, title, artists, album title, duration if present, streamable), through the `Authenticator` with `countryCode` from the session (wiremock fixtures from the probe): album and playlist fetches walk every page until `totalNumberOfItems` (`limit=100`; one request for one page, three for a list of 250 items, and an empty page ends the walk early); playlist items other than `track` are dropped; `allowStreaming: false` or `streamReady: false` gives `streamable: false`; `404` (`subStatus` 2001) maps to `MetadataError::NotFound`; `LoginRequired` and transient errors are returned unchanged
 
 CLI and runtime (`tidal-player`):
 
@@ -239,6 +239,8 @@ TUI (`tidal_player_core::ui` and `tidal-player`'s rendering):
 | Track with no duration in its metadata | Progress shows `?:??` and no bar; preload starts at `Started` |
 | Pause on a device without hardware pause | As 0003 "Edge cases" (about 0.1 s keeps playing) |
 | Album or playlist with more than one page of tracks | All pages are fetched before playing (AC17) |
+| An item that does not exist (`404`/`2001`) | Nothing plays: `Track 1 was not found` / `Album 1 was not found` / `Playlist <uuid> was not found` (`play` exits 1; the TUI starts with an empty queue and shows the message) |
+| A track the metadata marks not streamable | Queued and shown; skipped as a track-only failure without a stream request (AC7) |
 | A playlist with videos | Videos are left out; an all-video playlist is refused: `Playlist <uuid> has no tracks` (exit 2 / message in the TUI's startup) |
 | Terminal smaller than the layout | Truncated, then only the playback window; never a panic (AC23) |
 
@@ -295,12 +297,18 @@ Verified (2026-10-07, from code):
 - 0003's engine handles `Play` while playing by stopping the old track first, keeps one preload that `Play`, `Stop` and a failed track forget, and has no way to cancel a preload or tag a track (`crates/audio/src/engine.rs`): hence the engine additions
 - tidalt's behaviours and bugs listed under "Context" (read from its source and history)
 
-Assumed, to be recorded by `scripts/tidal-metadata-probe.sh` (to be run by the user with a real account before approval; fixtures are written from its output):
+Verified on 2026-10-07 against the **live API** by `scripts/tidal-metadata-probe.sh`, run by the user (same account as 0003's probes, device-flow client "Android Automotive HiRes"), with track 33695188, a 17-track album and a user playlist of 39 tracks and 2 videos. Fixtures under `crates/api/tests/fixtures/metadata/` are written from these shapes with IDs and names replaced:
 
-- `GET /v1/tracks/{id}` returns `id`, `title`, `duration` (seconds), `artist`/`artists[]`, `album {id, title}` (tidalt's `Track`); an unknown ID answers `404` (tidalt mapped that to `ErrNotFound`)
-- `GET /v1/albums/{id}/tracks` and `GET /v1/playlists/{uuid}/items` page with `limit`/`offset` and report `totalNumberOfItems`; the largest accepted `limit` (tidalt asked for 1000 on playlists and no limit on albums, so long albums may have been cut short there: unverified)
-- Playlist `items` entries are `{item, type}` with `type` `track` or `video`, as for mixes (CLAUDE.md)
-- Whether a track's metadata says it cannot be streamed (`streamReady`, `allowStreaming`); if so, a later change may skip it without resolving
+- `GET /v1/tracks/{id}` → `200` with `id`, `title`, `duration` (integer seconds), `version` (null here), `trackNumber`, `volumeNumber`, `allowStreaming`, `streamReady`, `audioQuality`, `mediaMetadata.tags`, `artist {id, name, type}`, `artists[] {id, name, type: MAIN…}`, `album {id, title, cover}`, plus fields this spec does not use (`replayGain`, `peak`, `isrc`, `bpm`, `mixes`, …). Unknown ID → `404 {"status":404,"subStatus":2001,"userMessage":"Track [1] not found"}`
+- `GET /v1/albums/{id}/tracks` → `{limit, offset, totalNumberOfItems, items: [track…]}`, bare tracks in album order (`trackNumber` 1, 2, …). With no `limit` it returned all 17 (`limit: 17`); `limit=3&offset=2` returned tracks 3–5 with `totalNumberOfItems: 17`; `limit=1000` was accepted on this endpoint. Unknown album → `404`/`2001` (`Album [1] not found`). `GET /v1/albums/{id}/items` exists too, with `{item, type: "track"}` entries; not used
+- `GET /v1/playlists/{uuid}/items` → `{limit, offset, totalNumberOfItems, items: [{item, type, cut}]}`; `item` is a track with extra `dateAdded`, `index`, `itemUuid`, `description`, and `album.releaseDate`. **Default page size 10** (so a client that does not page sees 10 items); `totalNumberOfItems` counts videos too (41 = 39 tracks + 2 videos, per the playlist's `numberOfTracks`/`numberOfVideos`); `limit=1000` → `400 {"subStatus":1001,"userMessage":"Too big page, max page size is [100]"}`. Unknown UUID → `404`/`2001` (`Playlist not found`)
+- `GET /v1/playlists/{uuid}/tracks` (tidalt's endpoint) has the same envelope with bare tracks and `totalNumberOfItems: 41`; whether it skips videos or returns them as tracks was not seen, so this spec uses `/items`, which says each entry's type. tidalt asked it for `limit=1000`, which `/items` refuses; whether `/tracks` refuses it too is not verified
+
+Not verified (the probe did not reach it):
+
+- **The shape of a video entry** in a playlist: the playlist's videos (one is "Csárdás (Live at TOKYO Kioi Hall, 2020)") sit past the 10-item first page, and the `limit=1000` request that would have shown them was refused. Assumed `{"item": {…}, "type": "video"}`, as for mixes (CLAUDE.md); the filter keeps only `type == "track"`, so any other value is dropped either way. The fixture's video entry is hand-written
+- A track with `allowStreaming: false` or `streamReady: false` (every track seen had both `true`)
+- Albums longer than 100 tracks (paging is exercised against fixtures)
 
 ## Decisions (proposed; to be answered by the user before approval)
 
