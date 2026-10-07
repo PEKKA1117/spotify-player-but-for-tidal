@@ -161,7 +161,7 @@ End of track:
 - **Preload waiting, different format**: drain, reopen with the new format, continue (a gap is expected)
 - **No preload**: drain, `TrackEnded`, close the device and release the reservation
 
-`OutputInfo` holds the requested device, the device actually opened, the kind, the sample format, rate and channel count, and `bit_perfect` with a reason when false. `SourceFormat` holds codec, rate, channels, bits (`None` for lossy) and the granted Tidal quality.
+`OutputInfo` holds the requested device, the device actually opened, the kind, the sample format, rate and channel count, and `bit_perfect` with a reason when false. `SourceFormat` holds codec, rate, channels and bits (`None` for lossy); the granted Tidal quality comes from the resolved stream and is joined to it by the caller (the audio crate does not know Tidal's tiers).
 
 ## Acceptance criteria
 
@@ -286,7 +286,7 @@ Verified on 2026-10-06 in the dev container (scratch crate against `symphonia` 0
 
 - symphonia 0.6.1 decodes FLAC 16-bit/44.1 kHz and 24-bit/96 kHz both as raw FLAC and inside **fragmented MP4** (`frag_keyframe+empty_moov+default_base_moof`), bit-exact against ffmpeg's decode, including from a non-seekable reader (`ReadOnlySource`). This answers spec 0001's open assumption: the probe (below) confirmed that Tidal's hi-res DASH segments are this shape
 - symphonia's `SeekMode::Accurate` on those files lands on a frame boundary at or before the target (`actual_ts` ≤ `required_ts`); the caller discards frames up to `required_ts`
-- symphonia decodes AAC-LC in MP4, but rejects HE-AAC (explicit SBR: "aac too complex"), and plays implicit-SBR streams as their LC core only. It does not trim AAC encoder delay (a 441 000-frame source decoded to 444 416 frames)
+- symphonia decodes AAC-LC in MP4, but rejects HE-AAC only when SBR is signalled hierarchically (object type 5/29: "aac too complex"); backward-compatible signalling (the `0x2b7` sync extension) and implicit SBR are decoded as their LC core only. The engine therefore checks the AudioSpecificConfig itself and reports HE-AAC as `Unsupported` in every form (found at slice C acceptance). It does not trim AAC encoder delay (a 441 000-frame source decoded to 444 416 frames)
 - A **non-fragmented** MP4 with `moov` at the end cannot be probed from a non-seekable reader ("missing moov atom"): single-file MP4 streams need a seekable (HTTP `Range`) source, which `HttpSource` provides
 - tidalt's ALSA preference lists, buffer sizes and timing budgets are as quoted under "Context" (read from its source)
 
