@@ -3,8 +3,13 @@
 //!
 //! The API is synchronous and the crate does not depend on tokio.
 
+pub mod output;
 pub mod sink;
 
+pub use output::{
+    Clock, FallbackMemo, NoReserver, PcmBackend, PcmError, PcmSink, PcmSinkFactory, ReleaseReply,
+    Reserver, SystemClock,
+};
 pub use sink::{
     Codec, MemorySink, OutputInfo, OutputKind, SampleFormat, Sink, SinkError, SinkFactory,
     SourceFormat, WriteOutcome,
