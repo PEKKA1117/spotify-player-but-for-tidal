@@ -18,7 +18,7 @@
 //! stream whose tag the player has moved past is dropped on arrival (which
 //! closes it), so a mash of skips leaves nothing fetching.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -33,10 +33,11 @@ use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
 };
-use tidal_player_core::protocol::{Command, Event, InsertAt, PlayerSnapshot};
+use tidal_player_core::protocol::{Command, Event, InsertAt, PlaybackState, PlayerSnapshot};
 use tidal_player_core::ui;
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
+use crate::ipc::server::{ClientId, ClientInput, Hub};
 use crate::play::{engine_failure, output_description, source_description};
 
 /// How long the runtime thread waits for an engine event before it looks at
@@ -87,6 +88,8 @@ pub trait Jobs {
     fn resolve(&mut self, tag: u64, track: TrackId);
     /// Fetch autoplay suggestions seeded by `seed` (answer: `Suggestions`).
     fn suggest(&mut self, tag: u64, seed: TrackId);
+    /// Expand the items of an `Open`, in order (answer: `Expanded`).
+    fn expand(&mut self, tag: u64, items: Vec<Item>);
 }
 
 /// A resolved stream, opened and ready for the engine.
@@ -278,6 +281,15 @@ pub enum RuntimeInput {
         tag: u64,
         result: Result<Vec<Track>, String>,
     },
+    /// From a socket client (spec 0005 "Messages").
+    Client(ClientInput),
+    /// A [`Jobs::expand`] result: the tracks, or the message.
+    Expanded {
+        tag: u64,
+        result: Result<Vec<Track>, String>,
+    },
+    /// The authenticator's status changed (spec 0005 "The daemon").
+    Login { required: bool },
 }
 
 /// A track the player accepted as started (engine `Started`, or a gapless
@@ -332,6 +344,12 @@ pub struct PlayerRuntime<E, J> {
     engine_preload: Option<u64>,
     /// `FetchSuggestions` without an answer yet.
     suggesting: HashSet<u64>,
+    /// The socket's clients (spec 0005).
+    hub: Hub,
+    /// `Open`s in the order received, expanding or waiting for an
+    /// earlier one.
+    opens: VecDeque<PendingOpen>,
+    next_open: u64,
 }
 
 impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
@@ -346,6 +364,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             sent: HashMap::new(),
             engine_preload: None,
             suggesting: HashSet::new(),
+            hub: Hub::default(),
+            opens: VecDeque::new(),
+            next_open: 0,
         }
     }
 
@@ -376,9 +397,40 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             .or_else(|| inputs.try_recv().ok())
     }
 
+    /// Applies one input and sends the events it caused to the socket's
+    /// subscribers; the returned events are the same, for an in-process
+    /// client (spec 0005 "Sync").
+    pub fn handle(&mut self, input: RuntimeInput) -> Handled {
+        match input {
+            RuntimeInput::Client(input) => self.client_input(input),
+            RuntimeInput::Expanded { tag, result } => self.expanded(tag, result),
+            RuntimeInput::Login { required } => {
+                let events: Vec<Event> =
+                    self.hub.set_login_required(required).into_iter().collect();
+                self.hub.broadcast(&events);
+                Handled {
+                    events,
+                    ..Handled::default()
+                }
+            }
+            RuntimeInput::Command(Command::Open { items, at }) => {
+                self.open(items, at, None);
+                Handled::default()
+            }
+            input => self.step(input),
+        }
+    }
+
+    /// [`Self::apply`], then the events to the subscribers.
+    fn step(&mut self, input: RuntimeInput) -> Handled {
+        let handled = self.apply(input);
+        self.hub.broadcast(&handled.events);
+        handled
+    }
+
     /// Applies one input: maps it into the player's terms, runs `update`
     /// and executes the effects in order.
-    pub fn handle(&mut self, input: RuntimeInput) -> Handled {
+    fn apply(&mut self, input: RuntimeInput) -> Handled {
         let mut handled = Handled::default();
         let mut resolved_tag = None;
         let mut notice = Notice::None;
@@ -415,6 +467,12 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             RuntimeInput::Suggestions { tag, result } => {
                 self.suggesting.remove(&tag);
                 PlayerInput::Suggestions { tag, result }
+            }
+            // Routed by `handle`.
+            RuntimeInput::Client(_)
+            | RuntimeInput::Expanded { .. }
+            | RuntimeInput::Login { .. } => {
+                return handled;
             }
         };
 
@@ -578,6 +636,119 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     }
 }
 
+// --- clients and `Open` (spec 0005) ------------------------------------------
+
+/// An `Open` waiting for its expansion, or for an earlier `Open`'s.
+#[derive(Debug)]
+struct PendingOpen {
+    tag: u64,
+    at: Option<InsertAt>,
+    /// The request to answer, for a socket client.
+    reply: Option<(ClientId, u64)>,
+    result: Option<Result<Vec<Track>, String>>,
+}
+
+impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
+    fn client_input(&mut self, input: ClientInput) -> Handled {
+        match input {
+            ClientInput::Attach { client, peer } => self.hub.attach(client, peer),
+            ClientInput::Detach(client) => self.hub.detach(client),
+            ClientInput::Subscribe(client) => {
+                let snapshot = self.snapshot();
+                self.hub.subscribe(client, snapshot);
+            }
+            ClientInput::Request {
+                client,
+                id,
+                command: Command::Open { items, at },
+            } => self.open(items, at, Some((client, id))),
+            ClientInput::Request {
+                client,
+                id,
+                command,
+            } => {
+                let handled = self.step(RuntimeInput::Command(command));
+                self.hub.reply(client, id, Ok(()));
+                return handled;
+            }
+        }
+        Handled::default()
+    }
+
+    /// Starts expanding an `Open`'s items; it is applied in turn.
+    fn open(&mut self, items: Vec<Item>, at: Option<InsertAt>, reply: Option<(ClientId, u64)>) {
+        let _ = (items, at, reply);
+    }
+
+    /// An expansion finished: applies every `Open` that is ready, in the
+    /// order received.
+    fn expanded(&mut self, tag: u64, result: Result<Vec<Track>, String>) -> Handled {
+        if let Some(open) = self.opens.iter_mut().find(|o| o.tag == tag) {
+            open.result = Some(result);
+        }
+        let mut handled = Handled::default();
+        while self.opens.front().is_some_and(|o| o.result.is_some()) {
+            let Some(PendingOpen {
+                at,
+                reply,
+                result: Some(result),
+                ..
+            }) = self.opens.pop_front()
+            else {
+                break;
+            };
+            let outcome = result.map(|tracks| {
+                let queued = self.queue_tracks(tracks, at);
+                merge(&mut handled, queued);
+            });
+            if let Some((client, id)) = reply {
+                self.hub.reply(client, id, outcome);
+            }
+        }
+        handled
+    }
+
+    /// An expanded `Open`: `LoadQueue`, or `AddToQueue` then `PlayEntry` of
+    /// the first added entry when nothing was playing (0004 AC28's rule).
+    fn queue_tracks(&mut self, tracks: Vec<Track>, at: Option<InsertAt>) -> Handled {
+        if tracks.is_empty() {
+            return Handled::default();
+        }
+        let Some(at) = at else {
+            return self.step(RuntimeInput::Command(Command::LoadQueue {
+                tracks,
+                start: 0,
+            }));
+        };
+        let before = self.snapshot();
+        let idle = before.queue.is_empty()
+            || (before.state == PlaybackState::Stopped && before.current.is_none());
+        let mut handled = self.step(RuntimeInput::Command(Command::AddToQueue { tracks, at }));
+        if idle {
+            let first = self
+                .snapshot()
+                .queue
+                .iter()
+                .map(|e| e.id)
+                .find(|id| !before.queue.iter().any(|e| e.id == *id));
+            if let Some(first) = first {
+                let started = self.step(RuntimeInput::Command(Command::PlayEntry(first)));
+                merge(&mut handled, started);
+            }
+        }
+        handled
+    }
+}
+
+/// Appends what `more` did to `into`.
+fn merge(into: &mut Handled, more: Handled) {
+    into.events.extend(more.events);
+    into.failures.extend(more.failures);
+    into.started = more.started.or(into.started.take());
+    into.ended |= more.ended;
+    into.shutdown |= more.shutdown;
+}
+
 /// What an engine event means for the caller, once the player accepted it.
 enum Notice {
     None,
@@ -664,6 +835,18 @@ impl RuntimeHandle {
         &self.events
     }
 
+    /// The player's input channel (for the socket's clients).
+    pub fn inputs(&self) -> Sender<RuntimeInput> {
+        self.inputs.clone()
+    }
+
+    /// Waits until the player thread ends (after a `Shutdown`).
+    pub fn wait(mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+
     /// Stops the engine and waits until the player thread (and with it the
     /// engine and its device) is gone.
     pub fn shutdown(mut self) {
@@ -727,6 +910,17 @@ impl Jobs for TokioJobs {
             let _ = results.send(RuntimeInput::Suggestions { tag, result });
         });
     }
+
+    fn expand(&mut self, tag: u64, items: Vec<Item>) {
+        let metadata = Arc::clone(&self.metadata);
+        let results = self.results.clone();
+        self.runtime.spawn(async move {
+            let result = expand_items(metadata.as_ref(), &items)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = results.send(RuntimeInput::Expanded { tag, result });
+        });
+    }
 }
 
 // --- fakes ---------------------------------------------------------------------------
@@ -773,6 +967,10 @@ pub(crate) mod fakes {
         SetDevice(String),
         Stop,
         Shutdown,
+        Expand {
+            tag: u64,
+            items: Vec<Item>,
+        },
     }
 
     pub type Log = Arc<Mutex<Vec<Call>>>;
@@ -951,6 +1149,8 @@ pub(crate) mod fakes {
         pub failures: HashMap<u64, Failure>,
         pub suggestions: Vec<Track>,
         pub drops: Arc<AtomicUsize>,
+        /// Expands `Open`s at once when `immediate` (else the test answers).
+        pub metadata: Option<Arc<dyn Metadata>>,
     }
 
     impl FakeJobs {
@@ -962,6 +1162,7 @@ pub(crate) mod fakes {
                 failures: HashMap::new(),
                 suggestions: Vec::new(),
                 drops: Arc::new(AtomicUsize::new(0)),
+                metadata: None,
             }
         }
     }
@@ -991,6 +1192,21 @@ pub(crate) mod fakes {
                 let _ = self.results.send(RuntimeInput::Suggestions { tag, result });
             }
         }
+
+        fn expand(&mut self, tag: u64, items: Vec<Item>) {
+            self.log.lock().unwrap().push(Call::Expand {
+                tag,
+                items: items.clone(),
+            });
+            if let (true, Some(metadata)) = (self.immediate, &self.metadata) {
+                let result = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("a test runtime")
+                    .block_on(expand_items(metadata.as_ref(), &items))
+                    .map_err(|e| e.to_string());
+                let _ = self.results.send(RuntimeInput::Expanded { tag, result });
+            }
+        }
     }
 
     pub fn track(id: u64, duration: Option<u64>) -> Track {
@@ -1018,6 +1234,7 @@ mod tests {
 
     use super::fakes::*;
     use super::*;
+    use crate::ipc::server::ClientId;
     use tidal_player_audio::{EngineError, SinkError};
     use tidal_player_core::EntryId;
     use tidal_player_core::protocol::PlaybackState;
@@ -1454,5 +1671,392 @@ mod tests {
         assert_eq!(client.sent, vec![]);
         assert_eq!(client.ui.message(), Some("Album 404 was not found"));
         assert_eq!(take(&log), vec![]);
+    }
+
+    /// A runtime whose `Open`s are expanded by `PromptMeta` (or left for
+    /// the test to answer, without one), with one socket client.
+    struct OpenRig {
+        rt: PlayerRuntime<FakeEngine, FakeJobs>,
+        log: Log,
+        inputs: Receiver<RuntimeInput>,
+        /// What the client receives.
+        client: Receiver<tidal_player_core::protocol::ServerMessage>,
+        next_id: u64,
+    }
+
+    const CLIENT: ClientId = ClientId(1);
+
+    impl OpenRig {
+        /// Tracks in `ends` play to their end at once; the others keep
+        /// playing.
+        fn new(ends: &[u64], expand: bool) -> Self {
+            use crate::ipc::server::{OUTBOX, Peer};
+            let log: Log = Arc::default();
+            let (tx, inputs) = mpsc::channel();
+            let engine = ends
+                .iter()
+                .fold(FakeEngine::new(&log, Script::Plays), |e, t| {
+                    e.script(*t, vec![Script::Ends])
+                });
+            let mut jobs = FakeJobs::new(&log, &tx, true);
+            if expand {
+                jobs.metadata = Some(Arc::new(PromptMeta));
+            }
+            let mut rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+            let (outbox, client) = mpsc::sync_channel(OUTBOX);
+            rt.handle(RuntimeInput::Client(ClientInput::Attach {
+                client: CLIENT,
+                peer: Peer::new(outbox, None),
+            }));
+            rt.handle(RuntimeInput::Client(ClientInput::Subscribe(CLIENT)));
+            let mut rig = Self {
+                rt,
+                log,
+                inputs,
+                client,
+                next_id: 0,
+            };
+            rig.received();
+            rig
+        }
+
+        /// Handles every pending input (jobs answer at once).
+        fn pump(&mut self) {
+            while let Some(input) = self.rt.next_input(&self.inputs, Duration::ZERO) {
+                self.rt.handle(input);
+            }
+        }
+
+        fn command(&mut self, command: Command) {
+            self.input(RuntimeInput::Command(command));
+        }
+
+        fn input(&mut self, input: RuntimeInput) {
+            self.rt.handle(input);
+            self.pump();
+        }
+
+        /// Sends a request; returns its id.
+        fn request(&mut self, command: Command) -> u64 {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.rt.handle(RuntimeInput::Client(ClientInput::Request {
+                client: CLIENT,
+                id,
+                command,
+            }));
+            id
+        }
+
+        fn received(&mut self) -> Vec<tidal_player_core::protocol::ServerMessage> {
+            self.client.try_iter().collect()
+        }
+
+        fn queue(&self) -> Vec<u64> {
+            self.rt
+                .snapshot()
+                .queue
+                .iter()
+                .map(|e| e.track.id.0)
+                .collect()
+        }
+
+        fn current_track(&self) -> Option<u64> {
+            let s = self.rt.snapshot();
+            s.queue
+                .iter()
+                .find(|e| Some(e.id) == s.current)
+                .map(|e| e.track.id.0)
+        }
+
+        fn expansions(&self) -> Vec<(u64, Vec<Item>)> {
+            self.log
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|c| match c {
+                    Call::Expand { tag, items } => Some((*tag, items.clone())),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn plays(&self) -> Vec<u64> {
+            self.log
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|c| match c {
+                    Call::Play { track, .. } => Some(*track),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    fn album10_and_3() -> Vec<Item> {
+        vec![Item::Album(10), Item::Track(TrackId(3))]
+    }
+
+    /// AC7: `Open` is expanded in the player (fake metadata) and applied:
+    /// `None` loads and plays, `End`/`Next` add and start the first added
+    /// entry only when nothing was playing; the reply follows the events.
+    #[test]
+    fn ac7_open() {
+        use tidal_player_core::protocol::ServerMessage;
+        struct Row {
+            name: &'static str,
+            /// Played through `LoadQueue` first (empty: nothing).
+            before: &'static [u64],
+            /// Tracks that play to their end at once.
+            ends: &'static [u64],
+            /// Run after `before`, as commands.
+            setup: fn(&mut OpenRig),
+            at: Option<InsertAt>,
+            queue: &'static [u64],
+            current: Option<u64>,
+            state: PlaybackState,
+            /// Tracks the engine was asked to play by the `Open`.
+            plays: &'static [u64],
+        }
+        let nothing: fn(&mut OpenRig) = |_| {};
+        let rows = [
+            Row {
+                name: "None replaces a playing queue and plays the first",
+                before: &[7, 8],
+                ends: &[],
+                setup: nothing,
+                at: None,
+                queue: &[1, 2, 3],
+                current: Some(1),
+                state: PlaybackState::Playing,
+                plays: &[1],
+            },
+            Row {
+                name: "None on an empty player",
+                before: &[],
+                ends: &[],
+                setup: nothing,
+                at: None,
+                queue: &[1, 2, 3],
+                current: Some(1),
+                state: PlaybackState::Playing,
+                plays: &[1],
+            },
+            Row {
+                name: "End on an empty queue starts the first added",
+                before: &[],
+                ends: &[],
+                setup: nothing,
+                at: Some(InsertAt::End),
+                queue: &[1, 2, 3],
+                current: Some(1),
+                state: PlaybackState::Playing,
+                plays: &[1],
+            },
+            Row {
+                name: "Next on an empty queue starts the first added",
+                before: &[],
+                ends: &[],
+                setup: nothing,
+                at: Some(InsertAt::Next),
+                queue: &[1, 2, 3],
+                current: Some(1),
+                state: PlaybackState::Playing,
+                plays: &[1],
+            },
+            Row {
+                name: "End while playing adds at the end",
+                before: &[7, 8],
+                ends: &[],
+                setup: nothing,
+                at: Some(InsertAt::End),
+                queue: &[7, 8, 1, 2, 3],
+                current: Some(7),
+                state: PlaybackState::Playing,
+                plays: &[],
+            },
+            Row {
+                name: "Next while playing adds after the current entry",
+                before: &[7, 8],
+                ends: &[],
+                setup: nothing,
+                at: Some(InsertAt::Next),
+                queue: &[7, 1, 2, 3, 8],
+                current: Some(7),
+                state: PlaybackState::Playing,
+                plays: &[],
+            },
+            Row {
+                name: "End while paused adds, nothing restarts",
+                before: &[7],
+                ends: &[],
+                setup: |rig| rig.command(Command::TogglePause),
+                at: Some(InsertAt::End),
+                queue: &[7, 1, 2, 3],
+                current: Some(7),
+                state: PlaybackState::Paused,
+                plays: &[],
+            },
+            Row {
+                name: "End when stopped with nothing current starts the first added",
+                before: &[7, 8],
+                ends: &[7, 8],
+                // Both played to their end; removing the last entry while
+                // stopped leaves nothing current.
+                setup: |rig| {
+                    let last = rig.rt.snapshot().current.expect("the last entry");
+                    rig.command(Command::RemoveFromQueue(last));
+                },
+                at: Some(InsertAt::End),
+                queue: &[7, 1, 2, 3],
+                current: Some(1),
+                state: PlaybackState::Playing,
+                plays: &[1],
+            },
+        ];
+        for row in rows {
+            let mut rig = OpenRig::new(row.ends, true);
+            if !row.before.is_empty() {
+                rig.input(load(row.before));
+            }
+            (row.setup)(&mut rig);
+            if row.name.contains("nothing current") {
+                let s = rig.rt.snapshot();
+                assert_eq!(
+                    (s.state, s.current),
+                    (PlaybackState::Stopped, None),
+                    "{}: setup",
+                    row.name
+                );
+            }
+            rig.received();
+            take(&rig.log);
+
+            let id = rig.request(Command::Open {
+                items: album10_and_3(),
+                at: row.at,
+            });
+            rig.pump();
+            assert_eq!(rig.expansions(), vec![(0, album10_and_3())], "{}", row.name);
+            assert_eq!(rig.queue(), row.queue, "{}", row.name);
+            assert_eq!(rig.current_track(), row.current, "{}", row.name);
+            assert_eq!(rig.rt.snapshot().state, row.state, "{}", row.name);
+            assert_eq!(rig.plays(), row.plays, "{}", row.name);
+            let got = rig.received();
+            let reply = got
+                .iter()
+                .position(|m| matches!(m, ServerMessage::Reply { .. }))
+                .unwrap_or_else(|| panic!("{}: no reply in {got:?}", row.name));
+            assert_eq!(
+                got[reply],
+                ServerMessage::Reply { id, result: Ok(()) },
+                "{}",
+                row.name
+            );
+            // The reply follows the events that queued the tracks.
+            let queued = got[..reply].iter().any(|m| {
+                matches!(m, ServerMessage::Event(Event::Player(s))
+                    if s.queue.iter().any(|e| e.track.id.0 == 3))
+            });
+            assert!(queued, "{}: {got:?}", row.name);
+        }
+    }
+
+    /// AC7: an expansion error is the reply's `Err` and changes nothing;
+    /// `Open`s apply in the order received, whichever expands first; the
+    /// queue arrives in item order, never a play order (tidalt #21).
+    #[test]
+    fn ac7_open_errors_and_order() {
+        use tidal_player_core::protocol::ServerMessage;
+
+        // An error: the message, nothing else.
+        let mut rig = OpenRig::new(&[], true);
+        rig.input(load(&[7, 8]));
+        let before = rig.rt.snapshot();
+        rig.received();
+        take(&rig.log);
+        let id = rig.request(Command::Open {
+            items: vec![Item::Track(TrackId(3)), Item::Album(404)],
+            at: Some(InsertAt::End),
+        });
+        rig.pump();
+        assert_eq!(
+            rig.received(),
+            vec![ServerMessage::Reply {
+                id,
+                result: Err("Album 404 was not found".into()),
+            }]
+        );
+        assert_eq!(rig.rt.snapshot(), before);
+        assert!(
+            take(&rig.log)
+                .iter()
+                .all(|c| matches!(c, Call::Expand { .. })),
+            "the engine and the queue were touched"
+        );
+
+        // Two `Open`s; the second expands first: applied in the order
+        // received, each reply once its tracks are queued.
+        let mut rig = OpenRig::new(&[], false);
+        let first = rig.request(Command::Open {
+            items: vec![Item::Track(TrackId(3))],
+            at: Some(InsertAt::End),
+        });
+        let second = rig.request(Command::Open {
+            items: vec![Item::Album(10)],
+            at: Some(InsertAt::End),
+        });
+        let tags: Vec<u64> = rig.expansions().iter().map(|(tag, _)| *tag).collect();
+        assert_eq!(tags.len(), 2, "both expand at once");
+        rig.rt.handle(RuntimeInput::Expanded {
+            tag: tags[1],
+            result: Ok(vec![track(1, Some(200)), track(2, Some(200))]),
+        });
+        rig.pump();
+        assert_eq!(
+            rig.queue(),
+            Vec::<u64>::new(),
+            "the second waits for the first"
+        );
+        assert_eq!(rig.received(), vec![]);
+        rig.rt.handle(RuntimeInput::Expanded {
+            tag: tags[0],
+            result: Ok(vec![track(3, Some(200))]),
+        });
+        rig.pump();
+        assert_eq!(rig.queue(), vec![3, 1, 2]);
+        assert_eq!(rig.current_track(), Some(3));
+        let replies: Vec<ServerMessage> = rig
+            .received()
+            .into_iter()
+            .filter(|m| matches!(m, ServerMessage::Reply { .. }))
+            .collect();
+        assert_eq!(
+            replies,
+            vec![
+                ServerMessage::Reply {
+                    id: first,
+                    result: Ok(()),
+                },
+                ServerMessage::Reply {
+                    id: second,
+                    result: Ok(()),
+                },
+            ]
+        );
+
+        // Item order with shuffle on: the player keeps the original order
+        // (switching shuffle off restores it), and an in-process `Open`
+        // (no reply) is applied the same way.
+        let mut rig = OpenRig::new(&[], true);
+        rig.command(Command::ToggleShuffle);
+        rig.command(Command::Open {
+            items: vec![Item::Track(TrackId(3)), Item::Album(10)],
+            at: None,
+        });
+        assert_eq!(rig.current_track(), Some(3));
+        rig.command(Command::ToggleShuffle);
+        assert_eq!(rig.queue(), vec![3, 1, 2]);
     }
 }
