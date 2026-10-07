@@ -66,6 +66,10 @@ fn read_item(text: &str) -> Option<Item> {
     {
         segments.remove(0);
     }
+    // The share menu adds `/u` (`https://tidal.com/track/1/u`, 0004 Bugs).
+    if segments.len() == 3 && segments[2] == "u" {
+        segments.pop();
+    }
     let [kind, id] = segments[..] else {
         return None;
     };
