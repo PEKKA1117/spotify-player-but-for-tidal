@@ -22,6 +22,12 @@ pub fn key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Up => Key::Up,
         KeyCode::Down => Key::Down,
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Key::BackTab,
+        KeyCode::Tab => Key::Tab,
+        // Shift-Tab: crossterm reports `BackTab` (with or without Shift).
+        KeyCode::BackTab => Key::BackTab,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
         _ => return None,
     };
     Some(Action::Key(decoded))

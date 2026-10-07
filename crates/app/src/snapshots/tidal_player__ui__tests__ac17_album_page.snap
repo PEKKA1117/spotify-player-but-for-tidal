@@ -1,0 +1,28 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│Collide With The Sky · Pierce The Veil · 2012 · 9 tracks · 40:00              │
+│┌Tracks (9)──────────────────────────────────────────────────────────────────┐│
+││  1  Song 1                    Pierce The Veil     Album                3:01││
+││  2  Song 2                    Pierce The Veil     Album                3:02││
+││  3  Song 3                    Pierce The Veil     Album                3:03││
+││  4  Song 4                    Pierce The Veil     Album                3:04││
+││  5  Song 5                    Pierce The Veil     Album                3:05││
+││  6  Song 6                    Pierce The Veil     Album                3:06││
+││  7  Song 7                    Pierce The Veil     Album                3:07││
+││  8  Song 8                    Pierce The Veil     Album                3:08││
+││  9  Song 9                    Pierce The Veil     Album                3:09││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

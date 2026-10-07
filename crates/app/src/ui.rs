@@ -12,8 +12,11 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
+use tidal_player_core::Track;
 use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
-use tidal_player_core::ui::State;
+use tidal_player_core::ui::{PageKind, State};
+
+mod pages;
 
 /// Rows of the playback window, inside the frame.
 const PLAYBACK_ROWS: u16 = 4;
@@ -24,48 +27,82 @@ const MIN_ROWS_WITH_QUEUE: u16 = 6;
 const MIN_LEFT: usize = 20;
 const STATUS: &str = "Session expired — run \"tidal-player login\" in another terminal";
 
-/// Draws `state` into `frame`.
-pub fn render(state: &State, frame: &mut Frame) {
-    let area = frame.area();
-    let block = Block::bordered().title("tidal-player");
-    let mut inner = block.inner(area);
-    frame.render_widget(block, area);
+/// The frame's areas, from the terminal's: the same layout [`render`]
+/// draws and [`list_height`] measures.
+struct Areas {
+    /// The session-expired line (0002 AC17).
+    status: Option<Rect>,
+    playback: Rect,
+    /// The page below the playback window; none when the terminal is too
+    /// short for it.
+    page: Option<Rect>,
+}
 
+fn areas(area: Rect, login_required: bool) -> Areas {
+    let mut inner = Block::bordered().inner(area);
     // The status line takes the last row inside the border, when there is
-    // one (0002 AC17).
-    if state.login_required && inner.height > 0 {
+    // one.
+    let mut status = None;
+    if login_required && inner.height > 0 {
         inner.height -= 1;
-        let status = Rect {
+        status = Some(Rect {
             y: inner.bottom(),
             height: 1,
             ..inner
-        };
-        frame.render_widget(Paragraph::new(STATUS), status);
+        });
     }
-
     let playback = Rect {
         height: inner.height.min(PLAYBACK_ROWS),
         ..inner
     };
-    render_playback(state, frame, playback);
+    let page = (inner.height >= MIN_ROWS_WITH_QUEUE).then(|| Rect {
+        y: inner.y + PLAYBACK_ROWS,
+        height: inner.height - PLAYBACK_ROWS,
+        ..inner
+    });
+    Areas {
+        status,
+        playback,
+        page,
+    }
+}
 
-    let prompt_row = if inner.height >= MIN_ROWS_WITH_QUEUE {
-        let queue = Rect {
-            y: inner.y + PLAYBACK_ROWS,
-            height: inner.height - PLAYBACK_ROWS,
-            ..inner
-        };
-        render_queue(state, frame, queue);
-        Rect { height: 1, ..queue }
+/// The rows a list window shows in a terminal of `terminal`'s size: what
+/// `Action::Resize` carries (spec 0006 "Lists load as you scroll").
+pub fn list_height(terminal: Rect, login_required: bool) -> usize {
+    areas(terminal, login_required)
+        .page
+        .map_or(0, pages::list_height)
+}
+
+/// Draws `state` into `frame`.
+pub fn render(state: &State, frame: &mut Frame) {
+    let area = frame.area();
+    let areas = areas(area, state.login_required);
+    frame.render_widget(Block::bordered().title("tidal-player"), area);
+    if let Some(status) = areas.status {
+        frame.render_widget(Paragraph::new(STATUS), status);
+    }
+
+    render_playback(state, frame, areas.playback);
+
+    let prompt_row = if let Some(page) = areas.page {
+        if state.page().kind == PageKind::Queue {
+            render_queue(state, frame, page);
+        } else {
+            pages::render_page(state, frame, page);
+        }
+        Rect { height: 1, ..page }
     } else {
-        // No queue: the prompt takes the playback window's last row.
+        // No page: the prompt takes the playback window's last row.
         Rect {
-            y: playback.bottom().saturating_sub(1),
-            height: playback.height.min(1),
-            ..playback
+            y: areas.playback.bottom().saturating_sub(1),
+            height: areas.playback.height.min(1),
+            ..areas.playback
         }
     };
     render_prompt(state, frame, prompt_row);
+    pages::render_popup(state, frame, areas.page, prompt_row);
 }
 
 // --- the playback window -----------------------------------------------------------
@@ -354,8 +391,13 @@ impl Columns {
     }
 
     fn row(&self, index: usize, entry: &QueueEntry, current: bool) -> String {
-        let track = &entry.track;
         let marker = if current { "▶ " } else { "  " };
+        self.track_row(index, &entry.track, marker, None)
+    }
+
+    /// One track's row; `album` replaces the album column's text (a
+    /// credits row shows the artist's roles there).
+    fn track_row(&self, index: usize, track: &Track, marker: &str, album: Option<&str>) -> String {
         let mut row = format!(
             "{marker}{:<n$}  {}",
             index + 1,
@@ -366,7 +408,7 @@ impl Columns {
             row += &format!("  {}", pad(&fit(&track.artist_names(), w), w));
         }
         if let Some(w) = self.album {
-            let album = track.album_title().unwrap_or_default();
+            let album = album.or(track.album_title()).unwrap_or_default();
             row += &format!("  {}", pad(&fit(album, w), w));
         }
         let duration = track.duration.map(clock).unwrap_or_default();
@@ -383,20 +425,26 @@ fn render_prompt(state: &State, frame: &mut Frame, area: Rect) {
     let Some(prompt) = state.prompt.as_ref() else {
         return;
     };
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
     let label = match prompt.at {
         InsertAt::End => "Add to queue: ",
         InsertAt::Next => "Play next: ",
     };
+    draw_prompt(frame, area, label, &prompt.text);
+}
+
+/// One row of `label` and `text`, the end of the text kept in view, with
+/// the cursor after it.
+fn draw_prompt(frame: &mut Frame, area: Rect, label: &str, text: &str) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     let width = usize::from(area.width);
     // One column stays free for the cursor.
     let room = width.saturating_sub(text_width(label) + 1);
-    let text = if text_width(&prompt.text) <= room {
-        prompt.text.clone()
+    let text = if text_width(text) <= room {
+        text.to_owned()
     } else {
-        format!("…{}", tail(&prompt.text, room.saturating_sub(1)))
+        format!("…{}", tail(text, room.saturating_sub(1)))
     };
     let line = fit(&format!("{label}{text}"), width);
     let x = area.x + u16::try_from(text_width(&line)).unwrap_or(area.width);
@@ -1414,23 +1462,28 @@ mod tests {
                 "Top tracks (91) ‹Tab› All tracks",
                 "Albums (78) ‹Tab› Appears on",
                 "Song 1",
-                "Hold On Till May",
-                "EP",
-                "Single",
+                "Hold On Till",
+                "2010",
             ],
         );
         insta::assert_snapshot!("ac17_artist_page", text);
+        // A wider terminal has room for `EP` and `Single`.
+        let wide = draw(&artist_page(true), 120, 24);
+        assert_contains(&wide, &["Hold On Till May", "2010 EP", "2008 Single"]);
 
         // *All tracks* focused: the hidden count, the roles.
         let text = draw(&all_tracks(false), 80, 24);
         assert_contains(
             &text,
             &[
-                "All tracks (548 · 37 hidden) ‹Tab› Top tracks",
+                "All tracks (548 · 37 hidden) ‹Tab›",
                 "Hell Above",
                 "Albums (78)",
             ],
         );
+        // The other window's name when the half has room for it.
+        let wide = draw(&all_tracks(false), 120, 24);
+        assert_contains(&wide, &["All tracks (548 · 37 hidden) ‹Tab› Top tracks"]);
         insta::assert_snapshot!("ac17_artist_all_tracks", text);
 
         // The role filter popup.
@@ -1490,8 +1543,10 @@ mod tests {
 
         let text = draw(&add_to_playlist_popup(), 80, 24);
         assert_contains(&text, &["New playlist…", "Running", "Gym mix"]);
-        assert!(
-            !text.contains("Late night"),
+        // Only the library's own row, not a popup row.
+        assert_eq!(
+            text.matches("Late night").count(),
+            1,
             "a followed playlist offered:\n{text}"
         );
         insta::assert_snapshot!("ac17_add_to_playlist", text);

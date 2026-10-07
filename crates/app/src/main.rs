@@ -190,7 +190,23 @@ fn run<C: Connector>(
     mut state: State,
 ) -> Result<()> {
     let mut actions = Vec::new();
+    // A list window's height follows the terminal (spec 0006 "Lists load
+    // as you scroll"): sent before the first frame and whenever the size
+    // (or the session-expired line, which takes a row) changes, from the
+    // same layout `render` draws.
+    let mut list_height = None;
     loop {
+        let size = terminal.size()?;
+        let height = tidal_player::ui::list_height(
+            ratatui::layout::Rect::new(0, 0, size.width, size.height),
+            state.login_required,
+        );
+        if list_height != Some(height) {
+            list_height = Some(height);
+            actions.push(Action::Resize {
+                list_height: height,
+            });
+        }
         actions.extend(session.poll(Instant::now()));
         for action in actions.drain(..) {
             for effect in update(&mut state, action) {
@@ -432,10 +448,14 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
             return Ok(ExitCode::from(2));
         }
     };
-    let state = State::new(tui_model::Steps {
+    // The page size is resolved here, for both roles: an attached client
+    // asks the player's API through it with the same environment (spec
+    // 0006 "Page size"), a standalone one is the player.
+    let mut state = State::new(tui_model::Steps {
         volume: player_settings.steps.volume,
         seek: player_settings.steps.seek,
     });
+    state.page_size = player_settings.library.page_size;
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
