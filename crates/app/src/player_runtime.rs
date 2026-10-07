@@ -216,10 +216,39 @@ pub fn startup_commands(tracks: Vec<Track>) -> Vec<Command> {
 /// Expands one item from the open prompt (spec 0004 AC28) as the command
 /// line does, into the UI model's answer: the tracks, or the message.
 pub async fn expand_for_queue(meta: &dyn Metadata, item: Item, at: InsertAt) -> ui::Action {
-    let _ = (meta, item);
-    ui::Action::Expanded {
-        at,
-        result: Ok(Vec::new()),
+    let result = expand_items(meta, &[item]).await.map_err(|e| e.to_string());
+    ui::Action::Expanded { at, result }
+}
+
+/// Runs the open prompt's expansions on a tokio runtime, off the UI thread;
+/// each answer comes back on `results` for the UI loop.
+pub struct Expander {
+    runtime: tokio::runtime::Handle,
+    metadata: Arc<dyn Metadata>,
+    results: Sender<ui::Action>,
+}
+
+impl Expander {
+    pub fn new(
+        runtime: tokio::runtime::Handle,
+        metadata: Arc<dyn Metadata>,
+        results: Sender<ui::Action>,
+    ) -> Self {
+        Self {
+            runtime,
+            metadata,
+            results,
+        }
+    }
+
+    /// Expands `item`; the answer is an [`ui::Action::Expanded`].
+    pub fn expand(&self, item: Item, at: InsertAt) {
+        let metadata = Arc::clone(&self.metadata);
+        let results = self.results.clone();
+        self.runtime.spawn(async move {
+            let answer = expand_for_queue(metadata.as_ref(), item, at).await;
+            let _ = results.send(answer);
+        });
     }
 }
 

@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyEventKind},
+    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -25,7 +25,7 @@ use tidal_player::{
     },
     playback::{HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, play_items, spawn_output},
     player_runtime::{
-        ExpandError, PlayerRuntime, RuntimeHandle, TokioJobs, expand_items, parse_items,
+        Expander, PlayerRuntime, RuntimeHandle, TokioJobs, expand_items, parse_items,
         spawn_runtime, startup_commands, time_seed,
     },
     store_setup::StorePlan,
@@ -38,7 +38,7 @@ use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{Event as PlayerEvent, InsertAt, RepeatMode};
-use tidal_player_core::ui::{Action, Effect, State, update};
+use tidal_player_core::ui::{self as tui_model, Action, Effect, State, update};
 use tokio::sync::watch;
 
 /// Terminal Tidal player.
@@ -57,19 +57,24 @@ struct Cli {
     #[arg(value_name = "ITEM")]
     items: Vec<String>,
     /// Add the items at the end of the queue instead of replacing it.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "play_next", requires = "items")]
     add_to_queue: bool,
     /// Add the items right after the current entry instead of replacing
     /// the queue.
-    #[arg(long)]
+    #[arg(long, requires = "items")]
     play_next: bool,
 }
 
 /// Where `--add-to-queue` / `--play-next` add the items; `None` replaces
 /// the queue (spec 0004 "Commands").
 fn queue_mode(cli: &Cli) -> Option<InsertAt> {
-    let _ = cli;
-    None
+    if cli.add_to_queue {
+        Some(InsertAt::End)
+    } else if cli.play_next {
+        Some(InsertAt::Next)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -132,9 +137,11 @@ impl From<RepeatArg> for RepeatMode {
     }
 }
 
-/// Leaves the alternate screen and raw mode; errors are ignored because this
-/// also runs from the panic hook, where there is nothing better to do.
+/// Leaves bracketed paste, the alternate screen and raw mode; errors are
+/// ignored because this also runs from the panic hook, where there is
+/// nothing better to do.
 fn restore_terminal() {
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen);
 }
@@ -147,36 +154,78 @@ fn status_action(status: AuthStatus) -> Action {
     })
 }
 
+/// What the TUI loop talks to: the player, and the expansions of the open
+/// prompt (whose answers arrive on `expanded`).
+struct Client<'a> {
+    player: &'a RuntimeHandle,
+    expander: Expander,
+    expanded: std::sync::mpsc::Receiver<Action>,
+}
+
+impl Client<'_> {
+    /// Runs `effects`; `true` when one of them quits.
+    fn execute(&self, effects: Vec<Effect>) -> bool {
+        for effect in effects {
+            match effect {
+                Effect::Quit => return true,
+                Effect::Send(command) => self.player.send(command),
+                Effect::Expand { item, at } => self.expander.expand(item, at),
+            }
+        }
+        false
+    }
+}
+
+/// How long the loop waits for a key before it looks at the player's
+/// events again (and redraws).
+const FRAME: Duration = Duration::from_millis(100);
+
 fn run(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     mut auth_status: Option<watch::Receiver<AuthStatus>>,
-    player: &RuntimeHandle,
+    client: &Client<'_>,
+    mut state: State,
+    startup: Vec<Action>,
 ) -> Result<()> {
-    let mut state = State::default();
+    let mut actions = startup;
     loop {
+        for action in actions.drain(..) {
+            if client.execute(update(&mut state, action)) {
+                return Ok(());
+            }
+        }
         terminal.draw(|frame| render(&state, frame))?;
-        let mut actions = Vec::new();
         if let Some(rx) = auth_status.as_mut()
             && rx.has_changed().unwrap_or(false)
         {
             actions.push(status_action(*rx.borrow_and_update()));
         }
-        actions.extend(player.events().try_iter().map(Action::Player));
-        if event::poll(Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                actions.extend(key_to_action(key));
+        actions.extend(player_actions(client));
+        if event::poll(FRAME)? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    actions.extend(key_to_action(key));
+                }
+                Event::Paste(text) => actions.push(Action::Paste(text)),
+                _ => {}
             }
         } else {
             actions.push(Action::Tick);
         }
-        for action in actions {
-            if update(&mut state, action).contains(&Effect::Quit) {
-                return Ok(());
-            }
-        }
     }
+}
+
+/// The player's events and the finished expansions, in arrival order per
+/// source.
+fn player_actions(client: &Client<'_>) -> Vec<Action> {
+    let mut actions: Vec<Action> = client
+        .player
+        .events()
+        .try_iter()
+        .map(Action::Player)
+        .collect();
+    actions.extend(client.expanded.try_iter());
+    actions
 }
 
 /// Reports a store failure the way the spec words it; returns exit code 1.
@@ -228,7 +277,11 @@ fn daemon(store: &dyn SessionStore) -> ExitCode {
     }
 }
 
-fn standalone(store: Arc<dyn SessionStore>, args: &[String]) -> Result<ExitCode> {
+fn standalone(
+    store: Arc<dyn SessionStore>,
+    args: &[String],
+    mode: Option<InsertAt>,
+) -> Result<ExitCode> {
     // Refused before anything starts (spec 0004 "Filling the queue").
     let items = match parse_items(args) {
         Ok(items) => items,
@@ -281,13 +334,10 @@ fn standalone(store: Arc<dyn SessionStore>, args: &[String]) -> Result<ExitCode>
         let (_, country) = auth.account().await;
         (country, expand_items(metadata.as_ref(), &items).await)
     });
+    // A failed expansion leaves the queue empty and shows why in the
+    // playback window (spec 0004 "Edge cases").
     let (tracks, startup_message) = match expanded {
         Ok(tracks) => (tracks, None),
-        Err(e @ ExpandError::NoTracks(_)) => {
-            eprintln!("{e}");
-            return Ok(ExitCode::from(e.exit_code()));
-        }
-        // The TUI starts with an empty queue (spec 0004 "Edge cases").
         Err(e) => (Vec::new(), Some(e.to_string())),
     };
     let opener = match HttpOpener::new(Arc::clone(&auth), settings.quality, country.clone()) {
@@ -298,6 +348,12 @@ fn standalone(store: Arc<dyn SessionStore>, args: &[String]) -> Result<ExitCode>
         }
     };
     let (results, inputs) = std::sync::mpsc::channel();
+    let (expanded_tx, expanded) = std::sync::mpsc::channel();
+    let expander = Expander::new(
+        runtime.handle().clone(),
+        Arc::clone(&metadata) as _,
+        expanded_tx,
+    );
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
@@ -306,28 +362,54 @@ fn standalone(store: Arc<dyn SessionStore>, args: &[String]) -> Result<ExitCode>
         inputs,
         results,
     );
-    for command in startup_commands(tracks) {
-        player.send(command);
-    }
+    // The plain form replaces the queue; `--add-to-queue`/`--play-next`
+    // add to it the way the open prompt does, which starts the first added
+    // track on the (until 0005, always empty) startup queue.
+    let startup = match mode {
+        None => {
+            for command in startup_commands(tracks) {
+                player.send(command);
+            }
+            Vec::new()
+        }
+        Some(_) if tracks.is_empty() => Vec::new(),
+        Some(at) => vec![Action::Expanded {
+            at,
+            result: Ok(tracks),
+        }],
+    };
+    let mut state = State::new(tui_model::Steps {
+        volume: player_settings.steps.volume,
+        seek: player_settings.steps.seek,
+    });
+    state.message = startup_message;
+    let client = Client {
+        player: &player,
+        expander,
+        expanded,
+    };
 
-    let result = tui(&player, auth.status());
+    let result = tui(&client, auth.status(), state, startup);
     // Quit: the player stops and releases the device first.
     player.shutdown();
     restore_terminal();
-    if let Some(message) = startup_message {
-        eprintln!("{message}");
-    }
     result.map(|()| ExitCode::SUCCESS)
 }
 
 /// Runs the TUI until the user quits; the terminal is left for the caller
 /// to restore.
-fn tui(player: &RuntimeHandle, auth_status: watch::Receiver<AuthStatus>) -> Result<()> {
+fn tui(
+    client: &Client<'_>,
+    auth_status: watch::Receiver<AuthStatus>,
+    state: State,
+    startup: Vec<Action>,
+) -> Result<()> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
-    execute!(io::stdout(), EnterAlternateScreen).context("cannot enter the alternate screen")?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
+        .context("cannot enter the alternate screen")?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    run(&mut terminal, Some(auth_status), player)
+    run(&mut terminal, Some(auth_status), client, state, startup)
 }
 
 fn env_var(key: &str) -> Option<String> {
@@ -430,7 +512,7 @@ fn devices() -> ExitCode {
 
 fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
-    let _ = queue_mode(&cli);
+    let mode = queue_mode(&cli);
     let Cli { command, items, .. } = cli;
     let plan = StorePlan::from_env();
     match command {
@@ -442,7 +524,7 @@ fn main() -> Result<ExitCode> {
         }
         Some(Command::Play(args)) => Ok(play(&plan, &args)),
         Some(Command::Devices) => Ok(devices()),
-        None => standalone(plan.build_store(), &items),
+        None => standalone(plan.build_store(), &items, mode),
     }
 }
 
@@ -470,9 +552,9 @@ mod tests {
         }
         let refused: [&[&str]; 4] = [
             &["--add-to-queue", "--play-next", "1"],
+            &["--play-next", "--add-to-queue", "1"],
             &["--add-to-queue"],
             &["--play-next"],
-            &["--add-to-queue", "play", "1"],
         ];
         for args in refused {
             assert!(parse(args).is_err(), "{args:?} accepted");

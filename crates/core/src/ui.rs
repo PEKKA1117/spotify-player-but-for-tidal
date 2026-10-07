@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use crate::item::Item;
-use crate::protocol::{self, Command, InsertAt, PlayerSnapshot, QueueEntry};
+use crate::item::{Item, parse_item};
+use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
 use crate::track::{EntryId, Track};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
@@ -148,31 +148,20 @@ pub enum Effect {
 pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
-        Action::Tick | Action::Paste(_) | Action::Expanded { .. } => Vec::new(),
-        Action::Key(key) => match key {
-            Key::Char('q') | Key::Esc => vec![Effect::Quit],
-            Key::Char('g') => {
-                state.cursor = state.queue().first().map(|e| e.id);
-                Vec::new()
-            }
-            Key::Char('G') => {
-                state.cursor = state.queue().last().map(|e| e.id);
-                Vec::new()
-            }
-            Key::Char('j') | Key::Char('k') => {
-                let ids: Vec<EntryId> = state.queue().iter().map(|e| e.id).collect();
-                if let Some(i) = ids.iter().position(|id| Some(*id) == state.cursor) {
-                    let i = if key == Key::Char('j') {
-                        (i + 1).min(ids.len() - 1)
-                    } else {
-                        i.saturating_sub(1)
-                    };
-                    state.cursor = Some(ids[i]);
-                }
-                Vec::new()
-            }
-            _ => Vec::new(),
+        Action::Tick => Vec::new(),
+        Action::Key(key) => match state.prompt.as_ref().map(|p| p.at) {
+            Some(at) => prompt_key(state, at, key),
+            None => key_press(state, key),
         },
+        Action::Paste(text) => {
+            // Line breaks and other control characters never reach the
+            // prompt: a pasted link often ends with a newline.
+            if let Some(prompt) = state.prompt.as_mut() {
+                prompt.text.extend(text.chars().filter(|c| !c.is_control()));
+            }
+            Vec::new()
+        }
+        Action::Expanded { at, result } => expanded(state, at, result),
         Action::Player(event) => match event {
             protocol::Event::LoginRequired => {
                 state.login_required = true;
@@ -183,23 +172,199 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 Vec::new()
             }
             protocol::Event::ShuttingDown => Vec::new(),
-            protocol::Event::Player(mut snapshot) => {
-                snapshot.queue.sort_by_key(|e| e.id);
-                if state.cursor.is_none() {
-                    state.cursor = snapshot.queue.first().map(|e| e.id);
+            protocol::Event::Player(snapshot) => apply_snapshot(state, snapshot),
+            protocol::Event::Position { entry, position } => {
+                if state.player.as_ref().and_then(|p| p.current) == Some(entry) {
+                    state.position = position;
                 }
-                state.player = Some(snapshot);
                 Vec::new()
             }
-            protocol::Event::Position { .. } => Vec::new(),
         },
     }
+}
+
+/// A key while the prompt is open: it edits the prompt, nothing else.
+fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
+    let Some(prompt) = state.prompt.as_mut() else {
+        return Vec::new();
+    };
+    match key {
+        Key::Char(c) => prompt.text.push(c),
+        Key::Backspace => {
+            prompt.text.pop();
+        }
+        Key::Esc => state.prompt = None,
+        Key::Enter => {
+            let text = std::mem::take(&mut prompt.text);
+            state.prompt = None;
+            if text.trim().is_empty() {
+                return Vec::new();
+            }
+            return match parse_item(&text) {
+                Ok(item) => vec![Effect::Expand { item, at }],
+                Err(e) => {
+                    state.message = Some(e.to_string());
+                    Vec::new()
+                }
+            };
+        }
+        Key::Ctrl(_) | Key::Up | Key::Down => {}
+    }
+    Vec::new()
+}
+
+/// A key with the prompt closed (spec 0004 "Keys").
+fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
+    if std::mem::take(&mut state.pending_g) && key == Key::Char('g') {
+        move_cursor(state, |_, _| 0);
+        return Vec::new();
+    }
+    let volume = i8::try_from(state.steps.volume).unwrap_or(i8::MAX);
+    let seek = i64::try_from(state.steps.seek.as_millis()).unwrap_or(i64::MAX);
+    // Volume and modes apply to the next load too; playback keys need a
+    // queue.
+    let command = match key {
+        Key::Char('q') | Key::Esc => return vec![Effect::Quit],
+        Key::Ctrl('s') => Command::ToggleShuffle,
+        Key::Ctrl('r') => Command::CycleRepeat,
+        Key::Char('A') => Command::ToggleAutoplay,
+        Key::Char('+') => Command::ChangeVolume(volume),
+        Key::Char('-') => Command::ChangeVolume(-volume),
+        Key::Char('_') => Command::ToggleMute,
+        Key::Char('o') | Key::Char('O') => {
+            state.prompt = Some(Prompt {
+                at: if key == Key::Char('o') {
+                    InsertAt::End
+                } else {
+                    InsertAt::Next
+                },
+                text: String::new(),
+            });
+            return Vec::new();
+        }
+        Key::Char('g') => {
+            state.pending_g = true;
+            return Vec::new();
+        }
+        _ if state.queue().is_empty() => return Vec::new(),
+        Key::Char(' ') => Command::TogglePause,
+        Key::Char('n') => Command::Next,
+        Key::Char('p') => Command::Previous,
+        Key::Char('>') => Command::SeekBy(seek),
+        Key::Char('<') => Command::SeekBy(-seek),
+        Key::Char('^') => Command::SeekTo(Duration::ZERO),
+        Key::Char('j') | Key::Down => {
+            move_cursor(state, |i, len| (i + 1).min(len - 1));
+            return Vec::new();
+        }
+        Key::Char('k') | Key::Up => {
+            move_cursor(state, |i, _| i.saturating_sub(1));
+            return Vec::new();
+        }
+        Key::Char('G') => {
+            move_cursor(state, |_, len| len - 1);
+            return Vec::new();
+        }
+        Key::Enter => match state.cursor {
+            Some(entry) => Command::PlayEntry(entry),
+            None => return Vec::new(),
+        },
+        _ => return Vec::new(),
+    };
+    vec![Effect::Send(command)]
+}
+
+/// Moves the cursor to `to(index, len)` (a non-empty queue), and keeps it
+/// in view.
+fn move_cursor(state: &mut State, to: impl Fn(usize, usize) -> usize) {
+    let queue = state.queue();
+    if queue.is_empty() {
+        return;
+    }
+    let index = state
+        .cursor
+        .and_then(|id| queue.iter().position(|e| e.id == id))
+        .unwrap_or(0);
+    let id = queue[to(index, queue.len()).min(queue.len() - 1)].id;
+    state.cursor = Some(id);
+    state.anchor = Some(id);
+}
+
+/// Takes the snapshot as is; keeps the cursor on its entry (clamped to
+/// the same index when it was removed); starts the first added entry when
+/// one was asked for.
+fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
+    let old = state.player.take();
+    let old_queue = old.as_ref().map_or(&[][..], |p| p.queue.as_slice());
+    let ids: Vec<EntryId> = snapshot.queue.iter().map(|e| e.id).collect();
+
+    state.cursor = match state.cursor {
+        _ if ids.is_empty() => None,
+        Some(id) if ids.contains(&id) => Some(id),
+        Some(id) => {
+            let index = old_queue.iter().position(|e| e.id == id).unwrap_or(0);
+            Some(ids[index.min(ids.len() - 1)])
+        }
+        None => snapshot.current.or(ids.first().copied()),
+    };
+    let old_current = old.as_ref().and_then(|p| p.current);
+    if snapshot.current.is_some() && snapshot.current != old_current {
+        state.anchor = snapshot.current;
+    }
+
+    // The client's message gives way to a newer one from the player, and
+    // to a track start.
+    let old_message = old.as_ref().and_then(|p| p.message.as_deref());
+    let newer_message = snapshot.message.is_some() && snapshot.message.as_deref() != old_message;
+    let was_running = old.as_ref().is_some_and(|p| {
+        matches!(
+            p.state,
+            PlaybackState::Playing | PlaybackState::Buffering | PlaybackState::Paused
+        ) && p.current == snapshot.current
+    });
+    let started = snapshot.state == PlaybackState::Playing && !was_running;
+    if newer_message || started {
+        state.message = None;
+    }
+
+    let mut effects = Vec::new();
+    if let Some(known) = &state.start_added
+        && let Some(first) = ids.iter().find(|id| !known.contains(id))
+    {
+        effects.push(Effect::Send(Command::PlayEntry(*first)));
+        state.start_added = None;
+    }
+
+    state.position = snapshot.position;
+    state.player = Some(snapshot);
+    effects
+}
+
+/// The expansion's answer: add the tracks; start the first added one when
+/// the queue was empty or the player is stopped with nothing current
+/// (spec 0004 AC28).
+fn expanded(state: &mut State, at: InsertAt, result: Result<Vec<Track>, String>) -> Vec<Effect> {
+    let tracks = match result {
+        Ok(tracks) if !tracks.is_empty() => tracks,
+        Ok(_) => return Vec::new(),
+        Err(message) => {
+            state.message = Some(message);
+            return Vec::new();
+        }
+    };
+    let idle = state.player.as_ref().is_none_or(|p| {
+        p.queue.is_empty() || (p.state == PlaybackState::Stopped && p.current.is_none())
+    });
+    if idle {
+        state.start_added = Some(state.queue().iter().map(|e| e.id).collect());
+    }
+    vec![Effect::Send(Command::AddToQueue { tracks, at })]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{PlaybackState, RepeatMode};
+    use crate::protocol::RepeatMode;
     use crate::track::TrackId;
 
     #[test]
@@ -570,7 +735,8 @@ mod tests {
         let keys = |text: &str| typed(text).into_iter().map(Action::Key).collect::<Vec<_>>();
         let cat = |parts: Vec<Vec<Action>>| parts.concat();
         // (actions, prompt after, effects, message after)
-        let cases: Vec<(Vec<Action>, Option<Prompt>, Vec<Effect>, Option<&str>)> = vec![
+        type Case<'a> = (Vec<Action>, Option<Prompt>, Vec<Effect>, Option<&'a str>);
+        let cases: Vec<Case> = vec![
             (vec![k(Char('o'))], open(InsertAt::End, ""), vec![], None),
             (vec![k(Char('O'))], open(InsertAt::Next, ""), vec![], None),
             (
@@ -659,14 +825,15 @@ mod tests {
             update(state, Action::Player(protocol::Event::Player(s)))
         };
         // (queue before, current, state, at, queue after, plays)
-        let rows: Vec<(
-            &[u64],
+        type Row<'a> = (
+            &'a [u64],
             Option<u64>,
             PlaybackState,
             InsertAt,
-            &[u64],
+            &'a [u64],
             Option<u64>,
-        )> = vec![
+        );
+        let rows: Vec<Row> = vec![
             // Empty queue: the first added entry plays.
             (
                 &[],

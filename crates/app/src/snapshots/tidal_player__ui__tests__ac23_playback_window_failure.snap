@@ -1,0 +1,28 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│■ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  Output hw:1,0 was lost                                                      │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────────────────────────────────────────────┐│
+││  1   May These Noises Start…  Pierce The Veil    Collide With The S…   4:01││
+││▶ 2   Hell Above               Pierce The Veil    Collide With The S…   3:32││
+││  3   A Match Into Water       Pierce The Veil    Collide With The S…   4:22││
+││  4   King For A Day           Pierce The Veil    Collide With The S…   3:52││
+││  5   Bulls In The Bronx       Pierce The Veil    Collide With The S…   4:50││
+││  6   Props & Mayhem           Pierce The Veil    Collide With The S…   3:33││
+││  7   Tangled In The Great E…  Pierce The Veil    Collide With The S…   5:04││
+││  8   Stained Glass Eyes And…  Pierce The Veil    Collide With The S…   3:53││
+││  9   I'm Low On Gas And You…  Pierce The Veil    Collide With The S…   3:43││
+││  ── Suggested ─────────────────────────────────────────────────────────────││
+││  10  If I'm James Dean, You…  Sleeping With Si…  With Ears To See A…   3:39││
+││  11  Can You Feel My Heart    Bring Me The Hor…  Sempiternal           3:48││
+││  12  All I Want               A Day To Remember  What Separates Me…    3:21││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

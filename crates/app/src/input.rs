@@ -2,15 +2,29 @@
 //! what (and key sequences such as `g g`) is decided by
 //! `tidal_player_core::ui`; this only decodes crossterm's events.
 
-use crossterm::event::{KeyCode, KeyEvent};
-use tidal_player_core::ui::Action;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use tidal_player_core::ui::{Action, Key};
 
-/// Maps a key press to the `Action` it triggers, if any.
+/// Maps a key press to the `Action` it triggers, if any: characters as
+/// typed (Shift already gives the upper-case one), Control + a letter, and
+/// the keys the TUI uses. Alt combinations and other keys are dropped.
 pub fn key_to_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
-        _ => None,
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        return None;
     }
+    let decoded = match key.code {
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Key::Ctrl(c.to_ascii_lowercase())
+        }
+        KeyCode::Char(c) => Key::Char(c),
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Esc => Key::Esc,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Up => Key::Up,
+        KeyCode::Down => Key::Down,
+        _ => return None,
+    };
+    Some(Action::Key(decoded))
 }
 
 #[cfg(test)]

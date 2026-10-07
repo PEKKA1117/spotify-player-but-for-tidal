@@ -3,7 +3,7 @@ source: crates/app/src/ui.rs
 expression: text
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
-│Nothing playing                                                               │
+│Nothing playing                                                           100%│
 │                                                                              │
 │                                                                              │
 │                                                                              │
