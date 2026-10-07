@@ -1,0 +1,503 @@
+//! `tidal-player playback <command>` (spec 0005 "One-shot commands"): one
+//! request to the running player, its answer printed, then exit. The
+//! parsing and the `status` lines are pure; [`run`] finds the player.
+
+use std::io::Write;
+use std::process::ExitCode;
+use std::time::{Duration, Instant};
+
+use tidal_player_core::protocol::{
+    ClientMessage, Command, InsertAt, PlaybackState, PlayerSnapshot, RepeatMode, ServerMessage,
+};
+
+use crate::client::{FindError, Link};
+use crate::ipc::client::RecvError;
+use crate::player_runtime::parse_items;
+
+/// How long a one-shot command waits for the player's answer.
+pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// What a one-shot command says when the player is silent.
+pub const NO_ANSWER: &str = "The player did not answer";
+
+/// The `playback` subcommands.
+#[derive(Debug, Clone, PartialEq, Eq, clap::Subcommand)]
+pub enum PlaybackCommand {
+    /// Play or pause.
+    PlayPause,
+    /// Skip to the next entry.
+    Next,
+    /// Back to the start, or to the previous entry.
+    Previous,
+    /// Seek: S seconds into the track, or +S / -S from here.
+    Seek {
+        #[arg(value_name = "S", allow_hyphen_values = true)]
+        position: String,
+    },
+    /// Set the volume to N % (0-100), or change it by +N / -N.
+    Volume {
+        #[arg(value_name = "N", allow_hyphen_values = true)]
+        level: String,
+    },
+    /// Mute or unmute.
+    Mute,
+    /// Shuffle on or off.
+    Shuffle,
+    /// Repeat: off, queue, track.
+    Repeat,
+    /// Autoplay on or off.
+    Autoplay,
+    /// Replace the queue with these items and play the first.
+    Load {
+        #[arg(value_name = "ITEM", required = true)]
+        items: Vec<String>,
+    },
+    /// Add items at the end of the queue (or after the current entry).
+    Add {
+        /// Right after the current entry.
+        #[arg(long)]
+        next: bool,
+        #[arg(value_name = "ITEM", required = true)]
+        items: Vec<String>,
+    },
+    /// Print what is playing.
+    Status {
+        /// The player's state as one JSON line.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// What one command sends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Plan {
+    Request(Command),
+    /// `Subscribe`, print the `Welcome`, leave.
+    Status {
+        json: bool,
+    },
+}
+
+/// A bad argument or item (exit 2, nothing sent).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UsageError {
+    #[error("Invalid seek {0:?}: expected seconds, +S or -S")]
+    Seek(String),
+    #[error("Invalid volume {0:?}: expected 0 to 100, +N or -N")]
+    Volume(String),
+    #[error("{0}")]
+    Item(String),
+}
+
+/// The message `command` sends.
+pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
+    let _ = (command, InsertAt::End, parse_items);
+    Ok(Plan::Request(Command::TogglePause))
+}
+
+/// `status`: three lines (`Nothing playing` alone without a current
+/// entry), then the message or the expired session, if any.
+pub fn status_lines(snapshot: &PlayerSnapshot, login_required: bool) -> String {
+    let _ = (
+        snapshot,
+        login_required,
+        PlaybackState::Playing,
+        RepeatMode::Off,
+    );
+    String::new()
+}
+
+/// Sends `plan` over `link` and prints the answer: the exit code.
+pub fn execute<L: Link>(
+    link: &mut L,
+    plan: &Plan,
+    timeout: Duration,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let _ = (
+        link,
+        plan,
+        timeout,
+        out,
+        err,
+        Instant::now(),
+        ClientMessage::Subscribe,
+    );
+    let _: Option<(ServerMessage, RecvError)> = None;
+    0
+}
+
+/// `tidal-player playback <command>`.
+pub fn run(command: &PlaybackCommand) -> ExitCode {
+    let _ = (command, FindError::NoPlayer);
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::io;
+    use std::rc::Rc;
+
+    use clap::Parser;
+
+    use super::*;
+    use tidal_player_core::protocol::{NowPlaying, QueueEntry};
+    use tidal_player_core::{AudioQuality, EntryId, Item, Track, TrackId};
+
+    #[derive(Debug, Parser)]
+    struct Cli {
+        #[command(subcommand)]
+        command: PlaybackCommand,
+    }
+
+    fn parse(args: &[&str]) -> Result<Plan, String> {
+        let cli = Cli::try_parse_from(std::iter::once("playback").chain(args.iter().copied()))
+            .map_err(|e| e.kind().to_string())?;
+        plan(&cli.command).map_err(|e| e.to_string())
+    }
+
+    fn request(command: Command) -> Result<Plan, String> {
+        Ok(Plan::Request(command))
+    }
+
+    /// AC15: every row of the "One-shot commands" table maps to its
+    /// message; bad numbers and items are refused (exit 2, nothing sent).
+    #[test]
+    fn ac15_parse() {
+        const ALBUM: &str = "https://tidal.com/browse/album/10";
+        let rows: Vec<(&[&str], Result<Plan, String>)> = vec![
+            (&["play-pause"], request(Command::TogglePause)),
+            (&["next"], request(Command::Next)),
+            (&["previous"], request(Command::Previous)),
+            (
+                &["seek", "90"],
+                request(Command::SeekTo(Duration::from_secs(90))),
+            ),
+            (
+                &["seek", "1.5"],
+                request(Command::SeekTo(Duration::from_millis(1500))),
+            ),
+            (&["seek", "+5"], request(Command::SeekBy(5000))),
+            (&["seek", "-2.5"], request(Command::SeekBy(-2500))),
+            (&["volume", "80"], request(Command::SetVolume(80))),
+            (&["volume", "0"], request(Command::SetVolume(0))),
+            (&["volume", "100"], request(Command::SetVolume(100))),
+            (&["volume", "+5"], request(Command::ChangeVolume(5))),
+            (&["volume", "-100"], request(Command::ChangeVolume(-100))),
+            (&["mute"], request(Command::ToggleMute)),
+            (&["shuffle"], request(Command::ToggleShuffle)),
+            (&["repeat"], request(Command::CycleRepeat)),
+            (&["autoplay"], request(Command::ToggleAutoplay)),
+            (
+                &["load", ALBUM, "3"],
+                request(Command::Open {
+                    items: vec![Item::Album(10), Item::Track(TrackId(3))],
+                    at: None,
+                }),
+            ),
+            (
+                &["add", "3"],
+                request(Command::Open {
+                    items: vec![Item::Track(TrackId(3))],
+                    at: Some(InsertAt::End),
+                }),
+            ),
+            (
+                &["add", "--next", ALBUM],
+                request(Command::Open {
+                    items: vec![Item::Album(10)],
+                    at: Some(InsertAt::Next),
+                }),
+            ),
+            (&["status"], Ok(Plan::Status { json: false })),
+            (&["status", "--json"], Ok(Plan::Status { json: true })),
+            // Refused.
+            (
+                &["volume", "101"],
+                Err("Invalid volume \"101\": expected 0 to 100, +N or -N".into()),
+            ),
+            (
+                &["volume", "+101"],
+                Err("Invalid volume \"+101\": expected 0 to 100, +N or -N".into()),
+            ),
+            (
+                &["volume", "loud"],
+                Err("Invalid volume \"loud\": expected 0 to 100, +N or -N".into()),
+            ),
+            (
+                &["seek", "x"],
+                Err("Invalid seek \"x\": expected seconds, +S or -S".into()),
+            ),
+            (
+                &["seek", "-"],
+                Err("Invalid seek \"-\": expected seconds, +S or -S".into()),
+            ),
+            (
+                &["seek", "inf"],
+                Err("Invalid seek \"inf\": expected seconds, +S or -S".into()),
+            ),
+            (
+                &["load", "https://tidal.com/browse/artist/1"],
+                Err(
+                    "Not a Tidal track, album or playlist: https://tidal.com/browse/artist/1"
+                        .into(),
+                ),
+            ),
+        ];
+        for (args, want) in rows {
+            assert_eq!(parse(args), want, "{args:?}");
+        }
+        // clap refuses these itself (exit 2): no item, an unknown command.
+        for args in [&["load"][..], &["add", "--next"], &["stop"], &["seek"]] {
+            assert!(parse(args).is_err(), "{args:?} accepted");
+        }
+    }
+
+    fn track(id: u64, title: &str, artists: &[&str], album: &str, secs: Option<u64>) -> Track {
+        Track {
+            id: TrackId(id),
+            title: title.into(),
+            artists: artists.iter().map(|a| (*a).into()).collect(),
+            album: Some(album.into()),
+            duration: secs.map(Duration::from_secs),
+            streamable: true,
+        }
+    }
+
+    fn queue(n: u64) -> Vec<QueueEntry> {
+        (1..=n)
+            .map(|i| QueueEntry {
+                id: EntryId(i),
+                track: track(i, &format!("Track {i}"), &["Artist"], "Album", Some(200)),
+                suggested: false,
+            })
+            .collect()
+    }
+
+    fn playing() -> PlayerSnapshot {
+        let mut queue = queue(12);
+        queue[1].track = track(
+            2,
+            "Hell Above",
+            &["Pierce The Veil"],
+            "Collide With The Sky",
+            Some(212),
+        );
+        PlayerSnapshot {
+            queue,
+            current: Some(EntryId(2)),
+            state: PlaybackState::Playing,
+            position: Duration::from_secs(83),
+            shuffle: true,
+            repeat: RepeatMode::Queue,
+            autoplay: false,
+            volume: 80,
+            muted: false,
+            now_playing: Some(NowPlaying {
+                quality: AudioQuality::Lossless,
+                source: "FLAC 16-bit 44.1 kHz stereo".into(),
+                output: "hw:1,0 S32_LE 44.1 kHz".into(),
+                bit_perfect: false,
+                bit_perfect_reason: Some("volume below 100%".into()),
+                released: false,
+            }),
+            message: None,
+        }
+    }
+
+    /// AC15: `status` prints the three lines (state symbol, indicators,
+    /// queue position), `Nothing playing` alone without a current entry,
+    /// and a fourth line for a message or an expired session.
+    #[test]
+    fn ac15_status_lines() {
+        let paused_released = {
+            let mut s = playing();
+            s.state = PlaybackState::Paused;
+            s.shuffle = false;
+            s.repeat = RepeatMode::Off;
+            s.autoplay = true;
+            s.muted = true;
+            if let Some(np) = s.now_playing.as_mut() {
+                np.released = true;
+            }
+            s
+        };
+        let failed = {
+            let mut s = paused_released.clone();
+            s.message = Some("Output hw:1,0 is busy (used by firefox)".into());
+            s
+        };
+        let empty = PlayerSnapshot {
+            queue: Vec::new(),
+            current: None,
+            state: PlaybackState::Stopped,
+            position: Duration::ZERO,
+            now_playing: None,
+            message: None,
+            ..playing()
+        };
+        let mut unknown = playing();
+        unknown.queue[1].track.duration = None;
+        let rows: Vec<(&str, PlayerSnapshot, bool, &str)> = vec![
+            (
+                "playing",
+                playing(),
+                false,
+                "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80%\n\
+                 Queue: 2 of 12\n",
+            ),
+            (
+                "paused, released",
+                paused_released,
+                false,
+                "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · autoplay · muted · device released\n\
+                 Queue: 2 of 12\n",
+            ),
+            (
+                "a message",
+                failed,
+                false,
+                "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · autoplay · muted · device released\n\
+                 Queue: 2 of 12\n\
+                 Output hw:1,0 is busy (used by firefox)\n",
+            ),
+            (
+                "unknown duration",
+                unknown,
+                false,
+                "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / ?:?? · shuffle · repeat: queue · 80%\n\
+                 Queue: 2 of 12\n",
+            ),
+            ("nothing playing", empty.clone(), false, "Nothing playing\n"),
+            (
+                "session expired",
+                empty,
+                true,
+                "Nothing playing\nSession expired: run \"tidal-player login\"\n",
+            ),
+            (
+                "session expired while playing",
+                playing(),
+                true,
+                "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80%\n\
+                 Queue: 2 of 12\n\
+                 Session expired: run \"tidal-player login\"\n",
+            ),
+        ];
+        for (name, snapshot, login_required, want) in rows {
+            assert_eq!(status_lines(&snapshot, login_required), want, "{name}");
+        }
+    }
+
+    /// A link that records what it was sent and answers from a script
+    /// (then: nothing in time).
+    struct Scripted {
+        sent: Rc<RefCell<Vec<ClientMessage>>>,
+        answers: VecDeque<Result<ServerMessage, RecvError>>,
+    }
+
+    impl Link for Scripted {
+        fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
+            self.sent.borrow_mut().push(message.clone());
+            Ok(())
+        }
+
+        fn recv(&mut self, _: Option<Duration>) -> Result<Option<ServerMessage>, RecvError> {
+            self.answers.pop_front().transpose()
+        }
+
+        fn close(&mut self) {}
+    }
+
+    fn exec(
+        plan: &Plan,
+        answers: Vec<Result<ServerMessage, RecvError>>,
+    ) -> (u8, String, String, Vec<ClientMessage>) {
+        let sent = Rc::default();
+        let mut link = Scripted {
+            sent: Rc::clone(&sent),
+            answers: answers.into(),
+        };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = execute(
+            &mut link,
+            plan,
+            Duration::from_millis(50),
+            &mut out,
+            &mut err,
+        );
+        let sent = sent.borrow().clone();
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+            sent,
+        )
+    }
+
+    /// AC15 (with a fake link; the binary's exit codes are in
+    /// `tests/daemon.rs`): `Ok` → exit 0 and nothing printed; `Err` → its
+    /// message on stderr, exit 1; no reply in time → exit 1; `status`
+    /// subscribes and prints the `Welcome`, as lines or as one JSON line.
+    #[test]
+    fn ac15_execute() {
+        let next = Plan::Request(Command::Next);
+        let reply = |result| Ok(ServerMessage::Reply { id: 0, result });
+        let asked = vec![ClientMessage::Request {
+            id: 0,
+            command: Command::Next,
+        }];
+        assert_eq!(
+            exec(&next, vec![reply(Ok(()))]),
+            (0, String::new(), String::new(), asked.clone())
+        );
+        assert_eq!(
+            exec(&next, vec![reply(Err("Album 404 was not found".into()))]),
+            (
+                1,
+                String::new(),
+                "Album 404 was not found\n".into(),
+                asked.clone()
+            )
+        );
+        assert_eq!(
+            exec(&next, vec![]),
+            (1, String::new(), format!("{NO_ANSWER}\n"), asked.clone())
+        );
+        let (code, _, err, _) = exec(&next, vec![Err(RecvError::Closed)]);
+        assert_eq!((code, err.is_empty()), (1, false));
+
+        let welcome = ServerMessage::Welcome {
+            snapshot: playing(),
+            login_required: false,
+        };
+        let (code, out, err, sent) = exec(&Plan::Status { json: false }, vec![Ok(welcome.clone())]);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert_eq!(out, status_lines(&playing(), false));
+        assert_eq!(sent, vec![ClientMessage::Subscribe]);
+        let (code, out, _, _) = exec(&Plan::Status { json: true }, vec![Ok(welcome.clone())]);
+        assert_eq!(code, 0);
+        assert_eq!(out.lines().count(), 1, "{out}");
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(out.trim_end()).ok(),
+            Some(welcome)
+        );
+        assert_eq!(
+            exec(&Plan::Status { json: false }, vec![]),
+            (
+                1,
+                String::new(),
+                format!("{NO_ANSWER}\n"),
+                vec![ClientMessage::Subscribe]
+            )
+        );
+    }
+}

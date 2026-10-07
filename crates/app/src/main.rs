@@ -19,6 +19,7 @@ use tidal_player::{
     input::key_to_action,
     ipc::{self, ClaimError, lock::PlayerLock, paths::current_uid, server},
     login::{LoginOutcome, run_login},
+    oneshot::PlaybackCommand,
     panic_hook::install_panic_hook,
     play::{
         ASOUND_DIR_VAR, PlayOptions, configured_device, resolve_play_config, resolve_player_config,
@@ -87,12 +88,31 @@ enum Command {
     /// Delete the stored session from this machine.
     Logout,
     /// Run the player headless, for clients to attach to.
-    Daemon,
+    Daemon(DaemonArgs),
+    /// Control the running player: one command, then exit.
+    Playback {
+        #[command(subcommand)]
+        command: PlaybackCommand,
+    },
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
     Play(PlayArgs),
     /// List the playback devices; `*` marks the one `play` would use.
     Devices,
+}
+
+#[derive(Debug, clap::Args)]
+struct DaemonArgs {
+    #[command(subcommand)]
+    action: Option<DaemonAction>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum DaemonAction {
+    /// Ask the running player to shut down, and wait until it is gone.
+    Stop,
+    /// Print a systemd user unit for the daemon (see docs/daemon.md).
+    Unit,
 }
 
 #[derive(Debug, clap::Args)]
@@ -642,7 +662,18 @@ fn main() -> Result<ExitCode> {
     let plan = StorePlan::from_env();
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
-        Some(Command::Daemon) => daemon(&plan),
+        Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan),
+        Some(Command::Daemon(DaemonArgs {
+            action: Some(DaemonAction::Stop),
+        })) => Ok(tidal_player::daemon::stop()),
+        Some(Command::Daemon(DaemonArgs {
+            action: Some(DaemonAction::Unit),
+        })) => {
+            let exe = std::env::current_exe().context("cannot tell where this program is")?;
+            print!("{}", tidal_player::daemon::unit(&exe));
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Playback { command }) => Ok(tidal_player::oneshot::run(&command)),
         Some(Command::Login) => {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
