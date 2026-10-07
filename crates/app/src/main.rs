@@ -96,7 +96,7 @@ struct PlayArgs {
     /// [env: TIDAL_PLAYER_DEVICE] [default: default].
     #[arg(long)]
     device: Option<String>,
-    /// Start this many seconds into the track.
+    /// Start this many seconds into the first track.
     #[arg(long, value_name = "SECONDS")]
     start: Option<f64>,
 }

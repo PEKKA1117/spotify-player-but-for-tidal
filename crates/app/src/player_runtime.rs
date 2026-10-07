@@ -320,11 +320,6 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         !self.suggesting.is_empty()
     }
 
-    /// The engine, for tests and for shutting it down.
-    pub fn engine_mut(&mut self) -> &mut E {
-        &mut self.engine
-    }
-
     /// The next input: a pending one from `inputs` first, else an engine
     /// event (waiting at most `wait`).
     pub fn next_input(

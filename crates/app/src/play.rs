@@ -519,20 +519,24 @@ pub fn play_queue<E: EngineControl, J: Jobs>(
         reporter.report(&handled, output);
     }
     loop {
+        // The player stops for good only once nothing can restart it.
         let snapshot = runtime.snapshot();
         if snapshot.state == PlaybackState::Stopped && !runtime.suggestions_pending() {
             reporter.finish(output);
             return reporter.exit_code(&snapshot);
         }
-        if interrupted() {
-            runtime.handle(RuntimeInput::Command(Command::Shutdown));
-            reporter.finish(output);
-            return 130;
-        }
-        if let Some(input) = runtime.next_input(inputs, poll) {
-            let handled = runtime.handle(input);
-            reporter.report(&handled, output);
-        }
+        let input = loop {
+            if interrupted() {
+                runtime.handle(RuntimeInput::Command(Command::Shutdown));
+                reporter.finish(output);
+                return 130;
+            }
+            if let Some(input) = runtime.next_input(inputs, poll) {
+                break input;
+            }
+        };
+        let handled = runtime.handle(input);
+        reporter.report(&handled, output);
     }
 }
 
@@ -1074,7 +1078,6 @@ mod tests {
     #[derive(Default)]
     struct FakeMeta {
         requests: Mutex<Vec<String>>,
-        suggestions: Vec<Track>,
     }
 
     impl FakeMeta {
@@ -1122,7 +1125,7 @@ mod tests {
         }
 
         fn suggestions(&self, seed: TrackId) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
-            self.answer(format!("suggestions {seed}"), Ok(self.suggestions.clone()))
+            self.answer(format!("suggestions {seed}"), Ok(Vec::new()))
         }
     }
 
@@ -1150,6 +1153,7 @@ mod tests {
             .collect()
     }
 
+    #[derive(Default)]
     struct Row {
         name: &'static str,
         items: &'static [&'static str],
@@ -1163,22 +1167,6 @@ mod tests {
         /// The tracks whose "Track"/"Output" lines are printed, in order.
         started: Vec<u64>,
         stderr: &'static str,
-    }
-
-    impl Default for Row {
-        fn default() -> Self {
-            Self {
-                name: "",
-                items: &[],
-                options: PlayOptions::default(),
-                unavailable: &[],
-                engine: Vec::new(),
-                tty: false,
-                code: 0,
-                started: Vec::new(),
-                stderr: "",
-            }
-        }
     }
 
     /// Runs `play` as the binary does, against the fakes: parse, expand,
@@ -1195,10 +1183,7 @@ mod tests {
             jobs.failures.insert(*id, not_available(*id));
         }
         jobs.suggestions = vec![track(11, None), track(3, Some(200))];
-        let meta = FakeMeta {
-            suggestions: Vec::new(),
-            ..FakeMeta::default()
-        };
+        let meta = FakeMeta::default();
         let args: Vec<String> = row.items.iter().map(|s| (*s).to_owned()).collect();
         let tokio = tokio::runtime::Builder::new_current_thread()
             .build()
@@ -1424,7 +1409,8 @@ mod tests {
     #[test]
     fn ac25_player_config() {
         type Want = Result<(u8, u64, u64, bool), (&'static str, &'static str)>;
-        let rows: &[(&str, &[(&str, &str)], Want)] = &[
+        type Env = &'static [(&'static str, &'static str)];
+        let rows: &[(&str, Env, Want)] = &[
             ("defaults", &[], Ok((5, 5, 3, false))),
             (
                 "empty counts as unset",
@@ -1552,7 +1538,7 @@ mod tests {
         }
 
         // `play --autoplay` beats the environment, even a bad value.
-        let precedence: &[(bool, &[(&str, &str)], bool)] = &[
+        let precedence: &[(bool, Env, bool)] = &[
             (true, &[(AUTOPLAY_VAR, "off")], true),
             (true, &[(AUTOPLAY_VAR, "maybe")], true),
             (false, &[(AUTOPLAY_VAR, "on")], true),
