@@ -672,3 +672,63 @@ pub fn group(n: u32) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::track::{AlbumRef, TrackId};
+
+    fn track(id: u64) -> Track {
+        Track {
+            id: TrackId(id),
+            title: format!("T{id}"),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 20,
+                name: "A".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 10,
+                title: "Al".into(),
+            }),
+            duration: None,
+            streamable: true,
+        }
+    }
+
+    fn page(offset: u32, ids: &[u64]) -> ListItems {
+        ListItems::Tracks(ListPage {
+            items: ids.iter().map(|&id| track(id)).collect(),
+            offset,
+            total: 3,
+            hidden: 0,
+        })
+    }
+
+    fn ids(window: &Window) -> Vec<u64> {
+        match &window.rows {
+            Rows::Tracks(rows) => rows.iter().map(|t| t.id.0).collect(),
+            other => panic!("not tracks: {other:?}"),
+        }
+    }
+
+    /// Spec 0006 "Bugs": a playlist keeps a track it holds twice (skipped
+    /// by position); other lists still skip a repeated ID.
+    #[test]
+    fn ac10_playlist_duplicates_kept() {
+        let mut playlist = Window::new(
+            WindowKind::PlaylistTracks,
+            ListRef::PlaylistTracks("p".into()),
+        );
+        playlist.append(page(0, &[7, 7]), 2);
+        playlist.append(page(0, &[7, 7]), 2); // the same page again
+        playlist.append(page(2, &[8]), 2);
+        assert_eq!(ids(&playlist), vec![7, 7, 8]);
+        assert_eq!(playlist.positions, vec![0, 1, 2]);
+
+        let mut favorites = Window::new(WindowKind::FavoriteTracks, ListRef::FavoriteTracks);
+        favorites.append(page(0, &[7, 7]), 2);
+        favorites.append(page(2, &[7]), 2);
+        assert_eq!(ids(&favorites), vec![7]);
+    }
+}

@@ -77,7 +77,7 @@ Every list (each window above) is fetched a **page** at a time (decision 5): the
 
 - **Page size**: a setting, `TIDAL_PLAYER_PAGE_SIZE` (until 0008 moves it to `app.toml`), integer **1–10 000**, default **100**; empty = unset, invalid → exit 2 naming the variable (0004 "Settings" rules). Each request asks `min(page size, endpoint's largest page)` (table under "What the player fetches": 50 for playlists and credits)
 - **The whole list is needed** for `Enter` on a track (play from here), `Z` on a list, *Add to playlist* of a list: the client first fetches the remaining pages (`Loading 300 of 1 234…` in the message row), then sends one command with every track in page order. `Esc` cancels; nothing is sent. A list above **40 000** tracks is refused with `Too many tracks to queue at once (N)` (the socket's 16 MiB line holds about 50 000)
-- `offset` advances by the page size asked, not by the items received; rows already loaded (same track ID, album ID, artist ID or playlist UUID) are skipped (the probe's short page, what could go wrong 12)
+- `offset` advances by the page size asked, not by the items received; rows already loaded (same track ID, album ID, artist ID or playlist UUID; for a playlist's tracks, the same position, as a playlist can hold a track twice: "Bugs") are skipped (the probe's short page, what could go wrong 12)
 
 ### Lists and the cursor
 
@@ -378,3 +378,8 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 - Sorting and filtering lists (spotify-player's `s t`, `/` in a page), the help popup (`?`), configurable keys and page percentages (0008)
 - Jumping to the playing track in its list (spotify-player's `g c`), the "currently playing context" page (`g space`)
 - One-shot `playback` commands for the library (e.g. `playback load --favorites`)
+
+## Bugs
+
+- **A playlist that holds the same track twice shows it once (found at slice D acceptance, 2026-10-07).** Expected: a playlist row for every item Tidal lists, duplicates included (the write probe added the same track twice to one playlist, and Tidal kept both); *Remove from this playlist* addresses the right one by position. Actual: appending a page skips "rows already loaded (same track ID …)", so the second copy never shows. Root cause: "Lists load as you scroll" made skipping by ID the guard against overlapping pages for every list; for a playlist an ID is not unique. Fix: playlist tracks are skipped by **position** (the item's offset in the list) instead of by ID; every other list keeps skipping by ID. Test: `crates/core/src/ui/page.rs` :: `ac10_playlist_duplicates_kept` (two pages of a playlist with the same track at positions 0 and 1, and a repeated page: both copies kept once each, positions 0 and 1; a favorite-tracks window still drops a repeated ID). Red: the playlist window keeps one row
+
