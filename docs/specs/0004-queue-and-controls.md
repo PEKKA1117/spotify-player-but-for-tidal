@@ -78,7 +78,7 @@ When **autoplay** is on (`ToggleAutoplay`; off by default, a setting) and repeat
 
 - At most one request per seed entry; turning autoplay off drops a pending request's result, and on again at the preload point asks again
 - An error, or no new tracks: nothing is appended, the queue stops at its end as with autoplay off, and the message says `Autoplay: no suggestions (<reason>)`. Never retried in a loop
-- The endpoint is Tidal's track radio or the track's mix (`mixes.TRACK_MIX` in the track metadata); which one the Tidal apps use, and their shapes, are recorded by a probe before approval ("Facts")
+- Suggestions come from `GET {api_base}/tracks/{seed}/radio?countryCode=…&limit=100`: one request, no paging (Tidal caps it at 100 tracks, the seed first). The track's mix (`mixes.TRACK_MIX`) returns the same 100 tracks in the same order ("Facts"), so the radio, which needs only the track ID, is used. `404` (`Track radio cannot be generated…`) counts as "no suggestions"
 
 ### Gapless and preloading
 
@@ -251,7 +251,7 @@ Added with the decisions (2026-10-07):
 
 - **AC25** — Settings: `resolve_player_config(env)` (pure) gives the defaults with nothing set, each value within its range, and exit-2 errors naming the variable for out-of-range, non-numeric and unknown values (table, including empty = unset). `play --autoplay` beats the environment. The TUI's `+`/`-` and `>`/`<` send the configured steps; the player's previous uses the configured threshold
 - **AC26** — Autoplay (player): with autoplay on and repeat `off`, the last entry reaching the preload point emits `FetchSuggestions { seed: its track, tag }` once; a result for that tag appends the tracks not already queued as suggested entries and preloads the first; an error or an empty (or all-duplicate) result appends nothing, sets the `Autoplay: no suggestions (…)` message and the queue stops at its end; a stale tag, or a result arriving after `ToggleAutoplay` off, changes nothing; with repeat `queue`/`track` or autoplay off, no `FetchSuggestions` is ever emitted (table)
-- **AC27** — `tidal-player-api` gets `get_suggestions(track)` against the endpoint the autoplay probe settles on (wiremock fixture from it): tracks in order, non-track items dropped, the same error mapping as AC17
+- **AC27** — `tidal-player-api` gets `get_suggestions(track)`: exactly one `GET /tracks/{id}/radio` with `countryCode` and `limit=100` (wiremock fixture from the probe); the tracks in order, mapped as in AC17 (the seed included: the player's de-duplication drops it); `404`/`2001` → an empty list; `LoginRequired` and transient errors returned unchanged
 - **AC28** — Open prompt (client state, pure): `o` opens it; typed characters and a paste edit it; `Backspace` deletes; `Esc` closes it with no effect; `Enter` with a valid item closes it and emits `Effect::Expand(item)`; with an invalid one, closes it and sets the `Not a Tidal track, album or playlist` message. The client runtime turns the expanded tracks into `AddToQueue { at: End }`, followed by `PlayEntry` of the first added entry when the player is `Stopped` with nothing current or the queue was empty (fake metadata). While the prompt is open no key reaches the player (`Space` types a space)
 
 ## Edge cases & errors
@@ -310,7 +310,7 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC24 | — reviewed at acceptance | docs exist, match this spec, are linked | — |
 | AC25 | `crates/app/src/play.rs` :: `ac25_player_config` (table) + `crates/core/src/ui.rs` :: `ac25_steps_from_config` | values, errors and precedence; commands carry the configured steps | stub ignores the environment and returns the defaults |
 | AC26 | `crates/core/src/player.rs` :: `ac26_autoplay` (table: on/off × repeat × result ok/empty/duplicates/error/stale/after toggle-off) | `FetchSuggestions` once, appended entries and their mark, preload, message, stop | stub never fetches, so the queue stops at its end with autoplay on |
-| AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | path and params, mapped tracks, errors | stub returns an empty list without a request |
+| AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | path and params, mapped tracks, errors | stub returns an empty list without a request, so the `expect(1)` fails |
 | AC28 | `crates/core/src/ui.rs` :: `ac28_open_prompt` (table) + `crates/app/src/player_runtime.rs` :: `ac28_open_adds_and_starts` | prompt state, effects; commands sent after expansion | stub `o` does nothing |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account (results in the PR description):
@@ -344,7 +344,12 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-metadata-probe
 - Video entries in `/items` (second run, `limit=50`, all 41 entries): `{"item": {…}, "type": "video", "cut": null}`, where `item` has `id`, `title`, `duration`, `artists`, `streamReady`/`allowStreaming` (both `true`), `quality: "MP4_1080P"`, `type: "Music Video"`, `trackNumber: 0`, `volumeNumber: 0` and **`album: null`**. Page counts: 39 `track`, 2 `video`, matching `numberOfTracks`/`numberOfVideos`
 - `GET /v1/playlists/{uuid}/tracks` (tidalt's endpoint) has the same envelope with bare items and **returns the videos too** (41 items for 39 tracks + 2 videos), with nothing marking them but their shape (`album: null`, `quality`). So this spec uses `/items` and keeps only `type == "track"`. Whether `/tracks` also refuses `limit=1000` (tidalt's value) is not verified
 
-To be recorded by `scripts/tidal-autoplay-probe.sh` before approval (decision 4): what `GET /v1/tracks/{id}/radio` (tidalt's `GetTrackRadio`) and `GET /v1/mixes/{TRACK_MIX}/items` return for a track (shape, count, paging, whether the seed track is included, videos), and how they fail for a track without suggestions. AC27's endpoint is chosen from that.
+Verified on 2026-10-07 against the **live API** by `scripts/tidal-autoplay-probe.sh`, run by the user (same account), seed track 33695188:
+
+- `GET /v1/tracks/{id}/radio` → the album-tracks envelope with bare tracks (`{limit, offset, totalNumberOfItems, items: [track…]}`). Default page size 10; `totalNumberOfItems: 100`; `limit=100` returns all 100. The **seed track is the first item**
+- `GET /v1/mixes/{TRACK_MIX}/items` (the ID from the track's `mixes.TRACK_MIX`) → `{item, type: "track"}` entries, default page size 100, `totalNumberOfItems: 100`, and **the same 100 track IDs in the same order** as the radio. So the track radio *is* the track mix; the radio is used because it needs no extra lookup
+- Unknown track → `404 {"subStatus":2001,"userMessage":"Track radio cannot be generated for trackId [1]"}`; unknown mix → `404`/`2001` (`Mix items for [...] not found`)
+- Which endpoint the Tidal apps' own autoplay calls is not known
 
 Not verified (the probe did not reach it):
 
