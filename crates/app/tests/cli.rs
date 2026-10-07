@@ -312,27 +312,17 @@ fn ac26_play_end_to_end_errors() {
         cmd
     };
 
-    play(&[
-        "123",
-        "--quality",
-        "lossless",
-        "--device",
-        "tidal_player_no_such_pcm",
-    ])
-    .assert()
-    .code(1)
-    .stdout("")
-    // The last line is ours. alsa-lib also writes its own diagnostic
-    // ("ALSA lib pcm.c:…: Unknown PCM …") to stderr before it: a known
-    // gap in the audio crate's ALSA backend, reported at slice D.
-    .stderr(
-        predicate::str::ends_with(
-            "\nNo such output device tidal_player_no_such_pcm: see \"tidal-player devices\"\n",
-        )
-        .or(predicate::eq(
-            "No such output device tidal_player_no_such_pcm: see \"tidal-player devices\"\n",
-        )),
-    );
+    // AC28 (spec 0003 Bugs): exactly one line, for a missing card and for
+    // an unknown PCM name; alsa-lib's own diagnostics must not leak.
+    for device in ["hw:99,0", "tidal_player_no_such_pcm"] {
+        play(&["123", "--quality", "lossless", "--device", device])
+            .assert()
+            .code(1)
+            .stdout("")
+            .stderr(format!(
+                "No such output device {device}: see \"tidal-player devices\"\n"
+            ));
+    }
     play(&["404"])
         .assert()
         .code(1)

@@ -52,6 +52,15 @@ fn refused(error: alsa::Error) -> PcmError {
     }
 }
 
+/// Maps an `snd_pcm_open` failure (spec 0003 AC28).
+fn open_error(errno: i32, message: &str) -> PcmError {
+    match errno {
+        EBUSY => PcmError::Busy,
+        ENOENT | ENODEV | ENXIO => PcmError::NotFound,
+        _ => PcmError::Other(message.to_owned()),
+    }
+}
+
 fn io_error(error: alsa::Error) -> PcmError {
     match error.errno() {
         EPIPE => PcmError::Underrun,
@@ -126,11 +135,8 @@ impl PcmBackend for AlsaBackend {
 
     fn open(&mut self, name: &str) -> Result<(), PcmError> {
         self.close();
-        let pcm = PCM::new(name, Direction::Playback, false).map_err(|e| match e.errno() {
-            EBUSY => PcmError::Busy,
-            ENOENT | ENODEV | ENXIO => PcmError::NotFound,
-            _ => other(e),
-        })?;
+        let pcm = PCM::new(name, Direction::Playback, false)
+            .map_err(|e| open_error(e.errno(), &e.to_string()))?;
         self.pcm = Some(pcm);
         Ok(())
     }
@@ -214,4 +220,25 @@ pub fn alsa_sink_factory(
         make_reserver,
         Arc::new(SystemClock::new()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ac28_open_error_mapping() {
+        let rows = [
+            (EBUSY, PcmError::Busy),
+            (ENOENT, PcmError::NotFound),
+            (ENODEV, PcmError::NotFound),
+            (ENXIO, PcmError::NotFound),
+            // `hw:99,0`: alsa-lib reports a card that does not exist as EINVAL.
+            (EINVAL, PcmError::NotFound),
+            (EIO, PcmError::Other("boom".into())),
+        ];
+        for (errno, expected) in rows {
+            assert_eq!(open_error(errno, "boom"), expected, "errno {errno}");
+        }
+    }
 }
