@@ -1,6 +1,6 @@
 # 0004 — Queue & playback controls
 
-- **Status**: approved (2026-10-07)
+- **Status**: implemented (2026-10-07)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented), 0002 (implemented), 0003 (approved; its engine is extended here, see "Engine additions")
 - **User docs**: [`docs/playback.md`](../playback.md) (extended) and a new [`docs/tui.md`](../tui.md) (written by this spec's implementation, AC24)

@@ -4,7 +4,7 @@
 
 ## Status
 
-Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Spec `0002-auth.md` (implemented) adds the device-flow login, session storage (keyring, else an age-encrypted file) and refresh/recovery; user docs in `docs/login.md`. Follow-up specs are listed in its "Out of scope" section.
+Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Spec `0002-auth.md` (implemented) adds the device-flow login, session storage (keyring, else an age-encrypted file) and refresh/recovery; user docs in `docs/login.md`. Spec `0004-queue-and-controls.md` (implemented) adds the player state machine (`tidal_player_core::player`), the queue, playback controls, autoplay, the player runtime and the first TUI screen; user docs in `docs/tui.md` and `docs/playback.md`. Follow-up specs are listed in its "Out of scope" section.
 
 ## Build & tooling
 
