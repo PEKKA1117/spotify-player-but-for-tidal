@@ -42,6 +42,8 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 Vec::new()
             }
             protocol::Event::ShuttingDown => Vec::new(),
+            // Playback events are handled by the TUI slice of spec 0004.
+            protocol::Event::Player(_) | protocol::Event::Position { .. } => Vec::new(),
         },
     }
 }

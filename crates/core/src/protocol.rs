@@ -1,13 +1,76 @@
 //! Wire protocol between a daemon and its clients. Transport-agnostic: these
 //! types only describe messages, they never send them.
+//!
+//! Playback messages: spec 0004 "Player and protocol".
+
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::quality::AudioQuality;
+use crate::track::{EntryId, Track};
+
 /// A request a client sends to the daemon.
+///
+/// Modes are toggled rather than set, so two clients acting on a stale view
+/// cannot fight (spec 0004).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Command {
     /// Ask the daemon to shut down.
     Shutdown,
+    /// Replace the queue with `tracks` and play `tracks[start]` from the start
+    /// (`start` past the end is clamped to the last track).
+    #[serde(skip_deserializing)]
+    LoadQueue { tracks: Vec<Track>, start: usize },
+    /// Add `tracks` after the current entry or at the end of the queue.
+    #[serde(skip_deserializing)]
+    AddToQueue { tracks: Vec<Track>, at: InsertAt },
+    /// Remove one entry.
+    #[serde(skip_deserializing)]
+    RemoveFromQueue(EntryId),
+    /// Remove every entry except the current one.
+    #[serde(skip_deserializing)]
+    ClearQueue,
+    /// Make an entry current and play it from the start.
+    #[serde(skip_deserializing)]
+    PlayEntry(EntryId),
+    /// Play/pause.
+    #[serde(skip_deserializing)]
+    TogglePause,
+    #[serde(skip_deserializing)]
+    Next,
+    #[serde(skip_deserializing)]
+    Previous,
+    /// Seek relative to the current position, in signed milliseconds.
+    #[serde(skip_deserializing)]
+    SeekBy(i64),
+    /// Seek to a position in the current track.
+    #[serde(skip_deserializing)]
+    SeekTo(Duration),
+    #[serde(skip_deserializing)]
+    ToggleShuffle,
+    /// `off` → `queue` → `track` → `off`.
+    #[serde(skip_deserializing)]
+    CycleRepeat,
+    #[serde(skip_deserializing)]
+    ToggleAutoplay,
+    /// Change the volume by a signed number of percentage points (clamped).
+    #[serde(skip_deserializing)]
+    ChangeVolume(i8),
+    /// Set the volume in percent (values above 100 are clamped).
+    #[serde(skip_deserializing)]
+    SetVolume(u8),
+    #[serde(skip_deserializing)]
+    ToggleMute,
+}
+
+/// Where `AddToQueue` inserts its tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InsertAt {
+    /// Right after the current entry.
+    Next,
+    /// At the end of the queue.
+    End,
 }
 
 /// A notification the daemon sends to its clients.
@@ -19,11 +82,100 @@ pub enum Event {
     LoginRequired,
     /// The session has been restored after expiry.
     LoginRestored,
+    /// The whole player state, sent after every input that changed it.
+    /// Clients replace their copy with it and never reorder its queue.
+    #[serde(skip_deserializing)]
+    Player(PlayerSnapshot),
+    /// The position of the playing entry, forwarded from the engine.
+    #[serde(skip_deserializing)]
+    Position { entry: EntryId, position: Duration },
+}
+
+/// The player's state as clients see it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerSnapshot {
+    /// The queue in play order (shuffled when shuffle is on).
+    pub queue: Vec<QueueEntry>,
+    /// The current entry, if any.
+    pub current: Option<EntryId>,
+    pub state: PlaybackState,
+    /// The position in the current entry (the start position while loading).
+    pub position: Duration,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    pub autoplay: bool,
+    /// 0–100 %.
+    pub volume: u8,
+    pub muted: bool,
+    /// Details of the track the engine is playing; `None` until it started.
+    pub now_playing: Option<NowPlaying>,
+    /// A failure or autoplay message, kept until the next track starts or
+    /// another message replaces it.
+    pub message: Option<String>,
+}
+
+/// One queue entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueEntry {
+    pub id: EntryId,
+    pub track: Track,
+    /// Added by autoplay.
+    pub suggested: bool,
+}
+
+/// Playback state (spec 0004 "Playback state").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlaybackState {
+    Stopped,
+    /// The stream is being resolved and opened; nothing plays yet.
+    Loading,
+    Playing,
+    /// Playing, but the engine's fetch buffer ran dry.
+    Buffering,
+    /// Paused, including a load held by a pause (it starts on the next toggle).
+    Paused,
+}
+
+/// Repeat mode (spec 0004 "Shuffle and repeat").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    Queue,
+    Track,
+}
+
+impl RepeatMode {
+    /// The next mode in the `off` → `queue` → `track` → `off` cycle.
+    pub fn cycled(self) -> Self {
+        match self {
+            Self::Off => Self::Queue,
+            Self::Queue => Self::Track,
+            Self::Track => Self::Off,
+        }
+    }
+}
+
+/// What is playing and how (spec 0003 "Track" and "Output" lines).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NowPlaying {
+    /// The quality Tidal granted for this stream.
+    pub quality: AudioQuality,
+    /// The source description (0003's "Track" line, after the quality).
+    pub source: String,
+    /// The output description (0003's "Output" line, without the verdict).
+    pub output: String,
+    /// The engine's `bit_perfect`, cleared below 100 % volume or when muted.
+    pub bit_perfect: bool,
+    /// Why it is not bit-perfect (`muted`, `volume below 100%`, or the
+    /// engine's reason); `None` when bit-perfect.
+    pub bit_perfect_reason: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::track::TrackId;
     use serde::de::DeserializeOwned;
 
     fn round_trip<T>(v: &T)
@@ -38,22 +190,124 @@ mod tests {
         );
     }
 
+    fn track(id: u64) -> Track {
+        Track {
+            id: TrackId(id),
+            title: format!("Title {id}"),
+            artists: vec!["A".into(), "B".into()],
+            album: Some("Album".into()),
+            duration: Some(Duration::from_secs(212)),
+            streamable: true,
+        }
+    }
+
     /// Every variant of `Command`; extend when a variant is added.
     fn all_commands() -> Vec<Command> {
-        vec![Command::Shutdown]
+        vec![
+            Command::Shutdown,
+            Command::LoadQueue {
+                tracks: vec![track(1), track(2)],
+                start: 1,
+            },
+            Command::AddToQueue {
+                tracks: vec![track(3)],
+                at: InsertAt::Next,
+            },
+            Command::AddToQueue {
+                tracks: vec![],
+                at: InsertAt::End,
+            },
+            Command::RemoveFromQueue(EntryId(4)),
+            Command::ClearQueue,
+            Command::PlayEntry(EntryId(5)),
+            Command::TogglePause,
+            Command::Next,
+            Command::Previous,
+            Command::SeekBy(-5000),
+            Command::SeekTo(Duration::from_millis(83_250)),
+            Command::ToggleShuffle,
+            Command::CycleRepeat,
+            Command::ToggleAutoplay,
+            Command::ChangeVolume(-25),
+            Command::SetVolume(80),
+            Command::ToggleMute,
+        ]
     }
 
     /// Every variant of `Event`; extend when a variant is added.
     fn all_events() -> Vec<Event> {
-        vec![
+        let snapshot = PlayerSnapshot {
+            queue: vec![
+                QueueEntry {
+                    id: EntryId(1),
+                    track: track(1),
+                    suggested: false,
+                },
+                QueueEntry {
+                    id: EntryId(2),
+                    track: Track {
+                        album: None,
+                        duration: None,
+                        streamable: false,
+                        ..track(2)
+                    },
+                    suggested: true,
+                },
+            ],
+            current: Some(EntryId(1)),
+            state: PlaybackState::Playing,
+            position: Duration::from_millis(83_000),
+            shuffle: true,
+            repeat: RepeatMode::Queue,
+            autoplay: true,
+            volume: 80,
+            muted: false,
+            now_playing: Some(NowPlaying {
+                quality: AudioQuality::Lossless,
+                source: "FLAC 16-bit 44.1 kHz stereo".into(),
+                output: "hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
+                bit_perfect: false,
+                bit_perfect_reason: Some("volume below 100%".into()),
+            }),
+            message: Some("Track 2 was not found".into()),
+        };
+        let mut events = vec![
             Event::ShuttingDown,
             Event::LoginRequired,
             Event::LoginRestored,
-        ]
+            Event::Player(snapshot.clone()),
+            Event::Player(PlayerSnapshot {
+                queue: vec![],
+                current: None,
+                now_playing: None,
+                message: None,
+                repeat: RepeatMode::Track,
+                ..snapshot.clone()
+            }),
+            Event::Position {
+                entry: EntryId(7),
+                position: Duration::from_millis(250),
+            },
+        ];
+        let states = [
+            PlaybackState::Stopped,
+            PlaybackState::Loading,
+            PlaybackState::Buffering,
+            PlaybackState::Paused,
+        ];
+        events.extend(states.into_iter().map(|state| {
+            Event::Player(PlayerSnapshot {
+                state,
+                repeat: RepeatMode::Off,
+                ..snapshot.clone()
+            })
+        }));
+        events
     }
 
     #[test]
     fn ac11_round_trip() {
+        // 0001 AC11, extended by 0004 AC12.
         all_commands().iter().for_each(round_trip);
         all_events().iter().for_each(round_trip);
     }
