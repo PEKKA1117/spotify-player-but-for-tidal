@@ -2,6 +2,7 @@
 //! library (see docs/specs/0001-architecture.md).
 
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,12 +19,15 @@ use tidal_player::{
     input::key_to_action,
     login::{LoginOutcome, run_login},
     panic_hook::install_panic_hook,
+    play::{ASOUND_DIR_VAR, configured_device, resolve_settings},
+    playback::{HAS_ALSA, NO_ALSA, PlayRequest, play_track},
     store_setup::StorePlan,
     ui::render,
 };
 use tidal_player_api::auth::{
     AuthConfig, AuthStatus, Authenticator, SessionStore, StoreError, SystemClock,
 };
+use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::protocol::Event as PlayerEvent;
 use tidal_player_core::ui::{Action, Effect, State, update};
 use tokio::sync::watch;
@@ -44,6 +48,27 @@ enum Command {
     Logout,
     /// Run headless (not implemented yet, spec 0005).
     Daemon,
+    /// Play one track in the foreground, headless, and exit when it ends.
+    Play(PlayArgs),
+    /// List the playback devices; `*` marks the one `play` would use.
+    Devices,
+}
+
+#[derive(Debug, clap::Args)]
+struct PlayArgs {
+    /// The Tidal track ID.
+    track_id: u64,
+    /// Highest quality to ask for: hi-res, lossless or high
+    /// [env: TIDAL_PLAYER_QUALITY] [default: hi-res].
+    #[arg(long)]
+    quality: Option<String>,
+    /// Output device: any ALSA PCM name, see "tidal-player devices"
+    /// [env: TIDAL_PLAYER_DEVICE] [default: default].
+    #[arg(long)]
+    device: Option<String>,
+    /// Start this many seconds into the track.
+    #[arg(long, value_name = "SECONDS")]
+    start: Option<f64>,
 }
 
 /// Leaves the alternate screen and raw mode; errors are ignored because this
@@ -178,6 +203,84 @@ fn standalone(store: Arc<dyn SessionStore>) -> Result<ExitCode> {
     result.map(|()| ExitCode::SUCCESS)
 }
 
+fn env_var(key: &str) -> Option<String> {
+    std::env::var(key).ok()
+}
+
+/// Test-only: in debug builds, the API base URL comes from this variable
+/// when set, so CLI tests reach a mock server. Release builds ignore it
+/// (it would send the bearer token elsewhere).
+const API_BASE_VAR: &str = "TIDAL_PLAYER_API_BASE";
+
+fn api_config() -> AuthConfig {
+    let mut config = AuthConfig::production();
+    if cfg!(debug_assertions)
+        && let Some(base) = env_var(API_BASE_VAR).filter(|b| !b.is_empty())
+    {
+        config.api_base = base;
+    }
+    config
+}
+
+fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
+    let settings = match resolve_settings(args.quality.as_deref(), args.device.as_deref(), env_var)
+    {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+    let start_at = match args.start.map(Duration::try_from_secs_f64) {
+        None => Duration::ZERO,
+        Some(Ok(start)) => start,
+        Some(Err(_)) => {
+            eprintln!("invalid --start: expected a number of seconds, 0 or more");
+            return ExitCode::from(2);
+        }
+    };
+    if !HAS_ALSA {
+        eprintln!("{NO_ALSA}");
+        return ExitCode::from(1);
+    }
+    let store = plan.build_store();
+    let session = match store.load() {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            eprintln!("Not logged in: run \"tidal-player login\"");
+            return ExitCode::from(1);
+        }
+        Err(e) => return report_store_error(&e),
+    };
+    let auth = match Authenticator::new(api_config(), store, session, Arc::new(SystemClock)) {
+        Ok(auth) => Arc::new(auth),
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    play_track(
+        auth,
+        PlayRequest {
+            track_id: args.track_id,
+            settings,
+            start_at,
+        },
+    )
+}
+
+/// `tidal-player devices`: `/proc/asound` (or `TIDAL_PLAYER_ASOUND_DIR`).
+fn devices() -> ExitCode {
+    let dir = env_var(ASOUND_DIR_VAR)
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| PathBuf::from("/proc/asound"), PathBuf::from);
+    // A missing file means no card (no ALSA, or a container): `default` only.
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+    let listing = parse_devices(&read("cards"), &read("pcm"));
+    print!("{}", format_devices(&listing, &configured_device(env_var)));
+    ExitCode::SUCCESS
+}
+
 fn main() -> Result<ExitCode> {
     let Cli { command } = Cli::parse();
     let plan = StorePlan::from_env();
@@ -188,6 +291,8 @@ fn main() -> Result<ExitCode> {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
         }
+        Some(Command::Play(args)) => Ok(play(&plan, &args)),
+        Some(Command::Devices) => Ok(devices()),
         None => standalone(plan.build_store()),
     }
 }

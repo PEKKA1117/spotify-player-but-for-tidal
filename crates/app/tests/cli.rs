@@ -131,3 +131,210 @@ fn ac12_daemon_needs_passphrase() {
         .code(1)
         .stderr(predicate::str::contains("TIDAL_PLAYER_PASSPHRASE_FILE"));
 }
+
+// Spec 0003 AC25, AC26: `devices` and `play`.
+
+/// A fixture directory of `/proc/asound` contents (crates/audio/tests/fixtures/asound).
+fn asound_fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../audio/tests/fixtures/asound")
+        .join(name)
+}
+
+#[test]
+fn ac25_devices_marks_configured() {
+    let listing = |configured: &str| {
+        let mark = |name: &str| if name == configured { "*" } else { " " };
+        format!(
+            "{} default  shared, through the system mixer\n\
+             {} hw:0,0   HDA Intel PCH: ALC892 Analog\n\
+             {} hw:0,1   HDA Intel PCH: ALC892 Digital\n\
+             {} hw:1,0   E30 II: USB Audio\n",
+            mark("default"),
+            mark("hw:0,0"),
+            mark("hw:0,1"),
+            mark("hw:1,0"),
+        )
+    };
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env_remove("TIDAL_PLAYER_DEVICE")
+        .assert()
+        .success()
+        .stdout(listing("default"));
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env("TIDAL_PLAYER_DEVICE", "hw:1,0")
+        .assert()
+        .success()
+        .stdout(listing("hw:1,0"));
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("no_cards"))
+        .env_remove("TIDAL_PLAYER_DEVICE")
+        .assert()
+        .success()
+        .stdout("* default  shared, through the system mixer\n");
+}
+
+#[test]
+fn ac26_bad_quality() {
+    let state = tempfile::tempdir().unwrap();
+    write_session_file(state.path());
+    bin_in(state.path())
+        .args(["play", "123", "--quality", "low"])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--quality").and(predicate::str::contains("HE-AAC")));
+    bin_in(state.path())
+        .args(["play", "123"])
+        .env("TIDAL_PLAYER_QUALITY", "ultra")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("TIDAL_PLAYER_QUALITY"));
+}
+
+#[test]
+fn ac26_play_needs_login() {
+    let state = tempfile::tempdir().unwrap();
+    bin_in(state.path())
+        .args(["play", "123"])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("Not logged in: run \"tidal-player login\"\n");
+}
+
+// AC26, end to end against a mock API (debug builds honour
+// TIDAL_PLAYER_API_BASE), a mock stream server, no session bus and an ALSA
+// device that does not exist: resolution, fetch, decode and the error
+// lines, without sound.
+
+/// Serves a file with `Range: bytes=N-` support.
+struct RangeFile(Vec<u8>);
+
+impl wiremock::Respond for RangeFile {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let len = self.0.len();
+        let from = request
+            .headers
+            .get("range")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("bytes="))
+            .and_then(|v| v.trim_end_matches('-').parse::<usize>().ok());
+        match from {
+            Some(from) if from >= len => wiremock::ResponseTemplate::new(416),
+            Some(from) => wiremock::ResponseTemplate::new(206)
+                .insert_header(
+                    "content-range",
+                    format!("bytes {from}-{}/{len}", len - 1).as_str(),
+                )
+                .set_body_bytes(self.0[from..].to_vec()),
+            None => wiremock::ResponseTemplate::new(200).set_body_bytes(self.0.clone()),
+        }
+    }
+}
+
+fn playback_info(stream_url: &str) -> serde_json::Value {
+    use base64::Engine as _;
+    let manifest = serde_json::json!({
+        "mimeType": "audio/flac",
+        "codecs": "flac",
+        "encryptionType": "NONE",
+        "urls": [stream_url],
+    });
+    serde_json::json!({
+        "trackId": 123,
+        "assetPresentation": "FULL",
+        "audioMode": "STEREO",
+        "audioQuality": "LOSSLESS",
+        "manifestMimeType": "application/vnd.tidal.bts",
+        "manifestHash": "FAKE-HASH",
+        "manifest": base64::engine::general_purpose::STANDARD.encode(manifest.to_string()),
+        "bitDepth": 16,
+        "sampleRate": 44100,
+    })
+}
+
+#[test]
+fn ac26_play_end_to_end_errors() {
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(MockServer::start());
+    let flac = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../audio/tests/fixtures/flac16_44.flac"),
+    )
+    .unwrap();
+    rt.block_on(async {
+        Mock::given(method("GET"))
+            .and(path("/tracks/123/playbackinfopostpaywall"))
+            .and(query_param("audioquality", "LOSSLESS"))
+            .and(query_param("countryCode", "NO"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(playback_info(&format!("{}/t.flac", server.uri()))),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/tracks/404/playbackinfopostpaywall"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "status": 401, "subStatus": 4005, "userMessage": "Asset is not ready for playback"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/t.flac"))
+            .respond_with(RangeFile(flac))
+            .mount(&server)
+            .await;
+    });
+    let state = tempfile::tempdir().unwrap();
+    write_session_file(state.path());
+    let pass_file = state.path().join("pass");
+    std::fs::write(&pass_file, "test-passphrase\n").unwrap();
+    let play = |args: &[&str]| {
+        let mut cmd = bin_in(state.path());
+        cmd.arg("play")
+            .args(args)
+            .env("TIDAL_PLAYER_PASSPHRASE_FILE", &pass_file)
+            .env("TIDAL_PLAYER_API_BASE", server.uri())
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
+            .env_remove("TIDAL_PLAYER_QUALITY")
+            .env_remove("TIDAL_PLAYER_DEVICE")
+            .timeout(Duration::from_secs(30));
+        cmd
+    };
+
+    play(&[
+        "123",
+        "--quality",
+        "lossless",
+        "--device",
+        "tidal_player_no_such_pcm",
+    ])
+    .assert()
+    .code(1)
+    .stdout("")
+    // The last line is ours. alsa-lib also writes its own diagnostic
+    // ("ALSA lib pcm.c:…: Unknown PCM …") to stderr before it: a known
+    // gap in the audio crate's ALSA backend, reported at slice D.
+    .stderr(
+        predicate::str::ends_with(
+            "\nNo such output device tidal_player_no_such_pcm: see \"tidal-player devices\"\n",
+        )
+        .or(predicate::eq(
+            "No such output device tidal_player_no_such_pcm: see \"tidal-player devices\"\n",
+        )),
+    );
+    play(&["404"])
+        .assert()
+        .code(1)
+        .stderr("Track 404 is not available in NO\n");
+}
