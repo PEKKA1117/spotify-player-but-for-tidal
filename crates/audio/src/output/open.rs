@@ -122,8 +122,9 @@ pub fn output_kind(device: &str) -> OutputKind {
 }
 
 /// Why the output is not bit-perfect, or `None` when it is (spec 0003
-/// "Output kinds"): exclusive, lossless source, exact rate, stereo, and a
-/// format that holds at least the source's bits.
+/// "Output kinds"): exclusive, lossless source, exact rate, stereo (a mono
+/// source is copied to both channels), and a format that holds at least the
+/// source's bits, so conversion is zero-padding only.
 pub fn not_bit_perfect_reason(
     kind: OutputKind,
     source: &SourceFormat,
@@ -131,8 +132,79 @@ pub fn not_bit_perfect_reason(
     rate: u32,
     channels: u16,
 ) -> Option<String> {
-    let _ = (kind, source, format, rate, channels);
+    match kind {
+        OutputKind::Shared => return Some("shared (system mixer)".into()),
+        OutputKind::Fallback => return Some("plughw (ALSA may convert the samples)".into()),
+        OutputKind::Exclusive => {}
+    }
+    let Some(bits) = source.bits_per_sample else {
+        return Some("lossy source".into());
+    };
+    if rate != source.sample_rate {
+        return Some(format!(
+            "device runs at {} kHz, source is {} kHz",
+            khz(rate),
+            khz(source.sample_rate)
+        ));
+    }
+    if channels != OUTPUT_CHANNELS || source.channels > OUTPUT_CHANNELS {
+        return Some(format!(
+            "{} source channels on a {channels}-channel device",
+            source.channels
+        ));
+    }
+    if format_bits(format) < bits {
+        return Some(format!(
+            "{bits}-bit source truncated to {}",
+            format_name(format)
+        ));
+    }
     None
+}
+
+/// `44100` → `44.1`, `96000` → `96`.
+fn khz(rate: u32) -> String {
+    if rate.is_multiple_of(1000) {
+        (rate / 1000).to_string()
+    } else {
+        format!("{}", f64::from(rate) / 1000.0)
+    }
+}
+
+/// The reason shown when an exclusive device refused the source.
+fn refused_reason(source: &SourceFormat) -> String {
+    let formats: Vec<&str> = preference(source.bits_per_sample)
+        .iter()
+        .map(|f| format_name(*f))
+        .collect();
+    format!(
+        "resampled (plughw fallback: device refused {} at {} kHz)",
+        formats.join("/"),
+        khz(source.sample_rate)
+    )
+}
+
+/// The card part of `hw:C,D`, `hw:C`, `plughw:CARD=id,DEV=d`, …
+fn card_of(device: &str) -> Option<&str> {
+    let rest = device
+        .strip_prefix("hw:")
+        .or_else(|| device.strip_prefix("plughw:"))?;
+    let card = rest.split(',').next().unwrap_or(rest);
+    Some(card.strip_prefix("CARD=").unwrap_or(card)).filter(|c| !c.is_empty())
+}
+
+fn pcm_error(device: &str, error: PcmError) -> SinkError {
+    match error {
+        PcmError::Busy => SinkError::Busy {
+            device: device.to_owned(),
+            holder: None,
+        },
+        PcmError::NotFound => SinkError::NotFound(device.to_owned()),
+        PcmError::Lost => SinkError::Lost(device.to_owned()),
+        PcmError::Underrun => SinkError::Backend(format!("{device}: underrun")),
+        PcmError::Suspended => SinkError::Backend(format!("{device}: suspended")),
+        PcmError::Refused(e) | PcmError::Other(e) => SinkError::Backend(format!("{device}: {e}")),
+    }
 }
 
 /// A successfully opened output.
@@ -144,8 +216,11 @@ pub struct Opened {
     pub reserved: Option<u32>,
 }
 
-/// Open `device` for `source` (AC12). On error nothing is left open or
-/// reserved.
+/// Open `device` for `source` (AC12): reserve the card (`hw:`, `plughw:`),
+/// open with the `EBUSY` budget, negotiate the exact rate and the preferred
+/// format, and fall back to `plughw:` on the same card when an exclusive
+/// device refuses (remembered in `memo`). A busy device is never downgraded.
+/// On error nothing is left open or reserved.
 pub fn open_output<B: PcmBackend + ?Sized>(
     backend: &mut B,
     reserver: &mut dyn Reserver,
@@ -154,36 +229,147 @@ pub fn open_output<B: PcmBackend + ?Sized>(
     device: &str,
     source: &SourceFormat,
 ) -> Result<Opened, SinkError> {
-    let _ = (reserver, clock, memo, reserve, choose_format, preference);
-    backend
-        .open(device)
-        .map_err(|e| SinkError::Backend(format!("{e:?}")))?;
+    let kind = output_kind(device);
+    let reserved = match kind {
+        OutputKind::Shared => None,
+        OutputKind::Exclusive | OutputKind::Fallback => {
+            let card = card_of(device).ok_or_else(|| SinkError::NotFound(device.to_owned()))?;
+            let index = match card.parse() {
+                Ok(index) => index,
+                Err(_) => backend
+                    .card_index(card)
+                    .ok_or_else(|| SinkError::NotFound(device.to_owned()))?,
+            };
+            reserve(reserver, clock, index, device)?
+        }
+    };
+    match open_reserved(backend, clock, memo, device, kind, source) {
+        Ok((info, config)) => Ok(Opened {
+            info,
+            config,
+            reserved,
+        }),
+        Err(error) => {
+            backend.close();
+            if let Some(card) = reserved {
+                reserver.release(card);
+            }
+            Err(error)
+        }
+    }
+}
+
+fn open_reserved<B: PcmBackend + ?Sized>(
+    backend: &mut B,
+    clock: &dyn Clock,
+    memo: &FallbackMemo,
+    device: &str,
+    kind: OutputKind,
+    source: &SourceFormat,
+) -> Result<(OutputInfo, HwConfig), SinkError> {
+    if kind == OutputKind::Exclusive && !memo.contains(device) {
+        open_retrying(backend, clock, device)?;
+        if let Some(config) = negotiate(backend, device, kind, source)? {
+            return Ok((info(device, device, kind, source, &config, None), config));
+        }
+        backend.close();
+        memo.insert(device);
+    }
+    let (opened, reason) = match kind {
+        OutputKind::Exclusive => (format!("plug{device}"), Some(refused_reason(source))),
+        OutputKind::Fallback | OutputKind::Shared => (device.to_owned(), None),
+    };
+    let kind = match kind {
+        OutputKind::Exclusive => OutputKind::Fallback,
+        other => other,
+    };
+    open_retrying(backend, clock, &opened)?;
+    let config = negotiate(backend, &opened, kind, source)?.ok_or_else(|| {
+        SinkError::Backend(format!(
+            "{opened} accepts no usable sample format at {} Hz",
+            source.sample_rate
+        ))
+    })?;
+    Ok((info(device, &opened, kind, source, &config, reason), config))
+}
+
+/// Open `name`, retrying `EBUSY` every 100 ms until 800 ms have passed.
+fn open_retrying<B: PcmBackend + ?Sized>(
+    backend: &mut B,
+    clock: &dyn Clock,
+    name: &str,
+) -> Result<(), SinkError> {
+    let start = clock.now();
+    loop {
+        match backend.open(name) {
+            Ok(()) => return Ok(()),
+            Err(PcmError::Busy) if clock.now() - start < BUSY_RETRY_BUDGET => {
+                clock.sleep(BUSY_RETRY_INTERVAL);
+            }
+            Err(error) => return Err(pcm_error(name, error)),
+        }
+    }
+}
+
+/// Negotiate the open device for `source`: `None` when it refuses every
+/// listed format at the exact rate and channel count.
+fn negotiate<B: PcmBackend + ?Sized>(
+    backend: &mut B,
+    name: &str,
+    kind: OutputKind,
+    source: &SourceFormat,
+) -> Result<Option<HwConfig>, SinkError> {
+    let resample = kind != OutputKind::Exclusive;
+    let accepted = backend
+        .accepted_formats(source.sample_rate, OUTPUT_CHANNELS, resample)
+        .map_err(|e| pcm_error(name, e))?;
+    let format = match kind {
+        // Shared: S32_LE first, then the same list as exclusive.
+        OutputKind::Shared if accepted.contains(&SampleFormat::S32Le) => Some(SampleFormat::S32Le),
+        _ => choose_format(source.bits_per_sample, &accepted),
+    };
+    let Some(format) = format else {
+        return Ok(None);
+    };
     let config = HwConfig {
-        format: SampleFormat::S32Le,
+        format,
         rate: source.sample_rate,
         channels: OUTPUT_CHANNELS,
-        resample: false,
+        resample,
         period_frames: PERIOD_FRAMES,
-        periods: EXCLUSIVE_PERIODS,
-    };
-    backend
-        .configure(&config)
-        .map_err(|e| SinkError::Backend(format!("{e:?}")))?;
-    let _ = (format_bits, format_name);
-    Ok(Opened {
-        info: OutputInfo {
-            requested: device.into(),
-            device: device.into(),
-            kind: OutputKind::Exclusive,
-            sample_format: config.format,
-            sample_rate: config.rate,
-            channels: config.channels,
-            bit_perfect: true,
-            not_bit_perfect_reason: None,
+        periods: match kind {
+            OutputKind::Shared => SHARED_PERIODS,
+            OutputKind::Exclusive | OutputKind::Fallback => EXCLUSIVE_PERIODS,
         },
-        config,
-        reserved: None,
-    })
+    };
+    match backend.configure(&config) {
+        Ok(()) => Ok(Some(config)),
+        Err(PcmError::Refused(_)) => Ok(None),
+        Err(error) => Err(pcm_error(name, error)),
+    }
+}
+
+fn info(
+    requested: &str,
+    device: &str,
+    kind: OutputKind,
+    source: &SourceFormat,
+    config: &HwConfig,
+    reason: Option<String>,
+) -> OutputInfo {
+    let reason = reason.or_else(|| {
+        not_bit_perfect_reason(kind, source, config.format, config.rate, config.channels)
+    });
+    OutputInfo {
+        requested: requested.to_owned(),
+        device: device.to_owned(),
+        kind,
+        sample_format: config.format,
+        sample_rate: config.rate,
+        channels: config.channels,
+        bit_perfect: reason.is_none(),
+        not_bit_perfect_reason: reason,
+    }
 }
 
 #[cfg(test)]
@@ -624,7 +810,8 @@ mod tests {
     fn ac12_bit_perfect() {
         use OutputKind::*;
         // (kind, source bits, negotiated format, device rate, device channels, bit-perfect)
-        let rows: &[(OutputKind, Option<u16>, SampleFormat, u32, u16, bool)] = &[
+        type Row = (OutputKind, Option<u16>, SampleFormat, u32, u16, bool);
+        let rows: &[Row] = &[
             (Exclusive, Some(16), S32Le, 44_100, 2, true),
             (Exclusive, Some(16), S16Le, 44_100, 2, true),
             (Exclusive, Some(16), S24_3Le, 44_100, 2, true),

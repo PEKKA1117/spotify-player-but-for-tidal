@@ -6,6 +6,8 @@
 pub mod output;
 pub mod sink;
 
+#[cfg(feature = "alsa")]
+pub use output::{AlsaBackend, alsa_sink_factory};
 pub use output::{
     Clock, FallbackMemo, NoReserver, PcmBackend, PcmError, PcmSink, PcmSinkFactory, ReleaseReply,
     Reserver, SystemClock,

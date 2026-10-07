@@ -77,8 +77,20 @@ pub fn reserve(
     card: u32,
     device: &str,
 ) -> Result<Option<u32>, SinkError> {
-    let _ = (reserver, clock, card, device);
-    Ok(None)
+    let busy = |holder| SinkError::Busy {
+        device: device.to_owned(),
+        holder,
+    };
+    match reserver.request_release(card, REPLY_TIMEOUT) {
+        ReleaseReply::NoBus => return Ok(None),
+        ReleaseReply::NoOwner => {}
+        ReleaseReply::Released => clock.sleep(SETTLE),
+        ReleaseReply::Refused { holder } | ReleaseReply::NoReply { holder } => {
+            return Err(busy(holder));
+        }
+    }
+    reserver.claim(card).map_err(busy)?;
+    Ok(Some(card))
 }
 
 #[cfg(test)]
@@ -214,13 +226,8 @@ mod tests {
                 .iter()
                 .filter(|c| matches!(c, Call::Close))
                 .count();
-            let open_failures = calls[..i]
-                .iter()
-                .filter(|c| matches!(c, Call::OpenFailed(_)))
-                .count();
             assert_eq!(
-                opens,
-                closes + open_failures,
+                opens, closes,
                 "{name}: released while the device was open: {calls:?}"
             );
         }

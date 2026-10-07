@@ -95,11 +95,25 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
 
     fn write(&mut self, samples: &[i32]) -> Result<WriteOutcome, SinkError> {
         let state = self.state()?;
-        let _ = (pack_into, &self.bytes);
-        Ok(WriteOutcome {
-            frames: samples.len() / state.channels,
-            underrun: false,
-        })
+        let (format, channels) = (state.format, state.channels);
+        // At most one period, so a write never blocks much longer than that.
+        let frames = (samples.len() / channels).min(state.period_frames);
+        self.bytes.clear();
+        pack_into(&samples[..frames * channels], format, &mut self.bytes);
+        match self.backend.write(&self.bytes) {
+            Ok(frames) => Ok(WriteOutcome {
+                frames,
+                underrun: false,
+            }),
+            Err(error @ (PcmError::Underrun | PcmError::Suspended)) => {
+                self.backend.recover(&error).map_err(|e| self.error(e))?;
+                Ok(WriteOutcome {
+                    frames: 0,
+                    underrun: true,
+                })
+            }
+            Err(error) => Err(self.error(error)),
+        }
     }
 
     fn delay_frames(&self) -> Result<u64, SinkError> {

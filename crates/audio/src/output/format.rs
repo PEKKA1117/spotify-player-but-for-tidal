@@ -24,8 +24,10 @@ pub fn preference(source_bits: Option<u16>) -> &'static [SampleFormat] {
 /// The first format of the preference list for `source_bits` that the device
 /// accepts, or `None` when it accepts none of them (AC10).
 pub fn choose_format(source_bits: Option<u16>, accepted: &[SampleFormat]) -> Option<SampleFormat> {
-    let _ = (source_bits, accepted);
-    Some(S32Le)
+    preference(source_bits)
+        .iter()
+        .copied()
+        .find(|format| accepted.contains(format))
 }
 
 /// Bytes one sample takes in `format`.
@@ -59,7 +61,23 @@ pub fn format_name(format: SampleFormat) -> &'static str {
 /// Pack left-justified `i32` samples into `format`'s bytes, dropping low bits
 /// only (AC11). Appends to `out`.
 pub fn pack_into(samples: &[i32], format: SampleFormat, out: &mut Vec<u8>) {
-    out.resize(out.len() + samples.len() * bytes_per_sample(format), 0);
+    out.reserve(samples.len() * bytes_per_sample(format));
+    match format {
+        S16Le => out.extend(
+            samples
+                .iter()
+                .flat_map(|&s| ((s >> 16) as i16).to_le_bytes()),
+        ),
+        // Arithmetic shift: the 4-byte word is sign-extended.
+        S24Le => out.extend(samples.iter().flat_map(|&s| (s >> 8).to_le_bytes())),
+        S24_3Le => {
+            for &s in samples {
+                let [b0, b1, b2, _] = (s >> 8).to_le_bytes();
+                out.extend([b0, b1, b2]);
+            }
+        }
+        S32Le => out.extend(samples.iter().flat_map(|&s| s.to_le_bytes())),
+    }
 }
 
 /// Pack left-justified `i32` samples into `format`'s bytes (AC11).
