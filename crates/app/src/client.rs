@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use tidal_player_core::Item;
-use tidal_player_core::library::{LibraryRequest, LibraryResponse};
+use tidal_player_core::library::LibraryRequest;
 use tidal_player_core::protocol::{ClientMessage, Command, Event, InsertAt, ServerMessage};
 use tidal_player_core::ui::Action;
 
@@ -39,13 +39,6 @@ const POLL_BATCH: usize = 4096;
 /// What a client says when no player is running.
 pub const NO_PLAYER: &str =
     "No player is running: start \"tidal-player\" or \"tidal-player daemon\"";
-
-/// The player's answer to a library request, as the session hands it on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LibraryReply {
-    pub id: u64,
-    pub result: Result<LibraryResponse, String>,
-}
 
 // --- connections -------------------------------------------------------------------
 
@@ -356,8 +349,6 @@ pub struct Session<C: Connector> {
     retry_at: Option<Instant>,
     /// Refused by the player: never retried.
     refused: bool,
-    /// Library replies that arrived, for [`Self::take_library_replies`].
-    library_replies: Vec<LibraryReply>,
 }
 
 impl<C: Connector> Session<C> {
@@ -371,7 +362,6 @@ impl<C: Connector> Session<C> {
             next_id: 0,
             retry_at: None,
             refused: false,
-            library_replies: Vec::new(),
         };
         if let Some(command) = open {
             session.send(command);
@@ -388,15 +378,10 @@ impl<C: Connector> Session<C> {
         self.write(&ClientMessage::Request { id, command });
     }
 
-    /// Sends a library request (spec 0006 AC19); its answer comes back with
-    /// the same `id` through [`Self::take_library_replies`].
+    /// Sends a library request (spec 0006 AC19); its answer comes back from
+    /// [`Self::poll`] as `Action::LibraryReply` with the same `id`.
     pub fn send_library(&mut self, id: u64, request: LibraryRequest) {
         self.write(&ClientMessage::Library { id, request });
-    }
-
-    /// The library replies that arrived (during [`Self::poll`]), in order.
-    pub fn take_library_replies(&mut self) -> Vec<LibraryReply> {
-        std::mem::take(&mut self.library_replies)
     }
 
     fn write(&mut self, message: &ClientMessage) {
@@ -451,13 +436,8 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::Reply { result, .. })) => {
                     actions.push(Action::Reply(result))
                 }
-                // INTEGRATION (0006 slice D): turn this into
-                // `Action::LibraryReply { id, result }` for the UI model (and
-                // `Effect::Library { id, request }` into `send_library` in
-                // `main.rs::run`); until then the caller takes the replies
-                // with `take_library_replies`.
                 Ok(Some(ServerMessage::LibraryReply { id, result })) => {
-                    self.library_replies.push(LibraryReply { id, result });
+                    actions.push(Action::LibraryReply { id, result })
                 }
                 Err(_) => self.lost = true,
             }
@@ -919,20 +899,32 @@ mod tests {
         crate::player_runtime::fakes::delete(label)
     }
 
+    use tidal_player_core::library::LibraryResponse;
+
+    /// The player's answer to a library request, as the session hands it on.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct LibraryReply {
+        id: u64,
+        result: Result<LibraryResponse, String>,
+    }
+
     /// Polls `session` until `want` library replies came (or time is up).
     fn library_replies<C: Connector>(session: &mut Session<C>, want: usize) -> Vec<LibraryReply> {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut got = Vec::new();
         while got.len() < want && Instant::now() < deadline {
-            session.poll(Instant::now());
-            got.extend(session.take_library_replies());
+            for action in session.poll(Instant::now()) {
+                if let Action::LibraryReply { id, result } = action {
+                    got.push(LibraryReply { id, result });
+                }
+            }
             std::thread::sleep(Duration::from_millis(5));
         }
         got
     }
 
     /// AC19: `send_library` sends `ClientMessage::Library`; a
-    /// `LibraryReply` comes out of the session, not as a UI action.
+    /// `LibraryReply` comes out of the session as `Action::LibraryReply`.
     #[test]
     fn ac19_library_on_the_link() {
         let wire = Shared::default();
@@ -951,15 +943,14 @@ mod tests {
                 id: 4,
                 result: Err("no".into()),
             }));
-        assert!(session.poll(Instant::now()).is_empty());
         assert_eq!(
-            session.take_library_replies(),
-            vec![LibraryReply {
+            session.poll(Instant::now()),
+            vec![Action::LibraryReply {
                 id: 4,
                 result: Err("no".into()),
             }]
         );
-        assert!(session.take_library_replies().is_empty());
+        assert!(session.poll(Instant::now()).is_empty());
     }
 
     /// AC19: a request goes to the player and its reply comes back with

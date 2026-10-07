@@ -197,8 +197,7 @@ fn run<C: Connector>(
                 match effect {
                     Effect::Quit => return Ok(()),
                     Effect::Send(command) => session.send(command),
-                    // INTEGRATION (0006 slice D): `Effect::Library { id, request }`
-                    // => `session.send_library(id, request)`.
+                    Effect::Library { id, request } => session.send_library(id, request),
                 }
             }
         }

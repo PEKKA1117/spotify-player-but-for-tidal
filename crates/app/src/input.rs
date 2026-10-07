@@ -36,9 +36,13 @@ mod tests {
     /// 0001 AC5 through the key map: `q` and `Esc` quit (with the prompt
     /// closed; with it open they edit it, spec 0004 AC28).
     #[test]
-    fn maps_q_and_esc_to_quit() {
-        for code in [KeyCode::Char('q'), KeyCode::Esc] {
-            let key = KeyEvent::new(code, KeyModifiers::NONE);
+    fn maps_q_and_ctrl_c_to_quit_and_esc_to_nothing() {
+        // Spec 0006 AC15: `Esc` no longer quits; `q` and `C-c` do.
+        for (code, modifiers) in [
+            (KeyCode::Char('q'), KeyModifiers::NONE),
+            (KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ] {
+            let key = KeyEvent::new(code, modifiers);
             let action = key_to_action(key).expect("an action");
             assert_eq!(
                 update(&mut State::default(), action),
@@ -46,6 +50,9 @@ mod tests {
                 "{code:?}"
             );
         }
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let effects = key_to_action(esc).map(|a| update(&mut State::default(), a));
+        assert!(effects.as_ref().is_none_or(Vec::is_empty), "{effects:?}");
         let other = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
         let effects = key_to_action(other).map(|a| update(&mut State::default(), a));
         assert!(effects.as_ref().is_none_or(Vec::is_empty), "{effects:?}");
