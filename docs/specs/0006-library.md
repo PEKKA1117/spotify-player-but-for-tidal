@@ -1,17 +1,17 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: draft (2026-10-07; probe recorded, decisions answered; waiting on the writing and artist-tracks probes; the body is rewritten to decisions 2–6 after it)
+- **Status**: draft (2026-10-07; probes recorded, decisions answered and folded in; waiting on the user's approval)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
-- **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys (AC17)
+- **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys; [`docs/playback.md`](../playback.md) "Settings" gains two settings (AC20)
 
 ## Context
 
-Until now the queue can only be filled from pasted links and IDs (0004 decision 1). This spec adds what spotify-player calls **pages**: the user's library (their playlists, favorite albums and favorite artists), their favorite tracks, and album, playlist and artist pages reached from them, with spotify-player's navigation (a page history, focusable windows, an actions popup). From any track list a track plays **with the rest of its list** queued after it, or is added to the queue. It also gives the queue its long-promised remove key (0004 "Out of scope").
+Until now the queue can only be filled from pasted links and IDs (0004 decision 1). This spec adds what spotify-player calls **pages**: the user's library (their playlists, favorite albums and favorite artists), their favorite tracks, and album, playlist and artist pages reached from them, with spotify-player's navigation (a page history, focusable windows, an actions popup). From any track list a track plays **with the rest of its list** queued after it, or is added to the queue; tracks, albums, artists and playlists can be added to or removed from favorites, and the user's own playlists created, added to, trimmed and deleted. It also gives the queue its long-promised remove key (0004 "Out of scope").
 
 It settles 0005's open question (0005 decision 3, "Out of scope"): **the player fetches the pages**, as it already expands `Open`. A client still holds no session, no keyring entry and no API access (0005 AC14 keeps holding).
 
-Search (0007), mixes and radio as pages (0011), adding or removing favorites and editing playlists (decision 4), and caching (0009) are not in this spec.
+Search (0007), mixes and radio as pages (0011) and caching (0009) are not in this spec.
 
 ### What tidalt did
 
@@ -30,24 +30,26 @@ Read from tidalt's `internal/tidal/{api,library}.go`, `internal/ui/{keys,model}.
 
 ### What could go wrong here, and the criterion that covers it
 
-1. **Playing from a list plays one track** (tidalt `59c610d`, #5) → `Enter` on a track row sends the **whole list** with the chosen index, as one `LoadQueue` (AC10)
-2. **Lists sent in a display order** (tidalt #21) → a page's list is sent in the order Tidal returned it; the client never sorts or shuffles it (AC10)
-3. **Videos queued as tracks** → favorites, playlist and artist lists keep only tracks; video items are dropped where the API mixes them in (AC3–AC6)
-4. **A list cut at one page** (tidalt: 50 favorite tracks, 50 playlists, 200 albums and artists; Tidal's default page is 10 items on several endpoints, 0004 "Facts") → every list is walked to its end, and a list above the cap says so in its title (AC3–AC6)
-5. **Followed playlists missing** (tidalt listed only its own) → the library lists own and favorite playlists (AC3)
-6. **A page that draws another list** (tidalt `65285f1`: Favorite Songs drew the queue) → each page renders its own fetched data only (AC14, a snapshot per page)
-7. **Stale or zero counts** (tidalt `64d3695`) → counts come with each fetch, and opening a page always fetches it fresh (AC8)
-8. **Browsing that stalls playback**: a fetch of thousands of favorites must never delay `Next` → fetches run beside the player's input loop, never in it (AC7)
-9. **A result landing on the wrong page**: the user moved on while a fetch was in flight → every fetch carries an ID, and a result is applied only to the page that asked for it (AC8)
-10. **A client that needs its own login**, as tidalt's did (0005 "What went wrong" 9) → pages come through the player (AC7, AC16)
-11. **An album opened from an artist plays at once** (tidalt `3b6d6ea`) → `Enter` on an album opens its page; only `Enter` on a track plays (AC10)
-12. **A short page taken for overlap or the end** (the probe: 358 favorite tracks on a 1000-item page for a total of 362) → `offset` advances by the page size, the walk ends on the total, duplicates are dropped (AC3, AC4)
+1. **Playing from a list plays one track** (tidalt `59c610d`, #5) → `Enter` on a track row sends the **whole list** (loading the rest first) with the chosen index, as one `LoadQueue` (AC12)
+2. **Lists sent in a display order** (tidalt #21) → a page's list is sent in the order Tidal returned it; the client never sorts or shuffles it (AC12)
+3. **Videos queued as tracks** → favorites, playlist and artist lists keep only tracks; video items are dropped where the API mixes them in (AC4)
+4. **A list cut at one page** (tidalt: 50 favorite tracks, 50 playlists, 200 albums and artists; Tidal's default page is 10 items on several endpoints, 0004 "Facts") → every list loads to its end as you scroll, and the title shows Tidal's total from the first page (AC4, AC10)
+5. **Followed playlists missing** (tidalt listed only its own) → the library lists own and favorite playlists (AC4)
+6. **A page that draws another list** (tidalt `65285f1`: Favorite Songs drew the queue) → each page renders its own fetched data only (AC17, a snapshot per page)
+7. **Stale or zero counts** (tidalt `64d3695`) → counts come with each fetch, and opening a page always fetches it fresh (AC9)
+8. **Browsing that stalls playback**: a fetch of thousands of favorites must never delay `Next` → fetches run beside the player's input loop, never in it (AC8)
+9. **A result landing on the wrong page**: the user moved on while a fetch was in flight → every fetch carries an ID, and a result is applied only to the page that asked for it (AC9)
+10. **A client that needs its own login**, as tidalt's did (0005 "What went wrong" 9) → pages come through the player (AC8, AC19)
+11. **An album opened from an artist plays at once** (tidalt `3b6d6ea`) → `Enter` on an album opens its page; only `Enter` on a track plays (AC12)
+12. **A short page taken for overlap or the end** (the probe: 358 favorite tracks on a 1000-item page for a total of 362) → `offset` advances by the page size asked, rows already loaded are skipped (AC4, AC10)
+13. **A playlist edit by a stale position** (positions shift after each removal; Tidal checks the ETag) → removals send the ETag the list was loaded with and are never retried on `412` (AC7, AC14)
+14. **Credits padded with alternate and Atmos-only copies** (the contributor probe: Dolby-Atmos-only tracks; the user: instrumental, TV size, sped up, slowed + reverb) → *All tracks* hides them by a configurable word list and says how many (AC3, AC6)
 
 ## Behaviour
 
 ### Pages
 
-The area below the playback window shows one **page** at a time. The queue (0004) is the first page. Opening a page puts it on top of a **history**; going back returns to the page under it, with its data, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached until 0009).
+The area below the playback window shows one **page** at a time. The queue (0004) is the first page. Opening a page puts it on top of a **history**; going back returns to the page under it, with its loaded rows, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached until 0009).
 
 | Page | Opened with | Windows (`Tab` moves between them) |
 |---|---|---|
@@ -56,44 +58,56 @@ The area below the playback window shows one **page** at a time. The queue (0004
 | Favorite tracks | `g y` | the tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
-| Artist | `Enter` on an artist; *Go to artist* | **Top tracks**, **Albums** |
+| Artist | `Enter` on an artist; *Go to artist* | **Top tracks**, **Albums** (albums, then EPs and singles), **Appears on**, **All tracks** |
 
 - Opening the page that is already on top does nothing. Otherwise the new page is pushed; the history keeps at most **50** pages (the oldest is dropped; the queue at the bottom is never dropped)
 - `Backspace` (and `C-q`) goes back; on the bottom page it does nothing
 - `z`, `g l`, `g y` open their page from anywhere (pushed like any other)
-- Each page has a **title row** (the window titles carry the counts):
+- Each page has a **title row**; counts are Tidal's totals (`totalNumberOfItems`), known from the first page:
   - Library: `Library`
-  - Favorite tracks: `Favorite tracks · 1234 tracks`
+  - Favorite tracks: `Favorite tracks · 362 tracks`
   - Album: `<title> · <artists> · <year> · 17 tracks · 1:02:15` (year and length when known)
   - Playlist: `<title> · 39 tracks · 2:41:07`
   - Artist: `<name>`
-- A page being fetched shows `Loading…` in its windows; a failed fetch shows the message in the page (`Could not load the library: <reason>`, `Album 1 was not found`, …); an empty list shows `No favorite tracks yet`, `No playlists yet`, `No favorite albums yet`, `No favorite artists yet`, `This playlist has no tracks`
-- A list longer than **10 000** items keeps its first 10 000 and the window title says `(first 10000 of 12345)`
+- A page being fetched shows `Loading…` in its windows; a failed fetch shows the message in the page (`Could not load the library: <reason>`, `Album 1 was not found`, …); an empty list shows `No favorite tracks yet`, `No playlists yet`, `No favorite albums yet`, `No favorite artists yet`, `This playlist has no tracks`, `No albums`, `No top tracks`, `No credits`
+
+### Lists load as you scroll
+
+Every list (each window above) is fetched a **page** at a time (decision 5): the first page with the page itself, then the next when the window's cursor comes within one window height of the last loaded row. While it loads, the last row says `Loading more…`; a failed page leaves the loaded rows and shows its message as the last row, and the next cursor move near the end tries once more. Tidal's total is shown at once; rows beyond the loaded ones are not drawn.
+
+- **Page size**: a setting, `TIDAL_PLAYER_PAGE_SIZE` (until 0008 moves it to `app.toml`), integer **1–10 000**, default **100**; empty = unset, invalid → exit 2 naming the variable (0004 "Settings" rules). Each request asks `min(page size, endpoint's largest page)` (table under "What the player fetches": 50 for playlists and credits)
+- **The whole list is needed** for `Enter` on a track (play from here), `Z` on a list, *Add to playlist* of a list: the client first fetches the remaining pages (`Loading 300 of 1 234…` in the message row), then sends one command with every track in page order. `Esc` cancels; nothing is sent. A list above **40 000** tracks is refused with `Too many tracks to queue at once (N)` (the socket's 16 MiB line holds about 50 000)
+- `offset` advances by the page size asked, not by the items received; rows already loaded (same track ID, album ID, artist ID or playlist UUID) are skipped (the probe's short page, what could go wrong 12)
 
 ### Lists and the cursor
 
-Every window is a list with its own cursor, moved by 0004's keys (`j`/`↓`, `k`/`↑`, `g g`, `G`), plus `C-f`/`PageDown` and `C-b`/`PageUp` (a window's height). The focused window's cursor is highlighted; the others' are drawn dim. `Tab` focuses the next window, `BackTab` (Shift-Tab) the previous, wrapping. Cursors are by position on browse pages (their lists never change after the fetch) and by entry ID on the queue (0004 AC22, unchanged).
+Every window has its own cursor, moved by 0004's keys (`j`/`↓`, `k`/`↑`, `g g`, `G`), plus `C-f`/`PageDown` and `C-b`/`PageUp` (a window's height). `G` goes to the last *loaded* row (and so loads the next page). The focused window's cursor is highlighted; the others' are drawn dim. `Tab` focuses the next window, `BackTab` (Shift-Tab) the previous, wrapping. Cursors are by position on browse pages and by entry ID on the queue (0004 AC22, unchanged). A window's first page is fetched when the page opens, except *All tracks*, fetched when first focused.
 
 Rows:
 
-- **Track rows** (favorite tracks, album, playlist, top tracks, queue): 0004's queue columns (number, title, artists, album, length). Tracks that are not streamable are drawn dim, as the player will skip them (0004 AC7)
-- **Album rows**: title, artists, year
-- **Playlist rows**: title, number of tracks
+- **Track rows** (favorite tracks, album, playlist, top tracks, all tracks, queue): 0004's queue columns (number, title, artists, album, length). Tracks that are not streamable are drawn dim, as the player will skip them (0004 AC7). *All tracks* adds the artist's role categories (`Performer, Songwriter`) in place of the album column when the window is narrower than 100 columns
+- **Album rows**: title, artists, year (and `EP`/`Single` for those)
+- **Playlist rows**: title, number of tracks, `♥` for favorite (followed) playlists
 - **Artist rows**: name
+
+### The artist's *All tracks* (Tidal's "Credits for <artist>")
+
+From the contributor page's `ITEM_LIST_WITH_ROLES` module and its `dataApiPath` (facts), most popular first, as Tidal orders it. Left out, with the count of hidden rows in the window title (`All tracks (548 · 37 hidden)`):
+
+- tracks without `STEREO` in `audioModes` (Dolby-Atmos-only copies, which the quality ladder does not play)
+- **alternate versions**: a track whose `version`, or a bracketed part (`(…)`, `[…]`) or ` - …` suffix of its title, equals one of the **hidden-version words** once both are lower-cased and stripped of spaces, hyphens, underscores, dots and `+`. The words are a setting, `TIDAL_PLAYER_HIDE_VERSIONS` (comma-separated; empty string = hide nothing; until 0008), default `instrumental, inst, off vocal, karaoke, tv version, tv ver, tv size, tv edit, sped up, speed up, nightcore, slowed, slowed + reverb, reverb, 8d, 8d audio`. A word also matches as the start of the part (`TV Size ver.` → `tvsizever` starts with `tvsize`). `Acoustic`, `Live`, `Remix`, `Tiësto Remix` are kept. Other windows and pages show every version
 
 ### Playing and queueing from a page
 
 | Key | On | Does |
 |---|---|---|
-| `Enter` | a track (browse page) | Replaces the queue with **every track of that list**, in page order, and plays the chosen one: `LoadQueue { tracks, start: index }` (what went wrong 1, 2) |
+| `Enter` | a track (browse page) | Replaces the queue with **every track of that list** (fetching the rest first), in page order, and plays the chosen one: `LoadQueue { tracks, start: index }` (what went wrong 1, 2) |
 | `Enter` | a track (queue page) | Plays that entry (0004, unchanged) |
 | `Enter` | an album, playlist or artist | Opens its page |
-| `Z`, `C-z` | a track | Adds it at the end of the queue: `AddToQueue { tracks: [track], at: End }` |
-| `Z`, `C-z` | an album or playlist | Adds all its tracks at the end of the queue: `Open { items: [album / playlist], at: Some(End) }` (the player expands it, 0005) |
+| `Z`, `C-z` | a track | Adds it at the end of the queue: `Open { items: [Track(id)], at: Some(End) }`, so with nothing playing it starts (0005's rule, decision 3) |
+| `Z`, `C-z` | an album or playlist | Adds all its tracks at the end: `Open { items: [album / playlist], at: Some(End) }` (the player expands it, 0005) |
 | `Z`, `C-z` | an artist | Nothing |
 | `d` | an entry (queue page) | Removes it: `RemoveFromQueue(entry ID)` (0004's rules: removing the current entry moves on) |
-
-With nothing playing (an empty queue, or stopped with nothing current), `Z` on an album or playlist starts the first added track (0005's `Open` rule). For `Z` on a track, see decision 3.
 
 ### Actions popup
 
@@ -101,71 +115,80 @@ spotify-player's actions popup: `g a` or `C-Space` on the selected row, `a` on t
 
 | Item | Actions, in this order |
 |---|---|
-| Track (browse page) | *Go to album*, *Go to artist* (one per artist: `Go to artist: <name>`), *Add to queue*, *Play next* |
-| Entry (queue page), or the playing track (`a`) | *Go to album*, *Go to artist …*, *Play next* (not for the playing track), *Remove from queue* |
-| Album | *Open*, *Go to artist …*, *Add to queue*, *Play next* |
-| Playlist | *Open*, *Add to queue*, *Play next* |
-| Artist | *Open* |
+| Track (browse page) | *Go to album*, *Go to artist: <name>* (one per artist), *Add to queue*, *Play next*, *Add to favorites* or *Remove from favorites*, *Add to playlist…*, *Remove from this playlist* (on a playlist page of an own playlist) |
+| Entry (queue page), or the playing track (`a`) | *Go to album*, *Go to artist …*, *Play next* (not for the playing track), *Remove from queue*, *Add to favorites*/*Remove from favorites*, *Add to playlist…* |
+| Album | *Open*, *Go to artist …*, *Add to queue*, *Play next*, *Add to favorites*/*Remove from favorites*, *Add to playlist…* |
+| Playlist | *Open*, *Add to queue*, *Play next*, *Add to favorites*/*Remove from favorites* (not for own playlists), *Delete playlist* (own only) |
+| Artist | *Open*, *Add to favorites*/*Remove from favorites* |
 
-*Play next* is *Add to queue* with `at: Next`. *Go to album* is missing for a track without an album; `a` with nothing playing does nothing.
+- *Play next* is *Add to queue* with `at: Next`. *Go to album* is missing for a track without an album; `a` with nothing playing does nothing
+- **Favorite or not**: the popup asks the player (`IsFavorite`, one request against the loaded favorites ID list, `GET /users/{user}/favorites/ids`, see "Not verified"; until confirmed, the popup shows both *Add to favorites* and *Remove from favorites*, both harmless when redundant: the write probe shows adding twice and removing a non-favorite both answer `200`)
+- ***Add to playlist…*** opens a second popup listing the user's own playlists (`USER_CREATED`, newest first) under a first row *New playlist…*; `Enter` adds the item's tracks (a list: all of them, fetched first) at the end. A track already in that playlist asks `Already in <title>: add again? (y/n)`; `y` adds with `onDupes=ADD`. *New playlist…* opens a one-row prompt `Playlist name: `, creates a private playlist with that title, then adds
+- ***Delete playlist*** asks `Delete <title>? (y/n)`
+- Results show in the message row: `Added to favorites`, `Removed from favorites`, `Added 12 tracks to <title>`, `Removed from <title>`, `Created <title>`, `Deleted <title>`, or the error. A page that shows the changed list (favorites, the library, the playlist) is fetched again after a successful change
 
 ### `Esc` and quitting
 
-As in spotify-player: `Esc` closes the popup or the open prompt, and otherwise does nothing; `q` (and `C-c`) quits. This changes 0004, where `Esc` also quit (decision 2; 0004 AC20's row for `Esc` is updated).
+As in spotify-player: `Esc` closes the popup or the open prompt (or cancels a whole-list load), and otherwise does nothing; `q` (and `C-c`) quits. This changes 0004, where `Esc` also quit (decision 2; 0004 AC20's row for `Esc` is updated).
 
-### Fetching through the player
+### Talking to the player
 
-A client asks the player for a page with a new message, answered to that client alone:
+Browsing and library edits are requests to the player (decision 1), answered to the asking client alone:
 
-- `ClientMessage::Fetch { id, request }` → `ServerMessage::Fetched { id, result: Ok(page) | Err(message) }`
-- `request` is one of `Library`, `FavoriteTracks`, `Album(id)`, `Playlist(uuid)`, `Artist(id)`; `page` carries the matching data (types below)
+- `ClientMessage::Library { id, request }` → `ServerMessage::LibraryReply { id, result: Ok(LibraryResponse) | Err(message) }`
+- Reads: `Page(PageRequest)` (`Library`, `FavoriteTracks`, `Album(id)`, `Playlist(uuid)`, `Artist(id)`) → `Page(PageData)`: the page's header and the first page of each of its lists (*All tracks* excepted). `More { list: ListRef, offset, limit }` → `Items(ListPage)`. `ListRef` names one list: `FavoriteTracks`, `Playlists`, `FavoriteAlbums`, `FavoriteArtists`, `AlbumTracks(id)`, `PlaylistTracks(uuid)`, `TopTracks(id)`, `ArtistAlbums(id)`, `ArtistAppearsOn(id)`, `Credits(id)`. `IsFavorite(kind, id)` → `Favorite(bool)`
+- Writes: `AddFavorite(kind, id)`, `RemoveFavorite(kind, id)`, `AddToPlaylist { uuid, tracks, allow_duplicates }`, `RemoveFromPlaylist { uuid, index, etag }`, `CreatePlaylist { title }` → `Created(PlaylistSummary)`, `DeletePlaylist { uuid }` → `Done` (or the error). `kind` is track, album, artist or playlist
 
 Rules:
 
-- Fetches run as jobs beside the player's input loop (as 0004's suggestions and 0005's `Open` expansions do), so a fetch never delays a command or an event. A client's fetches run one at a time, in the order sent; different clients' run independently
-- `Fetched` is sent once per `Fetch`, also when it failed. It is not an `Event`: other clients do not see it
-- A client that disconnects loses its pending fetches' answers (it asks again after reconnecting, below)
-- The message on failure is the metadata error's (0004's wording): `Album 1 was not found`, `Playlist <uuid> was not found`, `Artist 1 was not found`, the session-expired message for `LoginRequired`, and `Could not reach Tidal: …`/`Tidal answered 429: try again in a moment` for transient errors. A fetch is never retried in a loop: the user opens the page again
+- Requests run as jobs beside the player's input loop (as 0004's suggestions and 0005's `Open` expansions do), so they never delay a command or an event. A client's requests run one at a time, in the order sent; different clients' run independently
+- One `LibraryReply` per request, also on failure. It is not an `Event`: other clients do not see it
+- A client that disconnects loses its pending replies; a write in flight completes or fails in the player regardless
+- Failure messages: 0004's metadata wording (`Album 1 was not found`, `Playlist <uuid> was not found`, `Artist 1 was not found`, `Track 1 was not found`), the session-expired message for `LoginRequired`, `Could not reach Tidal: …`, `Tidal answered 429: try again in a moment`; for playlist edits on `412`/`7002`, `The playlist changed: nothing was changed, try again` (and the playlist page is fetched again). Never retried in a loop
+- **Playlist edits and the ETag**: `AddToPlaylist` reads the playlist's current ETag (`GET /playlists/{uuid}`) and sends it; on `412` it reads it once more and retries once (adding at the end is safe to retry). `RemoveFromPlaylist` sends the ETag the client's loaded list came with and **never retries**: a `412` means positions may have moved. `DeletePlaylist` reads the current ETag first
 
-The client side ([client model](#client-model)) tags each fetch with a fresh ID; a `Fetched` whose ID belongs to no page in the history is dropped (what went wrong 9).
+### What the player fetches and writes
 
-### What the player fetches
+All requests go through the `Authenticator` with `countryCode` from the session (0004), `{user}` being the session's `user_id`. Endpoints, envelopes, page sizes and orders are the probes' ("Facts vs. assumptions").
 
-All requests go through the `Authenticator` with `countryCode` from the session (0004), `{user}` being the session's `user_id`. Endpoints, envelopes, page sizes and orders are the library probe's ("Facts vs. assumptions").
+| List / request | API call | Largest page | Kept |
+|---|---|---|---|
+| `Playlists` | `GET /users/{user}/playlistsAndFavoritePlaylists?order=DATE&orderDirection=DESC` | 50 | `items[].playlist` (UUID, title, `numberOfTracks`, `duration`); **own** when the entry's `type` is `USER_CREATED`, favorite when `USER_FAVORITE` |
+| `FavoriteAlbums`, `FavoriteArtists` | `GET /users/{user}/favorites/{albums,artists}?order=DATE&orderDirection=DESC` | 1000 | `items[].item`: albums (ID, title, artists, year from `releaseDate`, `type`, `numberOfTracks`, `duration`), artists (ID, name) |
+| `FavoriteTracks` | `GET /users/{user}/favorites/tracks?order=DATE&orderDirection=DESC` | 1000 | `items[].item` (0004's track mapping) |
+| `AlbumTracks(id)` | `GET /albums/{id}/tracks` (0004) | 1000 | bare tracks |
+| `PlaylistTracks(uuid)` | `GET /playlists/{uuid}/items` (0004, `type == "track"` only) | 100 | `items[].item` |
+| `TopTracks(id)` | `GET /artists/{id}/toptracks` | 1000 | bare tracks |
+| `ArtistAlbums(id)` | `GET /artists/{id}/albums`, then (when it is exhausted) `…/albums?filter=EPSANDSINGLES` | 1000 | albums, then EPs and singles |
+| `ArtistAppearsOn(id)` | `GET /artists/{id}/albums?filter=COMPILATIONS` | 1000 | albums |
+| `Credits(id)` | `GET /pages/contributor?artistId={id}&deviceType=BROWSER&locale=en_US` for the first page and the `dataApiPath`; `GET /{dataApiPath}&limit=…&offset=…` after | 50 | `items[].item` and `items[].roles[].category`, filtered as under "All tracks" |
+| Page headers | `GET /albums/{id}`, `GET /playlists/{uuid}` (also its `ETag` header), `GET /artists/{id}` | — | album (title, artists, year, tracks, duration), playlist (title, tracks, duration, ETag), artist (name) |
+| Favorites | `POST /users/{user}/favorites/{tracks,albums,artists,playlists}` form `trackIds`/`albumIds`/`artistIds`/`uuids`; `DELETE /users/{user}/favorites/{kind}/{id}` | — | — |
+| Playlists | `POST /users/{user}/playlists` form `title`, `description=""`; `POST /playlists/{uuid}/items` form `trackIds` (comma list, at most 100 per request: more are sent in order, each with the new ETag), `onDupes=ADD`, `If-None-Match`; `DELETE /playlists/{uuid}/items/{index}` with `If-None-Match`; `DELETE /playlists/{uuid}` with `If-None-Match` | — | — |
 
-**Walking a list** (the endpoints of this spec; 0004's album and playlist walks are unchanged): pages of the endpoint's page size *P* (table), `offset` advanced by ***P*, not by the items received**, until `offset ≥ totalNumberOfItems` or the 10 000-item cap; items already seen (same ID or UUID) are dropped. The probe found a page shorter than asked without being the end: favorite tracks with `limit=1000` returned 358 items for a `totalNumberOfItems` of 362 (the server leaves out what it will not serve, after paging), so advancing by the items received would ask for overlapping pages. The counts shown are the items kept, not `totalNumberOfItems`; the cap's title uses `totalNumberOfItems`.
-
-| Request | API calls | Kept |
-|---|---|---|
-| `Library` | `GET /users/{user}/playlistsAndFavoritePlaylists?order=DATE&orderDirection=DESC` (*P* = 50), `GET /users/{user}/favorites/albums?order=DATE&orderDirection=DESC` (*P* = 1000), `GET /users/{user}/favorites/artists?order=DATE&orderDirection=DESC` (*P* = 1000); the three in parallel | playlists from `items[].playlist` (UUID, title, `numberOfTracks`, `duration`; **own** when the entry's `type` is `USER_CREATED`, favorite when `USER_FAVORITE`), albums from `items[].item` (ID, title, artists, year from `releaseDate`, `numberOfTracks`, `duration`), artists from `items[].item` (ID, name); each newest first (by the entry's `created`, the date it was added) |
-| `FavoriteTracks` | `GET /users/{user}/favorites/tracks?order=DATE&orderDirection=DESC` (*P* = 1000) | tracks from `items[].item` (0004's mapping), newest first |
-| `Album(id)` | `GET /albums/{id}` and `GET /albums/{id}/tracks` (0004), in parallel | header (title, artists, year from `releaseDate`, `numberOfTracks`, `duration`) and every track |
-| `Playlist(uuid)` | `GET /playlists/{uuid}` and `GET /playlists/{uuid}/items` (0004, `type == "track"` only), in parallel | header (title, `numberOfTracks`, `duration`) and every track |
-| `Artist(id)` | `GET /artists/{id}`, `GET /artists/{id}/toptracks?limit=100` (one request), `GET /artists/{id}/albums` and `GET /artists/{id}/albums?filter=EPSANDSINGLES` (*P* = 1000 each), in parallel | name; top tracks (bare tracks, in the API's order, at most 100); albums (the plain call gives only `type: ALBUM`), then EPs and singles (`EP`/`SINGLE`), each in the API's order |
-
-A `404`/`2001` on the item's own resource (`/albums/{id}`, `/playlists/{uuid}`, `/artists/{id}`) is `NotFound`; an unknown artist's `/albums` is a `200` with no items, so only `/artists/{id}` says it does not exist. Any failing call fails the whole fetch with that call's error (no half pages). Without `order`/`orderDirection` the favorites lists come in no date order (the probe's default page mixed 2024 and 2025 entries), so the parameters are always sent.
+A `404`/`2001` on a page's own resource (`/albums/{id}`, `/playlists/{uuid}`, `/artists/{id}`, `/pages/contributor`) is `NotFound`; an unknown artist's `/albums` is a `200` with no items, so the header says it does not exist. A page's header and first pages are fetched in parallel; any failing call fails the page (no half pages). Later pages fail alone (above). Without `order`/`orderDirection` the favorites lists come in no date order, so the parameters are always sent.
 
 ### Types (`tidal_player_core`)
 
-- `Track` gains the IDs needed to go to its album and artists: `artists: Vec<ArtistRef { id, name }>` (was names only) and `album: Option<AlbumRef { id, title }>` (was the title only). The mapping fills them from the existing `artists[].id`/`album.id` fields (0004 "Facts": the track DTO has both). Rendering is unchanged
-- `library` module: `AlbumSummary { id, title, artists: Vec<ArtistRef>, year: Option<u16>, tracks: Option<u32>, duration: Option<Duration> }`, `PlaylistSummary { uuid, title, tracks: Option<u32>, duration: Option<Duration>, own: bool }`, `ArtistRef`, `FetchRequest`, and `FetchedPage`: `Library { playlists, albums, artists }`, `Tracks { title_row, tracks }` (favorite tracks), `Album { album, tracks }`, `Playlist { playlist, tracks }`, `Artist { artist, top_tracks, albums }`. Each list carries `total` (the API's `totalNumberOfItems`) besides its kept items, for the cap's title
-- All of them `Serialize`/`Deserialize`, as they cross the socket. The 16 MiB line limit (0005) holds 10 000 tracks with room to spare (about 300 bytes each)
+- `Track` gains the IDs needed to go to its album and artists: `artists: Vec<ArtistRef { id, name }>` (was names only) and `album: Option<AlbumRef { id, title }>` (was the title only). The mapping fills them from the existing `artists[].id`/`album.id` fields. Rendering is unchanged
+- `library` module: `AlbumSummary { id, title, artists, year: Option<u16>, kind: Album | Ep | Single, tracks: Option<u32>, duration: Option<Duration> }`, `PlaylistSummary { uuid, title, tracks: Option<u32>, duration: Option<Duration>, own: bool }`, `CreditedTrack { track, roles: Vec<RoleCategory> }`, `ListPage<T> { items: Vec<T>, offset, total }`, `ListRef`, `PageRequest`, `PageData`, `LibraryRequest`, `LibraryResponse`, `FavoriteKind`, and `hidden_version(&Track, &[String]) -> bool` (the version filter, pure)
+- All of them `Serialize`/`Deserialize`, as they cross the socket
 
 ### Client model
 
-`tidal_player_core::ui::State` gains the history (`Vec<Page>`, bottom first), each `Page` holding its kind, its fetch (`Loading { id }`, `Loaded(FetchedPage)`, `Failed(message)`), its windows' cursors and its focus; and the popup. `Effect` gains `Fetch { id, request }`; `Action` gains `Fetched { id, result }`. Fetch IDs come from a counter in the state (unique per client run).
+`tidal_player_core::ui::State` gains the history (`Vec<Page>`, bottom first), each `Page` holding its kind, its header, its windows (each: loaded rows, `total`, cursor, `Idle | Loading { id } | Failed(message)`), its focus; the popup (actions, *Add to playlist…*, a `y/n` question, the name prompt); and a whole-list load in progress. `Effect` gains `Library { id, request }`; `Action` gains `LibraryReply { id, result }`. Request IDs come from a counter in the state (unique per client run).
 
-- While **disconnected** (0005), loaded pages can still be browsed and opened from history, but nothing is fetched or sent: opening a new page shows it `Failed` with the disconnected message, and pages still `Loading` fail with it. On the next `Welcome`, the page on top, if it failed that way, is fetched again
-- When the player says the **session expired**, fetches fail with the session-expired message; after `LoginRestored`, opening the page again works
+- While **disconnected** (0005), loaded pages can still be browsed and opened from history, but nothing is requested or sent: opening a new page shows it failed with the disconnected message, and pending loads fail with it. On the next `Welcome`, the page on top, if it failed that way, is fetched again
+- When the player says the **session expired**, requests fail with the session-expired message; after `LoginRestored`, opening the page again works
 
 ### Rendering
 
-The page below the playback window replaces the queue's area (0004 "TUI" rules hold: the playback window keeps its 4 rows, nothing shares rows with it). A page with several windows draws them side by side with these widths, when the inner width is at least 60 columns:
+The page below the playback window replaces the queue's area (0004 "TUI" rules hold: the playback window keeps its 4 rows, nothing shares rows with it). A page with several windows draws them side by side when the inner width is at least 60 columns:
 
 - Library: Playlists 40 %, Albums 40 %, Artists 20 % (spotify-player's defaults)
-- Artist: Top tracks 60 %, Albums 40 %
+- Artist: Top tracks and All tracks share the left 60 % (the focused one of the two is shown, its title naming the other: `Top tracks ‹Tab› All tracks`), Albums and Appears on the right 40 % (likewise)
 
-Below 60 columns only the focused window is drawn, its title followed by `‹Tab›`. The title row takes one row above the windows. The popup is centred over the page, at most 50 columns wide and as tall as its actions, clipped to the page. Rows are truncated with `…` as in 0004; nothing panics at any size (0 × 0 included).
+Below 60 columns only the focused window is drawn, its title followed by `‹Tab›`. The title row takes one row above the windows. Popups are centred over the page, at most 50 columns wide, clipped to the page. Rows are truncated with `…` as in 0004; nothing panics at any size (0 × 0 included).
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -174,9 +197,9 @@ Below 60 columns only the focused window is drawn, its title followed by `‹Tab
 │  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · bit-perfect                        │
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────  1:23 / 3:32│
 │Library                                                                       │
-│┌Playlists (12)──────────────┐┌Albums (48)─────────────────┐┌Artists (31)────┐│
+│┌Playlists (22)──────────────┐┌Albums (14)─────────────────┐┌Artists (196)───┐│
 ││Running                  42 ││Collide With The Sky  Pier…  ││Pierce The Veil ││
-││Late night               17 ││Misadventures         Pier…  ││Sleeping With S…││
+││♥ Late night             17 ││Misadventures         Pier…  ││Sleeping With S…││
 │…                                                                             │
 ```
 
@@ -184,92 +207,102 @@ Below 60 columns only the focused window is drawn, its title followed by `‹Tab
 
 Protocol and types (`tidal_player_core`, pure):
 
-- **AC1** — `ClientMessage::Fetch`, `ServerMessage::Fetched`, every `FetchRequest` and `FetchedPage` variant, `AlbumSummary`, `PlaylistSummary`, `ArtistRef`/`AlbumRef` and the new `Track` shape survive a JSON round trip (0001 AC11's test, extended); 0005's codec decodes both new messages
-- **AC2** — `Track`'s new fields: the 0004 metadata mapping fills `artists[].id` and `album.id` from the existing fixtures; a track with `album: null` maps to `album: None`. Every place that showed artist names and the album title shows the same text as before (0004/0005 rendering snapshots unchanged)
+- **AC1** — `ClientMessage::Library`, `ServerMessage::LibraryReply`, every `LibraryRequest`, `LibraryResponse`, `PageRequest`, `PageData` and `ListRef` variant, the summaries, `CreditedTrack`, `ListPage` and the new `Track` shape survive a JSON round trip (0001 AC11's test, extended); 0005's codec decodes both new messages
+- **AC2** — `Track`'s new fields: the 0004 metadata mapping fills `artists[].id` and `album.id` from the existing fixtures; `album: null` maps to `None`. Every place that showed artist names and the album title shows the same text as before (0004/0005 rendering snapshots unchanged)
+- **AC3** — `hidden_version` (table, default words): hidden — `version: "Instrumental"`, `"TV Size"`, `"TV-size ver."`, `"Sped Up"`, `"Slowed + Reverb"`, `"Off Vocal"`, `"Nightcore"`, titles `"X (Instrumental)"`, `"X [TV Size]"`, `"X - Sped Up Version"` (`spedupversion` starts with `spedup`), `"X (slowed & reverb)"` with the word list extended by `slowed & reverb`; kept — `"Acoustic"`, `"Live"`, `"Tiësto Remix"`, `"Remastered 2011"`, a title containing `Instrumental` outside brackets (`"Instrumentally Yours"`), `None`; an empty word list hides nothing. Settings: `TIDAL_PLAYER_HIDE_VERSIONS` and `TIDAL_PLAYER_PAGE_SIZE` in `resolve_player_config` (0004 AC25's table, extended: unset, empty, `1`, `10000`, `0`, `10001`, `x`)
 
-API (`tidal-player-api::library`, wiremock fixtures written from the probe):
+API (`tidal-player-api::library`, wiremock fixtures written from the probes):
 
-- **AC3** — `get_library()`: the three lists' requests (paths with the session's user ID, `countryCode`, `order=DATE&orderDirection=DESC`, `limit` = *P*, `expect(n)` per page), each walked to its end with `offset` advanced by *P* (a 120-playlist fixture: 3 requests at offsets 0, 50, 100); a page shorter than *P* before the total does not end the walk; duplicates across pages dropped; mapped summaries in the API's order; `own` from `USER_CREATED`/`USER_FAVORITE`; the 10 000 cap with `total` kept (10 050 favorite albums: 10 000 kept, no request at offset 10 000)
-- **AC4** — `get_favorite_tracks()`: the order parameters and *P* = 1000 sent, every page (2 500 tracks: 3 requests), `item` unwrapped and mapped as 0004's tracks, a 1000-item page that returns 996 items followed by the next page at offset 1000 (the probe's 358-of-362 case), the cap
-- **AC5** — `get_album(id)` and `get_playlist(uuid)`: header and tracks; the tracks are 0004's walks (playlist videos dropped); `404`/`2001` on the header → `NotFound`; a failing tracks call fails the whole fetch
-- **AC6** — `get_artist(id)`: name, top tracks (exactly one request, `limit=100`), albums then EPs and singles (`filter=EPSANDSINGLES`); an unknown artist whose `/albums` answers `200` with no items still gives `NotFound` from `/artists/{id}`; `404`/`2001` → `MetadataError::NotFound(Artist)` with the message `Artist 1 was not found`; `LoginRequired` and transient errors returned unchanged by every call (table over the AC3–AC6 calls)
+- **AC4** — Reading lists: for each `ListRef`, one request per `More` with the path, `countryCode`, the order parameters where listed, `limit = min(asked, largest page)` (asking 100 of playlists or credits sends 50) and the given `offset`; the envelope unwrapped (`items[].item`, `items[].playlist` with `own` from `USER_CREATED`/`USER_FAVORITE`, bare items); `total` from `totalNumberOfItems`; non-track playlist items dropped. `ArtistAlbums` continues with `filter=EPSANDSINGLES` from offset 0 once the plain list is exhausted, with `total` the sum (table over every `ListRef`)
+- **AC5** — Pages: `Library`, `FavoriteTracks`, `Album`, `Playlist`, `Artist` return the header and each list's first page from parallel requests; the playlist's `ETag` header is kept; `404`/`2001` on the header (and on `/pages/contributor`) → `NotFound` with the item's message; an unknown artist whose `/albums` answers `200` empty still fails from `/artists/{id}`; any failing call fails the page
+- **AC6** — Credits: the first page from `/pages/contributor` (the `ITEM_LIST_WITH_ROLES` module's `pagedList`), later pages from its `dataApiPath` with `limit`/`offset` appended; role categories mapped; tracks without `STEREO` dropped and alternate versions hidden per `hidden_version`, with the hidden count reported; a page with no such module → `No credits`
+- **AC7** — Writes: `AddFavorite`/`RemoveFavorite` send the form field per kind (`trackIds`, `albumIds`, `artistIds`, `uuids`) and the `DELETE` path; `CreatePlaylist` posts `title`; `AddToPlaylist` reads the ETag, sends it as `If-None-Match` with `trackIds` comma-joined (250 tracks: 3 requests, each with the ETag the previous answered) and `onDupes=ADD` only when allowed, and on one `412` re-reads and retries once (a second `412` → the changed-playlist message); `RemoveFromPlaylist` sends the given ETag and position and on `412` returns the changed-playlist message without retrying; `DeletePlaylist` reads the ETag and sends it; `LoginRequired` and transient errors returned unchanged by every call (table)
 
 Player (`tidal-player`, fake library source, 0005's server tests):
 
-- **AC7** — `Fetch` is answered with exactly one `Fetched` with the same `id`, to that client only (another subscriber receives nothing); errors become `Err(message)` with the messages under "Fetching through the player" (table: not found, login required, network, 429); while a fetch is held pending by the fake, the same client's `Request { TogglePause }` is replied within 1 s and events keep flowing; one client's second fetch starts after its first answered, while another client's fetch proceeds independently; a client that disconnects mid-fetch leaves the player unaffected
+- **AC8** — Each `Library` request is answered with exactly one `LibraryReply` with the same `id`, to that client only (another subscriber receives nothing); errors become `Err(message)` with the messages under "Talking to the player" (table); while a request is held pending by the fake, the same client's `Request { TogglePause }` is replied within 1 s and events keep flowing; one client's second request starts after its first answered, while another client's proceeds independently; a client that disconnects mid-request leaves the player unaffected
 
 Client model (`tidal_player_core::ui`, pure):
 
-- **AC8** — History: `z`, `g l`, `g y` and `Enter` on album/playlist/artist rows push the page and emit `Fetch` with a fresh ID (the queue page emits none); opening the top page again does nothing; `Backspace`/`C-q` pop and the page under shows its kept data, cursors and focus with no `Fetch`; the bottom page is never popped; the 51st push drops the oldest page above the queue. `Fetched` applies to the page with that ID only, also when it is not on top; one for an ID no page has is dropped (table)
-- **AC9** — Windows and cursors: `Tab`/`BackTab` cycle the focus over the page's windows, wrapping; `j`/`k`/`g g`/`G`/`C-f`/`C-b` move the focused window's cursor only, clamped; cursors survive leaving and coming back (history); a `Loading`/`Failed`/empty window ignores cursor keys
-- **AC10** — Playing and queueing (table over every row of "Playing and queueing from a page"): `Enter` on track *i* of an *n*-track list sends `LoadQueue { tracks: the list in page order, start: i }` (the same `Vec` as the page's, never sorted or shuffled); `Z`/`C-z` on a track sends `AddToQueue { [track], End }`; on an album/playlist `Open { [item], Some(End) }`; on an artist nothing; `d` on the queue sends `RemoveFromQueue(entry ID)` and on a browse page nothing; the queue's `Enter` is 0004's
-- **AC11** — Actions popup: `g a`/`C-Space` open it for the selected row and `a` for the playing track, with the actions per item kind and order of the table (table, incl. a track with two artists and one without an album; `a` with nothing playing opens nothing); `j`/`k` move, `Enter` emits the action's effect (`Go to …` pushes and fetches that page; *Play next* sends `at: Next`) and closes it; `Esc` closes it with no effect; while open, no other key acts (`Space`, `n`, `q` included)
-- **AC12** — `Esc` with no popup or prompt open emits nothing (0004 AC20's `Esc` row changed from `Quit`); `q` and `C-c` emit `Quit`
-- **AC13** — Disconnected and login (table): while disconnected, opening a page shows it failed with the disconnected message and emits no `Fetch`, a `Loading` page fails with it, history and cursors work, `Enter`/`Z`/`d` emit nothing; the first `Welcome` after that re-fetches the top page if it failed that way (and only it); a `Fetched` error with the session-expired message is shown in the page
+- **AC9** — History: `z`, `g l`, `g y` and `Enter` on album/playlist/artist rows push the page and emit `Library { Page(…) }` with a fresh ID (the queue page emits none); opening the top page again does nothing; `Backspace`/`C-q` pop and the page under shows its kept rows, cursors and focus with no request; the bottom page is never popped; the 51st push drops the oldest page above the queue. A reply applies to the page/window with that ID only, also when it is not on top; one for an unknown ID is dropped (table)
+- **AC10** — Scrolling: a cursor move that comes within one window height of the last loaded row emits `More { list, offset: loaded so far rounded up to the page size, limit: page size }` once (no second request while one is pending); its rows are appended skipping known IDs; a short page before the total does not stop later loads; a failed `More` shows its message as the last row and the next move near the end asks again; `G` goes to the last loaded row; *All tracks* asks for its first page when first focused (table)
+- **AC11** — Windows and cursors: `Tab`/`BackTab` cycle the focus over the page's windows, wrapping; cursor keys move the focused window's cursor only, clamped to the loaded rows; cursors survive leaving and coming back; a loading, failed or empty window ignores them
+- **AC12** — Playing and queueing (table over every row of "Playing and queueing from a page"): `Enter` on track *i* of a fully loaded *n*-track list sends `LoadQueue { tracks: the list in page order, start: i }` (never sorted or shuffled); on a partly loaded list it first emits `More` until the total is loaded, then sends it once; `Esc` while loading cancels and sends nothing; above 40 000 tracks it sends nothing and sets the too-many message; `Z`/`C-z` on a track sends `Open { [Track(id)], Some(End) }`, on an album/playlist `Open { [item], Some(End) }`, on an artist nothing; `d` on the queue sends `RemoveFromQueue(entry ID)` and on a browse page nothing; the queue's `Enter` is 0004's
+- **AC13** — Actions popup: `g a`/`C-Space` open it for the selected row and `a` for the playing track, with the actions per item kind and order of the table (table, incl. a track with two artists, one without an album, an own and a followed playlist, a track on an own playlist page; `a` with nothing playing opens nothing); `j`/`k` move, `Enter` emits the action's effect (`Go to …` pushes and fetches that page; *Play next* sends `at: Next`; favorites send `AddFavorite`/`RemoveFavorite` with the right kind and ID) and closes it; `Esc` closes it with no effect; while open, no other key acts (`Space`, `n`, `q` included)
+- **AC14** — Playlist editing in the model: *Add to playlist…* lists own playlists only, *New playlist…* first; choosing one sends `AddToPlaylist` (a list: fetched whole first); a track already in a loaded copy of that playlist asks `y/n` and `y` sends `allow_duplicates: true`, `n` sends nothing; *New playlist…* takes a name (empty name: nothing) and sends `CreatePlaylist`, then `AddToPlaylist` to the created UUID; *Remove from this playlist* sends the row's position and the page's ETag; *Delete playlist* asks `y/n`; each success sets its message and re-fetches the affected page if it is in the history; an error sets the message and changes nothing (table)
+- **AC15** — `Esc` with no popup, prompt or whole-list load emits nothing (0004 AC20's `Esc` row changed from `Quit`); `q` and `C-c` emit `Quit`
+- **AC16** — Disconnected and login (table): while disconnected, opening a page shows it failed with the disconnected message and emits no request, a pending load fails with it, history and cursors work, `Enter`/`Z`/`d` and the popup's actions emit nothing; the first `Welcome` after that re-fetches the top page if it failed that way (and only it); a session-expired error is shown in the page
 
 TUI rendering and runtime (`tidal-player`):
 
-- **AC14** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): library loaded (three windows, counts, focus highlight); library loading; favorite tracks with a non-streamable row dimmed; album page title row; artist page (two windows); a failed page; each empty-list message; the `(first 10000 of 12345)` title; the actions popup over a track list. 50×20: only the focused window with `‹Tab›`. No panic from 0×0 to 120×40 on every page (table over sizes × pages)
-- **AC15** — Key decoding: `Tab`, `BackTab`, `Backspace`, `PageUp`/`PageDown`, `C-Space`, `C-f`/`C-b`/`C-q`/`C-z`/`C-c` decode to the model's keys (`crates/app/src/input.rs`, table)
-- **AC16** — Wiring: the TUI client runtime sends `Effect::Fetch` as `ClientMessage::Fetch` and turns `Fetched` into `Action::Fetched`, both attached and standalone (in-process link, 0005); an attached client fetching a page still opens no session store, keyring or passphrase source (0005 AC14's test, with a `g l` fetch answered from the test player's wiremock API)
+- **AC17** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): library loaded (three windows, counts, focus, `♥`); library loading; favorite tracks with a non-streamable row dimmed and `Loading more…` as the last row; album page title row; artist page (both halves, `‹Tab›` titles, hidden count); a failed page; each empty-list message; the actions popup; *Add to playlist…*; a `y/n` question. 50×20: only the focused window with `‹Tab›`. No panic from 0×0 to 120×40 on every page and popup (table over sizes × pages)
+- **AC18** — Key decoding: `Tab`, `BackTab`, `Backspace`, `PageUp`/`PageDown`, `C-Space`, `C-f`/`C-b`/`C-q`/`C-z`/`C-c` decode to the model's keys (`crates/app/src/input.rs`, table)
+- **AC19** — Wiring: the TUI client runtime sends `Effect::Library` as `ClientMessage::Library` and turns `LibraryReply` into `Action::LibraryReply`, both attached and standalone (in-process link, 0005); an attached client loading a page still opens no session store, keyring or passphrase source (0005 AC14's test, with a `g l` answered from the test player's wiremock API)
 
 Docs:
 
-- **AC17** — `docs/tui.md` documents the pages, the history, the windows, playing and queueing from a page, the actions popup, the new keys and the changed `Esc`, and the empty/failure messages; `CLAUDE.md` "Status" names this spec; this spec links to it
+- **AC20** — `docs/tui.md` documents the pages, the history, the windows, scrolling loads, playing and queueing from a page, the actions popup, favorites and playlist editing, the new keys and the changed `Esc`, the two settings, and the empty/failure messages; `docs/playback.md` "Settings" lists the two settings; `CLAUDE.md` "Status" names this spec; this spec links to them
 
 ## Edge cases & errors
 
 | Situation | Behaviour |
 |---|---|
-| Thousands of favorite tracks | Walked page by page in the player while the TUI shows `Loading…`; playback and other keys keep working (AC7). Above 10 000, the first 10 000 (AC3, AC4) |
-| `Enter` on a track of a 10 000-track list | One `LoadQueue` of 10 000 tracks (about 3 MB on the socket, under the 16 MiB limit) |
-| The user opens pages faster than they load | Each page has its own fetch ID; results land on their own page or are dropped (AC8); the client's fetches run one at a time in the player (AC7), so mashing does not burst requests at Tidal |
-| `429` while walking a list | The fetch fails with the message; nothing retries in a loop (0004 "What went wrong" 3) |
-| An album or playlist removed from Tidal but still in favorites | Shown in the list as Tidal returns it; opening it shows `Album 1 was not found` |
+| Thousands of favorite tracks | 100 rows load at once, more as you scroll; playback and other keys keep working (AC8, AC10) |
+| `Enter` on track 3 of a 5 000-track list | The rest loads first (`Loading 300 of 5 000…`, `Esc` cancels), then one `LoadQueue` of 5 000 (about 1.5 MB on the socket) |
+| The user opens pages faster than they load | Each request has its own ID; results land on their own page or are dropped (AC9); a client's requests run one at a time in the player (AC8), so mashing does not burst requests at Tidal |
+| `429` while loading | The page or the `Loading more…` row shows the message; nothing retries in a loop (0004 "What went wrong" 3) |
+| A favorite album or playlist removed from Tidal | Listed as Tidal returns it; opening it shows `Album 1 was not found` |
 | A track unavailable in the user's country | Shown dimmed; queued, then skipped by the player as a track-only failure (0004 AC7) |
-| A playlist of only videos | `This playlist has no tracks`; `Z` on it in the library: `Playlist <uuid> has no tracks` (0004) |
-| An artist with no albums or no top tracks | That window says `No albums` / `No top tracks` |
+| A playlist of only videos | `This playlist has no tracks`; `Z` on it: `Playlist <uuid> has no tracks` (0004) |
+| An artist with no albums, top tracks or credits | That window says so |
+| *All tracks* where most rows are hidden | The title says how many are hidden; an empty result after filtering says `No credits (37 hidden)` |
 | A track without an album (`album: null`) | No *Go to album* action |
-| Session expires while browsing | Fetches fail with the session-expired message; the status line shows it (0002 AC14) |
-| The player shuts down or the connection drops while a page loads | The page fails with the disconnected message and is fetched again on reconnect if still on top (AC13) |
-| Version mismatch between client and player | Refused at the greeting (0005), as before: the new messages are never seen by an old player |
-| Narrow terminal | One window at a time (AC14); below 6 inner rows only the playback window (0004) |
+| The playlist was edited elsewhere (another app) before a removal | `412`: `The playlist changed: nothing was changed, try again`; the page reloads; nothing removed by a stale position |
+| Adding a duplicate to a playlist | Asked first (`y/n`); Tidal itself would accept it |
+| Session expires while browsing or editing | Requests fail with the session-expired message; the status line shows it (0002 AC14) |
+| The player shuts down or the connection drops while a page loads | The page fails with the disconnected message and is fetched again on reconnect if still on top (AC16) |
+| Version mismatch between client and player | Refused at the greeting (0005), as before |
+| Narrow terminal | One window at a time (AC17); below 6 inner rows only the playback window (0004) |
 
 ## Test plan
 
-Each automated test is named after its criterion (`ac8_…`). Red is a failing assertion against stub types and functions with stub bodies (no `todo!()`, no compile errors), as in 0001–0005. API tests use `wiremock` with fixtures under `crates/api/tests/fixtures/library/`, written from the probe's recorded shapes (IDs and names replaced by fakes); long lists are built by the tests from a one-item fixture. Server tests reuse 0005's harness with a fake library source that can hold a fetch pending.
+Each automated test is named after its criterion (`ac10_…`). Red is a failing assertion against stub types and functions with stub bodies (no `todo!()`, no compile errors), as in 0001–0005. API tests use `wiremock` with fixtures under `crates/api/tests/fixtures/library/`, written from the probes' recorded shapes (IDs and names replaced by fakes; the write probe's ETag and `412` bodies as recorded). Server tests reuse 0005's harness with a fake library source that can hold a request pending.
 
 | AC | Test (file :: name) | What it asserts | Expected red |
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (extended) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) | round trip; decoding | new types' hand-written stub `Serialize` writes `null` |
 | AC2 | `crates/api/tests/metadata.rs` :: `ac2_track_refs` | IDs mapped; `album: null` → `None` | stub mapping leaves `id` 0 |
-| AC3 | `crates/api/tests/library.rs` :: `ac3_library` (+ `ac3_cap`) | paths, params, page counts, mapping, cap | stub reads the first page only |
-| AC4 | `crates/api/tests/library.rs` :: `ac4_favorite_tracks` | order params, pages, unwrapping, videos dropped | stub drops nothing and reads one page |
-| AC5 | `crates/api/tests/library.rs` :: `ac5_album_and_playlist` | header + tracks; errors | stub returns an empty header |
-| AC6 | `crates/api/tests/library.rs` :: `ac6_artist`, `ac6_errors` (table) | the four calls; errors per call | stub skips EPs and singles and maps `404` to a transient error |
-| AC7 | `crates/app/src/ipc/server/tests.rs` :: `ac7_fetch_replied_to_sender`, `ac7_fetch_errors` (table), `ac7_fetch_does_not_block` | one reply, sender only, messages, latency, per-client order | stub runs the fetch on the player thread, so the held fetch blocks the `TogglePause` reply |
-| AC8 | `crates/core/src/ui.rs` :: `ac8_history` (table), `ac8_fetched_by_id` (table) | stack, effects, kept state, stale drop | stub replaces the page instead of pushing, so back does nothing |
-| AC9 | `crates/core/src/ui.rs` :: `ac9_windows_and_cursors` (table) | focus cycle, cursor per window, clamping | stub moves every window's cursor |
-| AC10 | `crates/core/src/ui.rs` :: `ac10_play_and_queue` (table) | the exact command per row | stub `Enter` sends `LoadQueue` of the chosen track alone (tidalt `59c610d`) |
-| AC11 | `crates/core/src/ui.rs` :: `ac11_actions_popup` (table) | actions per kind, effects, closing, key capture | stub popup lists *Add to queue* only |
-| AC12 | `crates/core/src/ui.rs` :: `ac12_esc_and_quit` + 0004's `ac20_keys_to_commands` (row updated) | `Esc` → nothing; `q`/`C-c` → `Quit` | stub keeps `Esc` → `Quit` |
-| AC13 | `crates/core/src/ui.rs` :: `ac13_disconnected_and_login` (table) | no `Fetch`/`Send` while disconnected; one re-fetch | stub fetches while disconnected |
-| AC14 | `crates/app/src/ui.rs` :: `ac14_pages_80x24` (one snapshot per row), `ac14_narrow_50x20`, `ac14_no_panic_any_size` | `contains` checks + snapshots | stub render draws the queue whatever the page |
-| AC15 | `crates/app/src/input.rs` :: `ac15_key_events` (table) | decoded keys | stub maps the new keys to nothing |
-| AC16 | `crates/app/src/client.rs` :: `ac16_fetch_round_trip` (attached and in-process) + `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (extended with a library fetch) | messages both ways; no session opened | stub client drops `Effect::Fetch` |
-| AC17 | — reviewed at acceptance | docs match this spec, linked | — |
+| AC3 | `crates/core/src/library.rs` :: `ac3_hidden_version` (table) + `crates/app/src/play.rs` :: `ac25_player_config` (new rows) | hidden or kept per row; settings | stub hides nothing |
+| AC4 | `crates/api/tests/library.rs` :: `ac4_lists` (table over `ListRef`) | path, params, clamped `limit`, unwrapping, `total` | stub ignores `offset` and the clamp |
+| AC5 | `crates/api/tests/library.rs` :: `ac5_pages` (table) | header + first pages; ETag; errors | stub returns an empty header |
+| AC6 | `crates/api/tests/library.rs` :: `ac6_credits` | first page and `dataApiPath` pages; filters; hidden count | stub keeps Atmos-only and instrumental rows |
+| AC7 | `crates/api/tests/library.rs` :: `ac7_writes` (table) | forms, paths, `If-None-Match`, retry once on add, no retry on remove | stub sends no ETag, so every edit is a `412` |
+| AC8 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender`, `ac8_errors` (table), `ac8_does_not_block` | one reply, sender only, messages, latency, per-client order | stub runs the request on the player thread, so a held one blocks the `TogglePause` reply |
+| AC9 | `crates/core/src/ui.rs` :: `ac9_history` (table), `ac9_reply_by_id` (table) | stack, effects, kept state, stale drop | stub replaces the page instead of pushing |
+| AC10 | `crates/core/src/ui.rs` :: `ac10_scroll_loads` (table) | `More` offsets, no duplicates, short pages, failures | stub never asks for a second page |
+| AC11 | `crates/core/src/ui.rs` :: `ac11_windows_and_cursors` (table) | focus cycle, cursor per window | stub moves every window's cursor |
+| AC12 | `crates/core/src/ui.rs` :: `ac12_play_and_queue` (table) | the exact command per row; whole-list load | stub `Enter` sends the loaded rows only |
+| AC13 | `crates/core/src/ui.rs` :: `ac13_actions_popup` (table) | actions per kind, effects, closing, key capture | stub popup lists *Add to queue* only |
+| AC14 | `crates/core/src/ui.rs` :: `ac14_playlist_editing` (table) | requests, questions, messages, re-fetches | stub adds duplicates without asking |
+| AC15 | `crates/core/src/ui.rs` :: `ac15_esc_and_quit` + 0004's `ac20_keys_to_commands` (row updated) | `Esc` → nothing; `q`/`C-c` → `Quit` | stub keeps `Esc` → `Quit` |
+| AC16 | `crates/core/src/ui.rs` :: `ac16_disconnected_and_login` (table) | no request while disconnected; one re-fetch | stub requests while disconnected |
+| AC17 | `crates/app/src/ui.rs` :: `ac17_pages_80x24` (one snapshot per row), `ac17_narrow_50x20`, `ac17_no_panic_any_size` | `contains` checks + snapshots | stub render draws the queue whatever the page |
+| AC18 | `crates/app/src/input.rs` :: `ac18_key_events` (table) | decoded keys | stub maps the new keys to nothing |
+| AC19 | `crates/app/src/client.rs` :: `ac19_library_round_trip` (attached and in-process) + `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (extended) | messages both ways; no session opened | stub client drops `Effect::Library` |
+| AC20 | — reviewed at acceptance | docs match this spec, linked | — |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account (results in the PR description):
 
-- `g l` on the user's account lists the same playlists, albums and artists (and counts) as the Tidal app; `g y` the same favorite tracks, in the same order
-- A large favorites list loads while a track plays, without a hiccup in playback or the keys
-- `Enter` in a playlist plays it from that track with the rest queued; `Z` on an album in the library adds it; *Go to artist* from the playing track opens the artist
+- `g l` lists the same playlists, albums and artists (and counts) as the Tidal app; `g y` the same favorite tracks, in the same order; scrolling to the end of the 362 favorites loads them all, without duplicates
+- A large list loads while a track plays, without a hiccup in playback or the keys
+- `Enter` in a playlist plays it from that track with the rest queued; `Z` on an album in the library adds it; *Go to artist* from the playing track opens the artist; *All tracks* for an artist with instrumental and sped-up releases hides them
+- Add and remove a favorite, create a playlist, add tracks, remove one, delete it: each shows in the Tidal app
 
 ## Crate placement
 
-- `tidal-player-core`: `library` (summaries, refs, `FetchRequest`, `FetchedPage`), `track` (`ArtistRef`, `AlbumRef`), `protocol` (`Fetch`, `Fetched`), `ui` (pages, history, windows, popup, `Effect::Fetch`, `Action::Fetched`, the new keys). No I/O, no new dependency
-- `tidal-player-api::library`: the fetches and their DTO → core mapping; `metadata`'s walk is shared (moved to a common helper, page size per endpoint), and `MetadataError::NotFound` takes the new `Artist` kind
-- `tidal-player`: `ipc::server` (`Fetch` → a job; `Fetched` to that client's outbox), `player_runtime` (a `Library` trait beside 0004's `Metadata`, implemented by the API client and faked in tests), `client.rs` (the effect and the action), `ui.rs` (pages, windows, popup rendering), `input.rs` (new keys)
+- `tidal-player-core`: `library` (summaries, refs, `ListPage`, requests and responses, `hidden_version`), `track` (`ArtistRef`, `AlbumRef`), `protocol` (`Library`, `LibraryReply`), `ui` (pages, history, windows, scrolling loads, popups, `Effect::Library`, `Action::LibraryReply`, the new keys). No I/O, no new dependency
+- `tidal-player-api::library`: the reads and writes and their DTO → core mapping; `MetadataError::NotFound` takes the new `Artist` kind; the ETag header read
+- `tidal-player`: `ipc::server` (`Library` → a job; `LibraryReply` to that client's outbox), `player_runtime` (a `Library` trait beside 0004's `Metadata`, implemented by the API client and faked in tests), `play.rs` settings, `client.rs` (the effect and the action), `ui.rs` (pages, windows, popups), `input.rs` (new keys)
 - `xtask layering`: no change
 
 ## Facts vs. assumptions
@@ -304,11 +337,17 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-library-write-
 - **Delete**: `DELETE /v1/playlists/{uuid}` with the ETag → `204`; then `GET` → `404`/`2001`
 - Someone else's playlist without an ETag → `412`/`7002`, so ownership was not tested; *Add to playlist* lists only the user's own playlists (`USER_CREATED`), so it never tries
 
-Verified by the user's capture and `scripts/tidal-artist-tracks-probe.sh` (first request only; the rest of its output was cut): `GET /v1/pages/contributor?artistId=…&countryCode=…&deviceType=BROWSER&locale=en_US` answers `200` on `api.tidal.com` **without any token** as well, with the same body as tidal.com's.
+Verified on 2026-10-07 by the user's capture from tidal.com and `scripts/tidal-artist-tracks-probe.sh` (artist 7367609, Dean Lewis):
+
+- `GET /v1/pages/contributor?artistId={id}&countryCode=…&deviceType=BROWSER&locale=en_US` → `200` on `api.tidal.com`, with or without a token: `{title: "Credits", rows: [{modules: [CONTRIBUTOR_HEADER {title: "Credits for Dean Lewis", artist}]}, {modules: [ITEM_LIST_WITH_ROLES {pagedList: {dataApiPath: "pages/data/<uuid>?artistId={id}", limit: 50, offset: 0, totalNumberOfItems: 548, items: [{item: track, type: "track", roles: [{name, category, categoryId}]}]}, roleCategories, …}]}]}`; most popular first. Unknown artist → `404 {"subStatus":2001,"userMessage":"Not found"}`
+- `GET /v1/{dataApiPath}&countryCode=…&deviceType=BROWSER&locale=en_US&limit=50&offset=50` → the next 50 (`{limit, offset, totalNumberOfItems: 548, items}`); **`limit` above 50 → `400`/`1001` `Too big page, max page size is [50]`**
+- `roleCategoryId=11` is ignored (same total, same first IDs): there is no server-side role filter
+- In the first 100 items: 4 `["DOLBY_ATMOS"]`-only tracks (e.g. a `LOW`-quality copy of "Memories"), 1 `["STEREO","DOLBY_ATMOS"]`, the rest `["STEREO"]`; versions seen: `null`, `Acoustic`, `Tiësto Remix`; songwriting- and production-only credits on other artists' tracks
 
 Not verified:
 
-- Whether `pages/data/<uuid>?artistId=…` pages with `limit`/`offset` and its largest page (the probe is rerun with a summarised output)
+- `GET /users/{user}/favorites/ids` (the favorites ID lists the popup would use to know whether an item is a favorite): not probed. Until it is, the popup shows both *Add* and *Remove* (both harmless when redundant); confirmed in implementation against a fixture only if the user records it
+- Whether the dataApiPath's `<uuid>` is stable across sessions (it is re-read from `/pages/contributor` on every page open, so it does not matter)
 - Whether the short page (358 of 362) is the server dropping tracks unavailable in the country, and whether it happens on pages other than the last (the walk handles both, AC4)
 - Page sizes above 1000 on the favorites albums/artists and artist-albums endpoints (not needed: the walk uses 1000)
 - The order the Tidal apps themselves show the library in
@@ -316,14 +355,14 @@ Not verified:
 
 Verified from tidalt's code and history (2026-10-07): the list under "What tidalt did". Not verified: whether tidalt's single-request lists were actually cut short on a real account (inferred from the `limit` values; no issue reports one)
 
-## Decisions (answered by the user, 2026-10-07; the body is updated to them when work resumes)
+## Decisions (answered by the user, 2026-10-07; folded into the body above)
 
 1. **Where pages are fetched**: *in the player* (`Fetch`/`Fetched`), as proposed
 2. **`Esc`**: *as proposed*: closes the popup or the prompt only; `q`/`C-c` quit (0004 AC20's `Esc` row changes)
 3. **`Z` on a track with nothing playing**: *start it*, sent as `Open { items: [Item::Track(id)], at: Some(End) }`
-4. **Favoriting and playlist editing**: *in this spec* (2026-10-07: "why not", then "yes" to playlist editing). Actions popup: *Add to favorites*/*Remove from favorites* for tracks, albums, artists and playlists; *Add to playlist…* (pick one of your own playlists, or a new one), *Remove from playlist* on a track of your own playlist, *New playlist*, *Delete playlist* (own). Shapes, ETags and error codes come from `scripts/tidal-library-write-probe.sh`, to be run before approval
-5. **Lists load as you scroll** (2026-10-07: "can do inf-fetching if they do"): Tidal pages with `limit`/`offset` (= page size/page index × size) and returns `totalNumberOfItems` (the read probe). So a page fetches its first page of *N* items (the **page size**, a setting, default **100**, 1–10 000, clamped per endpoint: 50 for playlists) and shows the total at once (`Favorite tracks · 362 tracks`); the next page is fetched when the cursor comes within one window height of the last loaded row (`Loading more…` as the last row). Playing or queueing a whole list (`Enter` on a track, `Z`/*Add to playlist* on a list) first fetches the rest, then sends it. No 10 000-item cap on lists any more; `Enter` on a list longer than the socket's 16 MiB line can hold (about 50 000 tracks) is refused with a message
-6. **Artist page**: windows **Top tracks**, **Albums** (albums, then EPs and singles), **Appears on** (`filter=COMPILATIONS`), and **All tracks** = the Tidal apps' **"Credits for <artist>"** (the user, 2026-10-07). The user captured tidal.com's call: `GET /v1/pages/contributor?artistId={id}&countryCode=…&locale=en_US&deviceType=BROWSER` → a page whose second row holds an `ITEM_LIST_WITH_ROLES` module with `pagedList {dataApiPath: "pages/data/<uuid>?artistId={id}", limit: 50, offset: 0, totalNumberOfItems: 548, items: [{item: track, type: "track", roles: [{name, category, categoryId}]}]}`, most popular first, and `roleCategories` Performer (11), Songwriter (2), Producer (1), Engineer (3). It includes tracks where the artist is only credited as songwriter or producer, remixes and acoustic versions, and a Dolby-Atmos-only copy of a track (`audioModes: ["DOLBY_ATMOS"]`, `audioQuality: LOW`). *All tracks* pages through `dataApiPath` as decision 5 does, shows each track's role categories, keeps the API's order, and drops: duplicates (same track ID), tracks without `STEREO` in `audioModes`, and alternate versions (below). `scripts/tidal-artist-tracks-probe.sh` (read-only) checks before approval that this works with our token on `api.tidal.com`, how `dataApiPath` pages and its largest page, and whether a role-category filter parameter exists
+4. **Favoriting and playlist editing**: *in this spec* (2026-10-07: "why not", then "yes" to playlist editing). Actions popup: *Add to favorites*/*Remove from favorites* for tracks, albums, artists and playlists; *Add to playlist…* (pick one of your own playlists, or a new one), *Remove from playlist* on a track of your own playlist, *New playlist*, *Delete playlist* (own). Shapes, ETags and error codes from `scripts/tidal-library-write-probe.sh` ("Facts")
+5. **Lists load as you scroll** (2026-10-07: "can do inf-fetching if they do"): Tidal pages with `limit`/`offset` (= page size/page index × size) and returns `totalNumberOfItems` (the read probe). So a page fetches its first page of *N* items (the **page size**, a setting, default **100**, 1–10 000, clamped per endpoint: 50 for playlists) and shows the total at once (`Favorite tracks · 362 tracks`); the next page is fetched when the cursor comes within one window height of the last loaded row (`Loading more…` as the last row). Playing or queueing a whole list (`Enter` on a track, `Z`/*Add to playlist* on a list) first fetches the rest, then sends it. No 10 000-item cap on lists any more; `Enter` on a list longer than the socket's 16 MiB line can hold (about 50 000 tracks) is refused with a message (the body sets the limit at 40 000 tracks)
+6. **Artist page**: windows **Top tracks**, **Albums** (albums, then EPs and singles), **Appears on** (`filter=COMPILATIONS`), and **All tracks** = the Tidal apps' **"Credits for <artist>"** (the user, 2026-10-07). The user captured tidal.com's call: `GET /v1/pages/contributor?artistId={id}&countryCode=…&locale=en_US&deviceType=BROWSER` → a page whose second row holds an `ITEM_LIST_WITH_ROLES` module with `pagedList {dataApiPath: "pages/data/<uuid>?artistId={id}", limit: 50, offset: 0, totalNumberOfItems: 548, items: [{item: track, type: "track", roles: [{name, category, categoryId}]}]}`, most popular first, and `roleCategories` Performer (11), Songwriter (2), Producer (1), Engineer (3). It includes tracks where the artist is only credited as songwriter or producer, remixes and acoustic versions, and a Dolby-Atmos-only copy of a track (`audioModes: ["DOLBY_ATMOS"]`, `audioQuality: LOW`). *All tracks* pages through `dataApiPath` as decision 5 does, shows each track's role categories, keeps the API's order, and drops: duplicates (same track ID), tracks without `STEREO` in `audioModes`, and alternate versions (below). `scripts/tidal-artist-tracks-probe.sh` confirmed it on `api.tidal.com`, pages of at most 50 through `dataApiPath`, and no role filter ("Facts")
 
    **Alternate versions are left out of *All tracks*** by a configurable list of words (2026-10-07: instrumental, then "TV Version, Speed Up, Slowed + Reverb, etc."; a setting, `TIDAL_PLAYER_HIDE_VERSIONS`, comma-separated, until 0008 moves it to `app.toml`). A track is left out when its `version`, or a bracketed part or ` - ` suffix of its title, matches one of the words after both are lower-cased and stripped of spaces, hyphens, underscores, dots and `+`. Default: `instrumental`, `inst`, `off vocal`, `karaoke`, `tv version`, `tv ver`, `tv size`, `tv edit`, `sped up`, `speed up`, `nightcore`, `slowed`, `slowed + reverb`, `reverb`, `8d`, `8d audio`. Table-tested (`TV-size`, `TV Size ver.`, `(Sped Up)`, `Slowed + Reverb`, `[Instrumental]`, `- Off Vocal`; and `Acoustic`, `Tiësto Remix` kept). Other windows show every version
 
@@ -331,7 +370,7 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 
 - Search (0007)
 - Mixes, radio and "My mixes" pages (0011); spotify-player's *GoToRadio*
-- Adding and removing favorites, creating and editing playlists (decision 4)
+- Renaming playlists, editing their descriptions, reordering their tracks, playlist folders; making a playlist public
 - Caching pages or images, remembering the page history across runs (0009)
 - Cover art on pages (0004's placement rule applies when it comes)
 - Sorting and filtering lists (spotify-player's `s t`, `/` in a page), the help popup (`?`), configurable keys and page percentages (0008)
