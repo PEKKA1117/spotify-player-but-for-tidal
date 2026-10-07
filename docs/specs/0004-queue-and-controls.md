@@ -1,6 +1,6 @@
 # 0004 — Queue & playback controls
 
-- **Status**: draft (2026-10-07)
+- **Status**: approved (2026-10-07)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented), 0002 (implemented), 0003 (approved; its engine is extended here, see "Engine additions")
 - **User docs**: [`docs/playback.md`](../playback.md) (extended) and a new [`docs/tui.md`](../tui.md) (written by this spec's implementation, AC24)
@@ -126,7 +126,7 @@ New `protocol::Event` variants (player → clients):
 
 ### Filling the queue (until 0006/0007)
 
-From the command line (`tidal-player [ITEM]...`, `play <ITEM>...`) or from the TUI's **open** prompt (`o`, below). An **item** is a Tidal track ID (a bare number, as in 0003) or a Tidal link to a track, album or playlist:
+From the command line (`tidal-player [ITEM]...`, `play <ITEM>...`) or from the TUI's **open** prompt (`o` / `O`, below). An **item** is a Tidal track ID (a bare number, as in 0003) or a Tidal link to a track, album or playlist:
 
 | Item | Becomes |
 |---|---|
@@ -161,7 +161,7 @@ The player takes them as a `PlayerConfig` at start; `ToggleAutoplay` changes aut
 
 | Command | What it does |
 |---|---|
-| `tidal-player [ITEM]...` | Starts the TUI (standalone: player and TUI in one process). With items, it loads them into the queue and starts playing the first; without, it starts with an empty queue. Quality and device come from the environment, as for `play` (0003 "Settings") |
+| `tidal-player [--add-to-queue \| --play-next] [ITEM]...` | Starts the TUI (standalone: player and TUI in one process). With items, it loads them into the queue and starts playing the first; without, it starts with an empty queue. `--add-to-queue` adds the items at the end of the queue and `--play-next` right after the current entry (`AddToQueue { at: End \| Next }`) instead of replacing it; the two are mutually exclusive (exit 2) and need at least one item (exit 2). Until 0005 lets a second invocation reach a running player, the queue is always empty at start, so both behave like the plain form (the first added track starts); 0005 sends the same command to the running daemon. Quality and device come from the environment, as for `play` (0003 "Settings") |
 | `tidal-player play <ITEM>... [--shuffle] [--repeat off\|queue\|track] [--autoplay] [--quality Q] [--device PCM] [--start SECONDS]` | 0003's headless `play`, now taking several items and playing them as one queue through the same player code. `--start` applies to the first track. The "Track" and "Output" lines are printed again at each track start (and the progress line redraws for the current track). With `--autoplay` (or `TIDAL_PLAYER_AUTOPLAY=on`) it keeps going on suggestions until Ctrl-C. Exit `0` when the queue ran out and at least one track played to its end; `1` when it stopped on a failure (message on stderr, as in 0003) or no track could be played; `2` bad arguments or items; `130` Ctrl-C. With one track ID and no new flag, its behaviour and output are exactly 0003's |
 
 ### TUI
@@ -185,7 +185,7 @@ The screen is one bordered frame titled `tidal-player`, as now. The **playback w
 - The third row is the now-playing details; the message (failures) replaces it while there is one
 - The progress row draws no bar when the duration is unknown (`1:23 / ?:??`)
 - The queue lists the play order, the current entry marked `▶` and kept in view when it changes; the cursor moves independently. Suggested entries follow a `Suggested` divider row and are drawn dimmed
-- **Open prompt** (`o`): a one-row input over the queue's top row, `Open: `, taking a track ID or a Tidal track/album/playlist link, typed or pasted (bracketed paste). `Enter` expands it (as on the command line) and adds the tracks at the end of the queue; if nothing is playing, the first added track starts. `Esc` closes it. While it is open, keys type into it; an invalid item or a fetch error closes it and shows the message in the playback window
+- **Open prompt** (`o`: add to the end of the queue; `O`: play next, i.e. right after the current entry): a one-row input over the queue's top row, `Add to queue: ` or `Play next: `, taking a track ID or a Tidal track/album/playlist link, typed or pasted (bracketed paste). `Enter` expands it (as on the command line) and adds the tracks at the end of the queue (`o`) or after the current entry (`O`); if nothing is playing, the first added track starts. `Esc` closes it. While it is open, keys type into it; an invalid item or a fetch error closes it and shows the message in the playback window
 - Narrow or short terminals: columns are truncated with `…`, the album column goes first, then the artist; below 6 inner rows only the playback window is drawn; nothing panics at any size (0 × 0 included)
 
 Keys (spotify-player's defaults; hardcoded until 0008 makes them configurable):
@@ -199,7 +199,8 @@ Keys (spotify-player's defaults; hardcoded until 0008 makes them configurable):
 | `C-s` | toggle shuffle |
 | `C-r` | cycle repeat |
 | `A` | toggle autoplay |
-| `o` | open a link or ID (prompt) |
+| `o` | add a link or ID to the end of the queue (prompt) |
+| `O` | add a link or ID to play next (prompt) |
 | `+` / `-` | volume up / down by the volume step |
 | `_` | mute / unmute |
 | `j`/`↓`, `k`/`↑`, `g g`, `G` | move the queue cursor (down, up, top, bottom) |
@@ -252,13 +253,13 @@ Added with the decisions (2026-10-07):
 - **AC25** — Settings: `resolve_player_config(env)` (pure) gives the defaults with nothing set, each value within its range, and exit-2 errors naming the variable for out-of-range, non-numeric and unknown values (table, including empty = unset). `play --autoplay` beats the environment. The TUI's `+`/`-` and `>`/`<` send the configured steps; the player's previous uses the configured threshold
 - **AC26** — Autoplay (player): with autoplay on and repeat `off`, the last entry reaching the preload point emits `FetchSuggestions { seed: its track, tag }` once; a result for that tag appends the tracks not already queued as suggested entries and preloads the first; an error or an empty (or all-duplicate) result appends nothing, sets the `Autoplay: no suggestions (…)` message and the queue stops at its end; a stale tag, or a result arriving after `ToggleAutoplay` off, changes nothing; with repeat `queue`/`track` or autoplay off, no `FetchSuggestions` is ever emitted (table)
 - **AC27** — `tidal-player-api` gets `get_suggestions(track)`: exactly one `GET /tracks/{id}/radio` with `countryCode` and `limit=100` (wiremock fixture from the probe); the tracks in order, mapped as in AC17 (the seed included: the player's de-duplication drops it); `404`/`2001` → an empty list; `LoginRequired` and transient errors returned unchanged
-- **AC28** — Open prompt (client state, pure): `o` opens it; typed characters and a paste edit it; `Backspace` deletes; `Esc` closes it with no effect; `Enter` with a valid item closes it and emits `Effect::Expand(item)`; with an invalid one, closes it and sets the `Not a Tidal track, album or playlist` message. The client runtime turns the expanded tracks into `AddToQueue { at: End }`, followed by `PlayEntry` of the first added entry when the player is `Stopped` with nothing current or the queue was empty (fake metadata). While the prompt is open no key reaches the player (`Space` types a space)
+- **AC28** — Open prompt (client state, pure): `o` opens it in add-to-queue mode and `O` in play-next mode; typed characters and a paste edit it; `Backspace` deletes; `Esc` closes it with no effect; `Enter` with a valid item closes it and emits `Effect::Expand { item, at: End | Next }` per mode; with an invalid one, closes it and sets the `Not a Tidal track, album or playlist` message. The client runtime turns the expanded tracks into `AddToQueue { at }`, followed by `PlayEntry` of the first added entry when the player is `Stopped` with nothing current or the queue was empty (fake metadata). While the prompt is open no key reaches the player (`Space` types a space). CLI: `--add-to-queue` and `--play-next` parse into the matching `at`, are mutually exclusive and need an item (exit 2, `crates/app/tests/cli.rs`)
 
 ## Edge cases & errors
 
 | Situation | Behaviour |
 |---|---|
-| Empty queue | Every playback key does nothing; volume and the shuffle/repeat/autoplay modes still change (and apply to the next load); `o` opens the prompt |
+| Empty queue | Every playback key does nothing; volume and the shuffle/repeat/autoplay modes still change (and apply to the next load); `o`/`O` open the prompt |
 | Queue of one, repeat `queue` | The track repeats (as `track`), gaplessly |
 | Every track of an album unavailable in the country | 5 failures (or fewer, the album's length), then `Stopped: N tracks in a row could not be played`; no API storm (tidalt bug 3) |
 | `429` or network down during resolution | Stops on that entry with the message; play/pause retries. Never skips |
@@ -311,7 +312,7 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC25 | `crates/app/src/play.rs` :: `ac25_player_config` (table) + `crates/core/src/ui.rs` :: `ac25_steps_from_config` | values, errors and precedence; commands carry the configured steps | stub ignores the environment and returns the defaults |
 | AC26 | `crates/core/src/player.rs` :: `ac26_autoplay` (table: on/off × repeat × result ok/empty/duplicates/error/stale/after toggle-off) | `FetchSuggestions` once, appended entries and their mark, preload, message, stop | stub never fetches, so the queue stops at its end with autoplay on |
 | AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | path and params, mapped tracks, errors | stub returns an empty list without a request, so the `expect(1)` fails |
-| AC28 | `crates/core/src/ui.rs` :: `ac28_open_prompt` (table) + `crates/app/src/player_runtime.rs` :: `ac28_open_adds_and_starts` | prompt state, effects; commands sent after expansion | stub `o` does nothing |
+| AC28 | `crates/core/src/ui.rs` :: `ac28_open_prompt` (table) + `crates/app/src/player_runtime.rs` :: `ac28_open_adds_and_starts` | prompt state and mode, effects; commands sent after expansion (`End` and `Next`) | stub `o`/`O` do nothing |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account (results in the PR description):
 
@@ -358,7 +359,7 @@ Not verified (the probe did not reach it):
 
 ## Decisions (answered by the user, 2026-10-07)
 
-1. **Filling the queue before 0006/0007**: *both* — items on the command line (`tidal-player [ITEM]...`, `play <ITEM>...`) and pasted into the TUI's open prompt (AC28)
+1. **Filling the queue before 0006/0007**: *both* — items on the command line (`tidal-player [ITEM]...`, `play <ITEM>...`) and pasted into the TUI's prompt: `o` adds to the end of the queue, `O` plays next; on the command line `--add-to-queue` / `--play-next` (AC28)
 2. **Volume**: software gain in the engine, cubic curve, default 100 % (bit-perfect by default). *Fair, but configurable*: the step is a setting (default 5 %, AC25). (The ALSA hardware mixer was the alternative; not taken)
 3. **Previous** restarts the track when past a threshold, else goes back. *Fair, but configurable*: 3 s by default, `0` disables the restart (AC25)
 4. **End of queue**: stops, unless **autoplay** is on, which continues with Tidal's suggestions as the Tidal apps do; *togglable* (`A`, `--autoplay`, a setting; AC26). Default off (proposed; the Tidal apps default to on)
