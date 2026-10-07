@@ -1,0 +1,330 @@
+# 0004 — Queue & playback controls
+
+- **Status**: draft (2026-10-07)
+- **Owner**: tech-lead (primary session)
+- **Depends on**: 0001 (implemented), 0002 (implemented), 0003 (approved; its engine is extended here, see "Engine additions")
+- **User docs**: [`docs/playback.md`](../playback.md) (extended) and a new [`docs/tui.md`](../tui.md) (written by this spec's implementation, AC24)
+
+## Context
+
+0003 plays one track. This spec adds what turns that into a player: a queue, play/pause/seek/next/previous, shuffle, repeat, auto-advance (gapless, through 0003's `Preload`), volume, and the first real TUI screen (a now-playing bar and the queue). It creates the player state machine that spec 0001 reserved, `tidal_player_core::player` (`PlayerState`, `PlayerInput`, `PlayerEffect`, `update`), and fills `protocol::Command`/`Event` with the playback messages. The player runs in-process with the TUI (0001's *standalone* mode) and behind `tidal-player play`; the daemon and its clients are 0005, and nothing here may assume the client and the player share memory.
+
+Browsing (library, search) arrives with 0006/0007. Until then the queue is filled from Tidal links or IDs given on the command line (decision 1).
+
+### What tidalt did
+
+Read from `internal/ui/model.go`, `internal/ui/queue.go`, `internal/player/mpv.go` and the history of their `fix` commits:
+
+- The queue, the current index, shuffle and the "advancing" flags lived in the BubbleTea UI model; the player goroutine only played one URL at a time and closed a "done" channel at the end
+- Shuffle had two modes: *Random* (pick an unplayed index on each advance, with a played-index stack for *previous*) and *Fisher–Yates* (pre-shuffled copy, original order kept aside). No repeat
+- Previous was "cursor − 1", or a pop from the shuffle history stack
+- Volume was a float in the player, applied by scaling every sample; the UI defaulted it to 50 % (`e925071`)
+- Keys (spotify preset): `Space` resume/pause, `n`/`p` next/previous, `>`/`<` seek ±10 s, `+`/`-` volume ±5 %, `C-s` shuffle, `z` queue
+
+### What went wrong there, and the criterion that covers it here
+
+1. **Skips cascaded through the playlist** (`5e0e06b`): the old track's "done" message, processed after the new track started, triggered another auto-advance. Fixed there with a generation counter in the UI → here every track-scoped engine event carries the tag of the command that started the track, and the player ignores stale ones (AC6, AC14)
+2. **Errors looked like the end of a track**, so the UI auto-advanced into the same broken state, track after track (`2afa977`, and 0003 "Context" 2) → 0003 AC16 keeps `Error` and `TrackEnded` apart; here the player decides per error kind whether to skip or stop (AC7)
+3. **Tight skip loops** when every track failed, hammering the API into `429`s (`f6b90be` added skipping past unplayable tracks, `fac01ca` a 2 s delay against the loop) → a `429` or any transient error never skips, and skipping stops after a bounded run of failures (AC7)
+4. **Skip did not interrupt the current track** (`efbf527`): `PlayNext` queued the URL and the stream loop never looked at it → `Next` sends `Play`, which 0003's engine handles at once (AC1)
+5. **A client re-shuffled the daemon's already-shuffled queue** and showed a different order from the one playing (`fb4721c`, issues #19–#21) → shuffle exists only in the player; snapshots carry the queue in play order and clients show it as sent (AC3, AC22)
+6. **A 100 % progress bar at the start of every track** (`78f841f`): the duration was read as 0 before it was set → the duration comes with the queue entry's metadata, and an unknown duration draws no bar rather than a full one (AC23)
+7. **Volume broke bit-perfect silently**: samples were scaled while the UI kept saying "bit-perfect", and the default volume was 50 % → the default is 100 %, gain 1 leaves samples untouched (bit-exact, AC15), and any other volume clears `bit_perfect` with a reason (AC9; 0003 "Out of scope")
+8. **Playing from a list played only that one track** (`59c610d`): nothing was loaded into the queue, so auto-advance had nothing to follow → loading a list always loads the whole list and starts at the chosen entry (AC1)
+
+## Behaviour
+
+### The queue
+
+The queue is an ordered list of **entries**. Each entry holds a track (ID, title, artists, album, duration if known) and an **entry ID** that is unique for the life of the player, so the same track can be queued twice and still be addressed unambiguously. One entry is **current** (or none, when the queue is empty).
+
+The queue has two orders: the **original** order (as loaded and edited) and the **play order** (equal to the original when shuffle is off). Next, previous, auto-advance and the TUI all use the play order. Snapshots send the play order only.
+
+| Operation | Effect |
+|---|---|
+| Load *tracks*, starting at *i* | Replaces the queue. Entry *i* becomes current and plays from the start. With shuffle on, entry *i* comes first in the play order and the rest is shuffled |
+| Add *tracks* next | Inserted right after the current entry, in both orders, in the given order (empty queue: becomes the queue, the first one current, nothing starts) |
+| Add *tracks* at the end | Appended to both orders |
+| Remove *entry* | Removed from both orders. Removing the current entry while playing or paused moves on as **Next** does (stopping if there is no next); while stopped, the next entry (or none) becomes current |
+| Clear | Removes every entry except the current one, which keeps playing |
+| Play *entry* | Makes it current and plays it from the start |
+
+### Playback state
+
+`Stopped` → (`Loading` → `Playing` ⇄ `Paused`), with `Buffering` as a sub-state of `Playing` while the engine reports it (0003 AC23).
+
+- **Loading**: the stream is being resolved and opened; nothing plays yet. The position is the start position
+- **Play/pause** (`TogglePause`): Playing → Paused; Paused → Playing; Stopped with a current entry → play it from the start; Loading → the stream keeps loading but is held: it starts only when toggled again, so a pause during loading never lets a burst of audio through
+- **Next**: the entry after the current one in play order, per the repeat table below, starts playing (also from Paused). If there is none, playback stops on the current entry at 0:00
+- **Previous**: if the position is **more than 3 s**, seek to 0:00; otherwise the entry before the current one in play order starts playing (repeat *queue* wraps from the first to the last); on the first entry without wrap, seek to 0:00
+- **Seek** by ±5 s (`SeekBy`) or to a position (`SeekTo`): clamped below at 0:00; a target at or past the end ends the track, which then auto-advances as a natural end does. Keeps Playing or Paused. While Loading, the target becomes the start position. While Stopped, ignored
+- **Auto-advance**: when a track ends naturally (engine `TrackEnded`, or a gapless `Transitioned`), the next entry per the repeat table plays
+
+### Shuffle and repeat
+
+- **Shuffle** (`ToggleShuffle`): *on* puts the current entry first in the play order and shuffles all the other entries (Fisher–Yates, from a seed the runtime gives the player; tests fix it). *Off* restores the original order; the current entry keeps playing in both cases. Entries added while shuffled go where the queue table says, in both orders; they are not shuffled in. There is a single shuffle mode (tidalt's *Random* mode is dropped: with a fixed play order, previous needs no history stack)
+- **Repeat** (`CycleRepeat`): `off` → `queue` → `track` → `off`
+
+| Repeat | Natural end of the current track | `Next` | End of the last entry (play order) |
+|---|---|---|---|
+| `off` | next entry | next entry | stop on the last entry at 0:00 |
+| `queue` | next entry | next entry | first entry (same play order; not reshuffled) |
+| `track` | the same entry again | next entry (as `queue`) | — (the track repeats) |
+
+### Gapless and preloading
+
+When the current track has **30 s or less** left (or as soon as it starts, if its duration is unknown) and a next entry exists per the repeat table, the player resolves that entry's stream and sends the engine `Preload`. The engine then moves into it gaplessly when formats match (0003 AC17). If the next entry changes after that (queue edit, shuffle, repeat), the player resolves and preloads the new one, or sends `CancelPreload` when there is none any more. A failed preload resolution is not reported until the track would have started: the player then handles it as a failure of that entry (below).
+
+### Failures
+
+| What failed | Examples | What the player does |
+|---|---|---|
+| This track only | `NotFound`, `NotAvailable`, `PreviewOnly`, `Unsupported` (resolve); `Decode`, `Unsupported` (engine) | Shows the 0003 message, then moves on as auto-advance would (repeat `track` moves on too). After **5** consecutive failures, or as many as there are entries if fewer, it stops on the failing entry with `Stopped: N tracks in a row could not be played` |
+| Something transient | network error after the retries (`SourceError::Network`), `429`, `5xx` | Stops (state `Stopped`) on that entry, at the position reached, with the 0003 message. **Never skips.** Play/pause retries it |
+| The output | `Busy`, `NotFound`, `Lost` | Stops on that entry with the 0003 message. Never skips (the next track would fail the same way) |
+| The session | `LoginRequired` | Stops; the TUI shows the "session expired" status (0002 AC14) |
+
+The message stays in the snapshot until the next track starts or the next failure replaces it. A successful `Started` resets the failure count.
+
+### Volume
+
+- `0`–`100` %, in steps of **5** (`ChangeVolume(±5)`), clamped; **default 100 %**. Mute (`ToggleMute`) sets the gain to 0 and keeps the volume, so unmuting restores it; changing the volume while muted unmutes. Not remembered across runs (0009)
+- Software gain in the engine: `gain = (volume / 100)³` (a perceptual curve: 50 % ≈ −18 dB; decision 2), 0 when muted. At gain 1 the engine does not touch the samples
+- `bit_perfect` (0003 "Output kinds") gains a last condition, *and the gain is 1*: below 100 % the snapshot reports `bit_perfect: false` with the reason `volume below 100%`, and `muted` when muted
+
+### Engine additions (`tidal-player-audio`)
+
+| Change | Why |
+|---|---|
+| `Play` and `Preload` take a `tag: u64`; `Started`, `Transitioned`, `TrackEnded` and `Error` carry the tag of the track they are about | The player can tell an event of the track it just replaced from one of the track it started (tidalt bug 1) |
+| `CancelPreload` | Forgets the preload (closing its source); at the end of the current track the engine drains and sends `TrackEnded` as if none had been sent |
+| `SetGain(f32)` (0.0–1.0) | Applied to every sample before packing, from the next write (within one 50 ms write slice); kept across tracks, transitions and `SetDevice`. Gain exactly 1.0 passes samples through untouched. Otherwise `round(s × gain)` in `f64`, no dither |
+
+### Player and protocol (`tidal-player-core`)
+
+`tidal_player_core::player::update(&mut PlayerState, PlayerInput) -> Vec<PlayerEffect>`, pure, as 0001 laid out:
+
+- `PlayerInput`: a client `Command`; an engine event, mapped by the runtime into core types (tag, source format, output info, error kind and message); a stream resolution result (entry, tag, granted quality, or error kind and message)
+- `PlayerEffect`: `Resolve { entry, tag, purpose: Play | Preload }`, `EnginePlay { tag, start_at }`, `EnginePreload { tag }`, `EngineCancelPreload`, `EnginePause`, `EngineResume`, `EngineSeek`, `EngineStop`, `EngineSetGain(f32)`, `Broadcast(Event)`. The runtime keeps the resolved stream for a tag and hands it to the engine with `EnginePlay`/`EnginePreload`; core never sees a URL
+- Each `Resolve` gets a fresh tag. A resolution result or an engine event with any tag other than the current track's (or the pending preload's) changes nothing
+
+New `protocol::Command` variants (client → player): `LoadQueue { tracks, start }`, `AddToQueue { tracks, at: Next | End }`, `RemoveFromQueue(EntryId)`, `ClearQueue`, `PlayEntry(EntryId)`, `TogglePause`, `Next`, `Previous`, `SeekBy(milliseconds, signed)`, `SeekTo(Duration)`, `ToggleShuffle`, `CycleRepeat`, `ChangeVolume(i8)`, `SetVolume(u8)`, `ToggleMute`. Toggles rather than "set" variants, so two clients acting on a stale view (0005) cannot fight; MPRIS (0010) may add setters.
+
+New `protocol::Event` variants (player → clients):
+
+- `Player(PlayerSnapshot)`: the whole player state, sent once after every input that changed anything but the position: queue (play order, with entry IDs), current entry ID, state, position, shuffle, repeat, volume, muted, the now-playing details (granted quality, the 0003 "Track" and "Output" descriptions, `bit_perfect` and its reason as above) and the message, if any. Clients replace their copy with it and never reorder it
+- `Position { entry, position }`: forwarded from the engine's `Position` events (every ≤ 250 ms while playing), without a full snapshot
+
+### Filling the queue (until 0006/0007)
+
+An **item** is a Tidal track ID (a bare number, as in 0003) or a Tidal link to a track, album or playlist:
+
+| Item | Becomes |
+|---|---|
+| `77640617` | track 77640617 |
+| `https://tidal.com/browse/track/77640617`, `https://tidal.com/track/77640617`, `https://listen.tidal.com/track/77640617`, `tidal://track/77640617`, any of these with a query string (`?u`) | track 77640617 |
+| `https://tidal.com/browse/album/123`, `…/album/123/` | every track of album 123, in album order |
+| `https://tidal.com/browse/playlist/<uuid>` | every track of the playlist, in playlist order; videos are left out |
+| anything else (an artist or mix link, a video, a typo) | refused before anything plays: `Not a Tidal track, album or playlist: <item>` (exit 2) |
+
+Items are expanded in the order given into one list; the metadata (title, artists, album, duration) comes from the API at the same time:
+
+- `GET {api_base}/tracks/{id}?countryCode=…`
+- `GET {api_base}/albums/{id}/tracks?countryCode=…&limit=…&offset=…`, every page
+- `GET {api_base}/playlists/{uuid}/items?countryCode=…&limit=…&offset=…`, every page, keeping `type == "track"` items
+
+Shapes, page size and error answers are assumptions until the probe below records them (see "Facts").
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `tidal-player [ITEM]...` | Starts the TUI (standalone: player and TUI in one process). With items, it loads them into the queue and starts playing the first; without, it starts with an empty queue. Quality and device come from the environment, as for `play` (0003 "Settings") |
+| `tidal-player play <ITEM>... [--shuffle] [--repeat off\|queue\|track] [--quality Q] [--device PCM] [--start SECONDS]` | 0003's headless `play`, now taking several items and playing them as one queue through the same player code. `--start` applies to the first track. The "Track" and "Output" lines are printed again at each track start (and the progress line redraws for the current track). Exit `0` when the queue ran out and at least one track played to its end; `1` when it stopped on a failure (message on stderr, as in 0003) or no track could be played; `2` bad arguments or items; `130` Ctrl-C. With one track ID and no new flag, its behaviour and output are exactly 0003's |
+
+### TUI
+
+The screen is one bordered frame titled `tidal-player`, as now. The **playback window** (spotify-player's, at the top) takes 4 rows inside the frame; the **queue** fills the rest:
+
+```
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────────────────────────────────────────────┐│
+││  1  King For A Day         Pierce The Veil            3:52                  ││
+││▶ 2  Hell Above             Pierce The Veil            3:32                  ││
+│…                                                                             │
+```
+
+- State symbol: `▶` playing, `⏸` paused, `…` loading or buffering, `■` stopped; `Nothing playing` when the queue is empty
+- Indicators: `shuffle` only when on, `repeat: queue`/`repeat: track` only when not off, the volume, `muted` instead of it when muted
+- The third row is the now-playing details; the message (failures) replaces it while there is one
+- The progress row draws no bar when the duration is unknown (`1:23 / ?:??`)
+- The queue lists the play order, the current entry marked `▶` and kept in view when it changes; the cursor moves independently
+- Narrow or short terminals: columns are truncated with `…`, the album column goes first, then the artist; below 6 inner rows only the playback window is drawn; nothing panics at any size (0 × 0 included)
+
+Keys (spotify-player's defaults; hardcoded until 0008 makes them configurable):
+
+| Key | Does |
+|---|---|
+| `Space` | play/pause |
+| `n` / `p` | next / previous |
+| `>` / `<` | seek forward / backward 5 s |
+| `^` | seek to start |
+| `C-s` | toggle shuffle |
+| `C-r` | cycle repeat |
+| `+` / `-` | volume up / down 5 % |
+| `_` | mute / unmute |
+| `j`/`↓`, `k`/`↑`, `g g`, `G` | move the queue cursor (down, up, top, bottom) |
+| `Enter` | play the entry under the cursor |
+| `q`, `Esc` | quit (unchanged); the player stops and the device is released first |
+
+## Acceptance criteria
+
+Player state machine (`tidal_player_core::player`, pure; tests drive `update` with inputs and assert the state and the effects):
+
+- **AC1** — `LoadQueue { tracks, start }` replaces the queue, makes entry `start` current, emits `Resolve { purpose: Play }` for it with a fresh tag and enters `Loading`; a successful resolution for that tag emits `EnginePlay { tag, start_at: 0 }`; engine `Started` with that tag enters `Playing`. `Next`, `Previous` (≤ 3 s in), `PlayEntry` and auto-advance follow the same path from any state, so a skip never waits for the current track to end (tidalt bugs 4 and 8)
+- **AC2** — Next, previous and the natural end follow the tables under "Playback state" and "Shuffle and repeat" (table over repeat `off`/`queue`/`track` × current entry first/middle/last × shuffle off/on × position ≤ 3 s / > 3 s for previous). Stopping at the end leaves the last entry current at 0:00 in `Stopped`, and `TogglePause` then plays it from the start
+- **AC3** — `ToggleShuffle` on: the current entry is first in the play order, every entry appears exactly once, the order is a function of the seed (two seeds give different orders for a 10-entry queue; the same seed the same order), and no effect touches the engine (the current track keeps playing). Off: the original order, current unchanged. Snapshots carry the play order. Load with shuffle on starts at the chosen entry
+- **AC4** — `CycleRepeat` goes `off → queue → track → off`; each change is in the next snapshot
+- **AC5** — Preload: a `Position` that leaves 30 s or less (or `Started` for an unknown duration) emits `Resolve { purpose: Preload }` for the next entry per the repeat table, once; its result emits `EnginePreload` with its tag; `Transitioned` with that tag makes it current without any `EnginePlay`. A queue edit, shuffle or repeat change that changes the next entry after that emits a new `Resolve`/`EnginePreload`, or `EngineCancelPreload` when there is no next entry; one that does not change it emits nothing. No preload is requested when there is no next entry
+- **AC6** — Stale inputs change nothing and emit nothing: a resolution result, `Started`, `Transitioned`, `TrackEnded` or `Error` whose tag is neither the current track's nor the pending preload's (table; the case of tidalt bug 1: `Next`, then the replaced track's `TrackEnded`, gives exactly one advance)
+- **AC7** — Failures follow the table under "Failures" (table over every error kind × resolve/engine): a track-only failure advances and shows the message; a transient, output or session failure stops on that entry, shows the message and emits no `Resolve` for another entry; 5 consecutive track-only failures (or the queue length, if smaller; repeat `queue` and `track` included) stop with `N tracks in a row could not be played`; a `Started` resets the count. An `Error` is never handled as `TrackEnded`, nor the other way round
+- **AC8** — `TogglePause` and seeking follow "Playback state": Playing ⇄ Paused emits `EnginePause`/`EngineResume`; toggled while `Loading`, the successful resolution emits no `EnginePlay` until toggled again; `SeekBy(-5000)` at 0:03 seeks to 0:00; `SeekBy`/`SeekTo` while `Loading` change the `start_at` of the coming `EnginePlay`; while `Stopped` they emit nothing
+- **AC9** — Volume: default 100, not muted; `ChangeVolume(±5)` clamps to 0–100; `SetVolume` sets it; each change emits `EngineSetGain((v/100)³)` (0 when muted); `ToggleMute` twice restores the previous gain; a volume change unmutes. The snapshot's `bit_perfect` is the engine's at volume 100 and not muted, else `false` with `volume below 100%` / `muted`
+- **AC10** — Queue edits follow the table under "The queue" (table over each operation × current entry before/at/after the edit × shuffle off/on): entry IDs are never reused, the same track can be queued twice, removing the current entry while playing advances (and stops with nothing next), `ClearQueue` keeps only the current entry and does not interrupt it, editing an empty queue starts nothing
+- **AC11** — Every input that changes anything but the position emits exactly one `Broadcast(Event::Player(snapshot))`, as the last effect, with the new state; an engine `Position` emits only `Broadcast(Event::Position { entry, position })`; an input that changes nothing emits nothing
+- **AC12** — Every new `Command` and `Event` variant survives a JSON round-trip (the 0001 AC11 test, extended)
+
+Engine (`tidal-player-audio`, with 0003's fakes):
+
+- **AC13** — `Started`, `Transitioned`, `TrackEnded` and `Error` carry the tag given with the `Play` or `Preload` of their track, also when a `Play` replaces a playing track and when a preloaded track fails after the transition
+- **AC14** — `CancelPreload`: the cancelled source is closed; at the end of the current track the engine drains and sends `TrackEnded` (its tag), and the sink never receives a frame of the cancelled track. `CancelPreload` with nothing preloaded does nothing
+- **AC15** — `SetGain`: at 1.0 the sink receives exactly the bytes it receives without any `SetGain` (bit-exact, 16- and 24-bit fixtures); at 0.5 each sample is `round(s × 0.5)`; at 0 silence; the new gain applies to frames written after the command, at most one write slice (50 ms of audio) later; the gain stays across a gapless transition, a new `Play` and `SetDevice`
+
+Items and metadata:
+
+- **AC16** — `parse_item(&str) -> Result<Item, ItemError>` (in `tidal-player-core`) maps every form in the table under "Filling the queue" (table, including trailing slashes, query strings, `www.`, upper-case hosts, a bare number) and refuses artist, mix and video links, other hosts and junk
+- **AC17** — `tidal-player-api` gets `get_track`, `get_album_tracks` and `get_playlist_tracks` returning `tidal_player_core::Track` (ID, title, artists, album title, duration if present), through the `Authenticator` with `countryCode` from the session (wiremock fixtures from the probe): album and playlist fetches walk every page until `totalNumberOfItems` (one request for one page, three for a list of 2.5 pages); playlist items other than `track` are dropped; an unknown ID maps to `MetadataError::NotFound`; `LoginRequired` and transient errors are returned unchanged
+
+CLI and runtime (`tidal-player`):
+
+- **AC18** — `play` with several items: expands them in order (fake metadata source), loads them as one queue and plays it through `tidal_player_core::player` (fake engine): the "Track"/"Output" lines are printed at each track start; `--shuffle` and `--repeat` set the player before loading; exit codes as under "Commands" (table: all play → 0; one track-only failure among three → 0 and the message on stderr; output busy → 1; every track fails → 1; bad item → 2). 0003's `play` tests pass unchanged
+- **AC19** — The player runtime executes effects in order and maps engine events and resolutions back into inputs with their tags (fake engine and fake resolver: a `Next` mash of 5 presses while loading resolves all 5 but plays only the last; the device is stopped when the TUI quits). `tidal-player [ITEM]...` starts the TUI with the queue loaded; without items, empty
+
+TUI (`tidal_player_core::ui` and `tidal-player`'s rendering):
+
+- **AC20** — Key → action → command table: each key under "Keys" maps to its `Command` (or cursor move); `Enter` sends `PlayEntry` with the entry ID under the cursor (not its index); no key sends anything on an empty queue except the volume and mode keys
+- **AC21** — `g g` is a two-key sequence: `g` then `g` within the same sequence moves to the top; `g` followed by any other key does that key's action
+- **AC22** — The client state takes each `Event::Player` snapshot as is (the queue order displayed is exactly the snapshot's; the client never shuffles: tidalt bug 5); `Event::Position` for another entry than the snapshot's current one is ignored; the cursor stays on the same entry ID across snapshots (clamped when it was removed)
+- **AC23** — Rendering snapshots (`insta`, 80×24): nothing playing; playing with shuffle, repeat `queue`, 80 % and the `volume below 100%` reason; paused; loading; a failure message; unknown duration (no bar, `?:??`: tidalt bug 6); a queue longer than the window with the current entry kept in view. 40×12: truncation order. No panic from 0×0 to 120×40 (table over sizes)
+- **AC24** — `docs/playback.md` documents items and the new `play` flags; `docs/tui.md` documents the screen, the keys, shuffle/repeat/volume semantics and the failure behaviour; this spec links to both
+
+## Edge cases & errors
+
+| Situation | Behaviour |
+|---|---|
+| Empty queue | Every playback key does nothing; volume and the shuffle/repeat modes still change (and apply to the next load) |
+| Queue of one, repeat `queue` | The track repeats (as `track`), gaplessly |
+| Every track of an album unavailable in the country | 5 failures (or fewer, the album's length), then `Stopped: N tracks in a row could not be played`; no API storm (tidalt bug 3) |
+| `429` or network down during resolution | Stops on that entry with the message; play/pause retries. Never skips |
+| DAC unplugged mid-queue | `Output hw:1,0 was lost`; stops; the queue is kept; play/pause retries on the same device |
+| Session expires mid-queue | Stops; the TUI shows the session-expired status; after `tidal-player login` in another terminal (0002 AC8), play/pause resumes |
+| Next mashed while loading | Each press supersedes the last; only the last entry plays (stale resolutions are dropped, AC6, AC19) |
+| Preloaded next entry removed from the queue | `CancelPreload` or a new preload (AC5); the removed track never plays |
+| Seek past the end, repeat `track` | The track starts again |
+| Stream URL of a preload expired by the time it plays | 0003's re-resolve on `403`/`410` covers it (preloads happen ≤ 30 s before use) |
+| Track with no duration in its metadata | Progress shows `?:??` and no bar; preload starts at `Started` |
+| Pause on a device without hardware pause | As 0003 "Edge cases" (about 0.1 s keeps playing) |
+| Album or playlist with more than one page of tracks | All pages are fetched before playing (AC17) |
+| A playlist with videos | Videos are left out; an all-video playlist is refused: `Playlist <uuid> has no tracks` (exit 2 / message in the TUI's startup) |
+| Terminal smaller than the layout | Truncated, then only the playback window; never a panic (AC23) |
+
+## Test plan
+
+Each automated test is named after its criterion (`ac5_…`). Red is a failing assertion against stub types and functions with stub bodies (no `todo!()`, no compile errors), as in 0001–0003. The player tests build inputs by hand and never run a thread; time is only what `Position` inputs say. API tests use `wiremock` with fixtures under `crates/api/tests/fixtures/metadata/`, written from the probe's recorded shapes (IDs and names replaced by fakes). Engine tests reuse 0003's fixtures and fakes.
+
+| AC | Test (file :: name) | What it asserts | Expected red |
+|----|---------------------|-----------------|--------------|
+| AC1 | `crates/core/src/player.rs` :: `ac1_load_and_skip_paths` (table: load, next, previous, play entry, auto-advance; from each state) | effects `Resolve` → `EnginePlay` → state `Playing`; fresh tag each time | stub `update` returns no effects |
+| AC2 | `crates/core/src/player.rs` :: `ac2_next_previous_end` (table, as in AC2) | the entry that plays next, or the stop state | stub always plays index + 1 and never stops or wraps |
+| AC3 | `crates/core/src/player.rs` :: `ac3_shuffle` | first entry, permutation, seed dependence, no engine effect, original restored | stub leaves the order unchanged |
+| AC4 | `crates/core/src/player.rs` :: `ac4_repeat_cycle` | the cycle and the snapshot field | stub keeps `off` |
+| AC5 | `crates/core/src/player.rs` :: `ac5_preload` (table: 31 s → 30 s left, unknown duration, no next, next changed by each edit/mode, next unchanged) | `Resolve{Preload}` once, `EnginePreload`, `Transitioned` handling, `EngineCancelPreload` | stub never preloads, so `Transitioned` is unknown and the track ends with a gap |
+| AC6 | `crates/core/src/player.rs` :: `ac6_stale_inputs_ignored` (table) | no effects, state unchanged; exactly one advance in tidalt's sequence | stub matches events without looking at tags, so the stale `TrackEnded` advances twice |
+| AC7 | `crates/core/src/player.rs` :: `ac7_failure_policy` (table over error kinds × source) + `ac7_failure_run_stops` | skip or stop per row; message; the run limit with queue lengths 3 and 20 | stub skips on every error (tidalt's loop) |
+| AC8 | `crates/core/src/player.rs` :: `ac8_pause_and_seek` (table) | effects per state; held play; clamping; `start_at` | stub ignores the state and always sends `EnginePause` |
+| AC9 | `crates/core/src/player.rs` :: `ac9_volume` (table) | volume, gain values, mute round trip, `bit_perfect` and reason | stub never emits `EngineSetGain` and keeps the engine's `bit_perfect` |
+| AC10 | `crates/core/src/player.rs` :: `ac10_queue_edits` (table) | orders, current entry, IDs, effects | stub appends everything at the end |
+| AC11 | `crates/core/src/player.rs` :: `ac11_one_snapshot_per_change` (over every row of AC1–AC10's tables) | exactly one `Broadcast(Player)`, last; `Position` events alone for positions; nothing for no-ops | stub broadcasts after every input |
+| AC12 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (0001's, extended; `all_commands`/`all_events` list the new variants) | round trip | new variants' hand-written stub `Serialize` writes `null` |
+| AC13 | `crates/audio/tests/engine.rs` :: `ac13_events_carry_tags` | tags on each event, incl. replace and failed preload | stub engine sends tag 0 |
+| AC14 | `crates/audio/tests/engine.rs` :: `ac14_cancel_preload` | drain, `TrackEnded`, no frame of the cancelled source, source closed | stub ignores `CancelPreload`, so the sink gets the second track |
+| AC15 | `crates/audio/tests/engine.rs` :: `ac15_gain` (table: 1.0 on 16/24-bit, 0.5, 0, change mid-track, across transition/play/device) | bytes per row; latency in frames | stub ignores `SetGain` |
+| AC16 | `crates/core/src/item.rs` :: `ac16_parse_item` (table) | item or error per row | stub parses bare numbers only |
+| AC17 | `crates/api/tests/metadata.rs` :: `ac17_get_track`, `ac17_album_pages`, `ac17_playlist_pages_and_videos`, `ac17_errors` | request paths and params (`expect(n)`), mapped tracks, errors | stub reads the first page only and keeps videos |
+| AC18 | `crates/app/src/play.rs` :: `ac18_queue_exit_codes` (table, fake metadata + fake engine) + `crates/app/tests/cli.rs` :: `ac18_bad_item` | lines printed, exit codes; `Not a Tidal…` with exit 2 | stub plays the first item only |
+| AC19 | `crates/app/src/player_runtime.rs` :: `ac19_effects_and_mash`, `ac19_quit_stops_engine` | effect execution order; one `Play` after the mash; `Stop` before exit | stub runtime plays every resolution it receives |
+| AC20 | `crates/core/src/ui.rs` :: `ac20_keys_to_commands` (table) + `crates/app/src/input.rs` :: `ac20_key_events` | commands per key; entry ID for `Enter` | stub maps only `q`/`Esc` |
+| AC21 | `crates/core/src/ui.rs` :: `ac21_key_sequence` | `g g` → top; `g` `j` → down | stub treats `g` alone as top |
+| AC22 | `crates/core/src/ui.rs` :: `ac22_snapshot_applied_as_is` | displayed order equals the snapshot's; stale positions ignored; cursor follows entry ID | stub sorts the queue by original position |
+| AC23 | `crates/app/src/ui.rs` :: `ac23_playback_window_*`, `ac23_queue_scrolls`, `ac23_truncation_40x12`, `ac23_no_panic_any_size` | `contains` assertions per state (symbol, `?:??`, reason text) plus snapshots reviewed by eye at acceptance | stub `render` draws only the frame |
+| AC24 | — reviewed at acceptance | docs exist, match this spec, are linked | — |
+
+Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account (results in the PR description):
+
+- Gapless by ear across two tracks of a live or classical album through `play <album link>` on a DAC (0003's open manual check), and `/proc/asound/cardN/pcm0p/sub0/hw_params` unchanged across the transition
+- Volume audibly changes in steps; at 100 % the "Output" line still says `bit-perfect` on `hw:`
+- Next/previous/seek respond immediately in the TUI while a hi-res track streams
+- Album and playlist links from the Tidal app's share menu, pasted as is
+
+## Crate placement
+
+- `tidal-player-core`: `player` (state machine), `item` (`parse_item`), `Track`/`EntryId` types, `protocol` variants, `ui` (client state, key sequences, queue cursor). Shuffling uses a small seeded PRNG written in `core` (a few lines of xorshift/PCG); no new dependency
+- `tidal-player-api::metadata`: the three fetches and their DTO → `core::Track` mapping
+- `tidal-player-audio`: tags, `CancelPreload`, `SetGain`
+- `tidal-player`: the player runtime (`player_runtime.rs`: runs `update`, executes effects against the engine, the resolver and the broadcast channel), `play` on top of it, the TUI wiring and rendering, `input.rs` key mapping
+- `xtask layering`: no change
+
+## Facts vs. assumptions
+
+Verified (2026-10-07, from code):
+
+- 0003's engine handles `Play` while playing by stopping the old track first, keeps one preload that `Play`, `Stop` and a failed track forget, and has no way to cancel a preload or tag a track (`crates/audio/src/engine.rs`): hence the engine additions
+- tidalt's behaviours and bugs listed under "Context" (read from its source and history)
+
+Assumed, to be recorded by `scripts/tidal-metadata-probe.sh` (to be run by the user with a real account before approval; fixtures are written from its output):
+
+- `GET /v1/tracks/{id}` returns `id`, `title`, `duration` (seconds), `artist`/`artists[]`, `album {id, title}` (tidalt's `Track`); an unknown ID answers `404` (tidalt mapped that to `ErrNotFound`)
+- `GET /v1/albums/{id}/tracks` and `GET /v1/playlists/{uuid}/items` page with `limit`/`offset` and report `totalNumberOfItems`; the largest accepted `limit` (tidalt asked for 1000 on playlists and no limit on albums, so long albums may have been cut short there: unverified)
+- Playlist `items` entries are `{item, type}` with `type` `track` or `video`, as for mixes (CLAUDE.md)
+- Whether a track's metadata says it cannot be streamed (`streamReady`, `allowStreaming`); if so, a later change may skip it without resolving
+
+## Decisions (proposed; to be answered by the user before approval)
+
+1. **Filling the queue before 0006/0007**: Tidal links or IDs on the command line (`tidal-player [ITEM]...`, `play <ITEM>...`), no in-TUI prompt. *Proposed: yes*
+2. **Volume**: software gain in the engine, cubic curve, default 100 % (bit-perfect by default), step 5 %. The alternatives are a linear curve, or controlling the card's ALSA mixer (keeps bit-perfect at any volume on DACs that have a hardware mixer, but many USB DACs have none, and shared mode has the system mixer anyway). *Proposed: software, cubic*
+3. **Previous** restarts the track when more than 3 s in (Spotify's behaviour, so spotify-player's), else goes back. *Proposed: yes*
+4. **End of queue**: stop on the last entry. Autoplay (radio after the queue) is 0011. *Proposed: stop*
+5. **Failure policy**: skip track-only failures, stop on everything else, at most 5 skips in a row. *Proposed: as in "Failures"*
+6. **Layout**: playback window at the top, as spotify-player's default; the queue as the only page until 0006. *Proposed: yes*
+7. **Seek step** 5 s (spotify-player's default) rather than tidalt's 10 s. *Proposed: 5 s*
+
+## Out of scope
+
+- Daemon, clients over a transport, one-shot `playback` commands, multiple clients (0005)
+- Library and search pages, "add to queue" from them (0006, 0007); they will use `AddToQueue` from this spec
+- Configurable keys and settings in `app.toml`/`keymap.toml` (0008)
+- Remembering the queue, position and volume across runs (0009)
+- MPRIS and media keys (0010); setter commands for it
+- Radio/autoplay after the queue (0011)
+- Switching the output device from the TUI (the engine supports it; a picker comes with 0008/0009)
+- Reordering the queue by keys, saving the queue as a playlist (tidalt had both), removing entries by key (the command exists; the key comes with 0006)
+- Crossfade, ReplayGain, volume ramps, dither
+- Following the playing track with the cursor after idle (tidalt `4b1199d`): the current entry is kept in view instead
+
+## Bugs
+
+None yet.
