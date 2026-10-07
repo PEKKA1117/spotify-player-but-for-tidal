@@ -4,7 +4,9 @@
 use std::io::Write;
 use std::time::Duration;
 
-use tidal_player_api::auth::{AuthConfig, DeviceCode, DeviceFlow, Login, SessionStore};
+use tidal_player_api::auth::{
+    AuthConfig, DeviceCode, DeviceFlow, LOSSY_WARNING, Login, RefreshClient, SessionStore,
+};
 
 /// How a login attempt ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +68,10 @@ pub async fn run_login(store: &dyn SessionStore) -> LoginOutcome {
     });
     tokio::select! {
         result = flow.complete_login(&code, store) => match result {
-            Ok(Login { session, .. }) => {
+            Ok(Login { session, client }) => {
+                if client == RefreshClient::DeviceFlow {
+                    eprintln!("Warning: {LOSSY_WARNING}");
+                }
                 println!("Logged in as user {} ({})", session.user_id, session.country_code);
                 LoginOutcome::LoggedIn
             }

@@ -309,6 +309,56 @@ pub enum RefreshClient {
     DeviceFlow,
 }
 
+/// Warned (logged by the [`Authenticator`], printed by `login`) when a token
+/// of the device-flow client is used because the PKCE client failed (AC19).
+pub const LOSSY_WARNING: &str = "Tidal did not accept the PKCE client: this session \
+     streams CD-quality tracks as AAC instead of FLAC";
+
+/// One `grant_type=refresh_token` call to `/token` under `client`, returning
+/// the status and body.
+///
+/// The client's ID and secret go as form fields only, no basic auth: the
+/// request shape the spec 0003 probe got a `200` for under both clients.
+pub(crate) async fn post_refresh(
+    http: &reqwest::Client,
+    config: &AuthConfig,
+    client: RefreshClient,
+    refresh_token: &str,
+) -> Result<(u16, String), AuthError> {
+    let (id, secret) = match client {
+        RefreshClient::Pkce => (&config.pkce_client_id, &config.pkce_client_secret),
+        RefreshClient::DeviceFlow => (&config.client_id, &config.client_secret),
+    };
+    let response = http
+        .post(config.auth_url("token"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(form_body(&[
+            ("client_id", id),
+            ("client_secret", secret),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("scope", SCOPE),
+        ]))
+        .send()
+        .await
+        .map_err(|e| AuthError::transport(&e))?;
+    let status = response.status().as_u16();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| AuthError::transport(&e))?;
+    Ok((status, body))
+}
+
+/// Whether a refresh response rejects the client rather than the refresh
+/// token, so the refresh is retried under the device-flow client (AC19).
+pub(crate) fn rejects_client(status: u16, body: &str) -> bool {
+    matches!(
+        (status, error_code(body)),
+        (400 | 401, Some("invalid_client" | "unauthorized_client"))
+    )
+}
+
 /// Joins a base URL and a path with exactly one slash between them.
 fn join(base: &str, path: &str) -> String {
     format!(

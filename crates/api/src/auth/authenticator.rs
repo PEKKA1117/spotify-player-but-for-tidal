@@ -11,9 +11,9 @@ use tokio::sync::{Mutex, watch};
 use crate::{ApiResponse, SUB_STATUS_NOT_AVAILABLE};
 
 use super::{
-    AuthConfig, AuthError, Clock, LOST_RECHECK, RefreshClient, RefreshFailure, SCOPE, Session,
-    SessionStore, TokenGrant, classify_refresh_failure, error_code, form_body, needs_refresh,
-    session_from_refresh,
+    AuthConfig, AuthError, Clock, LOSSY_WARNING, LOST_RECHECK, RefreshClient, RefreshFailure,
+    Session, SessionStore, TokenGrant, classify_refresh_failure, error_code, needs_refresh,
+    post_refresh, rejects_client, session_from_refresh,
 };
 
 /// Whether the session is usable, for the player to broadcast
@@ -32,6 +32,8 @@ struct State {
     session: Session,
     /// `Some(last storage re-read)` while the session is lost.
     lost_since_check: Option<SystemTime>,
+    /// The client of the last successful refresh (AC19).
+    refresh_client: Option<RefreshClient>,
 }
 
 /// Owns the in-memory session and sends authenticated requests: bearer
@@ -74,6 +76,7 @@ impl Authenticator {
             state: Mutex::new(State {
                 session,
                 lost_since_check: None,
+                refresh_client: None,
             }),
             status: watch::Sender::new(AuthStatus::Active),
         })
@@ -106,7 +109,7 @@ impl Authenticator {
     /// The client of this process's last successful refresh, `None` before
     /// one (AC19).
     pub async fn refresh_client(&self) -> Option<RefreshClient> {
-        None
+        self.state.lock().await.refresh_client
     }
 
     /// `GET {api_base}{path}` with the bearer token, decoded as JSON.
@@ -267,30 +270,24 @@ impl Authenticator {
         Err(AuthError::LoginRequired)
     }
 
-    /// One `grant_type=refresh_token` call; on success the new session is
-    /// saved, then installed.
+    /// One `grant_type=refresh_token` call under the PKCE client, retried
+    /// once under the device-flow client if Tidal rejects the PKCE client
+    /// (AC19); on success the new session is saved, then installed.
     async fn refresh_once(&self, state: &mut State) -> Result<(), Failure> {
-        let response = self
-            .http
-            .post(self.config.auth_url("token"))
-            .basic_auth(&self.config.client_id, Some(&self.config.client_secret))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(form_body(&[
-                ("client_id", &self.config.client_id),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", &state.session.refresh_token),
-                ("scope", SCOPE),
-            ]))
-            .send()
+        let token = &state.session.refresh_token;
+        let mut client = RefreshClient::Pkce;
+        let mut reply = post_refresh(&self.http, &self.config, client, token)
             .await
-            .map_err(|e| Failure::Transient(AuthError::transport(&e)))?;
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| Failure::Transient(AuthError::transport(&e)))?;
-        if !status.is_success() {
-            let status = status.as_u16();
+            .map_err(Failure::Transient)?;
+        if rejects_client(reply.0, &reply.1) {
+            tracing::warn!("{LOSSY_WARNING}");
+            client = RefreshClient::DeviceFlow;
+            reply = post_refresh(&self.http, &self.config, client, token)
+                .await
+                .map_err(Failure::Transient)?;
+        }
+        let (status, body) = reply;
+        if !(200..300).contains(&status) {
             return match classify_refresh_failure(status, &body) {
                 RefreshFailure::SessionLost => Err(Failure::Lost),
                 RefreshFailure::Transient => Err(Failure::Transient(AuthError::Http {
@@ -305,6 +302,7 @@ impl Authenticator {
             tracing::warn!(%error, "could not save the refreshed session");
         }
         state.session = session;
+        state.refresh_client = Some(client);
         Ok(())
     }
 
