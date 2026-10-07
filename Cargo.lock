@@ -4197,6 +4197,7 @@ dependencies = [
  "age",
  "anyhow",
  "assert_cmd",
+ "base64 0.23.1",
  "clap",
  "crossterm",
  "directories",

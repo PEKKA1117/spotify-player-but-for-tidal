@@ -208,3 +208,117 @@ fn ac26_play_needs_login() {
         .stdout("")
         .stderr("Not logged in: run \"tidal-player login\"\n");
 }
+
+// AC26, end to end against a mock API (debug builds honour
+// TIDAL_PLAYER_API_BASE), a mock stream server, no session bus and an ALSA
+// device that does not exist: resolution, fetch, decode and the error
+// lines, without sound.
+
+/// Serves a file with `Range: bytes=N-` support.
+struct RangeFile(Vec<u8>);
+
+impl wiremock::Respond for RangeFile {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let len = self.0.len();
+        let from = request
+            .headers
+            .get("range")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("bytes="))
+            .and_then(|v| v.trim_end_matches('-').parse::<usize>().ok());
+        match from {
+            Some(from) if from >= len => wiremock::ResponseTemplate::new(416),
+            Some(from) => wiremock::ResponseTemplate::new(206)
+                .insert_header(
+                    "content-range",
+                    format!("bytes {from}-{}/{len}", len - 1).as_str(),
+                )
+                .set_body_bytes(self.0[from..].to_vec()),
+            None => wiremock::ResponseTemplate::new(200).set_body_bytes(self.0.clone()),
+        }
+    }
+}
+
+fn playback_info(stream_url: &str) -> serde_json::Value {
+    use base64::Engine as _;
+    let manifest = serde_json::json!({
+        "mimeType": "audio/flac",
+        "codecs": "flac",
+        "encryptionType": "NONE",
+        "urls": [stream_url],
+    });
+    serde_json::json!({
+        "trackId": 123,
+        "assetPresentation": "FULL",
+        "audioMode": "STEREO",
+        "audioQuality": "LOSSLESS",
+        "manifestMimeType": "application/vnd.tidal.bts",
+        "manifestHash": "FAKE-HASH",
+        "manifest": base64::engine::general_purpose::STANDARD.encode(manifest.to_string()),
+        "bitDepth": 16,
+        "sampleRate": 44100,
+    })
+}
+
+#[test]
+fn ac26_play_end_to_end_errors() {
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(MockServer::start());
+    let flac = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../audio/tests/fixtures/flac16_44.flac"),
+    )
+    .unwrap();
+    rt.block_on(async {
+        Mock::given(method("GET"))
+            .and(path("/tracks/123/playbackinfopostpaywall"))
+            .and(query_param("audioquality", "LOSSLESS"))
+            .and(query_param("countryCode", "NO"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(playback_info(&format!("{}/t.flac", server.uri()))),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/tracks/404/playbackinfopostpaywall"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "status": 401, "subStatus": 4005, "userMessage": "Asset is not ready for playback"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/t.flac"))
+            .respond_with(RangeFile(flac))
+            .mount(&server)
+            .await;
+    });
+    let state = tempfile::tempdir().unwrap();
+    write_session_file(state.path());
+    let pass_file = state.path().join("pass");
+    std::fs::write(&pass_file, "test-passphrase\n").unwrap();
+    let play = |args: &[&str]| {
+        let mut cmd = bin_in(state.path());
+        cmd.arg("play")
+            .args(args)
+            .env("TIDAL_PLAYER_PASSPHRASE_FILE", &pass_file)
+            .env("TIDAL_PLAYER_API_BASE", server.uri())
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
+            .env_remove("TIDAL_PLAYER_QUALITY")
+            .env_remove("TIDAL_PLAYER_DEVICE")
+            .timeout(Duration::from_secs(30));
+        cmd
+    };
+
+    play(&["123", "--quality", "lossless", "--device", "hw:99,0"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("No such output device hw:99,0: see \"tidal-player devices\"\n");
+    play(&["404"])
+        .assert()
+        .code(1)
+        .stderr("Track 404 is not available in NO\n");
+}

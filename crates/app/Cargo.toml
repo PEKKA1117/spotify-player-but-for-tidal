@@ -35,6 +35,7 @@ zbus = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+base64 = { workspace = true }
 assert_cmd = { workspace = true }
 insta = { workspace = true }
 predicates = { workspace = true }
