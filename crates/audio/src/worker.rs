@@ -60,7 +60,7 @@ pub(crate) struct Worker {
 impl Worker {
     /// Start decoding `source` from `start_at`.
     pub fn spawn(source: Box<dyn TrackSource>, start_at: Duration) -> Self {
-        let (tx, messages) = mpsc::sync_channel(CHANNEL_CHUNKS);
+        let (tx, mut messages) = mpsc::sync_channel(CHANNEL_CHUNKS);
         let (seeks, seek_rx) = mpsc::channel();
         let signals = Arc::new(Signals::default());
         let thread_signals = signals.clone();
@@ -68,17 +68,13 @@ impl Worker {
             .name("audio-decode".into())
             .spawn(move || run(source, start_at, thread_signals, tx, seek_rx));
         if let Err(e) = spawned {
-            // The closure (and its sender) was dropped: report through a
-            // fresh channel so the engine sees the failure.
-            let (tx, messages) = mpsc::sync_channel(1);
+            // The closure and its sender are gone: report the failure through
+            // a fresh channel, as the worker would have.
+            let (tx, rx) = mpsc::sync_channel(1);
             let _ = tx.send(FromWorker::OpenFailed(EngineError::Decode(format!(
                 "cannot start the decode thread: {e}"
             ))));
-            return Self {
-                messages,
-                seeks,
-                signals,
-            };
+            messages = rx;
         }
         Self {
             messages,

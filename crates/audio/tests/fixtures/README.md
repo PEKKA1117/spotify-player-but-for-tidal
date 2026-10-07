@@ -1,6 +1,6 @@
 # Audio test fixtures (spec 0003)
 
-Small files generated from sines with `ffmpeg` (8.x here) and post-processed by
+Small files generated from sines with `ffmpeg` (6.1 here) and post-processed by
 `fixture_tool.py` (python3). Tests only read them; they never call ffmpeg.
 `generate.sh` holds the exact commands; run it from this directory to
 regenerate everything (`sh generate.sh`).

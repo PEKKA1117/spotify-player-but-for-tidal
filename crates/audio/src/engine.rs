@@ -58,7 +58,7 @@ pub enum Command {
         start_at: Duration,
     },
     /// Open `source` as the next track, for a gapless transition. Replaces
-    /// any earlier preload.
+    /// any earlier preload. `Play`, `Stop` and a failed track forget it.
     Preload {
         source: Box<dyn TrackSource>,
     },
