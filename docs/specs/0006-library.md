@@ -1,6 +1,6 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: draft (2026-10-07; probes recorded, decisions answered and folded in; waiting on the user's approval)
+- **Status**: approved (2026-10-07)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys; [`docs/playback.md`](../playback.md) "Settings" gains two settings (AC20)
