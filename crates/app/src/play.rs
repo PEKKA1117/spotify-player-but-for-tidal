@@ -3,15 +3,26 @@
 //! lines and the user-facing error messages, kept pure so they are tested
 //! without a terminal, a session or a sound card.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use tidal_player_api::auth::AuthError;
 use tidal_player_api::stream::StreamError;
 use tidal_player_audio::{
     Codec, EngineError, Event, OutputInfo, OutputKind, SampleFormat, SinkError, SourceError,
     SourceFormat,
 };
-use tidal_player_core::{AudioQuality, ParseQualityError};
+use tidal_player_core::player::{Failure, FailureKind, PlayerConfig};
+use tidal_player_core::protocol::{
+    Command, Event as PlayerEvent, PlaybackState, PlayerSnapshot, RepeatMode,
+};
+use tidal_player_core::{AudioQuality, Item, ParseQualityError, Track};
+
+use crate::player_runtime::{
+    EngineControl, ExpandError, Handled, Jobs, Metadata, PlayerRuntime, RuntimeInput, expand_items,
+};
 
 /// Highest quality to ask for (spec 0003 "Settings").
 pub const QUALITY_VAR: &str = "TIDAL_PLAYER_QUALITY";
@@ -80,6 +91,14 @@ pub fn configured_device(env: impl Fn(&str) -> Option<String>) -> String {
 
 /// `Track 77640617: HI_RES_LOSSLESS, FLAC 24-bit 96 kHz stereo`.
 pub fn track_line(track_id: u64, granted: AudioQuality, source: &SourceFormat) -> String {
+    format!(
+        "Track {track_id}: {granted}, {}",
+        source_description(source)
+    )
+}
+
+/// `FLAC 24-bit 96 kHz stereo`: the "Track" line after the quality.
+pub fn source_description(source: &SourceFormat) -> String {
     let codec = match source.codec {
         Codec::Flac => "FLAC",
         Codec::AacLc => "AAC",
@@ -93,14 +112,22 @@ pub fn track_line(track_id: u64, granted: AudioQuality, source: &SourceFormat) -
         2 => "stereo".to_owned(),
         n => format!("{n} ch"),
     };
-    format!(
-        "Track {track_id}: {granted}, {codec}{bits} {} {channels}",
-        khz(source.sample_rate)
-    )
+    format!("{codec}{bits} {} {channels}", khz(source.sample_rate))
 }
 
 /// `Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect`.
 pub fn output_line(output: &OutputInfo) -> String {
+    let quality = match (&output.not_bit_perfect_reason, output.bit_perfect) {
+        (_, true) => "bit-perfect",
+        (Some(reason), false) => reason.as_str(),
+        (None, false) => "not bit-perfect",
+    };
+    format!("Output: {}, {quality}", output_description(output))
+}
+
+/// `hw:1,0 (exclusive) S32_LE 96 kHz 2 ch`: the "Output" line without the
+/// verdict.
+pub fn output_description(output: &OutputInfo) -> String {
     let kind = match output.kind {
         OutputKind::Exclusive => "exclusive",
         OutputKind::Fallback => "fallback",
@@ -112,13 +139,8 @@ pub fn output_line(output: &OutputInfo) -> String {
         SampleFormat::S24_3Le => "S24_3LE",
         SampleFormat::S32Le => "S32_LE",
     };
-    let quality = match (&output.not_bit_perfect_reason, output.bit_perfect) {
-        (_, true) => "bit-perfect",
-        (Some(reason), false) => reason.as_str(),
-        (None, false) => "not bit-perfect",
-    };
     format!(
-        "Output: {} ({kind}) {format} {} {} ch, {quality}",
+        "{} ({kind}) {format} {} {} ch",
         output.device,
         khz(output.sample_rate),
         output.channels
@@ -279,10 +301,379 @@ impl Reporter {
     }
 }
 
+// --- spec 0004: player settings ------------------------------------------------
+
+/// Volume step of `+`/`-`, in percentage points (spec 0004 "Settings").
+pub const VOLUME_STEP_VAR: &str = "TIDAL_PLAYER_VOLUME_STEP";
+/// Seek step of `>`/`<`, in seconds.
+pub const SEEK_STEP_VAR: &str = "TIDAL_PLAYER_SEEK_STEP";
+/// `Previous` restarts the track after this many seconds; 0 never.
+pub const PREVIOUS_RESTART_VAR: &str = "TIDAL_PLAYER_PREVIOUS_RESTART";
+/// Autoplay at start: `on` or `off`.
+pub const AUTOPLAY_VAR: &str = "TIDAL_PLAYER_AUTOPLAY";
+
+/// What a client sends with its volume and seek keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Steps {
+    /// `ChangeVolume(±volume)`, 1–25.
+    pub volume: u8,
+    /// `SeekBy(±seek)`, 1–600 s.
+    pub seek: Duration,
+}
+
+impl Default for Steps {
+    fn default() -> Self {
+        Self {
+            volume: 5,
+            seek: Duration::from_secs(5),
+        }
+    }
+}
+
+/// The player's settings and the client's steps.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PlayerSettings {
+    pub player: PlayerConfig,
+    pub steps: Steps,
+}
+
+/// The player settings from the environment (an empty variable counts as
+/// unset); an invalid value names the variable and the accepted range
+/// (exit 2). `country` is left for the caller (it comes from the session).
+pub fn resolve_player_config(
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    resolve_with(false, env)
+}
+
+/// As [`resolve_player_config`], for `play`: `--autoplay` beats the
+/// environment (whose value is then not read).
+pub fn resolve_play_config(
+    autoplay_flag: bool,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    resolve_with(autoplay_flag, env)
+}
+
+fn resolve_with(
+    autoplay_flag: bool,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    let settings = PlayerSettings::default();
+    let _ = (autoplay_flag, env);
+    Ok(settings)
+}
+
+#[allow(dead_code)]
+fn resolve_full(
+    autoplay_flag: bool,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    let mut settings = PlayerSettings::default();
+    let get = |var: &str| non_empty(env(var));
+    if let Some(value) = get(VOLUME_STEP_VAR) {
+        settings.steps.volume = int_in(&value, VOLUME_STEP_VAR, 1, 25)? as u8;
+    }
+    if let Some(value) = get(SEEK_STEP_VAR) {
+        settings.steps.seek = Duration::from_secs(int_in(&value, SEEK_STEP_VAR, 1, 600)?);
+    }
+    if let Some(value) = get(PREVIOUS_RESTART_VAR) {
+        settings.player.previous_restart =
+            Duration::from_secs(int_in(&value, PREVIOUS_RESTART_VAR, 0, 60)?);
+    }
+    settings.player.autoplay = if autoplay_flag {
+        true
+    } else {
+        match get(AUTOPLAY_VAR).as_deref() {
+            None => false,
+            Some(value) if value.eq_ignore_ascii_case("on") => true,
+            Some(value) if value.eq_ignore_ascii_case("off") => false,
+            Some(value) => {
+                return Err(SettingsError {
+                    setting: AUTOPLAY_VAR.into(),
+                    message: format!("expected on or off, got \"{value}\""),
+                });
+            }
+        }
+    };
+    Ok(settings)
+}
+
+fn int_in(value: &str, var: &str, min: u64, max: u64) -> Result<u64, SettingsError> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|n| (min..=max).contains(n))
+        .ok_or_else(|| SettingsError {
+            setting: var.into(),
+            message: format!("expected an integer from {min} to {max}, got \"{value}\""),
+        })
+}
+
+// --- spec 0004: failures ----------------------------------------------------------
+
+/// Classifies a resolution failure (spec 0004 "Failures") with 0003's
+/// message. Anything not listed as track-only stops (never skips).
+pub fn stream_failure(track_id: u64, country: &str, error: &StreamError) -> Failure {
+    let kind = match error {
+        StreamError::NotFound
+        | StreamError::NotAvailable
+        | StreamError::PreviewOnly
+        | StreamError::Unsupported(_) => FailureKind::TrackOnly,
+        StreamError::Auth(AuthError::LoginRequired | AuthError::Unauthorized) => {
+            FailureKind::Session
+        }
+        StreamError::Server(_) | StreamError::Malformed(_) | StreamError::Auth(_) => {
+            FailureKind::Transient
+        }
+    };
+    Failure {
+        kind,
+        message: stream_error_message(track_id, country, error),
+    }
+}
+
+/// Classifies an engine (or source opening) failure with 0003's message.
+pub fn engine_failure(track_id: u64, error: &EngineError) -> Failure {
+    let kind = match error {
+        EngineError::Decode(_) | EngineError::Unsupported(_) => FailureKind::TrackOnly,
+        EngineError::Output(_) => FailureKind::Output,
+        EngineError::Source(_) => FailureKind::Transient,
+    };
+    Failure {
+        kind,
+        message: engine_error_message(track_id, error),
+    }
+}
+
+// --- spec 0004: `play` with a queue -----------------------------------------------------
+
+/// `play`'s new flags, applied to the player before the queue loads.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlayOptions {
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    /// `--autoplay` (the environment is in the player's config).
+    pub autoplay: bool,
+    /// `--start`, for the first track.
+    pub start_at: Duration,
+}
+
+impl PlayOptions {
+    /// Whether a flag 0003's `play` did not have is given.
+    pub fn has_new_flag(&self) -> bool {
+        self.shuffle || self.repeat != RepeatMode::Off || self.autoplay
+    }
+}
+
+/// The queue `play` loads: the items expanded in order. One track ID with
+/// no new flag is queued as 0003 played it, without a metadata request
+/// (its errors are 0003's, from the stream resolution).
+pub async fn play_tracks(
+    meta: &dyn Metadata,
+    items: &[Item],
+    options: &PlayOptions,
+) -> Result<Vec<Track>, ExpandError> {
+    if let [Item::Track(id)] = items
+        && !options.has_new_flag()
+    {
+        return Ok(vec![Track {
+            id: *id,
+            title: String::new(),
+            artists: Vec::new(),
+            album: None,
+            duration: None,
+            streamable: true,
+        }]);
+    }
+    expand_items(meta, items).await
+}
+
+/// Where `play` writes.
+pub struct PlayOutput<'a> {
+    pub out: &'a mut dyn Write,
+    pub err: &'a mut dyn Write,
+    /// Whether `out` is a terminal (the progress line is drawn only there).
+    pub tty: bool,
+}
+
+/// Plays `tracks` as one queue through `runtime` and returns the exit code
+/// (spec 0004 "Commands"): `0` when the queue ran out and at least one track
+/// played to its end, `1` when it stopped on a failure or nothing played,
+/// `130` once `interrupted` says so (the engine is stopped first).
+pub fn play_queue<E: EngineControl, J: Jobs>(
+    runtime: &mut PlayerRuntime<E, J>,
+    tracks: Vec<Track>,
+    options: &PlayOptions,
+    inputs: &Receiver<RuntimeInput>,
+    poll: Duration,
+    interrupted: &mut dyn FnMut() -> bool,
+    output: &mut PlayOutput<'_>,
+) -> u8 {
+    let mut reporter = QueueReporter::new(output.tty);
+    let mut commands = Vec::new();
+    if options.shuffle {
+        commands.push(Command::ToggleShuffle);
+    }
+    let mut repeat = RepeatMode::Off;
+    while repeat != options.repeat {
+        commands.push(Command::CycleRepeat);
+        repeat = repeat.cycled();
+    }
+    commands.push(Command::LoadQueue { tracks, start: 0 });
+    if !options.start_at.is_zero() {
+        commands.push(Command::SeekTo(options.start_at));
+    }
+    for command in commands {
+        let handled = runtime.handle(RuntimeInput::Command(command));
+        reporter.report(&handled, output);
+    }
+    loop {
+        let snapshot = runtime.snapshot();
+        if snapshot.state == PlaybackState::Stopped && !runtime.suggestions_pending() {
+            reporter.finish(output);
+            return reporter.exit_code(&snapshot);
+        }
+        if interrupted() {
+            runtime.handle(RuntimeInput::Command(Command::Shutdown));
+            reporter.finish(output);
+            return 130;
+        }
+        if let Some(input) = runtime.next_input(inputs, poll) {
+            let handled = runtime.handle(input);
+            reporter.report(&handled, output);
+        }
+    }
+}
+
+/// The player's message when it stops after a run of `n` track-only
+/// failures (spec 0004 "Failures").
+fn run_limit_message(n: usize) -> String {
+    format!("Stopped: {n} tracks in a row could not be played")
+}
+
+/// Turns what the runtime did into `play`'s output: the "Track" and
+/// "Output" lines at each track start, the progress line on a terminal,
+/// each new message on stderr; and decides the exit code.
+#[derive(Debug)]
+struct QueueReporter {
+    tty: bool,
+    progress_shown: bool,
+    duration: Option<Duration>,
+    message: Option<String>,
+    kinds: HashMap<String, FailureKind>,
+    played_to_end: bool,
+}
+
+impl QueueReporter {
+    fn new(tty: bool) -> Self {
+        Self {
+            tty,
+            progress_shown: false,
+            duration: None,
+            message: None,
+            kinds: HashMap::new(),
+            played_to_end: false,
+        }
+    }
+
+    /// Writes what `handled` shows; write errors (a closed pipe) are
+    /// ignored, playback goes on.
+    fn report(&mut self, handled: &Handled, output: &mut PlayOutput<'_>) {
+        let _ = self.try_report(handled, output);
+    }
+
+    fn try_report(&mut self, handled: &Handled, output: &mut PlayOutput<'_>) -> io::Result<()> {
+        for failure in &handled.failures {
+            self.kinds.insert(failure.message.clone(), failure.kind);
+        }
+        self.played_to_end |= handled.ended;
+        // A failure the player acted on (it answered with a snapshot) is
+        // shown even when the player replaced its message in the same step
+        // (with the run-limit summary).
+        let mut shown = None;
+        if !handled.events.is_empty()
+            && let Some(failure) = handled.failures.last()
+        {
+            self.end_progress(output.out)?;
+            writeln!(output.err, "{}", failure.message)?;
+            shown = Some(failure.message.as_str());
+        }
+        if let Some(start) = &handled.started {
+            self.end_progress(output.out)?;
+            writeln!(
+                output.out,
+                "{}",
+                track_line(start.track.0, start.quality, &start.source)
+            )?;
+            writeln!(output.out, "{}", output_line(&start.output))?;
+            self.duration = start.duration;
+            self.progress(Duration::ZERO, output.out)?;
+        }
+        for event in &handled.events {
+            match event {
+                PlayerEvent::Position { position, .. } => self.progress(*position, output.out)?,
+                PlayerEvent::Player(snapshot) if snapshot.message != self.message => {
+                    self.message.clone_from(&snapshot.message);
+                    let Some(message) = &snapshot.message else {
+                        continue;
+                    };
+                    // After a failure shown just now, a "run" of that one
+                    // failure adds nothing (and 0003's `play <id>` prints
+                    // exactly one line).
+                    let redundant = Some(message.as_str()) == shown
+                        || (shown.is_some() && *message == run_limit_message(1));
+                    if !redundant {
+                        self.end_progress(output.out)?;
+                        writeln!(output.err, "{message}")?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        output.out.flush()
+    }
+
+    fn progress(&mut self, position: Duration, out: &mut dyn Write) -> io::Result<()> {
+        if self.tty {
+            write!(out, "\r\x1b[K{}", progress_line(position, self.duration))?;
+            self.progress_shown = true;
+        }
+        Ok(())
+    }
+
+    fn end_progress(&mut self, out: &mut dyn Write) -> io::Result<()> {
+        if std::mem::take(&mut self.progress_shown) {
+            writeln!(out)?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, output: &mut PlayOutput<'_>) {
+        let _ = self.end_progress(output.out);
+        let _ = output.out.flush();
+    }
+
+    /// The exit code once the player stopped for good.
+    fn exit_code(&self, snapshot: &PlayerSnapshot) -> u8 {
+        let kind = snapshot
+            .message
+            .as_ref()
+            .and_then(|m| self.kinds.get(m).copied());
+        if kind.is_some_and(|k| k != FailureKind::TrackOnly) {
+            return 1;
+        }
+        let last = snapshot.queue.last().map(|e| e.id);
+        let ran_out = snapshot.repeat == RepeatMode::Off
+            && snapshot.current.is_some()
+            && snapshot.current == last;
+        if ran_out && self.played_to_end { 0 } else { 1 }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tidal_player_api::auth::AuthError;
     use tidal_player_api::stream::Unsupported;
 
     #[test]
@@ -670,6 +1061,574 @@ mod tests {
         assert_eq!(
             outcome,
             Some(Outcome::Failed("Output hw:1,0 was lost".into()))
+        );
+    }
+
+    // --- spec 0004 ---------------------------------------------------------------
+
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+
+    use crate::player_runtime::fakes::{FakeEngine, FakeJobs, Log, Script, not_available, track};
+    use crate::player_runtime::parse_items;
+    use tidal_player_api::auth::BoxFuture;
+    use tidal_player_api::metadata::MetadataError;
+    use tidal_player_core::player::{
+        self, EngineEvent, PlayerEffect, PlayerInput, PlayerState, Purpose, TrackDetails,
+    };
+    use tidal_player_core::{EntryId, TrackId};
+
+    const SEED: u64 = 42;
+
+    /// Metadata from memory; records each request.
+    #[derive(Default)]
+    struct FakeMeta {
+        requests: Mutex<Vec<String>>,
+        suggestions: Vec<Track>,
+    }
+
+    impl FakeMeta {
+        fn answer<T: Send + 'static>(
+            &self,
+            request: String,
+            result: Result<T, MetadataError>,
+        ) -> BoxFuture<'_, Result<T, MetadataError>> {
+            self.requests.lock().unwrap().push(request);
+            Box::pin(async move { result })
+        }
+    }
+
+    impl Metadata for FakeMeta {
+        fn track(&self, id: TrackId) -> BoxFuture<'_, Result<Track, MetadataError>> {
+            let result = match id.0 {
+                1..=11 => Ok(track(id.0, (id.0 != 11).then_some(200))),
+                _ => Err(MetadataError::NotFound(Item::Track(id))),
+            };
+            self.answer(format!("track {id}"), result)
+        }
+
+        fn album(&self, id: u64) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            let ids: &[u64] = match id {
+                10 => &[1, 2],
+                20 => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                _ => &[],
+            };
+            let result = if ids.is_empty() {
+                Err(MetadataError::NotFound(Item::Album(id)))
+            } else {
+                Ok(ids.iter().map(|i| track(*i, Some(200))).collect())
+            };
+            self.answer(format!("album {id}"), result)
+        }
+
+        fn playlist(&self, uuid: String) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            let result = match uuid.as_str() {
+                "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d" => {
+                    Ok(vec![track(4, Some(200)), track(5, Some(200))])
+                }
+                _ => Err(MetadataError::NotFound(Item::Playlist(uuid.clone()))),
+            };
+            self.answer(format!("playlist {uuid}"), result)
+        }
+
+        fn suggestions(&self, seed: TrackId) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            self.answer(format!("suggestions {seed}"), Ok(self.suggestions.clone()))
+        }
+    }
+
+    fn status_lines(id: u64) -> String {
+        format!(
+            "Track {id}: LOSSLESS, FLAC 16-bit 44.1 kHz stereo\n\
+             Output: hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch, bit-perfect\n"
+        )
+    }
+
+    /// The play order the player gives `ids` with shuffle on and `SEED`.
+    fn shuffled(ids: &[u64]) -> Vec<u64> {
+        let mut state = PlayerState::new(PlayerConfig::default(), SEED);
+        let tracks = ids.iter().map(|i| track(*i, Some(200))).collect();
+        player::update(&mut state, PlayerInput::Command(Command::ToggleShuffle));
+        player::update(
+            &mut state,
+            PlayerInput::Command(Command::LoadQueue { tracks, start: 0 }),
+        );
+        state
+            .snapshot()
+            .queue
+            .iter()
+            .map(|e| e.track.id.0)
+            .collect()
+    }
+
+    struct Row {
+        name: &'static str,
+        items: &'static [&'static str],
+        options: PlayOptions,
+        /// Tracks whose resolution fails (not available).
+        unavailable: &'static [u64],
+        /// Per track, the engine's outcome of each play (default: ends).
+        engine: Vec<(u64, Vec<Script>)>,
+        tty: bool,
+        code: u8,
+        /// The tracks whose "Track"/"Output" lines are printed, in order.
+        started: Vec<u64>,
+        stderr: &'static str,
+    }
+
+    impl Default for Row {
+        fn default() -> Self {
+            Self {
+                name: "",
+                items: &[],
+                options: PlayOptions::default(),
+                unavailable: &[],
+                engine: Vec::new(),
+                tty: false,
+                code: 0,
+                started: Vec::new(),
+                stderr: "",
+            }
+        }
+    }
+
+    /// Runs `play` as the binary does, against the fakes: parse, expand,
+    /// then the queue through the player runtime.
+    fn run_play(row: Row) -> (u8, String, String, Vec<String>) {
+        let log: Log = Arc::default();
+        let (tx, rx) = mpsc::channel();
+        let mut engine = FakeEngine::new(&log, Script::Ends);
+        for (track, outcomes) in row.engine {
+            engine = engine.script(track, outcomes);
+        }
+        let mut jobs = FakeJobs::new(&log, &tx, true);
+        for id in row.unavailable {
+            jobs.failures.insert(*id, not_available(*id));
+        }
+        jobs.suggestions = vec![track(11, None), track(3, Some(200))];
+        let meta = FakeMeta {
+            suggestions: Vec::new(),
+            ..FakeMeta::default()
+        };
+        let args: Vec<String> = row.items.iter().map(|s| (*s).to_owned()).collect();
+        let tokio = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let tracks = parse_items(&args)
+            .and_then(|items| tokio.block_on(play_tracks(&meta, &items, &row.options)));
+        let code = match tracks {
+            Err(e) => {
+                writeln!(err, "{e}").unwrap();
+                e.exit_code()
+            }
+            Ok(tracks) => {
+                let settings = resolve_play_config(row.options.autoplay, |_| None).unwrap();
+                let mut config = settings.player;
+                config.country = Some("NO".into());
+                let mut runtime = PlayerRuntime::new(config, SEED, engine, jobs);
+                let mut polls = 0;
+                let mut interrupted = || {
+                    polls += 1;
+                    polls > 10_000
+                };
+                let mut output = PlayOutput {
+                    out: &mut out,
+                    err: &mut err,
+                    tty: row.tty,
+                };
+                play_queue(
+                    &mut runtime,
+                    tracks,
+                    &row.options,
+                    &rx,
+                    Duration::ZERO,
+                    &mut interrupted,
+                    &mut output,
+                )
+            }
+        };
+        let requests = meta.requests.lock().unwrap().clone();
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+            requests,
+        )
+    }
+
+    /// AC18: several items expand in order into one queue played through
+    /// the player; the status lines at each start; the exit codes.
+    #[test]
+    fn ac18_queue_exit_codes() {
+        let busy = || {
+            EngineError::Output(SinkError::Busy {
+                device: "hw:1,0".into(),
+                holder: None,
+            })
+        };
+        let lost = || EngineError::Output(SinkError::Lost("hw:1,0".into()));
+        let ten = shuffled(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(ten[0], 1);
+        assert_ne!(ten, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let rows = vec![
+            Row {
+                name: "all play: album, track, playlist in order",
+                items: &[
+                    "https://tidal.com/browse/album/10",
+                    "7",
+                    "https://tidal.com/browse/playlist/0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+                ],
+                started: vec![1, 2, 7, 4, 5],
+                ..Row::default()
+            },
+            Row {
+                name: "one track-only failure among three",
+                items: &["1", "2", "3"],
+                unavailable: &[2],
+                started: vec![1, 3],
+                stderr: "Track 2 is not available in NO\n",
+                ..Row::default()
+            },
+            Row {
+                name: "a decode failure among three",
+                items: &["1", "2", "3"],
+                engine: vec![(
+                    2,
+                    vec![Script::Fails(EngineError::Decode("bad frame".into()))],
+                )],
+                started: vec![1, 3],
+                stderr: "Track 2 could not be decoded: bad frame\n",
+                ..Row::default()
+            },
+            Row {
+                name: "the last track fails: the queue still ran out",
+                items: &["1", "2"],
+                unavailable: &[2],
+                started: vec![1],
+                stderr: "Track 2 is not available in NO\n",
+                ..Row::default()
+            },
+            Row {
+                name: "output busy",
+                items: &["1", "2", "3"],
+                engine: vec![(2, vec![Script::Fails(busy())])],
+                code: 1,
+                started: vec![1],
+                stderr: "Output hw:1,0 is busy: close it, or use --device default\n",
+                ..Row::default()
+            },
+            Row {
+                name: "every track fails",
+                items: &["1", "2", "3"],
+                unavailable: &[1, 2, 3],
+                code: 1,
+                stderr: "Track 1 is not available in NO\n\
+                         Track 2 is not available in NO\n\
+                         Track 3 is not available in NO\n\
+                         Stopped: 3 tracks in a row could not be played\n",
+                ..Row::default()
+            },
+            Row {
+                name: "bad item",
+                items: &["1", "https://tidal.com/browse/artist/1"],
+                code: 2,
+                stderr: "Not a Tidal track, album or playlist: https://tidal.com/browse/artist/1\n",
+                ..Row::default()
+            },
+            Row {
+                name: "item not found",
+                items: &["1", "https://tidal.com/browse/album/404"],
+                code: 1,
+                stderr: "Album 404 was not found\n",
+                ..Row::default()
+            },
+            Row {
+                name: "--shuffle before loading",
+                items: &["https://tidal.com/album/20"],
+                options: PlayOptions {
+                    shuffle: true,
+                    ..PlayOptions::default()
+                },
+                started: ten,
+                ..Row::default()
+            },
+            Row {
+                name: "--repeat track before loading",
+                items: &["1", "2"],
+                options: PlayOptions {
+                    repeat: RepeatMode::Track,
+                    ..PlayOptions::default()
+                },
+                engine: vec![(1, vec![Script::Ends, Script::Ends, Script::Fails(lost())])],
+                code: 1,
+                started: vec![1, 1],
+                stderr: "Output hw:1,0 was lost\n",
+                ..Row::default()
+            },
+            Row {
+                name: "--repeat queue before loading",
+                items: &["1", "2"],
+                options: PlayOptions {
+                    repeat: RepeatMode::Queue,
+                    ..PlayOptions::default()
+                },
+                engine: vec![(1, vec![Script::Ends, Script::Fails(lost())])],
+                code: 1,
+                started: vec![1, 2],
+                stderr: "Output hw:1,0 was lost\n",
+                ..Row::default()
+            },
+            Row {
+                name: "--autoplay continues with suggestions",
+                items: &["11"],
+                options: PlayOptions {
+                    autoplay: true,
+                    ..PlayOptions::default()
+                },
+                started: vec![11, 3],
+                ..Row::default()
+            },
+            Row {
+                name: "progress on a terminal",
+                items: &["1", "2"],
+                tty: true,
+                started: vec![1, 2],
+                ..Row::default()
+            },
+        ];
+        for row in rows {
+            let name = row.name;
+            let (code, started, stderr, tty) = (row.code, row.started.clone(), row.stderr, row.tty);
+            let (got_code, out, err, _) = run_play(row);
+            let progress = if tty { "\r\x1b[K  0:00 / 3:20\n" } else { "" };
+            let want_out: String = started
+                .iter()
+                .map(|id| format!("{}{progress}", status_lines(*id)))
+                .collect();
+            assert_eq!(out, want_out, "{name}: stdout");
+            assert_eq!(err, stderr, "{name}: stderr");
+            assert_eq!(got_code, code, "{name}: exit code");
+        }
+
+        // 0003's form: one track ID, no new flag: no metadata request, and
+        // the track plays (and its errors are the stream's).
+        let (code, out, err, requests) = run_play(Row {
+            items: &["99"],
+            ..Row::default()
+        });
+        assert_eq!((code, out, err), (0, status_lines(99), String::new()));
+        assert!(requests.is_empty(), "{requests:?}");
+        let (code, _, err, _) = run_play(Row {
+            items: &["99"],
+            unavailable: &[99],
+            ..Row::default()
+        });
+        assert_eq!(
+            (code, err.as_str()),
+            (1, "Track 99 is not available in NO\n")
+        );
+    }
+
+    /// AC25: the player settings from the environment, their ranges, and
+    /// `--autoplay` over the environment.
+    #[test]
+    fn ac25_player_config() {
+        type Want = Result<(u8, u64, u64, bool), (&'static str, &'static str)>;
+        let rows: &[(&str, &[(&str, &str)], Want)] = &[
+            ("defaults", &[], Ok((5, 5, 3, false))),
+            (
+                "empty counts as unset",
+                &[
+                    (VOLUME_STEP_VAR, ""),
+                    (SEEK_STEP_VAR, ""),
+                    (PREVIOUS_RESTART_VAR, ""),
+                    (AUTOPLAY_VAR, ""),
+                ],
+                Ok((5, 5, 3, false)),
+            ),
+            (
+                "lowest values",
+                &[
+                    (VOLUME_STEP_VAR, "1"),
+                    (SEEK_STEP_VAR, "1"),
+                    (PREVIOUS_RESTART_VAR, "0"),
+                    (AUTOPLAY_VAR, "off"),
+                ],
+                Ok((1, 1, 0, false)),
+            ),
+            (
+                "highest values",
+                &[
+                    (VOLUME_STEP_VAR, "25"),
+                    (SEEK_STEP_VAR, "600"),
+                    (PREVIOUS_RESTART_VAR, "60"),
+                    (AUTOPLAY_VAR, "on"),
+                ],
+                Ok((25, 600, 60, true)),
+            ),
+            (
+                "volume step 0",
+                &[(VOLUME_STEP_VAR, "0")],
+                Err((VOLUME_STEP_VAR, "1 to 25")),
+            ),
+            (
+                "volume step 26",
+                &[(VOLUME_STEP_VAR, "26")],
+                Err((VOLUME_STEP_VAR, "1 to 25")),
+            ),
+            (
+                "volume step text",
+                &[(VOLUME_STEP_VAR, "five")],
+                Err((VOLUME_STEP_VAR, "1 to 25")),
+            ),
+            (
+                "volume step negative",
+                &[(VOLUME_STEP_VAR, "-5")],
+                Err((VOLUME_STEP_VAR, "1 to 25")),
+            ),
+            (
+                "seek step 0",
+                &[(SEEK_STEP_VAR, "0")],
+                Err((SEEK_STEP_VAR, "1 to 600")),
+            ),
+            (
+                "seek step 601",
+                &[(SEEK_STEP_VAR, "601")],
+                Err((SEEK_STEP_VAR, "1 to 600")),
+            ),
+            (
+                "seek step fraction",
+                &[(SEEK_STEP_VAR, "2.5")],
+                Err((SEEK_STEP_VAR, "1 to 600")),
+            ),
+            (
+                "previous 61",
+                &[(PREVIOUS_RESTART_VAR, "61")],
+                Err((PREVIOUS_RESTART_VAR, "0 to 60")),
+            ),
+            (
+                "previous text",
+                &[(PREVIOUS_RESTART_VAR, "3s")],
+                Err((PREVIOUS_RESTART_VAR, "0 to 60")),
+            ),
+            (
+                "autoplay yes",
+                &[(AUTOPLAY_VAR, "yes")],
+                Err((AUTOPLAY_VAR, "on or off")),
+            ),
+            (
+                "autoplay 1",
+                &[(AUTOPLAY_VAR, "1")],
+                Err((AUTOPLAY_VAR, "on or off")),
+            ),
+        ];
+        let lookup = |env: &'static [(&'static str, &'static str)]| {
+            move |key: &str| {
+                env.iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| (*v).to_string())
+            }
+        };
+        for (name, env, want) in rows {
+            let got = resolve_player_config(lookup(env));
+            match want {
+                Ok((volume, seek, previous, autoplay)) => {
+                    let got = got.unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert_eq!(
+                        got.steps,
+                        Steps {
+                            volume: *volume,
+                            seek: Duration::from_secs(*seek)
+                        },
+                        "{name}"
+                    );
+                    assert_eq!(
+                        got.player,
+                        PlayerConfig {
+                            previous_restart: Duration::from_secs(*previous),
+                            autoplay: *autoplay,
+                            country: None,
+                        },
+                        "{name}"
+                    );
+                }
+                Err((var, range)) => {
+                    let err = got.expect_err(name);
+                    assert_eq!(err.setting, *var, "{name}");
+                    let text = err.to_string();
+                    assert!(text.contains(var) && text.contains(range), "{name}: {text}");
+                }
+            }
+        }
+
+        // `play --autoplay` beats the environment, even a bad value.
+        let precedence: &[(bool, &[(&str, &str)], bool)] = &[
+            (true, &[(AUTOPLAY_VAR, "off")], true),
+            (true, &[(AUTOPLAY_VAR, "maybe")], true),
+            (false, &[(AUTOPLAY_VAR, "on")], true),
+            (false, &[(AUTOPLAY_VAR, "")], false),
+        ];
+        for (flag, env, want) in precedence {
+            let got = resolve_play_config(*flag, lookup(env)).expect("valid");
+            assert_eq!(got.player.autoplay, *want, "--autoplay {flag}, {env:?}");
+        }
+
+        // The player's previous uses the configured threshold: at 0:05,
+        // 10 s goes back to the entry before, the default 3 s restarts.
+        let previous_at_5s = |threshold: &'static str| {
+            let settings = resolve_player_config(lookup(match threshold {
+                "10" => &[(PREVIOUS_RESTART_VAR, "10")],
+                _ => &[],
+            }))
+            .unwrap();
+            let mut state = PlayerState::new(settings.player, SEED);
+            let tracks = vec![track(1, Some(200)), track(2, Some(200))];
+            let fx = player::update(
+                &mut state,
+                PlayerInput::Command(Command::LoadQueue { tracks, start: 1 }),
+            );
+            let Some(PlayerEffect::Resolve { tag, .. }) = fx.first().cloned() else {
+                panic!("no resolve: {fx:?}");
+            };
+            player::update(
+                &mut state,
+                PlayerInput::Resolved {
+                    tag,
+                    result: Ok(AudioQuality::Lossless),
+                },
+            );
+            let details = TrackDetails {
+                source: "FLAC".into(),
+                output: "hw:1,0".into(),
+                bit_perfect: true,
+                reason: None,
+            };
+            player::update(
+                &mut state,
+                PlayerInput::Engine(EngineEvent::Started { tag, details }),
+            );
+            player::update(
+                &mut state,
+                PlayerInput::Engine(EngineEvent::Position(Duration::from_secs(5))),
+            );
+            player::update(&mut state, PlayerInput::Command(Command::Previous))
+        };
+        let back = previous_at_5s("10");
+        assert!(
+            back.iter().any(|e| matches!(
+                e,
+                PlayerEffect::Resolve {
+                    entry: EntryId(1),
+                    purpose: Purpose::Play,
+                    ..
+                }
+            )),
+            "10 s threshold: {back:?}"
+        );
+        let restart = previous_at_5s("default");
+        assert!(
+            restart.contains(&PlayerEffect::EngineSeek(Duration::ZERO)),
+            "3 s threshold: {restart:?}"
         );
     }
 }

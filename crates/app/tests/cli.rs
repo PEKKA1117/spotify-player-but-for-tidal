@@ -328,3 +328,27 @@ fn ac26_play_end_to_end_errors() {
         .code(1)
         .stderr("Track 404 is not available in NO\n");
 }
+
+// Spec 0004 AC18: a bad item is refused before anything plays (exit 2),
+// before the session is even looked at.
+
+#[test]
+fn ac18_bad_item() {
+    let state = tempfile::tempdir().unwrap();
+    let artist = "https://tidal.com/browse/artist/1";
+    let refused = format!("Not a Tidal track, album or playlist: {artist}\n");
+    bin_in(state.path())
+        .args(["play", "123", artist])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(refused.clone());
+    // `tidal-player [ITEM]...` too, before a login prompt or the terminal.
+    bin_in(state.path())
+        .args(["123", artist])
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(refused);
+}
