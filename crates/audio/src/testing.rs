@@ -75,6 +75,33 @@ impl FetchLog {
     }
 }
 
+/// Tells when a [`FakeSource`] was dropped (closed). Clones share the flag.
+#[derive(Debug, Clone, Default)]
+pub struct ClosedWatch {
+    inner: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl ClosedWatch {
+    /// Wait (at most `timeout`) until the source was dropped.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut closed = lock(&self.inner.0);
+        while !*closed {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            closed = self
+                .inner
+                .1
+                .wait_timeout(closed, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        true
+    }
+}
+
 /// Opens a stalled [`FakeSource`]. Clones share the gate.
 #[derive(Debug, Clone, Default)]
 pub struct Gate {
@@ -163,6 +190,14 @@ pub struct FakeSource {
     behaviour: Behaviour,
     delivered: u64,
     log: FetchLog,
+    closed: ClosedWatch,
+}
+
+impl Drop for FakeSource {
+    fn drop(&mut self) {
+        *lock(&self.closed.inner.0) = true;
+        self.closed.inner.1.notify_all();
+    }
 }
 
 impl FakeSource {
@@ -195,6 +230,7 @@ impl FakeSource {
             behaviour: Behaviour::Normal,
             delivered: 0,
             log: FetchLog::default(),
+            closed: ClosedWatch::default(),
         }
     }
 
@@ -222,6 +258,11 @@ impl FakeSource {
     pub fn fail_after(mut self, bytes: u64, error: SourceError) -> Self {
         self.behaviour = Behaviour::FailAfter { bytes, error };
         self
+    }
+
+    /// Reports when this source is dropped.
+    pub fn closed_watch(&self) -> ClosedWatch {
+        self.closed.clone()
     }
 
     /// The record of what this source fetched.

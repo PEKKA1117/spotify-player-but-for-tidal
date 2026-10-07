@@ -155,6 +155,7 @@ mod alsa_play {
         interrupt: &watch::Receiver<bool>,
     ) -> ExitCode {
         let play = Command::Play {
+            tag: 0,
             source: Box::new(source),
             start_at: request.start_at,
         };

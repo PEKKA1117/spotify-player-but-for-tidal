@@ -241,15 +241,15 @@ impl Reporter {
     /// Prints what `event` shows; `Some` once the track is over.
     pub fn on_event(&mut self, event: &Event, out: &mut dyn Write) -> io::Result<Option<Outcome>> {
         match event {
-            Event::Started { source, output } | Event::Transitioned { source, output } => {
+            Event::Started { source, output, .. } | Event::Transitioned { source, output, .. } => {
                 self.finish(out)?;
                 writeln!(out, "{}", track_line(self.track_id, self.granted, source))?;
                 writeln!(out, "{}", output_line(output))?;
                 self.progress(Duration::ZERO, out)?;
             }
             Event::Position(position) => self.progress(*position, out)?,
-            Event::TrackEnded => return Ok(Some(Outcome::Ended)),
-            Event::Error(error) => {
+            Event::TrackEnded { .. } => return Ok(Some(Outcome::Ended)),
+            Event::Error { error, .. } => {
                 return Ok(Some(Outcome::Failed(engine_error_message(
                     self.track_id,
                     error,
@@ -602,6 +602,7 @@ mod tests {
 
     fn started() -> Event {
         Event::Started {
+            tag: 0,
             source: FLAC_24_96,
             output: output(
                 "hw:1,0",
@@ -638,7 +639,7 @@ mod tests {
             started(),
             Event::Position(Duration::from_secs(1)),
             Event::Position(Duration::from_secs(83)),
-            Event::TrackEnded,
+            Event::TrackEnded { tag: 0 },
         ];
         let lines = "Track 77640617: HI_RES_LOSSLESS, FLAC 24-bit 96 kHz stereo\n\
                      Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect\n";
@@ -655,7 +656,16 @@ mod tests {
         assert_eq!(outcome, Some(Outcome::Ended));
 
         let lost = EngineError::Output(SinkError::Lost("hw:1,0".into()));
-        let (out, outcome) = report(false, &[started(), Event::Error(lost)]);
+        let (out, outcome) = report(
+            false,
+            &[
+                started(),
+                Event::Error {
+                    tag: 0,
+                    error: lost,
+                },
+            ],
+        );
         assert_eq!(out, lines);
         assert_eq!(
             outcome,

@@ -63,7 +63,7 @@ fn ac14_underrun_recovered() {
     rig.play(flac16());
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "{events:?}"
     );
     assert_samples(&rig.sinks.samples(), &expected, "after an underrun");
@@ -84,13 +84,16 @@ fn ac14_device_lost() {
     assert_eq!(
         count(&events, |e| matches!(
             e,
-            Event::Error(EngineError::Output(SinkError::Lost(_)))
+            Event::Error {
+                error: EngineError::Output(SinkError::Lost(_)),
+                ..
+            }
         )),
         1,
         "{events:?}"
     );
-    assert_eq!(count(&events, |e| matches!(e, Event::Error(_))), 1);
-    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded)), 0);
+    assert_eq!(count(&events, |e| matches!(e, Event::Error { .. })), 1);
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 0);
     assert_eq!(rig.sinks.open_now(), 0, "device closed");
 }
 
@@ -103,7 +106,7 @@ fn ac15_play_to_end() {
     rig.play(flac16());
     let mut events = rig.until_end();
     match events.first() {
-        Some(Event::Started { source, output }) => {
+        Some(Event::Started { source, output, .. }) => {
             assert_eq!(*source, format);
             assert_eq!(output.device, "test");
             assert_eq!(output.sample_rate, 44_100);
@@ -111,8 +114,8 @@ fn ac15_play_to_end() {
         other => panic!("expected Started first, got {other:?} in {events:?}"),
     }
     events.extend(rig.stop());
-    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded)), 1);
-    assert_eq!(count(&events, |e| matches!(e, Event::Error(_))), 0);
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 1);
+    assert_eq!(count(&events, |e| matches!(e, Event::Error { .. })), 0);
     assert_samples(&rig.sinks.samples(), &expected, "played track");
     let calls = rig.sinks.calls();
     assert!(
@@ -146,7 +149,7 @@ fn ac15_play_replaces_play() {
         matches!(events.first(), Some(Event::Started { .. })),
         "{events:?}"
     );
-    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded)), 1);
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 1);
 
     let all = rig.sinks.samples();
     let tail = after_last_discard(&rig);
@@ -196,11 +199,11 @@ fn ac16_errors_never_end_track() {
         rig.play(source);
         let events = rig.until_end();
         match events.last() {
-            Some(Event::Error(e)) => assert!(expect(e), "{name}: wrong error {e:?}"),
+            Some(Event::Error { error: e, .. }) => assert!(expect(e), "{name}: wrong error {e:?}"),
             other => panic!("{name}: expected an Error, got {other:?} in {events:?}"),
         }
         assert_eq!(
-            count(&events, |e| matches!(e, Event::TrackEnded)),
+            count(&events, |e| matches!(e, Event::TrackEnded { .. })),
             0,
             "{name}"
         );
@@ -209,11 +212,11 @@ fn ac16_errors_never_end_track() {
         rig.play(flac16());
         let events = rig.until_end();
         assert!(
-            matches!(events.last(), Some(Event::TrackEnded)),
+            matches!(events.last(), Some(Event::TrackEnded { .. })),
             "{name}: next Play: {events:?}"
         );
         assert_eq!(
-            count(&events, |e| matches!(e, Event::Error(_))),
+            count(&events, |e| matches!(e, Event::Error { .. })),
             0,
             "{name}"
         );
@@ -224,7 +227,7 @@ fn ac16_errors_never_end_track() {
         );
         let after = rig.stop();
         assert_eq!(
-            count(&after, |e| matches!(e, Event::TrackEnded)),
+            count(&after, |e| matches!(e, Event::TrackEnded { .. })),
             0,
             "{name}"
         );
@@ -240,6 +243,7 @@ fn ac17_gapless_same_format() {
     let (b_format, b) = reference(mono16());
     rig.play(flac16());
     rig.send(Command::Preload {
+        tag: 0,
         source: Box::new(mono16()),
     });
     let mut events = rig.until_end();
@@ -263,7 +267,7 @@ fn ac17_gapless_same_format() {
         .collect();
     assert_eq!(transitioned, [b_format]);
     assert_eq!(count(&events, is_started), 1);
-    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded)), 1);
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 1);
 }
 
 fn count_calls(calls: &[SinkCall], pred: impl Fn(&SinkCall) -> bool) -> usize {
@@ -278,6 +282,7 @@ fn ac17_reopen_on_format_change() {
     let (c_format, c) = reference(flac24());
     rig.play(flac16());
     rig.send(Command::Preload {
+        tag: 0,
         source: Box::new(flac24()),
     });
     let mut events = rig.until_end();
@@ -320,7 +325,7 @@ fn ac18_pause_resume_loses_nothing() {
     rig.until("Started", is_started);
     rig.send(Command::Pause);
     let events = rig.until("Paused", |e| matches!(e, Event::Paused));
-    assert_eq!(count(&events, |e| matches!(e, Event::Error(_))), 0);
+    assert_eq!(count(&events, |e| matches!(e, Event::Error { .. })), 0);
     let at_pause = match rig.next() {
         Event::Position(p) => p,
         other => panic!("expected a Position after Paused, got {other:?}"),
@@ -345,7 +350,7 @@ fn ac18_pause_resume_loses_nothing() {
     );
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "{events:?}"
     );
     assert_samples(&rig.sinks.samples(), &expected, "paused and resumed track");
@@ -388,7 +393,7 @@ fn seek_while_playing() {
     rig.sinks.release();
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "playing: {events:?}"
     );
     let first = duration_to_frames(t, 44_100) as usize;
@@ -427,7 +432,7 @@ fn seek_while_paused() {
     rig.send(Command::Resume);
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "paused: {events:?}"
     );
     let first = duration_to_frames(t, 44_100) as usize;
@@ -445,7 +450,7 @@ fn seek_past_end() {
     rig.send(Command::Seek(Duration::from_secs(2)));
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "past end: {events:?}"
     );
     assert!(
@@ -468,7 +473,7 @@ fn seek_segmented() {
     rig.sinks.release();
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "segmented: {events:?}"
     );
     let first = duration_to_frames(t, 96_000) as usize;
@@ -544,7 +549,7 @@ fn seek_single_file() {
     rig.sinks.release();
     let events = rig.until_end();
     assert!(
-        matches!(events.last(), Some(Event::TrackEnded)),
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
         "single-file: {events:?}"
     );
     assert_samples(
@@ -632,7 +637,7 @@ fn ac21_set_device_moves_playback() {
     let mut events = rig.until_end();
     events.extend(rig.stop());
     assert!(
-        matches!(events.iter().rev().nth(1), Some(Event::TrackEnded)),
+        matches!(events.iter().rev().nth(1), Some(Event::TrackEnded { .. })),
         "{events:?}"
     );
 
@@ -743,7 +748,10 @@ fn ac23_buffering() {
         positions(&after[..buffered]).is_empty(),
         "position moved: {after:?}"
     );
-    assert!(matches!(after.last(), Some(Event::TrackEnded)), "{after:?}");
+    assert!(
+        matches!(after.last(), Some(Event::TrackEnded { .. })),
+        "{after:?}"
+    );
     assert_samples(&rig.sinks.samples(), &expected, "every frame exactly once");
     assert_eq!(rig.engine.underruns(), 0);
     let last_before = positions(&before).last().copied();
@@ -751,4 +759,263 @@ fn ac23_buffering() {
     if let (Some(a), Some(b)) = (last_before, first_after) {
         assert!(b >= a, "position went backwards across the stall");
     }
+}
+
+/// The tag an event is about, if it is track-scoped.
+fn tag_of(event: &Event) -> Option<u64> {
+    match event {
+        Event::Started { tag, .. }
+        | Event::Transitioned { tag, .. }
+        | Event::TrackEnded { tag }
+        | Event::Error { tag, .. } => Some(*tag),
+        _ => None,
+    }
+}
+
+/// The track-scoped events as `(kind, tag)`.
+fn tagged(events: &[Event]) -> Vec<(&'static str, u64)> {
+    events
+        .iter()
+        .filter_map(|e| {
+            let kind = match e {
+                Event::Started { .. } => "Started",
+                Event::Transitioned { .. } => "Transitioned",
+                Event::TrackEnded { .. } => "TrackEnded",
+                Event::Error { .. } => "Error",
+                _ => return None,
+            };
+            Some((kind, tag_of(e)?))
+        })
+        .collect()
+}
+
+/// 0004 AC13: track-scoped events carry the tag of their track: a plain
+/// play, a gapless transition, a `Play` that replaces a playing track, and a
+/// preloaded track that fails after the transition.
+#[test]
+fn ac13_events_carry_tags() {
+    // Play, then a gapless preload.
+    let rig = self::rig(SinkScript::default());
+    rig.play_tagged(7, flac16());
+    rig.preload(8, mono16());
+    let events = rig.until_end();
+    assert_eq!(
+        tagged(&events),
+        [("Started", 7), ("Transitioned", 8), ("TrackEnded", 8)],
+        "{events:?}"
+    );
+
+    // A Play replaces a playing track: nothing of the first track follows.
+    let rig = self::rig(held(4_608));
+    rig.play_tagged(1, flac16());
+    let first = rig.until("Started", is_started);
+    assert_eq!(tagged(&first), [("Started", 1)]);
+    rig.play_tagged(2, mono16());
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert_eq!(
+        tagged(&events),
+        [("Started", 2), ("TrackEnded", 2)],
+        "{events:?}"
+    );
+
+    // A preloaded track fails after the transition: the error is its own.
+    let rig = self::rig(SinkScript::default());
+    rig.play_tagged(3, flac16());
+    rig.preload(
+        4,
+        flac16().fail_after(12_000, SourceError::Network("connection reset".into())),
+    );
+    let events = rig.until_end();
+    let kinds = tagged(&events);
+    assert_eq!(kinds.first(), Some(&("Started", 3)), "{events:?}");
+    assert_eq!(kinds.last(), Some(&("Error", 4)), "{events:?}");
+    assert!(
+        kinds[1..kinds.len() - 1]
+            .iter()
+            .all(|k| *k == ("Transitioned", 4)),
+        "{events:?}"
+    );
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 0);
+}
+
+/// 0004 AC14: `CancelPreload` closes the cancelled source; the current
+/// track drains and ends with its own tag; no frame of the cancelled track
+/// reaches the sink. With nothing preloaded it does nothing.
+#[test]
+fn ac14_cancel_preload() {
+    let rig = self::rig(held(4_608));
+    let (_, a) = reference(flac16());
+    let cancelled = mono16();
+    let closed = cancelled.closed_watch();
+    rig.play_tagged(1, flac16());
+    rig.until("Started", is_started);
+    rig.preload(2, cancelled);
+    rig.send(Command::CancelPreload);
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert_eq!(
+        events.last(),
+        Some(&Event::TrackEnded { tag: 1 }),
+        "{events:?}"
+    );
+    assert_eq!(
+        tagged(&events),
+        [("TrackEnded", 1)],
+        "no Transitioned: {events:?}"
+    );
+    assert!(closed.wait(SOON), "the cancelled source was not closed");
+    let calls = rig.sinks.calls();
+    assert!(
+        matches!(
+            calls[calls.len() - 1],
+            SinkCall::Drain { .. } | SinkCall::Close { .. }
+        ),
+        "{calls:?}"
+    );
+    assert_samples(&rig.sinks.samples(), &a, "only the current track");
+    let after = rig.stop();
+    assert_eq!(count(&after, |e| matches!(e, Event::TrackEnded { .. })), 0);
+
+    // Nothing preloaded: nothing happens, the track plays on.
+    let rig = self::rig(SinkScript::default());
+    rig.play_tagged(5, flac16());
+    rig.send(Command::CancelPreload);
+    let events = rig.until_end();
+    assert_eq!(tagged(&events), [("Started", 5), ("TrackEnded", 5)]);
+    assert_samples(&rig.sinks.samples(), &a, "cancel with nothing preloaded");
+
+    // Cancel, then preload again: the new preload is used.
+    let rig = self::rig(held(4_608));
+    let (_, b) = reference(mono16());
+    rig.play_tagged(1, flac16());
+    rig.until("Started", is_started);
+    rig.preload(2, flac16());
+    rig.send(Command::CancelPreload);
+    rig.preload(3, mono16());
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert_eq!(
+        tagged(&events),
+        [("Transitioned", 3), ("TrackEnded", 3)],
+        "{events:?}"
+    );
+    assert_samples(&rig.sinks.samples(), &[a, b].concat(), "re-preloaded");
+}
+
+/// The expected output for gain `gain`: untouched at 1.0, else
+/// `round(s x gain)` in `f64`.
+fn scaled(samples: &[i32], gain: f32) -> Vec<i32> {
+    if gain == 1.0 {
+        return samples.to_vec();
+    }
+    samples
+        .iter()
+        .map(|&s| (f64::from(s) * f64::from(gain)).round() as i32)
+        .collect()
+}
+
+/// 0004 AC15: `SetGain`.
+#[test]
+fn ac15_gain() {
+    // Table: whole tracks at a fixed gain, on 16- and 24-bit sources.
+    type Source = fn() -> FakeSource;
+    let sources: [(&str, Source); 2] = [("16-bit", flac16), ("24-bit", flac24)];
+    let gains = [1.0f32, 0.5, 0.0, 0.3];
+    for (name, source) in sources {
+        let (_, baseline) = reference(source());
+        // The engine without any SetGain is the bit-exact reference.
+        let plain = rig(SinkScript::default());
+        plain.play(source());
+        plain.until_end();
+        assert_samples(&plain.sinks.samples(), &baseline, name);
+        for gain in gains {
+            let rig = self::rig(SinkScript::default());
+            rig.send(Command::SetGain(gain));
+            rig.play(source());
+            let events = rig.until_end();
+            assert!(
+                matches!(events.last(), Some(Event::TrackEnded { .. })),
+                "{name} {gain}: {events:?}"
+            );
+            assert_samples(
+                &rig.sinks.samples(),
+                &scaled(&baseline, gain),
+                &format!("{name} at gain {gain}"),
+            );
+        }
+    }
+
+    const HELD: usize = 4_608;
+    let (_, a) = reference(flac16());
+    let (_, b) = reference(mono16());
+
+    // Change mid-track: frames written after the command are scaled, the
+    // ones before are not (here the device holds exactly at the boundary).
+    let rig = self::rig(held(HELD as u64));
+    rig.play(flac16());
+    rig.wait_frames(HELD);
+    rig.send(Command::SetGain(0.5));
+    rig.sinks.release();
+    rig.until_end();
+    let expected = [a[..HELD * 2].to_vec(), scaled(&a[HELD * 2..], 0.5)].concat();
+    assert_samples(&rig.sinks.samples(), &expected, "gain changed mid-track");
+
+    // Across a gapless transition (set during the first track).
+    let rig = self::rig(held(HELD as u64));
+    rig.play(flac16());
+    rig.wait_frames(HELD);
+    rig.send(Command::SetGain(0.5));
+    rig.preload(1, mono16());
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert_eq!(
+        count(&events, |e| matches!(e, Event::Transitioned { .. })),
+        1
+    );
+    let expected = [
+        a[..HELD * 2].to_vec(),
+        scaled(&[&a[HELD * 2..], &b[..]].concat(), 0.5),
+    ]
+    .concat();
+    assert_samples(&rig.sinks.samples(), &expected, "gain across a transition");
+
+    // Across a new Play.
+    let rig = self::rig(held(HELD as u64));
+    rig.play(flac16());
+    rig.wait_frames(HELD);
+    rig.send(Command::SetGain(0.5));
+    rig.play(mono16());
+    rig.sinks.release();
+    rig.until_end();
+    assert_samples(
+        &after_last_discard(&rig),
+        &scaled(&b, 0.5),
+        "gain across a new Play",
+    );
+
+    // Across SetDevice: the replayed frames are scaled once, not twice.
+    const DELAY: u64 = 1_500;
+    let devices = MemoryDevices::new().with_script(
+        "a",
+        SinkScript {
+            delay_frames: DELAY,
+            ..held(9_216)
+        },
+    );
+    let rig = rig_with(devices, SinkScript::default(), "a");
+    rig.send(Command::SetGain(0.5));
+    rig.play(flac16());
+    rig.wait_frames(9_216);
+    rig.send(Command::SetDevice("b".into()));
+    rig.sinks.release();
+    rig.until_end();
+    let on_a = rig.sinks.samples_of("a");
+    assert_samples(&on_a, &scaled(&a[..on_a.len()], 0.5), "device a");
+    let heard = on_a.len() / 2 - DELAY as usize;
+    assert_samples(
+        &rig.sinks.samples_of("b"),
+        &scaled(&a[heard * 2..], 0.5),
+        "device b continues at the same gain",
+    );
 }
