@@ -1,0 +1,63 @@
+{
+  "limit": 1000,
+  "offset": 0,
+  "totalNumberOfItems": 14,
+  "items": [
+    {
+      "created": "2026-03-02T10:00:00.000+0000",
+      "item": {
+        "id": 2001,
+        "title": "Album One",
+        "duration": 2400,
+        "streamReady": true,
+        "allowStreaming": true,
+        "numberOfTracks": 12,
+        "numberOfVolumes": 1,
+        "releaseDate": "2014-10-13",
+        "type": "ALBUM",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "type": "MAIN",
+            "picture": null
+          }
+        ],
+        "artist": {
+          "id": 3001,
+          "name": "Artist A"
+        }
+      }
+    },
+    {
+      "created": "2026-03-01T10:00:00.000+0000",
+      "item": {
+        "id": 2002,
+        "title": "Single Two",
+        "duration": 200,
+        "streamReady": true,
+        "allowStreaming": true,
+        "numberOfTracks": 1,
+        "numberOfVolumes": 1,
+        "releaseDate": "2020-05-01",
+        "type": "SINGLE",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "type": "MAIN",
+            "picture": null
+          }
+        ],
+        "artist": {
+          "id": 3001,
+          "name": "Artist A"
+        }
+      }
+    }
+  ]
+}
