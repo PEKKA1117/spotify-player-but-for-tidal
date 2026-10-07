@@ -30,12 +30,65 @@ impl std::fmt::Display for Item {
     }
 }
 
-/// Reads an item from a command-line argument or pasted text (AC16).
+/// Hosts whose links are accepted (compared in lower case).
+const HOSTS: [&str; 3] = ["tidal.com", "www.tidal.com", "listen.tidal.com"];
+
+/// Reads an item from a command-line argument or pasted text (AC16): a bare
+/// track ID, or a track, album or playlist link (`https://` on a Tidal host,
+/// or `tidal://`), with an optional `/browse` prefix, trailing slash, query
+/// string or fragment. Anything else, including a link that also names a
+/// track inside an album, is refused with the input quoted as given.
 pub fn parse_item(input: &str) -> Result<Item, ItemError> {
-    match input.trim().parse::<u64>() {
-        Ok(id) => Ok(Item::Track(TrackId(id))),
-        Err(_) => Err(ItemError(input.to_owned())),
+    read_item(input.trim()).ok_or_else(|| ItemError(input.to_owned()))
+}
+
+fn read_item(text: &str) -> Option<Item> {
+    if is_number(text) {
+        return text.parse().ok().map(|id| Item::Track(TrackId(id)));
     }
+    let (scheme, rest) = text.split_once("://")?;
+    let rest = rest.split(['?', '#']).next()?;
+    let path = if scheme.eq_ignore_ascii_case("tidal") {
+        rest
+    } else if scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http") {
+        let (host, path) = rest.split_once('/')?;
+        if !HOSTS.contains(&host.to_ascii_lowercase().as_str()) {
+            return None;
+        }
+        path
+    } else {
+        return None;
+    };
+    let mut segments: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    if segments
+        .first()
+        .is_some_and(|s| s.eq_ignore_ascii_case("browse"))
+    {
+        segments.remove(0);
+    }
+    let [kind, id] = segments[..] else {
+        return None;
+    };
+    match kind.to_ascii_lowercase().as_str() {
+        "track" if is_number(id) => id.parse().ok().map(|id| Item::Track(TrackId(id))),
+        "album" if is_number(id) => id.parse().ok().map(Item::Album),
+        "playlist" if is_uuid(id) => Some(Item::Playlist(id.to_ascii_lowercase())),
+        _ => None,
+    }
+}
+
+fn is_number(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `8-4-4-4-12` hexadecimal digits.
+fn is_uuid(text: &str) -> bool {
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 #[cfg(test)]
