@@ -22,6 +22,7 @@ Open the link (if the browser did not open by itself), enter the code and approv
 - The code expires after a few minutes: `Login code expired, run "tidal-player login" again` (exit 1)
 - You deny it on the Tidal page: `Login was denied` (exit 1)
 - Ctrl-C cancels: nothing is stored, exit 130
+- `Warning: Could not switch this session to the PKCE client: CD-quality tracks will stream as AAC instead of FLAC`: the login worked, but switching the session to the client that gets 16-bit FLAC failed (Tidal refused it, or it was unreachable), so it keeps the login's own token; hi-res tracks are not affected. Logging in again may fix it
 
 Running plain `tidal-player` without a stored session prints `Not logged in.` and runs the same flow before the TUI starts.
 

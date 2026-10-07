@@ -1,4 +1,4 @@
-//! Spec 0002, device flow: AC1, AC2. No real network, no real sleep.
+//! Spec 0002, device flow: AC1, AC2, AC19 (the post-login refresh). No real network, no real sleep.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -6,7 +6,8 @@ use std::time::{Duration, SystemTime};
 
 use tidal_player_api::auth::{
     AuthConfig, AuthError, CLIENT_ID, CLIENT_SECRET, DEVICE_CODE_GRANT, DeviceCode, DeviceFlow,
-    ManualClock, SCOPE,
+    ManualClock, MemoryStore, PKCE_CLIENT_ID, PKCE_CLIENT_SECRET, RefreshClient, SCOPE, Session,
+    SessionStore, StoreError,
 };
 use wiremock::matchers::{basic_auth, method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -187,4 +188,117 @@ async fn ac2_transport_errors_keep_polling() {
 
     assert_eq!(result, Err(AuthError::CodeExpired));
     assert_eq!(clock.sleeps(), [Duration::from_secs(2); 3]);
+}
+
+/// A [`MemoryStore`] that counts saves.
+#[derive(Default)]
+struct CountingStore {
+    inner: MemoryStore,
+    saves: AtomicUsize,
+}
+
+impl SessionStore for CountingStore {
+    fn load(&self) -> Result<Option<Session>, StoreError> {
+        self.inner.load()
+    }
+
+    fn save(&self, session: &Session) -> Result<(), StoreError> {
+        self.saves.fetch_add(1, Ordering::SeqCst);
+        self.inner.save(session)
+    }
+
+    fn delete(&self) -> Result<(), StoreError> {
+        self.inner.delete()
+    }
+}
+
+/// AC19: right after the grant, `login` refreshes once under the PKCE client
+/// and stores that token; when that refresh fails for any reason, the
+/// device-flow grant is stored as is and reported as such (for the warning).
+#[tokio::test]
+async fn ac19_login_refreshes_under_pkce() {
+    let granted = include_str!("fixtures/auth/token_granted.json");
+    let refreshed = include_str!("fixtures/auth/token_refreshed.json");
+    let invalid_client = include_str!("fixtures/auth/refresh_invalid_client.json");
+    let invalid_grant = include_str!("fixtures/auth/refresh_invalid_grant.json");
+    let cases = [
+        (
+            "PKCE refresh succeeds",
+            json(refreshed),
+            "FAKE-ACCESS-2",
+            RefreshClient::Pkce,
+        ),
+        (
+            "PKCE client rejected",
+            ResponseTemplate::new(401).set_body_raw(invalid_client, "application/json"),
+            "FAKE-ACCESS",
+            RefreshClient::DeviceFlow,
+        ),
+        (
+            "refresh token rejected",
+            ResponseTemplate::new(400).set_body_raw(invalid_grant, "application/json"),
+            "FAKE-ACCESS",
+            RefreshClient::DeviceFlow,
+        ),
+        (
+            "server error",
+            ResponseTemplate::new(503),
+            "FAKE-ACCESS",
+            RefreshClient::DeviceFlow,
+        ),
+    ];
+    for (name, refresh_response, expected_access, expected_client) in cases {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .and(form_has(&[("grant_type", DEVICE_CODE_GRANT)]))
+            .respond_with(json(granted))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .and(form_has(&[("grant_type", "refresh_token")]))
+            .respond_with(refresh_response)
+            .expect(1)
+            .mount(&server)
+            .await;
+        let clock = Arc::new(ManualClock::new(t0()));
+        let store = CountingStore::default();
+
+        let login = flow(&server, &clock)
+            .complete_login(&code(300), &store)
+            .await
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+
+        server.verify().await;
+        let requests = server.received_requests().await.unwrap();
+        let mut refresh_form = form(&requests[1]);
+        refresh_form.sort();
+        let expected_form: Vec<(String, String)> = [
+            ("client_id", PKCE_CLIENT_ID),
+            ("client_secret", PKCE_CLIENT_SECRET),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", "FAKE-REFRESH"),
+            ("scope", SCOPE),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        assert_eq!(refresh_form, expected_form, "{name}: refresh form");
+        assert_eq!(
+            requests[1].headers.get("authorization"),
+            None,
+            "{name}: no basic auth"
+        );
+        assert_eq!(login.client, expected_client, "{name}");
+        assert_eq!(login.session.access_token, expected_access, "{name}");
+        assert_eq!(login.session.refresh_token, "FAKE-REFRESH", "{name}");
+        assert_eq!(
+            store.saves.load(Ordering::SeqCst),
+            1,
+            "{name}: stored once, after the refresh"
+        );
+        assert_eq!(store.inner.load(), Ok(Some(login.session)), "{name}");
+    }
 }

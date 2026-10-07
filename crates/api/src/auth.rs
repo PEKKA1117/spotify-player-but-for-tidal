@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub use authenticator::{AuthStatus, Authenticator};
-pub use device::{DeviceCode, DeviceFlow};
+pub use device::{DeviceCode, DeviceFlow, Login};
 
 /// Production base URL of Tidal's OAuth2 endpoints.
 pub const AUTH_BASE: &str = "https://auth.tidal.com/v1/oauth2";
@@ -32,6 +32,13 @@ pub const API_BASE: &str = "https://api.tidal.com/v1";
 pub const CLIENT_ID: &str = "fX2JxdmntZWK0ixT";
 /// Public client secret of the official Tidal app (spec 0002, decision 2).
 pub const CLIENT_SECRET: &str = "1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=";
+/// Public client ID of the official Android app's PKCE login, used for every
+/// refresh: tokens of [`CLIENT_ID`] get AAC for 16-bit tracks (AC19). The
+/// `client_id_pkce` that `tidalapi` ships (spec 0002, decision 2).
+pub const PKCE_CLIENT_ID: &str = "6BDSRdpK9hqEBTgU";
+/// Public client secret that goes with [`PKCE_CLIENT_ID`] (`tidalapi`'s
+/// `client_secret_pkce`).
+pub const PKCE_CLIENT_SECRET: &str = "xeuPmY7nbpZ9IIbLAcQ93shka1VNheUAqN6IcszjTG8=";
 /// OAuth2 scopes requested at login.
 pub const SCOPE: &str = "r_usr w_usr w_sub";
 
@@ -257,8 +264,12 @@ pub struct AuthConfig {
     pub auth_base: String,
     /// Base of the API that [`Authenticator::get_json`] paths resolve against.
     pub api_base: String,
+    /// The device-flow (login) client: [`CLIENT_ID`] in production.
     pub client_id: String,
     pub client_secret: String,
+    /// The client refreshes use: [`PKCE_CLIENT_ID`] in production (AC19).
+    pub pkce_client_id: String,
+    pub pkce_client_secret: String,
 }
 
 impl AuthConfig {
@@ -274,6 +285,8 @@ impl AuthConfig {
             api_base: api_base.into(),
             client_id: CLIENT_ID.into(),
             client_secret: CLIENT_SECRET.into(),
+            pkce_client_id: PKCE_CLIENT_ID.into(),
+            pkce_client_secret: PKCE_CLIENT_SECRET.into(),
         }
     }
 
@@ -284,6 +297,67 @@ impl AuthConfig {
     pub(crate) fn api_url(&self, path: &str) -> String {
         join(&self.api_base, path)
     }
+}
+
+/// Which client a session's access token was refreshed under (AC19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshClient {
+    /// The PKCE client: 16-bit tracks stream as FLAC.
+    Pkce,
+    /// The device-flow client the login used, after Tidal rejected the PKCE
+    /// client: 16-bit tracks stream as AAC.
+    DeviceFlow,
+}
+
+/// Warned (logged by the [`Authenticator`], printed by `login`) when a token
+/// of the device-flow client is used because the PKCE client failed (AC19).
+/// It names no cause: at login it covers any failure, outages included.
+pub const LOSSY_WARNING: &str = "Could not switch this session to the PKCE client: \
+     CD-quality tracks will stream as AAC instead of FLAC";
+
+/// One `grant_type=refresh_token` call to `/token` under `client`, returning
+/// the status and body.
+///
+/// The client's ID and secret go as form fields only, no basic auth: the
+/// request shape the spec 0003 probe got a `200` for under both clients.
+pub(crate) async fn post_refresh(
+    http: &reqwest::Client,
+    config: &AuthConfig,
+    client: RefreshClient,
+    refresh_token: &str,
+) -> Result<(u16, String), AuthError> {
+    let (id, secret) = match client {
+        RefreshClient::Pkce => (&config.pkce_client_id, &config.pkce_client_secret),
+        RefreshClient::DeviceFlow => (&config.client_id, &config.client_secret),
+    };
+    let response = http
+        .post(config.auth_url("token"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(form_body(&[
+            ("client_id", id),
+            ("client_secret", secret),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("scope", SCOPE),
+        ]))
+        .send()
+        .await
+        .map_err(|e| AuthError::transport(&e))?;
+    let status = response.status().as_u16();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| AuthError::transport(&e))?;
+    Ok((status, body))
+}
+
+/// Whether a refresh response rejects the client rather than the refresh
+/// token, so the refresh is retried under the device-flow client (AC19).
+pub(crate) fn rejects_client(status: u16, body: &str) -> bool {
+    matches!(
+        (status, error_code(body)),
+        (400 | 401, Some("invalid_client" | "unauthorized_client"))
+    )
 }
 
 /// Joins a base URL and a path with exactly one slash between them.
@@ -478,7 +552,11 @@ pub enum RefreshFailure {
 /// [`RefreshFailure::Transient`] too, without reaching this function.
 pub fn classify_refresh_failure(status: u16, body: &str) -> RefreshFailure {
     match (status, error_code(body)) {
-        (400 | 401, Some("invalid_grant" | "invalid_client")) => RefreshFailure::SessionLost,
+        // The client codes reach here only after the AC19 fallback to the
+        // device-flow client was rejected too.
+        (400 | 401, Some("invalid_grant" | "invalid_client" | "unauthorized_client")) => {
+            RefreshFailure::SessionLost
+        }
         (401, _) if body.trim().is_empty() => RefreshFailure::SessionLost,
         // `5xx`, `429` and anything the spec's table does not list: keep the
         // session, the next request tries again.
@@ -499,7 +577,7 @@ pub fn needs_refresh(session: &Session, now: SystemTime) -> bool {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const T0: Duration = Duration::from_secs(1_800_000_000);
@@ -539,6 +617,9 @@ mod tests {
             }
             "refresh_invalid_client" => {
                 include_str!("../tests/fixtures/auth/refresh_invalid_client.json")
+            }
+            "refresh_unauthorized_client" => {
+                include_str!("../tests/fixtures/auth/refresh_unauthorized_client.json")
             }
             "echoing_error" => include_str!("../tests/fixtures/auth/echoing_error.json"),
             "echoing_malformed_grant" => {
@@ -643,8 +724,11 @@ mod tests {
         ];
         for (body, expected) in cases {
             let server = MockServer::start().await;
+            // The poll only: the post-login refresh (AC19) gets a 404, which
+            // keeps the grant's session as is.
             Mock::given(method("POST"))
                 .and(path("/oauth2/token"))
+                .and(body_string_contains("device_code=FAKE-DEVICE-CODE"))
                 .respond_with(
                     ResponseTemplate::new(200).set_body_raw(fixture(body), "application/json"),
                 )
@@ -671,7 +755,10 @@ mod tests {
                 interval: Duration::from_secs(2),
             };
             let store = MemoryStore::default();
-            let result = flow.complete_login(&code, &store).await;
+            let result = flow
+                .complete_login(&code, &store)
+                .await
+                .map(|login| login.session);
             match expected {
                 Ok((user_id, country)) => {
                     let session = result.unwrap_or_else(|e| panic!("{body}: {e}"));
@@ -754,6 +841,8 @@ mod tests {
             (401, "refresh_invalid_grant", SessionLost),
             (400, "refresh_invalid_client", SessionLost),
             (401, "refresh_invalid_client", SessionLost),
+            (400, "refresh_unauthorized_client", SessionLost),
+            (401, "refresh_unauthorized_client", SessionLost),
             (401, "", SessionLost),
             (500, "", Transient),
             (502, "refresh_invalid_grant", Transient),
@@ -770,6 +859,15 @@ mod tests {
                 expected,
                 "{status} {body}"
             );
+        }
+    }
+
+    /// AC19: the warning is true whatever made the PKCE refresh fail.
+    #[test]
+    fn ac19_warning_names_no_cause() {
+        assert!(LOSSY_WARNING.contains("AAC"), "{LOSSY_WARNING}");
+        for cause in ["did not accept", "rejected", "refused"] {
+            assert!(!LOSSY_WARNING.contains(cause), "{LOSSY_WARNING}");
         }
     }
 

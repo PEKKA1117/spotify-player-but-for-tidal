@@ -27,7 +27,8 @@ seen rotating it).
 **Assumed** (never seen live; RFC 8628 / RFC 6749 error codes written in the
 same `{"error", "error_description", "status", "sub_status"}` shape as
 `token_pending.json`): `token_slow_down.json`, `token_expired.json`,
-`token_denied.json`, `refresh_invalid_client.json`.
+`token_denied.json`, `refresh_invalid_client.json`,
+`refresh_unauthorized_client.json` (AC19: Tidal rejecting the PKCE client).
 
 **Synthetic**, for AC15 only (a server body that echoes the tokens):
 `echoing_error.json`, `echoing_malformed_grant.json`.

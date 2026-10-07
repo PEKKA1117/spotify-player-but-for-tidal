@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::{
-    AuthConfig, AuthError, Clock, DEVICE_CODE_GRANT, PollOutcome, SCOPE, Session, SessionStore,
-    Sleeper, SystemClock, classify_poll, error_code, form_body, session_from_login,
+    AuthConfig, AuthError, Clock, DEVICE_CODE_GRANT, LOSSY_WARNING, PollOutcome, RefreshClient,
+    SCOPE, Session, SessionStore, Sleeper, SystemClock, TokenGrant, classify_poll, error_code,
+    form_body, post_refresh, session_from_login, session_from_refresh,
 };
 
 /// Tidal's answer to `POST /device_authorization`: what the user must open
@@ -92,6 +93,16 @@ fn https(uri: &str) -> String {
     } else {
         format!("https://{uri}")
     }
+}
+
+/// What [`DeviceFlow::complete_login`] stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Login {
+    pub session: Session,
+    /// The client `session`'s access token belongs to:
+    /// [`RefreshClient::DeviceFlow`] when the post-login refresh under the
+    /// PKCE client failed and the grant was stored as is (AC19).
+    pub client: RefreshClient,
 }
 
 /// Runs the device flow: [`start_device_flow`](Self::start_device_flow),
@@ -215,15 +226,50 @@ impl DeviceFlow {
         }
     }
 
-    /// [`wait_for_session`](Self::wait_for_session), then saves the session
-    /// to `store`. Nothing is stored when it fails.
+    /// [`wait_for_session`](Self::wait_for_session), one refresh under the
+    /// PKCE client (AC19), then saves the session to `store`. When that
+    /// refresh fails for any reason, the grant's session is saved as is.
+    /// Nothing is stored when the login fails.
     pub async fn complete_login(
         &self,
         code: &DeviceCode,
         store: &dyn SessionStore,
-    ) -> Result<Session, AuthError> {
-        let session = self.wait_for_session(code).await?;
-        store.save(&session)?;
-        Ok(session)
+    ) -> Result<Login, AuthError> {
+        let granted = self.wait_for_session(code).await?;
+        let login = match self.refresh_under_pkce(&granted).await {
+            Ok(session) => Login {
+                session,
+                client: RefreshClient::Pkce,
+            },
+            Err(error) => {
+                tracing::warn!(%error, "{LOSSY_WARNING}");
+                Login {
+                    session: granted,
+                    client: RefreshClient::DeviceFlow,
+                }
+            }
+        };
+        store.save(&login.session)?;
+        Ok(login)
+    }
+
+    /// `granted` refreshed under the PKCE client, without the fallback: the
+    /// grant already is the device-flow client's.
+    async fn refresh_under_pkce(&self, granted: &Session) -> Result<Session, AuthError> {
+        let (status, body) = post_refresh(
+            &self.http,
+            &self.config,
+            RefreshClient::Pkce,
+            &granted.refresh_token,
+        )
+        .await?;
+        if !(200..300).contains(&status) {
+            return Err(AuthError::Http {
+                status,
+                code: error_code(&body).map(Into::into),
+            });
+        }
+        let grant = TokenGrant::from_json(&body)?;
+        Ok(session_from_refresh(granted, &grant, self.clock.now()))
     }
 }

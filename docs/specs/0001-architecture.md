@@ -151,7 +151,7 @@ Numbers are provisional; each is drafted and approved on its own.
 - 0002 — Auth: OAuth2 device flow, token storage in the keyring, refresh and recovery when refresh fails
 - 0003 — Playback engine: stream resolution (quality ladder), decode, ALSA output, format negotiation, bit-perfect vs. shared output
 - 0004 — Queue & playback controls: play/pause/seek/next/prev, shuffle, repeat, auto-advance, volume
-- 0005 — Daemon & client mode: transport, `tidal-player daemon`, auto-attach, multiple clients, one-shot CLI commands, systemd user service, releasing the device while paused
+- 0005 — Daemon & client mode: transport, `tidal-player daemon`, auto-attach, multiple clients, one-shot CLI commands, systemd user service, releasing the device while paused. tidalt's worst bugs were in daemon-client communication (user, 2026-10-07): mine its history for them when drafting
 - 0006 — Library: favorite tracks/albums/artists, playlists, artist and album pages
 - 0007 — Search
 - 0008 — Keymap & config: spotify-player-compatible key sequences and `app.toml`/`keymap.toml`

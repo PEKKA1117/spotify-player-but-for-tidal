@@ -1,4 +1,4 @@
-//! Spec 0002, session use and refresh: AC5-AC9. No real network; time is a
+//! Spec 0002, session use and refresh: AC5-AC9, AC19. No real network; time is a
 //! `ManualClock`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,15 +8,18 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 use tidal_player_api::auth::{
     AuthConfig, AuthError, AuthStatus, Authenticator, CLIENT_ID, CLIENT_SECRET, ManualClock,
-    MemoryStore, Session, SessionStore, StoreError,
+    MemoryStore, PKCE_CLIENT_ID, PKCE_CLIENT_SECRET, RefreshClient, SCOPE, Session, SessionStore,
+    StoreError,
 };
-use wiremock::matchers::{basic_auth, header, method, path};
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const API_PATH: &str = "/v1/thing";
 const REFRESHED: &str = include_str!("fixtures/auth/token_refreshed.json");
 const ROTATED: &str = include_str!("fixtures/auth/token_refreshed_rotated.json");
 const INVALID_GRANT: &str = include_str!("fixtures/auth/refresh_invalid_grant.json");
+const INVALID_CLIENT: &str = include_str!("fixtures/auth/refresh_invalid_client.json");
+const UNAUTHORIZED_CLIENT: &str = include_str!("fixtures/auth/refresh_unauthorized_client.json");
 const API_401: &str = include_str!("fixtures/auth/api_unauthorized.json");
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -156,13 +159,24 @@ fn form_has(fields: &[(&str, &str)]) -> impl Fn(&Request) -> bool + use<> {
     }
 }
 
-/// `POST /oauth2/token` refreshing `refresh_token`.
+/// `POST /oauth2/token` refreshing `refresh_token` under the PKCE client
+/// (AC19).
 fn refresh_mock(refresh_token: &str) -> wiremock::MockBuilder {
+    client_refresh_mock(PKCE_CLIENT_ID, PKCE_CLIENT_SECRET, refresh_token)
+}
+
+/// `POST /oauth2/token` refreshing `refresh_token` under the device-flow
+/// client, the AC19 fallback.
+fn login_client_refresh_mock(refresh_token: &str) -> wiremock::MockBuilder {
+    client_refresh_mock(CLIENT_ID, CLIENT_SECRET, refresh_token)
+}
+
+fn client_refresh_mock(id: &str, secret: &str, refresh_token: &str) -> wiremock::MockBuilder {
     Mock::given(method("POST"))
         .and(path("/oauth2/token"))
-        .and(basic_auth(CLIENT_ID, CLIENT_SECRET))
         .and(form_has(&[
-            ("client_id", CLIENT_ID),
+            ("client_id", id),
+            ("client_secret", secret),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
         ]))
@@ -554,4 +568,187 @@ async fn ac9_recover_after_login() {
     );
     assert_eq!(*status.borrow(), AuthStatus::Active);
     s.server.verify().await;
+}
+
+/// The sorted form fields and `Authorization` header of every `/token`
+/// request the mock server got, in order.
+async fn token_requests(server: &MockServer) -> Vec<(Vec<(String, String)>, Option<String>)> {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/oauth2/token")
+        .map(|r| {
+            let mut fields = form(r);
+            fields.sort();
+            let authorization = r
+                .headers
+                .get("authorization")
+                .map(|v| v.to_str().unwrap().to_owned());
+            (fields, authorization)
+        })
+        .collect()
+}
+
+/// The exact form of a refresh of `FAKE-REFRESH` under client `id`.
+fn refresh_form(id: &str, secret: &str) -> Vec<(String, String)> {
+    let mut fields: Vec<(String, String)> = [
+        ("client_id", id),
+        ("client_secret", secret),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", "FAKE-REFRESH"),
+        ("scope", SCOPE),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    fields.sort();
+    fields
+}
+
+/// AC19: a refresh sends the PKCE client's credentials as form fields (the
+/// shape the live probe got a `200` for), no basic auth.
+#[tokio::test]
+async fn ac19_refresh_with_pkce_client() {
+    let s = Setup::new(expiring(), Some(expiring())).await;
+    Mock::given(method("POST"))
+        .and(path("/oauth2/token"))
+        .respond_with(status_json(200, REFRESHED))
+        .expect(1)
+        .mount(&s.server)
+        .await;
+    api_mock("FAKE-ACCESS-2")
+        .respond_with(ok_json())
+        .expect(1)
+        .mount(&s.server)
+        .await;
+
+    let result = s.get().await;
+
+    assert_eq!(result, Ok(serde_json::json!({"ok": true})));
+    assert_eq!(
+        token_requests(&s.server).await,
+        [(refresh_form(PKCE_CLIENT_ID, PKCE_CLIENT_SECRET), None)]
+    );
+    assert_eq!(s.auth.refresh_client().await, Some(RefreshClient::Pkce));
+    let stored = s.store.inner.load().unwrap().unwrap();
+    assert_eq!(stored.access_token, "FAKE-ACCESS-2");
+}
+
+/// AC19: Tidal rejecting the PKCE client itself is retried once with the
+/// device-flow client, whose token is used and stored; not "session lost".
+#[tokio::test]
+async fn ac19_fallback_to_login_client() {
+    let cases = [
+        ("400 invalid_client", 400, INVALID_CLIENT),
+        ("401 invalid_client", 401, INVALID_CLIENT),
+        ("400 unauthorized_client", 400, UNAUTHORIZED_CLIENT),
+        ("401 unauthorized_client", 401, UNAUTHORIZED_CLIENT),
+    ];
+    for (name, status_code, body) in cases {
+        let s = Setup::new(expiring(), Some(expiring())).await;
+        refresh_mock("FAKE-REFRESH")
+            .respond_with(status_json(status_code, body))
+            .expect(1)
+            .mount(&s.server)
+            .await;
+        login_client_refresh_mock("FAKE-REFRESH")
+            .respond_with(status_json(200, REFRESHED))
+            .expect(1)
+            .mount(&s.server)
+            .await;
+        api_mock("FAKE-ACCESS-2")
+            .respond_with(ok_json())
+            .expect(1)
+            .mount(&s.server)
+            .await;
+        let status = s.auth.status();
+
+        let result = s.get().await;
+
+        assert_eq!(result, Ok(serde_json::json!({"ok": true})), "{name}");
+        assert_eq!(
+            token_requests(&s.server).await,
+            [
+                (refresh_form(PKCE_CLIENT_ID, PKCE_CLIENT_SECRET), None),
+                (refresh_form(CLIENT_ID, CLIENT_SECRET), None),
+            ],
+            "{name}"
+        );
+        assert_eq!(
+            s.requests().await,
+            [refresh_req(), refresh_req(), get_req()],
+            "{name}"
+        );
+        assert_eq!(*status.borrow(), AuthStatus::Active, "{name}");
+        // The warning is logged where this is recorded.
+        assert_eq!(
+            s.auth.refresh_client().await,
+            Some(RefreshClient::DeviceFlow),
+            "{name}"
+        );
+        let stored = s.store.inner.load().unwrap().unwrap();
+        assert_eq!(stored.access_token, "FAKE-ACCESS-2", "{name}");
+        s.server.verify().await;
+    }
+}
+
+/// AC19: `invalid_grant` under the PKCE client is AC7's "session lost", with
+/// no retry under the device-flow client.
+#[tokio::test]
+async fn ac19_invalid_grant_not_retried() {
+    let s = Setup::new(expiring(), Some(expiring())).await;
+    refresh_mock("FAKE-REFRESH")
+        .respond_with(status_json(400, INVALID_GRANT))
+        .expect(1)
+        .mount(&s.server)
+        .await;
+    login_client_refresh_mock("FAKE-REFRESH")
+        .respond_with(status_json(200, REFRESHED))
+        .expect(0)
+        .mount(&s.server)
+        .await;
+    let status = s.auth.status();
+
+    let result = s.get().await;
+
+    assert_eq!(result, Err(AuthError::LoginRequired));
+    assert_eq!(*status.borrow(), AuthStatus::LoginRequired);
+    assert_eq!(
+        token_requests(&s.server).await,
+        [(refresh_form(PKCE_CLIENT_ID, PKCE_CLIENT_SECRET), None)]
+    );
+    assert_eq!(s.auth.refresh_client().await, None);
+    s.server.verify().await;
+}
+
+/// Spec 0002 AC18: a `401` with `subStatus` 4005 ("Asset is not ready for
+/// playback") is not about the token: no refresh, no retry, and the caller
+/// gets the response as sent.
+#[tokio::test]
+async fn ac18_401_4005_is_not_auth() {
+    let not_available = include_str!("fixtures/stream/error_not_available_4005.json");
+    let s = Setup::new(fresh(), Some(fresh())).await;
+    api_mock("FAKE-ACCESS")
+        .respond_with(status_json(401, not_available))
+        .mount(&s.server)
+        .await;
+    refresh_mock("FAKE-REFRESH")
+        .respond_with(status_json(200, REFRESHED))
+        .mount(&s.server)
+        .await;
+    api_mock("FAKE-ACCESS-2")
+        .respond_with(ok_json())
+        .mount(&s.server)
+        .await;
+
+    let result = s.auth.get("/thing", &[], None).await;
+
+    assert_eq!(s.requests().await, [get_req()], "no refresh, no retry");
+    let response = result.expect("the 401 response");
+    assert_eq!(response.status().as_u16(), 401);
+    assert_eq!(response.body(), not_available.as_bytes());
+    assert_eq!(response.sub_status(), Some(4005));
+    assert_eq!(*s.auth.status().borrow(), AuthStatus::Active);
 }
