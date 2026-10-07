@@ -135,6 +135,30 @@ mod tests {
                 "https://tidal.com/browse/track/77640617?u".into(),
                 track(77640617),
             ),
+            // The share menu's `/u` suffix (0004 Bugs).
+            (
+                "https://tidal.com/track/145060431/u".into(),
+                track(145060431),
+            ),
+            (
+                "https://tidal.com/album/145060429/u".into(),
+                album(145060429),
+            ),
+            (pl("/u"), playlist(UUID)),
+            (
+                "https://tidal.com/track/145060431/u/".into(),
+                track(145060431),
+            ),
+            (
+                "https://tidal.com/track/145060431/u?x=1".into(),
+                track(145060431),
+            ),
+            (
+                "https://tidal.com/browse/track/145060431/u".into(),
+                track(145060431),
+            ),
+            ("https://tidal.com/track/145060431/x".into(), Err(())),
+            ("https://tidal.com/track/145060431/u/u".into(), Err(())),
             (
                 "https://tidal.com/track/77640617/?u=1&x=2".into(),
                 track(77640617),

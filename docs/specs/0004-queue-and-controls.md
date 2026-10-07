@@ -131,9 +131,9 @@ From the command line (`tidal-player [ITEM]...`, `play <ITEM>...`) or from the T
 | Item | Becomes |
 |---|---|
 | `77640617` | track 77640617 |
-| `https://tidal.com/browse/track/77640617`, `https://tidal.com/track/77640617`, `https://listen.tidal.com/track/77640617`, `tidal://track/77640617`, any of these with a query string (`?u`) | track 77640617 |
-| `https://tidal.com/browse/album/123`, `…/album/123/` | every track of album 123, in album order |
-| `https://tidal.com/browse/playlist/<uuid>` | every track of the playlist, in playlist order; videos are left out |
+| `https://tidal.com/browse/track/77640617`, `https://tidal.com/track/77640617`, `https://listen.tidal.com/track/77640617`, `tidal://track/77640617`, any of these with the share menu's `/u` suffix (`https://tidal.com/track/77640617/u`), a trailing slash or a query string | track 77640617 |
+| `https://tidal.com/browse/album/123`, `…/album/123/`, `https://tidal.com/album/123/u` | every track of album 123, in album order |
+| `https://tidal.com/browse/playlist/<uuid>`, `…/playlist/<uuid>/u` | every track of the playlist, in playlist order; videos are left out |
 | anything else (an artist or mix link, a video, a typo) | refused before anything plays: `Not a Tidal track, album or playlist: <item>` (exit 2) |
 
 Items are expanded in the order given into one list; the metadata (title, artists, album, duration) comes from the API at the same time:
@@ -232,7 +232,7 @@ Engine (`tidal-player-audio`, with 0003's fakes):
 
 Items and metadata:
 
-- **AC16** — `parse_item(&str) -> Result<Item, ItemError>` (in `tidal-player-core`) maps every form in the table under "Filling the queue" (table, including trailing slashes, query strings, `www.`, upper-case hosts, a bare number) and refuses artist, mix and video links, other hosts and junk
+- **AC16** — `parse_item(&str) -> Result<Item, ItemError>` (in `tidal-player-core`) maps every form in the table under "Filling the queue" (table, including trailing slashes, the share menu's `/u` suffix, query strings, `www.`, upper-case hosts, a bare number) and refuses artist, mix and video links, other hosts and junk
 - **AC17** — `tidal-player-api` gets `get_track`, `get_album_tracks` and `get_playlist_tracks` returning `tidal_player_core::Track` (ID, title, artists, album title, duration if present, streamable), through the `Authenticator` with `countryCode` from the session (wiremock fixtures from the probe): album and playlist fetches walk every page until `totalNumberOfItems` (`limit=100`; one request for one page, three for a list of 250 items, and an empty page ends the walk early); playlist items other than `track` are dropped; `allowStreaming: false` or `streamReady: false` gives `streamable: false`; `404` (`subStatus` 2001) maps to `MetadataError::NotFound`; `LoginRequired` and transient errors are returned unchanged
 
 CLI and runtime (`tidal-player`):
@@ -384,3 +384,5 @@ Not verified (the probe did not reach it):
 ## Bugs
 
 - **A queue of one failing track ends with `Stopped: 1 tracks in a row could not be played` (found at slice D acceptance, 2026-10-07).** Expected: `play <id>` on an unplayable track prints exactly 0003's message (`Track 404 is not available in NO`), as "Commands" requires for the single-track form; the TUI likewise shows why the track failed. Actual: the run limit is `min(5, queue length)` = 1, so the first failure already hits it and the player replaces the failure's message with the run summary, which names no cause (and reads "1 tracks"). Root cause: "Failures" did not say what the summary is for a run of one. Fix: the summary replaces the message only when N > 1; with N = 1 the failure's own message stays (the table row is corrected). AC7 gains the row: a 1-entry queue (repeat `off` and `queue`) stops after 1 failure with that failure's message. Test: `crates/core/src/player/tests.rs` :: `ac7_failure_run_stops` (rows `(1, 0, 1)` and `(1, 1, 1)`; red: the message is the run summary). `play`'s reporter workaround for this case is removed
+- **Share-menu links are refused (reported by the user, 2026-10-07).** Expected: the link the Tidal apps' share menu copies plays, e.g. `https://tidal.com/track/145060431/u` and `https://tidal.com/album/145060429/u`. Actual: `Not a Tidal track, album or playlist: …`. Root cause: the spec's table said share links carry a `?u` query string; they carry a `/u` path segment instead (the user's report; a link copied from the address bar has no suffix), and `parse_item` accepts exactly two path segments. The table and AC16 are corrected: a trailing `/u` segment (then optionally `/`, a query or a fragment) is accepted after a track, album or playlist ID; any other extra segment is still refused. Test: `crates/core/src/item.rs` :: `ac16_parse_item`, new rows for `/u` on a track, an album and a playlist, `/u/`, `/u?x`, `/browse/…/u`, and refusals for `/x` and `/u/u` (red: the `/u` rows are refused)
+

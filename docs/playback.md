@@ -11,9 +11,9 @@ An **item** is what you give the player to queue: a track ID or a Tidal link, as
 | Item | Queues |
 |---|---|
 | `77640617` | track 77640617 |
-| `https://tidal.com/browse/track/77640617`, `https://tidal.com/track/77640617`, `https://listen.tidal.com/track/77640617`, `tidal://track/77640617` (with or without `www.`, a trailing `/` or a query string such as `?u`) | track 77640617 |
-| `https://tidal.com/browse/album/123` | every track of album 123, in album order |
-| `https://tidal.com/browse/playlist/<uuid>` | every track of the playlist, in playlist order; music videos are left out |
+| `https://tidal.com/browse/track/77640617`, `https://tidal.com/track/77640617`, `https://listen.tidal.com/track/77640617`, `tidal://track/77640617` (with or without `www.`, the share menu's `/u` suffix, a trailing `/` or a query string) | track 77640617 |
+| `https://tidal.com/browse/album/123`, `https://tidal.com/album/123/u` | every track of album 123, in album order |
+| `https://tidal.com/browse/playlist/<uuid>`, `…/playlist/<uuid>/u` | every track of the playlist, in playlist order; music videos are left out |
 
 Anything else (an artist, mix or video link, another site, a typo) is refused before anything plays, with `Not a Tidal track, album or playlist: <item>` (exit 2). Several items are queued one after the other, in the order given. Albums and playlists are fetched whole, however long they are, before playback starts.
 
