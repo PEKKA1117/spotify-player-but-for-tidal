@@ -227,6 +227,7 @@ Fetching and CLI (`tidal-player`):
 | Sample-rate change between tracks | Drain, reopen with the new rate (AC17) |
 | AAC encoder delay/padding | Not trimmed: lossy tracks are not sample-exact gapless (out of scope) |
 | A seek to exactly the end, or past it | `TrackEnded` (AC19) |
+| Pause on a device without hardware pause (`snd_pcm_pause` unsupported) | Up to one buffer (about 0.1 s) keeps playing after Pause; on Resume the next write recovers the underrun, so nothing is lost or repeated. Found at slice B acceptance; 0004/0005 may re-feed the dropped buffer instead |
 | No ALSA at all (`--no-default-features` build) | `play` exits 1: `this build has no ALSA output` |
 
 ## Test plan
