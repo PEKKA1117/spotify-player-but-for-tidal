@@ -151,8 +151,24 @@ impl FakeDevice {
     }
 }
 
+/// The ALSA PCM states the fake models (0003 AC29): `pause` is only
+/// accepted where ALSA accepts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Pcm {
+    #[default]
+    Setup,
+    Prepared,
+    Running,
+    Paused,
+    Xrun,
+}
+
+/// What ALSA answers a `pause` in the wrong state with (`EBADFD`, 77).
+pub const BAD_STATE: &str = "EBADFD: snd_pcm_pause in the wrong PCM state";
+
 #[derive(Debug, Default)]
 struct State {
+    pcm: Pcm,
     cards: HashMap<String, u32>,
     devices: HashMap<String, FakeDevice>,
     open_results: VecDeque<Result<(), PcmError>>,
@@ -278,6 +294,7 @@ impl PcmBackend for FakeBackend {
             return Err(PcmError::Refused("fake refuses".into()));
         }
         state.config = Some(config.clone());
+        state.pcm = Pcm::Prepared;
         Ok(())
     }
 
@@ -288,10 +305,17 @@ impl PcmBackend for FakeBackend {
         assert_eq!(bytes.len() % frame, 0, "partial frame written");
         let frames = bytes.len() / frame;
         let result = state.write_results.pop_front().unwrap_or(Ok(frames));
-        if let Ok(n) = result {
-            assert!(n <= frames);
-            state.written.extend_from_slice(&bytes[..n * frame]);
-            self.log.push(Call::Write { frames: n });
+        match result {
+            Ok(n) => {
+                assert!(n <= frames);
+                state.written.extend_from_slice(&bytes[..n * frame]);
+                self.log.push(Call::Write { frames: n });
+                if n > 0 && state.pcm == Pcm::Prepared {
+                    state.pcm = Pcm::Running;
+                }
+            }
+            Err(PcmError::Underrun) => state.pcm = Pcm::Xrun,
+            Err(_) => {}
         }
         result
     }
@@ -302,26 +326,36 @@ impl PcmBackend for FakeBackend {
 
     fn pause(&mut self, paused: bool) -> Result<(), PcmError> {
         self.log.push(Call::Pause(paused));
+        let mut state = self.state();
+        state.pcm = match (paused, state.pcm) {
+            (true, Pcm::Running) => Pcm::Paused,
+            (false, Pcm::Paused) => Pcm::Running,
+            _ => return Err(PcmError::Other(BAD_STATE.into())),
+        };
         Ok(())
     }
 
     fn drop_frames(&mut self) -> Result<(), PcmError> {
         self.log.push(Call::Drop);
+        self.state().pcm = Pcm::Setup;
         Ok(())
     }
 
     fn prepare(&mut self) -> Result<(), PcmError> {
         self.log.push(Call::Prepare);
+        self.state().pcm = Pcm::Prepared;
         Ok(())
     }
 
     fn drain(&mut self) -> Result<(), PcmError> {
         self.log.push(Call::Drain);
+        self.state().pcm = Pcm::Setup;
         Ok(())
     }
 
     fn recover(&mut self, error: &PcmError) -> Result<(), PcmError> {
         self.log.push(Call::Recover(error.clone()));
+        self.state().pcm = Pcm::Prepared;
         Ok(())
     }
 

@@ -338,6 +338,9 @@ mod tests {
         log.clear();
         backend.set_delay(4096);
         assert_eq!(s.delay_frames(), Ok(4096));
+        // Pausing needs a running PCM (0003 AC29).
+        s.write(&[0, 0]).unwrap();
+        log.clear();
         s.set_paused(true).unwrap();
         s.set_paused(false).unwrap();
         s.discard().unwrap();
@@ -353,6 +356,78 @@ mod tests {
                 Call::Prepare,
             ]
         );
+    }
+
+    /// 0003 AC29: `snd_pcm_pause` only where ALSA accepts it (the fake
+    /// answers `EBADFD` elsewhere, as ALSA does).
+    #[test]
+    fn ac29_pause_follows_pcm_state() {
+        #[derive(Debug, Clone, Copy)]
+        enum Step {
+            Write,
+            Pause,
+            Resume,
+            Discard,
+            Underrun,
+        }
+        use Step::*;
+        let rows: [(&str, &[Step], &[Call]); 6] = [
+            ("pause right after open", &[Pause, Resume], &[]),
+            (
+                "pause, then resume",
+                &[Write, Pause, Resume],
+                &[Call::Pause(true), Call::Pause(false)],
+            ),
+            (
+                "seek, then buffering pause and resume",
+                &[Write, Discard, Pause, Resume],
+                &[],
+            ),
+            (
+                "seek while paused, then resume",
+                &[Write, Pause, Discard, Resume],
+                &[Call::Pause(true)],
+            ),
+            (
+                "seek while paused, resume, write, pause",
+                &[Write, Pause, Discard, Resume, Write, Pause],
+                &[Call::Pause(true), Call::Pause(true)],
+            ),
+            (
+                "underrun recovered, then pause",
+                &[Write, Underrun, Pause],
+                &[],
+            ),
+        ];
+        for (name, steps, pauses) in rows {
+            let log = Log::default();
+            let script: Vec<_> = steps
+                .iter()
+                .filter(|s| matches!(s, Write | Underrun))
+                .map(|s| match s {
+                    Underrun => Err(PcmError::Underrun),
+                    _ => Ok(1),
+                })
+                .collect();
+            let backend = device(&log).with_write_results(script);
+            let mut s = sink(&log, backend);
+            s.open(&HIRES).unwrap();
+            for step in steps {
+                let result = match step {
+                    Write | Underrun => s.write(&[0, 0]).map(|_| ()),
+                    Pause => s.set_paused(true),
+                    Resume => s.set_paused(false),
+                    Discard => s.discard(),
+                };
+                assert_eq!(result, Ok(()), "{name}: {step:?}");
+            }
+            let seen: Vec<Call> = log
+                .calls()
+                .into_iter()
+                .filter(|c| matches!(c, Call::Pause(_)))
+                .collect();
+            assert_eq!(seen, pauses, "{name}");
+        }
     }
 
     #[test]
