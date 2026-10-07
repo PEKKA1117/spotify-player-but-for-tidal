@@ -1,6 +1,6 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: approved (2026-10-07)
+- **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys; [`docs/playback.md`](../playback.md) "Settings" gains two settings (AC20)
@@ -378,6 +378,15 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 - Sorting and filtering lists (spotify-player's `s t`, `/` in a page), the help popup (`?`), configurable keys and page percentages (0008)
 - Jumping to the playing track in its list (spotify-player's `g c`), the "currently playing context" page (`g space`)
 - One-shot `playback` commands for the library (e.g. `playback load --favorites`)
+
+## Implementation notes (choices made where the spec was silent, 2026-10-07)
+
+- **Types**: IDs are plain `u64` (as `Item::Album`); `Track` gained `version: Option<String>` for the version filter. `ListPage` carries `hidden` (rows a page dropped; non-zero for credits only), and `LibraryResponse::Items` wraps a `ListItems` enum per row type. Favorite requests take `(FavoriteKind, String)`: the ID in decimal or the playlist UUID. An `artists[]` or `album` object without an `id` is malformed
+- **Filter**: a hidden-version word that normalises to nothing matches nothing (else it would hide every track)
+- **API**: `ArtistAlbums` maps one offset space over two lists: offsets below `ceil(albums / limit) × limit` read the plain list, the rest `EPSANDSINGLES` from 0; each `More` asks the plain list first for its total (two requests). Credits cache each artist's `dataApiPath` and re-read `/pages/contributor` once on a `404`. `AddToPlaylist` retries once per 100-track chunk, so a failure midway can leave earlier chunks added. The playlist header's `own` is `creator.id == user_id` (the probes redacted `creator`: to confirm by hand). `IsFavorite` reads `GET /users/{user}/favorites/ids` with an assumed shape; the client does not send it yet (both favorite actions are shown)
+- **Player**: library requests queue per client in the runtime; a client's next request starts when its previous reply is sent
+- **Client model**: the list height comes from `Action::Resize { list_height }` (default 20), sent by the TUI whenever the layout's list height changes; a next page loads when `cursor + list_height + 1 ≥ visible rows`. Re-opening the top page re-fetches it only if it failed. Failure text is `Could not load the library: …` / `Could not load the favorite tracks: …`, else the player's message as is. During a whole-list load only `Esc` and `q`/`C-c` act. *Add to playlist…* fetches the user's playlists fresh and checks duplicates against any loaded copy of that playlist in the history. A removal without an ETag sends an empty one (the `412` path handles it). With the role filter on, `Enter` plays the visible tracks. `C-f`/`C-b` also move the queue cursor; `Z` on the queue does nothing
+- **Rendering**: a window title too narrow for `‹Tab› <other>` drops the other window's name first. Album rows show `year EP/Single` from 44 inner columns, the year from 30, title and artists from 20. *All tracks* shows the role categories in place of the album column, which exists only from about 120 terminal columns. Shift+Tab is decoded as `BackTab` whether crossterm reports `BackTab` or `Tab` with Shift. `TIDAL_PLAYER_PAGE_SIZE` is read by every TUI, attached or standalone
 
 ## Bugs
 
