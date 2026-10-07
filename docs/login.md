@@ -34,7 +34,7 @@ Deletes the stored session from every store on this machine and prints `Logged o
 
 ### `tidal-player daemon`
 
-Never starts a login. Without a stored session it exits 1 with `Not logged in: run "tidal-player login"`. (Daemon mode itself is not implemented yet, spec 0005.)
+Never starts a login. Without a stored session it exits 1 with `Not logged in: run "tidal-player login"`. Running it, and as a systemd user service: [The daemon and clients](daemon.md). Clients of a running player (`tidal-player playback …`, an attached TUI) need no login of their own.
 
 ## Where the session is stored
 
@@ -70,7 +70,7 @@ In a systemd user unit, use a credential instead:
 LoadCredential=tidal-player-passphrase:%h/.config/tidal-player-passphrase
 ```
 
-(`LoadCredentialEncrypted=` works the same way. The unit file itself is part of spec 0005.)
+(`LoadCredentialEncrypted=` works the same way. `tidal-player daemon unit` prints a whole unit with this line ready to uncomment: see [Running the daemon under systemd](daemon.md#running-the-daemon-under-systemd).)
 
 ## Environment variables
 
