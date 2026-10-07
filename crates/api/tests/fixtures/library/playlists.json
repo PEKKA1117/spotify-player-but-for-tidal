@@ -1,0 +1,47 @@
+{
+  "limit": 50,
+  "offset": 0,
+  "totalNumberOfItems": 12,
+  "items": [
+    {
+      "type": "USER_CREATED",
+      "created": "2026-03-02T10:00:00.000+0000",
+      "playlist": {
+        "uuid": "00000000-0000-4000-8000-0000000000a1",
+        "title": "Running",
+        "numberOfTracks": 42,
+        "numberOfVideos": 0,
+        "description": "",
+        "duration": 9000,
+        "lastUpdated": "2026-01-01T00:00:00.000+0000",
+        "created": "2026-03-02T10:00:00.000+0000",
+        "type": "USER",
+        "publicPlaylist": false,
+        "creator": {
+          "id": 1
+        },
+        "squareImage": "00000000-0000-4000-8000-000000000003"
+      }
+    },
+    {
+      "type": "USER_FAVORITE",
+      "created": "2026-03-01T10:00:00.000+0000",
+      "playlist": {
+        "uuid": "00000000-0000-4000-8000-0000000000a2",
+        "title": "Late night",
+        "numberOfTracks": 17,
+        "numberOfVideos": 0,
+        "description": "",
+        "duration": 3600,
+        "lastUpdated": "2026-01-01T00:00:00.000+0000",
+        "created": "2026-03-01T10:00:00.000+0000",
+        "type": "EDITORIAL",
+        "publicPlaylist": false,
+        "creator": {
+          "id": 0
+        },
+        "squareImage": "00000000-0000-4000-8000-000000000003"
+      }
+    }
+  ]
+}

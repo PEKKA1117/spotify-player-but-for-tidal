@@ -1,0 +1,17 @@
+{
+  "title": "Credits",
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "CONTRIBUTOR_HEADER",
+          "title": "Credits for Artist A",
+          "artist": {
+            "id": 3001,
+            "name": "Artist A"
+          }
+        }
+      ]
+    }
+  ]
+}

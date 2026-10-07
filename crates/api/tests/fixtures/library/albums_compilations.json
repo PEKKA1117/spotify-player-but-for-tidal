@@ -1,0 +1,32 @@
+{
+  "limit": 1000,
+  "offset": 0,
+  "totalNumberOfItems": 30,
+  "items": [
+    {
+      "id": 2005,
+      "title": "Hits",
+      "duration": 4000,
+      "streamReady": true,
+      "allowStreaming": true,
+      "numberOfTracks": 20,
+      "numberOfVolumes": 1,
+      "releaseDate": "2012-12-12",
+      "type": "COMPILATION",
+      "explicit": false,
+      "audioQuality": "LOSSLESS",
+      "artists": [
+        {
+          "id": 3999,
+          "name": "Various Artists",
+          "type": "MAIN",
+          "picture": null
+        }
+      ],
+      "artist": {
+        "id": 3001,
+        "name": "Artist A"
+      }
+    }
+  ]
+}

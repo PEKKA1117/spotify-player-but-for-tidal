@@ -1,0 +1,5 @@
+{
+  "status": 400,
+  "subStatus": 1001,
+  "userMessage": "Too big page, max page size is [50]"
+}

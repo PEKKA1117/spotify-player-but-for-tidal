@@ -1,0 +1,15 @@
+{
+  "uuid": "00000000-0000-4000-8000-0000000000b1",
+  "title": "My mix",
+  "description": "",
+  "numberOfTracks": 0,
+  "numberOfVideos": 0,
+  "duration": 0,
+  "created": "2026-10-07T10:00:00.000+0000",
+  "lastUpdated": "2026-10-07T10:00:00.000+0000",
+  "type": "USER",
+  "publicPlaylist": false,
+  "creator": {
+    "id": 1
+  }
+}

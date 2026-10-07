@@ -1,0 +1,5 @@
+{
+  "status": 412,
+  "subStatus": 7002,
+  "userMessage": "You must send the correct Etag value in the If-None-Match header to modify a playlist"
+}

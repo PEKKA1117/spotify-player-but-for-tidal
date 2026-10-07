@@ -1,0 +1,17 @@
+{
+  "id": 3001,
+  "name": "Artist A",
+  "picture": "00000000-0000-4000-8000-000000000001",
+  "artistTypes": [
+    "ARTIST"
+  ],
+  "artistRoles": [
+    {
+      "categoryId": -1,
+      "category": "Artist"
+    }
+  ],
+  "mixes": {
+    "ARTIST_MIX": "0000000000000000000000000000bb"
+  }
+}

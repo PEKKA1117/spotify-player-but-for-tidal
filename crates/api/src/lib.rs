@@ -5,6 +5,7 @@
 //! [`auth::Authenticator`].
 
 pub mod auth;
+pub mod library;
 pub mod metadata;
 pub mod stream;
 
