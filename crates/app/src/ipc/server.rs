@@ -9,6 +9,10 @@
 //! writer thread drains the client's outbox (at most [`OUTBOX`] messages)
 //! into the socket; a client whose outbox is full is disconnected rather
 //! than skipped over or waited for.
+//!
+//! Library requests (spec 0006 AC8) are jobs: the player thread only queues
+//! them per client and starts the next one when the last was answered, so a
+//! slow request never delays a command or an event.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -22,7 +26,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
-use tidal_player_core::library::LibraryRequest;
+use tidal_player_core::library::{LibraryRequest, LibraryResponse};
 use tidal_player_core::protocol::{ClientMessage, Command, Event, PlayerSnapshot, ServerMessage};
 use tokio::sync::watch;
 
@@ -166,6 +170,22 @@ impl Hub {
         self.send(client, ServerMessage::Reply { id, result });
     }
 
+    /// Answers library request `id` of `client` (it alone gets the reply; a
+    /// client that left gets nothing).
+    pub fn reply_library(
+        &mut self,
+        client: ClientId,
+        id: u64,
+        result: Result<LibraryResponse, String>,
+    ) {
+        self.send(client, ServerMessage::LibraryReply { id, result });
+    }
+
+    /// Whether `client` is connected.
+    pub fn contains(&self, client: ClientId) -> bool {
+        self.clients.contains_key(&client)
+    }
+
     /// The login status `Welcome` carries.
     pub fn login_required(&self) -> bool {
         self.login_required
@@ -265,11 +285,11 @@ fn attach(
                             id,
                             command,
                         },
-                        // Not served yet: spec 0006 AC8 (a later slice).
-                        Ok(ClientMessage::Library { id, .. }) => {
-                            tracing::debug!(client = client.0, id, "library request ignored");
-                            continue;
-                        }
+                        Ok(ClientMessage::Library { id, request }) => ClientInput::Library {
+                            client,
+                            id,
+                            request,
+                        },
                         Err(e) => {
                             tracing::warn!(client = client.0, "dropped: {e}");
                             break 'read;

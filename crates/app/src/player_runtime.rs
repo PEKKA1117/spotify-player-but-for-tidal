@@ -356,6 +356,17 @@ pub struct PlayerRuntime<E, J> {
     /// earlier one.
     opens: VecDeque<PendingOpen>,
     next_open: u64,
+    /// Each client's library requests: one runs at a time, the rest wait in
+    /// arrival order. Different clients' run independently.
+    library: HashMap<ClientId, LibraryQueue>,
+}
+
+/// One client's library requests.
+#[derive(Debug, Default)]
+struct LibraryQueue {
+    /// A request of this client is out.
+    busy: bool,
+    waiting: VecDeque<(u64, LibraryRequest)>,
 }
 
 impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
@@ -373,6 +384,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             hub: Hub::default(),
             opens: VecDeque::new(),
             next_open: 0,
+            library: HashMap::new(),
         }
     }
 
@@ -410,7 +422,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         match input {
             RuntimeInput::Client(input) => self.client_input(input),
             RuntimeInput::Expanded { tag, result } => self.expanded(tag, result),
-            RuntimeInput::LibraryDone { .. } => Handled::default(),
+            RuntimeInput::LibraryDone { client, id, result } => {
+                self.library_done(client, id, result);
+                Handled::default()
+            }
             RuntimeInput::Login { required } => {
                 let events: Vec<Event> =
                     self.hub.set_login_required(required).into_iter().collect();
@@ -667,12 +682,27 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     fn client_input(&mut self, input: ClientInput) -> Handled {
         match input {
             ClientInput::Attach { client, peer } => self.hub.attach(client, peer),
-            ClientInput::Detach(client) => self.hub.detach(client),
+            ClientInput::Detach(client) => {
+                self.hub.detach(client);
+                // Its waiting requests never run; the one out is answered
+                // to nobody.
+                self.library.remove(&client);
+            }
             ClientInput::Subscribe(client) => {
                 let snapshot = self.snapshot();
                 self.hub.subscribe(client, snapshot);
             }
-            ClientInput::Library { .. } => {}
+            ClientInput::Library {
+                client,
+                id,
+                request,
+            } => {
+                if self.hub.contains(client) {
+                    let queue = self.library.entry(client).or_default();
+                    queue.waiting.push_back((id, request));
+                    self.library_next(client);
+                }
+            }
             ClientInput::Request {
                 client,
                 id,
@@ -689,6 +719,29 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             }
         }
         Handled::default()
+    }
+
+    /// Starts `client`'s next waiting library request, unless one is out.
+    fn library_next(&mut self, client: ClientId) {
+        let Some(queue) = self.library.get_mut(&client) else {
+            return;
+        };
+        if queue.busy {
+            return;
+        }
+        if let Some((id, request)) = queue.waiting.pop_front() {
+            queue.busy = true;
+            self.jobs.library(client, id, request);
+        }
+    }
+
+    /// A library request finished: the reply to its client, then its next.
+    fn library_done(&mut self, client: ClientId, id: u64, result: Result<LibraryResponse, String>) {
+        self.hub.reply_library(client, id, result);
+        if let Some(queue) = self.library.get_mut(&client) {
+            queue.busy = false;
+        }
+        self.library_next(client);
     }
 
     /// Starts expanding an `Open`'s items; it is applied in turn.
@@ -929,7 +982,18 @@ impl TokioJobs {
 }
 
 impl Jobs for TokioJobs {
-    fn library(&mut self, _client: ClientId, _id: u64, _request: LibraryRequest) {}
+    fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest) {
+        let library = Arc::clone(&self.library);
+        let LibrarySettings {
+            page_size,
+            hidden_words,
+        } = self.library_settings.clone();
+        let results = self.results.clone();
+        self.runtime.spawn(async move {
+            let result = library.request(request, page_size, hidden_words).await;
+            let _ = results.send(RuntimeInput::LibraryDone { client, id, result });
+        });
+    }
 
     fn resolve(&mut self, tag: u64, track: TrackId) {
         let opening = self.opener.open(track);

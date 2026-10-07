@@ -173,8 +173,11 @@ impl Link for InProcessLink {
                 id,
                 command,
             },
-            // Not served yet: spec 0006 AC19 (a later slice).
-            ClientMessage::Library { .. } => return Ok(()),
+            ClientMessage::Library { id, request } => ClientInput::Library {
+                client,
+                id,
+                request,
+            },
         };
         self.inputs
             .send(RuntimeInput::Client(input))
@@ -388,7 +391,7 @@ impl<C: Connector> Session<C> {
     /// Sends a library request (spec 0006 AC19); its answer comes back with
     /// the same `id` through [`Self::take_library_replies`].
     pub fn send_library(&mut self, id: u64, request: LibraryRequest) {
-        let _ = (id, request);
+        self.write(&ClientMessage::Library { id, request });
     }
 
     /// The library replies that arrived (during [`Self::poll`]), in order.
@@ -448,8 +451,14 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::Reply { result, .. })) => {
                     actions.push(Action::Reply(result))
                 }
-                // Not handled yet: spec 0006 AC19 (a later slice).
-                Ok(Some(ServerMessage::LibraryReply { .. })) => {}
+                // INTEGRATION (0006 slice D): turn this into
+                // `Action::LibraryReply { id, result }` for the UI model (and
+                // `Effect::Library { id, request }` into `send_library` in
+                // `main.rs::run`); until then the caller takes the replies
+                // with `take_library_replies`.
+                Ok(Some(ServerMessage::LibraryReply { id, result })) => {
+                    self.library_replies.push(LibraryReply { id, result });
+                }
                 Err(_) => self.lost = true,
             }
         }

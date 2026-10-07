@@ -363,7 +363,7 @@ impl Default for PlayerSettings {
 }
 
 /// The player settings from the environment (an empty variable counts as
-/// unset); an invalid value names the variable and the accepted range
+/// unset, except `TIDAL_PLAYER_HIDE_VERSIONS`: empty hides nothing); an invalid value names the variable and the accepted range
 /// (exit 2). `country` is left for the caller (it comes from the session).
 pub fn resolve_player_config(
     env: impl Fn(&str) -> Option<String>,
@@ -406,6 +406,18 @@ fn resolve_with(
             })?;
             Some(Duration::from_secs(secs))
         };
+    }
+    if let Some(value) = get(PAGE_SIZE_VAR) {
+        settings.library.page_size = int_in(&value, PAGE_SIZE_VAR, 1, 10_000)? as u32;
+    }
+    // Unlike the others, an empty value is a choice: hide nothing.
+    if let Some(value) = env(HIDE_VERSIONS_VAR) {
+        settings.library.hidden_words = value
+            .split(',')
+            .map(str::trim)
+            .filter(|word| !word.is_empty())
+            .map(str::to_owned)
+            .collect();
     }
     settings.player.autoplay = if autoplay_flag {
         true
