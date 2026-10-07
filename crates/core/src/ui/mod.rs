@@ -11,12 +11,33 @@
 //! playback but what the player sent ([`Action::Welcome`], then events);
 //! while [`Connection::Disconnected`] it keeps the last snapshot and no key
 //! sends anything.
+//!
+//! Spec 0006 "Client model": the pages above the queue ([`State::history`],
+//! bottom first, the queue at the bottom), their windows and cursors, the
+//! popups and the whole-list load live in [`page`], [`popup`] and
+//! `browse`. Library requests leave as [`Effect::Library`] with an ID from
+//! [`State::next_request`]; the player's answer comes back as
+//! [`Action::LibraryReply`] and is applied to whatever asked with that ID.
+//! The list window's height (how near the end a cursor must come to load
+//! the next page) is [`State::list_height`], set by [`Action::Resize`].
+
+mod browse;
+pub mod page;
+pub mod popup;
 
 use std::time::Duration;
 
 use crate::item::parse_item;
+use crate::library::{LibraryRequest, LibraryResponse};
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
 use crate::track::EntryId;
+
+pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use page::{
+    DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
+    Row, Rows, Window, WindowKind, clock, group, largest_page,
+};
+pub use popup::{Confirmed, MenuAction, NEW_PLAYLIST, PLAYLIST_NAME, Popup, TrackSource};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,13 +62,20 @@ impl Default for Steps {
 pub enum Key {
     /// A printable character, upper case included (`G`, `O`, `A`).
     Char(char),
-    /// A character pressed with Control (`C-s` is `Ctrl('s')`).
+    /// A character pressed with Control (`C-s` is `Ctrl('s')`; `C-Space`
+    /// is `Ctrl(' ')`).
     Ctrl(char),
     Enter,
     Esc,
     Backspace,
     Up,
     Down,
+    /// Focus the next window.
+    Tab,
+    /// Shift-Tab: focus the previous window.
+    BackTab,
+    PageUp,
+    PageDown,
 }
 
 /// The open prompt (`o` / `O`): what has been typed and where it adds.
@@ -79,7 +107,7 @@ pub const DISCONNECTED: &str = "Disconnected from the player: reconnecting…";
 pub const SHUT_DOWN: &str = "The player shut down: waiting for it to come back…";
 
 /// The whole UI state.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
     /// Whether the player is reachable (spec 0005).
     pub connection: Connection,
@@ -101,8 +129,51 @@ pub struct State {
     /// A message of the client's own (an invalid item, a command's error
     /// reply); shown instead of the player's while set.
     pub message: Option<String>,
-    /// `g` was pressed: a second `g` moves to the top.
+    /// `g` was pressed: a second `g` moves to the top, `l`, `y` and `a`
+    /// open the library, the favorite tracks and the actions popup.
     pub pending_g: bool,
+    /// The page history, bottom first: the queue page at the bottom, the
+    /// page shown on top (spec 0006 "Pages").
+    pub history: Vec<Page>,
+    /// The open popup, if any.
+    pub popup: Option<Popup>,
+    /// A whole-list load in progress (before `Enter` on a track or an
+    /// *Add to playlist…* of an album).
+    pub whole_list: Option<WholeList>,
+    /// The library writes waiting for their reply, by request ID.
+    pub writes: Vec<(u64, Write)>,
+    /// The page size of every list request (`TIDAL_PLAYER_PAGE_SIZE`).
+    pub page_size: u32,
+    /// A list window's height in rows: the next page loads when the cursor
+    /// comes within this many rows of the last loaded one, and `C-f`/`C-b`
+    /// move by it. Set by [`Action::Resize`]; 20 until then.
+    pub list_height: usize,
+    /// The ID of the next library request (unique for the client's run).
+    pub next_request: u64,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            connection: Connection::default(),
+            login_required: false,
+            steps: Steps::default(),
+            player: None,
+            position: Duration::ZERO,
+            cursor: None,
+            anchor: None,
+            prompt: None,
+            message: None,
+            pending_g: false,
+            history: vec![Page::new(PageKind::Queue)],
+            popup: None,
+            whole_list: None,
+            writes: Vec::new(),
+            page_size: DEFAULT_PAGE_SIZE,
+            list_height: 20,
+            next_request: 1,
+        }
+    }
 }
 
 impl State {
@@ -143,6 +214,11 @@ impl State {
     pub fn reconnecting(&self) -> bool {
         matches!(self.connection, Connection::Disconnected { .. })
     }
+
+    /// The page shown: the top of the history.
+    pub fn page(&self) -> &Page {
+        self.history.last().expect("the queue page is never popped")
+    }
 }
 
 /// An input to the UI model.
@@ -170,6 +246,14 @@ pub enum Action {
     Disconnected { shut_down: bool },
     /// The player refused this client: the message.
     Refused(String),
+    /// The player's answer to [`Effect::Library`] with the same `id`.
+    LibraryReply {
+        id: u64,
+        result: Result<LibraryResponse, String>,
+    },
+    /// The terminal was resized: a list window now shows `list_height`
+    /// rows.
+    Resize { list_height: usize },
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -179,6 +263,9 @@ pub enum Effect {
     Quit,
     /// Send a command to the player.
     Send(Command),
+    /// Ask the player about the library; its answer comes back as
+    /// [`Action::LibraryReply`] with the same `id`.
+    Library { id: u64, request: LibraryRequest },
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
@@ -187,21 +274,29 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
         Action::Key(key) => {
-            let mut effects = match state.prompt.as_ref().map(|p| p.at) {
-                Some(at) => prompt_key(state, at, key),
-                None => key_press(state, key),
+            let mut effects = if state.popup.is_some() {
+                browse::popup_key(state, key)
+            } else if let Some(at) = state.prompt.as_ref().map(|p| p.at) {
+                prompt_key(state, at, key)
+            } else if state.whole_list.is_some() {
+                browse::whole_list_key(state, key)
+            } else {
+                key_press(state, key)
             };
             // Nothing reaches a player that is not there (spec 0005).
             if state.connection != Connection::Connected {
-                effects.retain(|e| !matches!(e, Effect::Send(_)));
+                effects.retain(|e| !matches!(e, Effect::Send(_) | Effect::Library { .. }));
             }
             effects
         }
         Action::Paste(text) => {
             // Line breaks and other control characters never reach the
             // prompt: a pasted link often ends with a newline.
+            let text = text.chars().filter(|c| !c.is_control());
             if let Some(prompt) = state.prompt.as_mut() {
-                prompt.text.extend(text.chars().filter(|c| !c.is_control()));
+                prompt.text.extend(text);
+            } else if let Some(Popup::NewPlaylist { name, .. }) = state.popup.as_mut() {
+                name.extend(text);
             }
             Vec::new()
         }
@@ -213,6 +308,11 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             state.login_required = login_required;
             state.message = None;
             apply_snapshot(state, snapshot);
+            browse::reconnected(state)
+        }
+        Action::LibraryReply { id, result } => browse::reply(state, id, result),
+        Action::Resize { list_height } => {
+            state.list_height = list_height.max(1);
             Vec::new()
         }
         Action::Reply(result) => {
@@ -225,10 +325,12 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             if !matches!(state.connection, Connection::Refused(_)) {
                 state.connection = Connection::Disconnected { shut_down };
             }
+            browse::disconnected(state);
             Vec::new()
         }
         Action::Refused(message) => {
             state.connection = Connection::Refused(message);
+            browse::disconnected(state);
             Vec::new()
         }
         Action::Player(event) => match event {
@@ -283,23 +385,48 @@ fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
                 }
             };
         }
-        Key::Ctrl(_) | Key::Up | Key::Down => {}
+        Key::Ctrl(_)
+        | Key::Up
+        | Key::Down
+        | Key::Tab
+        | Key::BackTab
+        | Key::PageUp
+        | Key::PageDown => {}
     }
     Vec::new()
 }
 
-/// A key with the prompt closed (spec 0004 "Keys").
+/// A key with the prompt and popups closed (spec 0004 "Keys", spec 0006
+/// "Pages", "Playing and queueing from a page").
 fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
-    if std::mem::take(&mut state.pending_g) && key == Key::Char('g') {
-        move_cursor(state, |_, _| 0);
-        return Vec::new();
+    if std::mem::take(&mut state.pending_g) {
+        match key {
+            Key::Char('g') => {
+                if state.page().kind == PageKind::Queue {
+                    move_cursor(state, |_, _| 0);
+                    return Vec::new();
+                }
+                return browse::move_window_cursor(state, |_, _| 0);
+            }
+            Key::Char('l') => return browse::open(state, PageKind::Library),
+            Key::Char('y') => return browse::open(state, PageKind::FavoriteTracks),
+            Key::Char('a') => return browse::actions_on_selected(state),
+            _ => {}
+        }
     }
     let volume = i8::try_from(state.steps.volume).unwrap_or(i8::MAX);
     let seek = i64::try_from(state.steps.seek.as_millis()).unwrap_or(i64::MAX);
-    // Volume and modes apply to the next load too; playback keys need a
-    // queue.
+    // Pages, focus and popups first; then the page's own keys; then
+    // volume and modes (they apply to the next load too) and playback keys
+    // (they need a queue).
     let command = match key {
         Key::Char('q') | Key::Esc => return vec![Effect::Quit],
+        Key::Char('z') => return browse::open(state, PageKind::Queue),
+        Key::Backspace | Key::Ctrl('q') => return browse::back(state),
+        Key::Ctrl(' ') => return browse::actions_on_selected(state),
+        Key::Char('a') => return browse::actions_on_playing(state),
+        Key::Tab => return browse::cycle_focus(state, true),
+        Key::BackTab => return browse::cycle_focus(state, false),
         Key::Ctrl('s') => Command::ToggleShuffle,
         Key::Ctrl('r') => Command::CycleRepeat,
         Key::Char('A') => Command::ToggleAutoplay,
@@ -321,19 +448,32 @@ fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
             state.pending_g = true;
             return Vec::new();
         }
+        _ if state.page().kind != PageKind::Queue => {
+            if let Some(effects) = browse::browse_key(state, key) {
+                return effects;
+            }
+            match playback_command(key, seek) {
+                Some(command) if !state.queue().is_empty() => command,
+                _ => return Vec::new(),
+            }
+        }
         _ if state.queue().is_empty() => return Vec::new(),
-        Key::Char(' ') => Command::TogglePause,
-        Key::Char('n') => Command::Next,
-        Key::Char('p') => Command::Previous,
-        Key::Char('>') => Command::SeekBy(seek),
-        Key::Char('<') => Command::SeekBy(-seek),
-        Key::Char('^') => Command::SeekTo(Duration::ZERO),
         Key::Char('j') | Key::Down => {
             move_cursor(state, |i, len| (i + 1).min(len - 1));
             return Vec::new();
         }
         Key::Char('k') | Key::Up => {
             move_cursor(state, |i, _| i.saturating_sub(1));
+            return Vec::new();
+        }
+        Key::Ctrl('f') | Key::PageDown => {
+            let height = state.list_height;
+            move_cursor(state, |i, len| (i + height).min(len - 1));
+            return Vec::new();
+        }
+        Key::Ctrl('b') | Key::PageUp => {
+            let height = state.list_height;
+            move_cursor(state, |i, _| i.saturating_sub(height));
             return Vec::new();
         }
         Key::Char('G') => {
@@ -344,9 +484,29 @@ fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
             Some(entry) => Command::PlayEntry(entry),
             None => return Vec::new(),
         },
-        _ => return Vec::new(),
+        Key::Char('d') => match state.cursor {
+            Some(entry) => Command::RemoveFromQueue(entry),
+            None => return Vec::new(),
+        },
+        _ => match playback_command(key, seek) {
+            Some(command) => command,
+            None => return Vec::new(),
+        },
     };
     vec![Effect::Send(command)]
+}
+
+/// The playback keys of spec 0004 (they need a queue).
+fn playback_command(key: Key, seek: i64) -> Option<Command> {
+    Some(match key {
+        Key::Char(' ') => Command::TogglePause,
+        Key::Char('n') => Command::Next,
+        Key::Char('p') => Command::Previous,
+        Key::Char('>') => Command::SeekBy(seek),
+        Key::Char('<') => Command::SeekBy(-seek),
+        Key::Char('^') => Command::SeekTo(Duration::ZERO),
+        _ => return None,
+    })
 }
 
 /// Moves the cursor to `to(index, len)` (a non-empty queue), and keeps it
@@ -607,7 +767,9 @@ mod tests {
             (Char('G'), vec![], 9, vec![]),
             (Enter, send(Command::PlayEntry(EntryId(3))), 3, vec![]),
             (Char('q'), vec![Effect::Quit], 3, vec![Effect::Quit]),
-            (Esc, vec![Effect::Quit], 3, vec![Effect::Quit]),
+            // Spec 0006 AC15: `Esc` no longer quits.
+            (Esc, vec![], 3, vec![]),
+            (Ctrl('c'), vec![Effect::Quit], 3, vec![Effect::Quit]),
         ];
         for (key, effects, cursor, empty_effects) in cases {
             let mut state = queue();
@@ -971,9 +1133,10 @@ mod tests {
                 assert_eq!(state.cursor, Some(EntryId(cursor)), "{message}: {keys:?}");
             }
             assert_eq!(state.player, before);
-            // `q` and `Esc` quit, without a `Shutdown`.
+            // `q` quits, without a `Shutdown`; `Esc` does nothing (spec
+            // 0006 AC15).
             assert_eq!(press(&mut state.clone(), &[Char('q')]), vec![Effect::Quit]);
-            assert_eq!(press(&mut state.clone(), &[Esc]), vec![Effect::Quit]);
+            assert_eq!(press(&mut state.clone(), &[Esc]), vec![]);
             // Back: the next `Welcome` replaces everything and keys send.
             update(&mut state, welcome(&[4], 4, false));
             assert_eq!(ids(&state), vec![4]);
