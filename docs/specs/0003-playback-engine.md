@@ -2,7 +2,7 @@
 
 - **Status**: draft
 - **Owner**: tech-lead (primary session)
-- **Depends on**: 0001 (implemented), 0002 (implemented)
+- **Depends on**: 0001 (implemented), 0002 (implemented; AC18 and AC19 are added by this work, see 0002 "Bugs")
 - **User docs**: `docs/playback.md` (written by this spec's implementation, AC27)
 
 ## Context
@@ -299,7 +299,7 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-playback-probe
 | `HIGH` | `HIGH`, `mp4a.40.2` (AAC-LC 44.1 kHz) | same |
 | `LOW` | `LOW`, **`mp4a.40.5`** (HE-AAC) | same |
 
-- **This client never gets 16-bit FLAC.** Asking `LOSSLESS` gives AAC `HIGH`, on both tracks. Only hi-res masters come as FLAC (DASH). Confirmed by a third run (2026-10-07T00:27Z) on track 473593668, checked by the user to be 16/44.1 in the Tidal app: `HI_RES_LOSSLESS`, `LOSSLESS` and `HIGH` all granted `HIGH` (AAC-LC 44.1 kHz, BTS), `LOW` HE-AAC, and `urlpostpaywall` the same. See decision 6
+- **The device-flow client never gets 16-bit FLAC.** Asking `LOSSLESS` gives AAC `HIGH`, on every track tried (three runs, incl. track 473593668, checked by the user to be 16/44.1). Only hi-res masters come as FLAC (DASH). Tidal capped that client ID in April 2026; the fix is to refresh under the PKCE client (below, and spec 0002 AC19)
 - `playbackinfopostpaywall` response keys: `trackId, assetPresentation, audioMode, audioQuality, manifestMimeType, manifestHash, manifest, albumReplayGain, albumPeakAmplitude, trackReplayGain, trackPeakAmplitude`, plus `bitDepth` and `sampleRate` only on the hi-res grant
 - BTS manifest: `{"mimeType":"audio/mp4","codecs":"mp4a.40.2","encryptionType":"NONE","urls":["https://amz-pr-fa.audio.tidal.com/<id>.mp4?token=…"]}`, one URL. `encryptionType` was `NONE` everywhere
 - DASH manifest: `type="static"`, `profiles="urn:mpeg:dash:profile:isoff-main:2011"`, one `Period`/`AdaptationSet`/`Representation id="FLAC_HIRES,96000,24" codecs="flac" audioSamplingRate="96000"`, `AudioChannelConfiguration value="2"`, `SegmentTemplate timescale="96000" initialization="…/0.mp4?token=…" media="…/$Number$.mp4?token=…" startNumber="1"`, `SegmentTimeline` `<S d="380928" r="72"/><S d="129030"/>` (3.968 s segments, no `t`). Init segment 619 bytes, media segment ~1.38 MB. init + first segment joined is FLAC 24-bit 96 kHz stereo in MP4 (ffprobe), the shape decoded bit-exact under "Facts" above
@@ -309,6 +309,14 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-playback-probe
 - Errors: unknown track ID → `500 {"status":500,"subStatus":999,"userMessage":"Unexpected error occurred."}`; `assetpresentation=PREVIEW` and `urlpostpaywall` at `HI_RES_LOSSLESS` → `401 {"subStatus":4005,"userMessage":"Asset is not ready for playback"}`; bad bearer → `401 {"subStatus":11002,…}`
 - `GET /v1/users/{id}/subscription` works and reports `highestSoundQuality` (not needed by this spec)
 - **Second run** (2026-10-07T00:22Z, hi-res track 35986245, 24/96): identical shapes. `HI_RES_LOSSLESS` → DASH FLAC 24/96 (`<S d="380928" r="72"/><S d="256282"/>`, `PT4M52.333S`); `LOSSLESS` → `HIGH` AAC again; `LOW` → HE-AAC; `urlpostpaywall` at `HI_RES_LOSSLESS` → `401`/`4005` again. The second track ID given as CD-quality got `500`/`999` from `playbackinfopostpaywall` at **every** tier (and `401`/`4005` from `urlpostpaywall`), the same answer as an unknown ID: so `500`/`999` also means "this track cannot be streamed here" (wrong ID, or not licensed in the country), not only a server fault. That run's `PREVIEW` request (on the same ID) also got `500`. The two manifests fetched 5 s apart were identical this time (different in the first run): tokens are sometimes reused, lifetime still unknown
+
+- **Refreshing under the PKCE client fixes it** (`scripts/tidal-playback-probe2.sh`, 2026-10-07T01:00Z, same account). The device-flow refresh token, refreshed with client `6BDSRdpK9hqEBTgU`: `200`, `clientName` "TIDAL_Android_2.87.0". With that token:
+  - CD-quality track 473593668 at `LOSSLESS` **and** at `HI_RES_LOSSLESS`: granted `LOSSLESS`, `bitDepth` 16, `sampleRate` 44100, **DASH** (not BTS): `Representation id="FLAC,44100,16" codecs="flac"`, `timescale="44100"`, `<S d="176128" r="55"/><S d="52930"/>` (3.993 s segments), `PT3M44.854S`. init 623 bytes + first segment = FLAC 16-bit 44.1 kHz in MP4 (ffprobe), the shape decoded bit-exact under "Facts" above
+  - Hi-res track 35986245 at `HI_RES_LOSSLESS`: unchanged, DASH FLAC 24/96
+  - Stream URLs then come from `sp-ad-cf.audio.tidal.com` with CloudFront signing (`Policy`, `Signature`, `Key-Pair-Id`; the policy presumably carries the expiry, not decoded). Those responses had no `Accept-Ranges` header but still answered `206` to `Range`
+  - The device-flow client can still refresh the same refresh token afterwards (`200`)
+- With either token, the header `x-tidal-client-version` changes nothing at `LOSSLESS`
+- `openapi.tidal.com/v2/trackManifests` lists `formats: [FLAC, AACLC]` for the CD track, but with the PKCE token it carries `drmData` (`WIDEVINE`): not usable. With the device-flow token it had no `drmData`, but that token is the capped one. This spec stays on v1 `playbackinfopostpaywall`
 
 Not verified:
 
@@ -328,7 +336,7 @@ Assumed, checked at manual acceptance:
 3. **Interim `play` / `devices` commands**: add them now for acceptance on real hardware, and keep them afterwards as one-shot CLI commands (0005 may rename them under `playback …`). *Proposed: yes*
 4. **`LOW` is HE-AAC** (probe): reject `low` as a setting rather than adding an AAC decoder with SBR (none in pure Rust today; FFmpeg is what 0001 removed). *Proposed: reject it*
 5. **Any tidalt playback bug not listed under "Context"** that you remember (crackles, specific DACs, specific tracks)? Each becomes a criterion
-6. **CD-quality tracks come as AAC 320, not FLAC, for this client** (probe). Options: (a) accept it for now: hi-res masters play bit-perfect, everything else is lossy and labelled so, and look for a FLAC path in a later spec; (b) probe further before approving (other `playbackmode`/endpoint variants, or Tidal's newer v2 track-manifest API) and extend this spec if one works; (c) switch client credentials (the official app's other public IDs), which also touches spec 0002. *Proposed: (a) now, with (b) as a follow-up probe that does not block this spec*
+6. **CD-quality as FLAC**: *settled by probe 2*. Refreshing under the PKCE client (spec 0002 AC19, implemented together with this spec) gives 16/44.1 FLAC over DASH and keeps hi-res. `LOSSLESS` therefore always arrives as DASH; the BTS path stays for `HIGH` (AAC) and for any BTS FLAC Tidal may still send
 
 ## Out of scope
 
@@ -336,7 +344,7 @@ Assumed, checked at manual acceptance:
 - Releasing the device while paused, answering other applications' `RequestRelease`, daemon and clients (0005)
 - Config file (0008), remembering the device (0009), MPRIS (0010)
 - ReplayGain / loudness normalisation
-- Encrypted streams, Dolby Atmos / Sony 360, video
+- Encrypted streams (incl. the Widevine-protected v2 `trackManifests`), Dolby Atmos / Sony 360, video
 - Gapless for lossy tracks (AAC delay trimming)
 - Local file playback, caching streams to disk
 - Non-ALSA backends (PipeWire native, JACK, PulseAudio): shared mode reaches them through ALSA's `default`
