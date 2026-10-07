@@ -13,6 +13,7 @@ alsa = ["dep:alsa"]
 
 [dependencies]
 alsa = { workspace = true, optional = true }
+symphonia = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

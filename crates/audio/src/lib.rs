@@ -3,9 +3,16 @@
 //!
 //! The API is synchronous and the crate does not depend on tokio.
 
+pub mod clock;
+pub mod decode;
+pub mod engine;
 pub mod sink;
+pub mod source;
+pub mod testing;
 
+pub use engine::{Command, Engine, EngineConfig, EngineError, EngineGone, Event};
 pub use sink::{
-    Codec, MemorySink, OutputInfo, OutputKind, SampleFormat, Sink, SinkError, SinkFactory,
-    SourceFormat, WriteOutcome,
+    Codec, MemoryDevices, MemorySink, MemorySinkHandle, OutputInfo, OutputKind, SampleFormat, Sink,
+    SinkCall, SinkError, SinkFactory, SinkScript, SourceFormat, WriteOutcome,
 };
+pub use source::{ReadOutcome, SegmentSpan, SourceError, SourceLayout, TrackSource};

@@ -5,6 +5,11 @@
 //! Samples are interleaved `i32`, left-justified: a 16-bit sample `s` is
 //! `s << 16` (spec 0001 AC7, spec 0003 "Decode").
 
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+
+use crate::clock::{FakeClock, frames_to_duration};
+
 /// Codec of the decoded source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
@@ -134,31 +139,146 @@ pub trait SinkFactory: Send {
     fn create(&mut self, device: &str) -> Box<dyn Sink>;
 }
 
-/// A [`Sink`] that records everything written to it, for tests.
+/// One call a [`MemorySink`] saw, in the log shared by every sink of a
+/// [`MemoryDevices`] factory (spec 0003 AC15, AC17, AC21).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SinkCall {
+    Open {
+        device: String,
+        source: SourceFormat,
+    },
+    /// A write that consumed `frames` frames (writes consuming none are not
+    /// logged).
+    Write {
+        device: String,
+        frames: usize,
+    },
+    Pause {
+        device: String,
+        paused: bool,
+    },
+    Discard {
+        device: String,
+    },
+    Drain {
+        device: String,
+    },
+    Close {
+        device: String,
+    },
+}
+
+/// Scripted behaviour of a [`MemorySink`] (the engine tests' fake device).
+#[derive(Debug, Clone, Default)]
+pub struct SinkScript {
+    /// The device's delay: frames written but not yet heard, capped by the
+    /// frames buffered since the last open, discard or drain.
+    pub delay_frames: u64,
+    /// The n-th `write` call (1-based) consumes only half its frames and
+    /// reports an underrun (AC14).
+    pub underrun_on_write: Option<usize>,
+    /// The n-th `write` call (1-based) fails with [`SinkError::Lost`] (AC14).
+    pub lost_on_write: Option<usize>,
+    /// Once this many frames were written, the device is "full": writes
+    /// wait briefly and consume nothing until [`MemorySinkHandle::release`].
+    pub hold_after_frames: Option<u64>,
+    /// Advanced by the duration of every frame written, as if the device
+    /// played in real time (AC20).
+    pub clock: Option<FakeClock>,
+}
+
+/// How long a held write waits for a release before consuming nothing,
+/// like a real device blocking on a full buffer.
+const HOLD_WAIT: Duration = Duration::from_millis(5);
+
 #[derive(Debug, Default)]
+struct Shared {
+    calls: Vec<SinkCall>,
+    samples: Vec<(String, i32)>,
+    open: usize,
+    max_open: usize,
+    released: bool,
+}
+
+type SharedState = Arc<(Mutex<Shared>, Condvar)>;
+
+fn lock(state: &SharedState) -> MutexGuard<'_, Shared> {
+    state.0.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A [`Sink`] that records everything written to it, for tests. It grows
+/// into the engine tests' fake device with a [`SinkScript`]; a
+/// [`MemorySinkHandle`] inspects it after it was handed to the engine.
+#[derive(Debug)]
 pub struct MemorySink {
+    device: String,
+    script: SinkScript,
+    shared: SharedState,
     source: Option<SourceFormat>,
-    samples: Vec<i32>,
+    written: u64,
+    buffered: u64,
+    write_calls: usize,
+}
+
+impl Default for MemorySink {
+    fn default() -> Self {
+        Self::new("memory", SinkScript::default())
+    }
 }
 
 impl MemorySink {
+    /// A sink for `device` with its own log.
+    pub fn new(device: &str, script: SinkScript) -> Self {
+        Self::with_shared(device, script, SharedState::default())
+    }
+
+    fn with_shared(device: &str, script: SinkScript, shared: SharedState) -> Self {
+        Self {
+            device: device.to_owned(),
+            script,
+            shared,
+            source: None,
+            written: 0,
+            buffered: 0,
+            write_calls: 0,
+        }
+    }
+
+    /// A handle on this sink's log and samples.
+    pub fn handle(&self) -> MemorySinkHandle {
+        MemorySinkHandle {
+            shared: self.shared.clone(),
+        }
+    }
+
     /// The source format passed to `open`, if open.
     pub fn source(&self) -> Option<SourceFormat> {
         self.source
     }
 
     /// All samples written so far, in order.
-    pub fn samples(&self) -> &[i32] {
-        &self.samples
+    pub fn samples(&self) -> Vec<i32> {
+        self.handle().samples()
     }
 }
 
 impl Sink for MemorySink {
     fn open(&mut self, source: &SourceFormat) -> Result<OutputInfo, SinkError> {
+        self.close();
         self.source = Some(*source);
+        self.buffered = 0;
+        {
+            let mut shared = lock(&self.shared);
+            shared.calls.push(SinkCall::Open {
+                device: self.device.clone(),
+                source: *source,
+            });
+            shared.open += 1;
+            shared.max_open = shared.max_open.max(shared.open);
+        }
         Ok(OutputInfo {
-            requested: "memory".into(),
-            device: "memory".into(),
+            requested: self.device.clone(),
+            device: self.device.clone(),
             kind: OutputKind::Exclusive,
             sample_format: SampleFormat::S32Le,
             sample_rate: source.sample_rate,
@@ -169,40 +289,193 @@ impl Sink for MemorySink {
     }
 
     fn write(&mut self, samples: &[i32]) -> Result<WriteOutcome, SinkError> {
-        if self.source.is_none() {
+        let Some(source) = self.source else {
             return Err(SinkError::NotOpen);
+        };
+        self.write_calls += 1;
+        if self.script.lost_on_write == Some(self.write_calls) {
+            return Err(SinkError::Lost(self.device.clone()));
         }
-        self.samples.extend_from_slice(samples);
-        Ok(WriteOutcome {
-            frames: samples.len() / 2,
-            underrun: false,
-        })
+        let mut frames = samples.len() / 2;
+        let mut shared = lock(&self.shared);
+        if let Some(limit) = self.script.hold_after_frames {
+            if !shared.released {
+                if self.written >= limit {
+                    shared = self
+                        .shared
+                        .1
+                        .wait_timeout(shared, HOLD_WAIT)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                    if !shared.released {
+                        return Ok(WriteOutcome::default());
+                    }
+                } else {
+                    frames = frames.min((limit - self.written) as usize);
+                }
+            }
+        }
+        let underrun = self.script.underrun_on_write == Some(self.write_calls);
+        if underrun {
+            frames /= 2;
+        }
+        if frames > 0 {
+            shared.calls.push(SinkCall::Write {
+                device: self.device.clone(),
+                frames,
+            });
+            shared.samples.extend(
+                samples[..frames * 2]
+                    .iter()
+                    .map(|&s| (self.device.clone(), s)),
+            );
+        }
+        drop(shared);
+        self.written += frames as u64;
+        self.buffered += frames as u64;
+        if let Some(clock) = &self.script.clock {
+            clock.advance(frames_to_duration(frames as u64, source.sample_rate));
+        }
+        Ok(WriteOutcome { frames, underrun })
     }
 
     fn delay_frames(&self) -> Result<u64, SinkError> {
-        Ok(0)
+        Ok(self.script.delay_frames.min(self.buffered))
     }
 
-    fn set_paused(&mut self, _paused: bool) -> Result<(), SinkError> {
+    fn set_paused(&mut self, paused: bool) -> Result<(), SinkError> {
+        lock(&self.shared).calls.push(SinkCall::Pause {
+            device: self.device.clone(),
+            paused,
+        });
         Ok(())
     }
 
     fn discard(&mut self) -> Result<(), SinkError> {
+        self.buffered = 0;
+        lock(&self.shared).calls.push(SinkCall::Discard {
+            device: self.device.clone(),
+        });
         Ok(())
     }
 
     fn drain(&mut self) -> Result<(), SinkError> {
+        self.buffered = 0;
+        lock(&self.shared).calls.push(SinkCall::Drain {
+            device: self.device.clone(),
+        });
         Ok(())
     }
 
     fn close(&mut self) {
-        self.source = None;
+        if self.source.take().is_some() {
+            self.buffered = 0;
+            let mut shared = lock(&self.shared);
+            shared.calls.push(SinkCall::Close {
+                device: self.device.clone(),
+            });
+            shared.open -= 1;
+        }
+    }
+}
+
+/// Inspects the [`MemorySink`]s it was taken from, from any thread.
+#[derive(Debug, Clone)]
+pub struct MemorySinkHandle {
+    shared: SharedState,
+}
+
+impl MemorySinkHandle {
+    /// Every call logged so far, in order.
+    pub fn calls(&self) -> Vec<SinkCall> {
+        lock(&self.shared).calls.clone()
+    }
+
+    /// Every sample written so far, to any device, in order.
+    pub fn samples(&self) -> Vec<i32> {
+        lock(&self.shared).samples.iter().map(|(_, s)| *s).collect()
+    }
+
+    /// The samples written to `device`, in order.
+    pub fn samples_of(&self, device: &str) -> Vec<i32> {
+        lock(&self.shared)
+            .samples
+            .iter()
+            .filter(|(d, _)| d == device)
+            .map(|(_, s)| *s)
+            .collect()
+    }
+
+    /// The number of frames written so far, to any device.
+    pub fn frames_written(&self) -> usize {
+        lock(&self.shared).samples.len() / 2
+    }
+
+    /// Devices open right now.
+    pub fn open_now(&self) -> usize {
+        lock(&self.shared).open
+    }
+
+    /// The most devices that were ever open at the same time.
+    pub fn max_open(&self) -> usize {
+        lock(&self.shared).max_open
+    }
+
+    /// End every `hold_after_frames`: writes are consumed again.
+    pub fn release(&self) {
+        lock(&self.shared).released = true;
+        self.shared.1.notify_all();
+    }
+}
+
+/// A [`SinkFactory`] of [`MemorySink`]s sharing one log (AC21).
+#[derive(Debug, Default)]
+pub struct MemoryDevices {
+    scripts: Vec<(String, SinkScript)>,
+    default_script: SinkScript,
+    shared: SharedState,
+}
+
+impl MemoryDevices {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The script for every device without its own.
+    pub fn with_default_script(mut self, script: SinkScript) -> Self {
+        self.default_script = script;
+        self
+    }
+
+    /// The script for `device`.
+    pub fn with_script(mut self, device: &str, script: SinkScript) -> Self {
+        self.scripts.push((device.to_owned(), script));
+        self
+    }
+
+    /// A handle on every device this factory creates.
+    pub fn handle(&self) -> MemorySinkHandle {
+        MemorySinkHandle {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+impl SinkFactory for MemoryDevices {
+    fn create(&mut self, device: &str) -> Box<dyn Sink> {
+        let script = self
+            .scripts
+            .iter()
+            .find(|(d, _)| d == device)
+            .map_or_else(|| self.default_script.clone(), |(_, s)| s.clone());
+        Box::new(MemorySink::with_shared(device, script, self.shared.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::Clock;
 
     const SOURCE: SourceFormat = SourceFormat {
         codec: Codec::Flac,
@@ -226,5 +499,97 @@ mod tests {
         let mut sink = MemorySink::default();
         assert!(matches!(sink.write(&[1, 2]), Err(SinkError::NotOpen)));
         assert!(sink.samples().is_empty());
+    }
+
+    #[test]
+    fn scripted_underrun_lost_delay_and_clock() {
+        let clock = FakeClock::new();
+        let script = SinkScript {
+            delay_frames: 3,
+            underrun_on_write: Some(1),
+            lost_on_write: Some(3),
+            clock: Some(clock.clone()),
+            ..SinkScript::default()
+        };
+        let mut sink = MemorySink::new("hw:1,0", script);
+        let handle = sink.handle();
+        sink.open(&SOURCE).unwrap();
+        assert_eq!(sink.delay_frames(), Ok(0));
+        let first = sink.write(&[1, 1, 2, 2, 3, 3, 4, 4]).unwrap();
+        assert_eq!(
+            first,
+            WriteOutcome {
+                frames: 2,
+                underrun: true
+            }
+        );
+        assert_eq!(sink.delay_frames(), Ok(2));
+        assert!(!sink.write(&[3, 3, 4, 4]).unwrap().underrun);
+        assert_eq!(sink.delay_frames(), Ok(3));
+        assert_eq!(sink.write(&[5, 5]), Err(SinkError::Lost("hw:1,0".into())));
+        assert_eq!(handle.samples(), [1, 1, 2, 2, 3, 3, 4, 4]);
+        assert_eq!(clock.now(), frames_to_duration(4, 44_100));
+        sink.drain().unwrap();
+        assert_eq!(sink.delay_frames(), Ok(0));
+        sink.close();
+        sink.close();
+        assert_eq!(
+            handle.calls(),
+            [
+                SinkCall::Open {
+                    device: "hw:1,0".into(),
+                    source: SOURCE
+                },
+                SinkCall::Write {
+                    device: "hw:1,0".into(),
+                    frames: 2
+                },
+                SinkCall::Write {
+                    device: "hw:1,0".into(),
+                    frames: 2
+                },
+                SinkCall::Drain {
+                    device: "hw:1,0".into()
+                },
+                SinkCall::Close {
+                    device: "hw:1,0".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn hold_until_release() {
+        let script = SinkScript {
+            hold_after_frames: Some(1),
+            ..SinkScript::default()
+        };
+        let mut sink = MemorySink::new("d", script);
+        sink.open(&SOURCE).unwrap();
+        assert_eq!(sink.write(&[1, 1, 2, 2]).unwrap().frames, 1);
+        assert_eq!(sink.write(&[2, 2]).unwrap().frames, 0);
+        sink.handle().release();
+        assert_eq!(sink.write(&[2, 2]).unwrap().frames, 1);
+    }
+
+    #[test]
+    fn factory_devices_share_a_log_and_count_open_devices() {
+        let mut devices = MemoryDevices::new();
+        let handle = devices.handle();
+        let mut a = devices.create("a");
+        let mut b = devices.create("b");
+        a.open(&SOURCE).unwrap();
+        a.write(&[1, 1]).unwrap();
+        a.close();
+        b.open(&SOURCE).unwrap();
+        b.write(&[2, 2]).unwrap();
+        assert_eq!(handle.max_open(), 1);
+        b.open(&SOURCE).unwrap(); // reopening closes first
+        assert_eq!(handle.max_open(), 1);
+        assert_eq!(handle.open_now(), 1);
+        a.open(&SOURCE).unwrap();
+        assert_eq!(handle.max_open(), 2);
+        assert_eq!(handle.samples_of("a"), [1, 1]);
+        assert_eq!(handle.samples(), [1, 1, 2, 2]);
     }
 }
