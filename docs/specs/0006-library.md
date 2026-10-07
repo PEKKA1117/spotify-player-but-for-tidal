@@ -1,6 +1,6 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: draft (2026-10-07; the library probe is recorded; waiting on the decisions below)
+- **Status**: draft (2026-10-07; probe recorded, decisions answered; waiting on the follow-up questions under Decisions and a favorites probe)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys (AC17)
@@ -303,14 +303,14 @@ Not verified:
 
 Verified from tidalt's code and history (2026-10-07): the list under "What tidalt did". Not verified: whether tidalt's single-request lists were actually cut short on a real account (inferred from the `limit` values; no issue reports one)
 
-## Decisions (to be answered by the user before approval)
+## Decisions (answered by the user, 2026-10-07; the body is updated to them when work resumes)
 
-1. **Where pages are fetched**: *proposed*: in the player, through `Fetch`/`Fetched` (clients keep needing no login, 0005 AC14). Alternative: clients fetch with their own session (every attached TUI then needs the session store, the keyring or the passphrase, which 0005 removed)
-2. **`Esc`**: *proposed*: spotify-player's: `Esc` only closes the popup or the prompt; `q`/`C-c` quit (changes 0004, where `Esc` quit). Alternative: keep `Esc` quitting on the queue page and going back elsewhere
-3. **`Z` on a track with nothing playing**: *proposed*: the first added track starts, as for `Open` (0005), by sending the track as `Open { items: [Item::Track(id)], at: Some(End) }` instead of `AddToQueue`, so the player decides and the client keeps no rule of its own. Cost: the player fetches the track's metadata again (one request). Alternative: `AddToQueue`, and nothing starts
-4. **Favoriting and playlists editing** (spotify-player's *AddToLiked*/*DeleteFromLiked*/*AddToPlaylist*): *proposed*: not in this spec (read-only library); a follow-up spec adds them with the actions popup in place. Alternative: add *Add to favorites*/*Remove from favorites* for tracks, albums and artists here (`POST`/`DELETE /users/{user}/favorites/…`; the probe did not cover them, so a second, writing probe would be needed)
-5. **The 10 000-item cap**: *proposed* as above (at most 10 requests per list at *P* = 1000). Alternative: no cap (a line can reach 16 MiB at about 50 000 tracks)
-6. **Artist page contents**: *proposed*: top tracks, albums, EPs and singles. Alternatives: add compilations ("appears on", `filter=COMPILATIONS`) and similar artists (`/artists/{id}/similar`) as more windows; the probe shows both work
+1. **Where pages are fetched**: *in the player* (`Fetch`/`Fetched`), as proposed
+2. **`Esc`**: *as proposed*: closes the popup or the prompt only; `q`/`C-c` quit (0004 AC20's `Esc` row changes)
+3. **`Z` on a track with nothing playing**: *start it*, sent as `Open { items: [Item::Track(id)], at: Some(End) }`
+4. **Favoriting**: *in this spec* ("why not"): *Add to favorites*/*Remove from favorites* for tracks, albums, artists (and playlists) in the actions popup. Needs a second, writing probe (`POST`/`DELETE /users/{user}/favorites/…`) before approval. Playlist editing: still to confirm
+5. **List cap**: *default 100, configurable up to 10 000* (a setting; until 0008, an environment variable like 0004's). To confirm: whether 100 is the cap on items per list or the page size per request
+6. **Artist page**: *top tracks, albums (with EPs and singles), appears on (`filter=COMPILATIONS`), and all tracks*. To confirm: what "all tracks" is (Tidal has no all-tracks endpoint; it would be every track of every album, EP and single, fetched album by album)
 
 ## Out of scope
 
