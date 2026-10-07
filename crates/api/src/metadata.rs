@@ -173,9 +173,9 @@ struct PlaylistEntry {
 }
 
 #[derive(Deserialize)]
-struct ArtistDto {
-    id: u64,
-    name: String,
+pub(crate) struct ArtistDto {
+    pub(crate) id: u64,
+    pub(crate) name: String,
 }
 
 #[derive(Deserialize)]
@@ -195,7 +195,7 @@ impl From<ArtistDto> for ArtistRef {
 
 /// The keys of a track response this player reads; the rest is ignored.
 #[derive(Deserialize)]
-struct TrackDto {
+pub(crate) struct TrackDto {
     id: u64,
     title: String,
     /// `Instrumental`, `Live`, ...; `null` for most tracks.
@@ -210,6 +210,10 @@ struct TrackDto {
     artists: Vec<ArtistDto>,
     artist: Option<ArtistDto>,
     album: Option<AlbumDto>,
+    /// `STEREO`, `DOLBY_ATMOS`: read by the artist's *All tracks* (spec
+    /// 0006 AC6).
+    #[serde(default, rename = "audioModes")]
+    pub(crate) audio_modes: Vec<String>,
 }
 
 impl From<TrackDto> for Track {

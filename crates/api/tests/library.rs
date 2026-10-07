@@ -179,6 +179,24 @@ impl Setup {
     }
 }
 
+/// A client whose API base is a port nothing listens on.
+fn unreachable_client() -> LibraryClient {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let store = Arc::new(MemoryStore::default());
+    store.save(&session()).unwrap();
+    let config = AuthConfig::with_bases(
+        format!("http://127.0.0.1:{port}/oauth2"),
+        format!("http://127.0.0.1:{port}/v1"),
+    );
+    let clock = Arc::new(ManualClock::new(t0()));
+    let auth = Authenticator::new(config, store, session(), clock).unwrap();
+    LibraryClient::new(Arc::new(auth))
+}
+
 fn fixture(text: &str) -> Value {
     serde_json::from_str(text).unwrap()
 }
@@ -212,6 +230,11 @@ fn track_json(id: u64) -> Value {
     t["id"] = json!(id);
     t["title"] = json!(format!("Track {id}"));
     t
+}
+
+/// The two tracks of `playlist_items_with_video.json`.
+fn playlist_fixture_tracks() -> Vec<Track> {
+    vec![trk(1001, "Track One", None), trk(1002, "Track Two", None)]
 }
 
 fn named(id: u64) -> Track {
@@ -390,8 +413,6 @@ async fn ac4_lists() {
         calls: Vec<Call>,
         want: ListItems,
     }
-    let u = format!("playlists/{UUID}/items");
-    let _ = u;
     let rows = vec![
         Row {
             name: "favorite tracks: clamped to 1000, offset kept, order sent",
@@ -487,7 +508,12 @@ async fn ac4_lists() {
                 PLAYLIST_ITEMS,
                 paged("100", "100", &[]),
             )],
-            want: track_page(&[1001, 1002], 100, 3),
+            want: ListItems::Tracks(ListPage {
+                items: playlist_fixture_tracks(),
+                offset: 100,
+                total: 3,
+                hidden: 0,
+            }),
         },
         Row {
             name: "top tracks",
@@ -837,7 +863,7 @@ async fn ac5_pages() {
             playlist: running(),
             etag: Some("\"1790000000000\"".into()),
             tracks: ListPage {
-                items: vec![named(1001), named(1002)],
+                items: playlist_fixture_tracks(),
                 offset: 0,
                 total: 3,
                 hidden: 0
@@ -1182,8 +1208,13 @@ async fn ac6_credits_data_pages() {
     )
     .await;
     s.get(data_path, None, 200, CONTRIBUTOR_DATA).await;
+    // Offset 0 caches the old path (the first contributor answer).
+    s.ask(more(ListRef::Credits(3001), 0, 100)).await.unwrap();
     let got = s.ask(more(ListRef::Credits(3001), 50, 100)).await.unwrap();
-    assert_eq!(got, page_two, "the path is re-read when the first one 404s");
+    assert_eq!(
+        got, page_two,
+        "the path is re-read when the cached one 404s"
+    );
 
     // A page with no such module: no credits.
     let s = Setup::new().await;
@@ -1724,10 +1755,8 @@ async fn ac7_errors_pass_through() {
             LibraryError::Auth(AuthError::LoginRequired),
             "{name}"
         );
-        // Nothing reaches Tidal: the server is gone.
-        let s = Setup::new().await;
-        let Setup { server, client } = s;
-        drop(server);
+        // Nothing listens on the port.
+        let client = unreachable_client();
         let error = client.request(request, 100, &words()).await.unwrap_err();
         assert!(
             error.to_string().starts_with("Could not reach Tidal: "),

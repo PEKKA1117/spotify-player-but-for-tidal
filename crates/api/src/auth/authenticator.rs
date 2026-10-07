@@ -4,7 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use reqwest::{StatusCode, Url};
+use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, watch};
 
@@ -12,8 +12,8 @@ use crate::{ApiResponse, SUB_STATUS_NOT_AVAILABLE};
 
 use super::{
     AuthConfig, AuthError, Clock, LOSSY_WARNING, LOST_RECHECK, RefreshClient, RefreshFailure,
-    Session, SessionStore, TokenGrant, classify_refresh_failure, error_code, needs_refresh,
-    post_refresh, rejects_client, session_from_refresh,
+    Session, SessionStore, TokenGrant, classify_refresh_failure, error_code, form_body,
+    needs_refresh, post_refresh, rejects_client, session_from_refresh,
 };
 
 /// Whether the session is usable, for the player to broadcast
@@ -143,12 +143,36 @@ impl Authenticator {
         query: &[(&str, &str)],
         timeout: Option<Duration>,
     ) -> Result<ApiResponse, AuthError> {
+        self.send(Method::GET, path, query, None, &[], timeout)
+            .await
+    }
+
+    /// `{method} {api_base}{path}?{query}` with the bearer token, an optional
+    /// form body (`application/x-www-form-urlencoded`) and extra request
+    /// headers; the refresh and `401` rules of [`Self::get`] apply, and the
+    /// response is returned whatever its status, headers included.
+    pub async fn send(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(&str, &str)],
+        form: Option<&[(&str, &str)]>,
+        headers: &[(&str, &str)],
+        timeout: Option<Duration>,
+    ) -> Result<ApiResponse, AuthError> {
         let url = self.api_url_with_query(path, query)?;
+        let request = Outgoing {
+            method,
+            url,
+            body: form.map(form_body),
+            headers,
+            timeout,
+        };
         let token = self.valid_token().await?;
-        let mut response = self.send_get(&url, &token, timeout).await?;
+        let mut response = self.send_once(&request, &token).await?;
         if is_token_rejection(&response) {
             let token = self.token_after_401(&token).await?;
-            response = self.send_get(&url, &token, timeout).await?;
+            response = self.send_once(&request, &token).await?;
             if is_token_rejection(&response) {
                 return Err(AuthError::Unauthorized);
             }
@@ -165,24 +189,35 @@ impl Authenticator {
         Ok(url)
     }
 
-    async fn send_get(
+    async fn send_once(
         &self,
-        url: &Url,
+        outgoing: &Outgoing<'_>,
         token: &str,
-        timeout: Option<Duration>,
     ) -> Result<ApiResponse, AuthError> {
-        let mut request = self.http.get(url.clone()).bearer_auth(token);
-        if let Some(timeout) = timeout {
+        let mut request = self
+            .http
+            .request(outgoing.method.clone(), outgoing.url.clone())
+            .bearer_auth(token);
+        for (name, value) in outgoing.headers {
+            request = request.header(*name, *value);
+        }
+        if let Some(body) = &outgoing.body {
+            request = request
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(body.clone());
+        }
+        if let Some(timeout) = outgoing.timeout {
             request = request.timeout(timeout);
         }
         let response = request.send().await.map_err(|e| AuthError::transport(&e))?;
         let status = response.status();
+        let headers = response.headers().clone();
         let body = response
             .bytes()
             .await
             .map_err(|e| AuthError::transport(&e))?
             .to_vec();
-        Ok(ApiResponse::new(status, body))
+        Ok(ApiResponse::new(status, headers, body))
     }
 
     /// The access token to send, refreshed first if it is about to expire.
@@ -320,6 +355,15 @@ impl Authenticator {
             changed
         });
     }
+}
+
+/// One request, kept whole so a `401` can resend it.
+struct Outgoing<'a> {
+    method: Method,
+    url: Url,
+    body: Option<String>,
+    headers: &'a [(&'a str, &'a str)],
+    timeout: Option<Duration>,
 }
 
 /// Whether `response` rejects the access token: a `401`, unless its
