@@ -1,6 +1,6 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: draft (2026-10-07; probe recorded, decisions answered; waiting on the follow-up questions under Decisions and a favorites probe)
+- **Status**: draft (2026-10-07; probe recorded, decisions answered; waiting on the writing probe; the body is rewritten to decisions 2–6 after it)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys (AC17)
@@ -308,9 +308,9 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 1. **Where pages are fetched**: *in the player* (`Fetch`/`Fetched`), as proposed
 2. **`Esc`**: *as proposed*: closes the popup or the prompt only; `q`/`C-c` quit (0004 AC20's `Esc` row changes)
 3. **`Z` on a track with nothing playing**: *start it*, sent as `Open { items: [Item::Track(id)], at: Some(End) }`
-4. **Favoriting**: *in this spec* ("why not"): *Add to favorites*/*Remove from favorites* for tracks, albums, artists (and playlists) in the actions popup. Needs a second, writing probe (`POST`/`DELETE /users/{user}/favorites/…`) before approval. Playlist editing: still to confirm
-5. **List cap**: *default 100, configurable up to 10 000* (a setting; until 0008, an environment variable like 0004's). To confirm: whether 100 is the cap on items per list or the page size per request
-6. **Artist page**: *top tracks, albums (with EPs and singles), appears on (`filter=COMPILATIONS`), and all tracks*. To confirm: what "all tracks" is (Tidal has no all-tracks endpoint; it would be every track of every album, EP and single, fetched album by album)
+4. **Favoriting and playlist editing**: *in this spec* (2026-10-07: "why not", then "yes" to playlist editing). Actions popup: *Add to favorites*/*Remove from favorites* for tracks, albums, artists and playlists; *Add to playlist…* (pick one of your own playlists, or a new one), *Remove from playlist* on a track of your own playlist, *New playlist*, *Delete playlist* (own). Shapes, ETags and error codes come from `scripts/tidal-library-write-probe.sh`, to be run before approval
+5. **Lists load as you scroll** (2026-10-07: "can do inf-fetching if they do"): Tidal pages with `limit`/`offset` (= page size/page index × size) and returns `totalNumberOfItems` (the read probe). So a page fetches its first page of *N* items (the **page size**, a setting, default **100**, 1–10 000, clamped per endpoint: 50 for playlists) and shows the total at once (`Favorite tracks · 362 tracks`); the next page is fetched when the cursor comes within one window height of the last loaded row (`Loading more…` as the last row). Playing or queueing a whole list (`Enter` on a track, `Z`/*Add to playlist* on a list) first fetches the rest, then sends it. No 10 000-item cap on lists any more; `Enter` on a list longer than the socket's 16 MiB line can hold (about 50 000 tracks) is refused with a message
+6. **Artist page**: windows **Top tracks**, **Albums** (albums, then EPs and singles), **Appears on** (`filter=COMPILATIONS`), and **All tracks**: every track of every album, EP and single, then the tracks of the *Appears on* albums **that credit this artist** (by artist ID), in album order, without duplicates (same track ID) and **without instrumental versions** of tracks in the *Appears on* part (a track whose `version` or title says `Instrumental`, case-insensitive). *All tracks* needs one request per release, so it loads only when its window is first focused, with `Loading… (12 of 108 releases)`
 
 ## Out of scope
 
