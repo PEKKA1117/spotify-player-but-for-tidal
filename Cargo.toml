@@ -18,6 +18,7 @@ tidal-player-audio = { path = "crates/audio" }
 
 age = "0.12.1"
 anyhow = "1.0.104"
+base64 = "0.23.1"
 alsa = "0.12.1"
 assert_cmd = "2.2.2"
 cargo_metadata = "0.23.1"
@@ -27,18 +28,20 @@ directories = "6.0.0"
 insta = "1.49.0"
 keyring = "4.2.0"
 predicates = "3.1.4"
+quick-xml = "0.42.0"
 ratatui = "0.30.2"
 rpassword = "7.5.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-symphonia = "0.6.1"
+symphonia = { version = "0.6.1", default-features = false, features = ["flac", "isomp4", "aac"] }
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tracing = "0.1.44"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 webbrowser = "1.2.4"
 wiremock = "0.6.5"
+zbus = { version = "5.19.0", default-features = false, features = ["blocking-api", "async-io"] }
 zeroize = "1.9.1"
 
 [workspace.lints.rust]
