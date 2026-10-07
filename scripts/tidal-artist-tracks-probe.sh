@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-off READ-ONLY probe for spec 0006 decision 6: is there an endpoint for
-# all of an artist's tracks (the Tidal apps' "Credits for <artist>")? Paste
+# One-off READ-ONLY probe for spec 0006 decision 6: does the contributor
+# ("Credits for <artist>") page work with our token, and how does it page? Paste
 # back artist-tracks-probe-output.txt; delete the script once recorded.
 #
 # Usage: scripts/tidal-artist-tracks-probe.sh ARTIST_ID
@@ -52,18 +52,21 @@ ACCESS=$(jq -r .access_token "$WORK/tok.json"); CC=$(jq -r .user.countryCode "$W
 Q="countryCode=$CC"
 log "# tidal-artist-tracks-probe $(date -u +%FT%TZ)"; log ""
 
-# v1 candidates for the apps' "Credits" view
-req "v1 artist credits" "$API/artists/$ARTIST/credits?$Q&limit=50"
-req "v1 artist contributions" "$API/artists/$ARTIST/contributions?$Q&limit=50"
-req "v1 artist tracks" "$API/artists/$ARTIST/tracks?$Q&limit=50"
-req "v1 contributor page" "$API/pages/contributor?artistId=$ARTIST&$Q&deviceType=BROWSER&locale=en_US"
-req "v1 artist page (module titles)" "$API/pages/artist?artistId=$ARTIST&$Q&deviceType=BROWSER&locale=en_US"
-log "### artist page: module titles and types"
-jq -c '[.rows[]?.modules[]? | {type, title, more: (.showMore.apiPath // null)}]' <"$WORK/b" | tee -a "$OUT"; log ""
-# v2 (JSON:API)
-H=(-H "Accept: application/vnd.api+json")
-req "v2 artist tracks relationship" "$V2/artists/$ARTIST/relationships/tracks?$Q" "${H[@]}"
-req "v2 artist tracks, collapsed by fingerprint" "$V2/artists/$ARTIST/relationships/tracks?$Q&collapseBy=FINGERPRINT" "${H[@]}"
-req "v2 artist tracks, collapseBy=NONE, include=tracks" "$V2/artists/$ARTIST/relationships/tracks?$Q&collapseBy=NONE&include=tracks" "${H[@]}"
-req "v2 artist with relationships" "$V2/artists/$ARTIST?$Q" "${H[@]}"
+# The contributor ("Credits for <artist>") page, as tidal.com's web player calls it,
+# here with our device-flow token on api.tidal.com.
+P="artistId=$ARTIST&$Q&deviceType=BROWSER&locale=en_US"
+req "contributor page, no token" "$API/pages/contributor?$P" -H "Authorization:"
+req "contributor page" "$API/pages/contributor?$P"
+DATA=$(jq -r '[.rows[]?.modules[]? | .pagedList.dataApiPath // empty][0] // empty' <"$WORK/b")
+log "### dataApiPath: ${DATA:-none}"; log ""
+if [ -n "$DATA" ]; then
+  SEP='&'; case "$DATA" in *\?*) ;; *) SEP='?';; esac
+  req "credits page 2 (limit=50 offset=50)" "$API/$DATA$SEP$Q&deviceType=BROWSER&locale=en_US&limit=50&offset=50"
+  req "credits, limit=1000" "$API/$DATA$SEP$Q&deviceType=BROWSER&locale=en_US&limit=1000&offset=0"
+  log "### that page: items kept, totalNumberOfItems, audioModes and role categories seen"
+  jq -c '{n: (.items|length), total: .totalNumberOfItems, modes: ([.items[]?.item.audioModes|tostring]|group_by(.)|map({(.[0]):length})|add), cats: ([.items[]?.roles[]?.category]|group_by(.)|map({(.[0]):length})|add)}' <"$WORK/b" | tee -a "$OUT"; log ""
+  req "credits, limit=100 offset=500 (past the end?)" "$API/$DATA$SEP$Q&deviceType=BROWSER&locale=en_US&limit=100&offset=500"
+  req "credits, Performer only (roleCategoryId=11?)" "$API/$DATA$SEP$Q&deviceType=BROWSER&locale=en_US&limit=10&roleCategoryId=11"
+fi
+req "contributor page, unknown artist" "$API/pages/contributor?artistId=1&$Q&deviceType=BROWSER&locale=en_US"
 echo; echo "Done. Paste $OUT back."
