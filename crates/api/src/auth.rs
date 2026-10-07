@@ -311,8 +311,9 @@ pub enum RefreshClient {
 
 /// Warned (logged by the [`Authenticator`], printed by `login`) when a token
 /// of the device-flow client is used because the PKCE client failed (AC19).
-pub const LOSSY_WARNING: &str = "Tidal did not accept the PKCE client: this session \
-     streams CD-quality tracks as AAC instead of FLAC";
+/// It names no cause: at login it covers any failure, outages included.
+pub const LOSSY_WARNING: &str = "Could not switch this session to the PKCE client: \
+     CD-quality tracks will stream as AAC instead of FLAC";
 
 /// One `grant_type=refresh_token` call to `/token` under `client`, returning
 /// the status and body.
@@ -551,7 +552,11 @@ pub enum RefreshFailure {
 /// [`RefreshFailure::Transient`] too, without reaching this function.
 pub fn classify_refresh_failure(status: u16, body: &str) -> RefreshFailure {
     match (status, error_code(body)) {
-        (400 | 401, Some("invalid_grant" | "invalid_client")) => RefreshFailure::SessionLost,
+        // The client codes reach here only after the AC19 fallback to the
+        // device-flow client was rejected too.
+        (400 | 401, Some("invalid_grant" | "invalid_client" | "unauthorized_client")) => {
+            RefreshFailure::SessionLost
+        }
         (401, _) if body.trim().is_empty() => RefreshFailure::SessionLost,
         // `5xx`, `429` and anything the spec's table does not list: keep the
         // session, the next request tries again.
