@@ -311,6 +311,9 @@ pub const SEEK_STEP_VAR: &str = "TIDAL_PLAYER_SEEK_STEP";
 pub const PREVIOUS_RESTART_VAR: &str = "TIDAL_PLAYER_PREVIOUS_RESTART";
 /// Autoplay at start: `on` or `off`.
 pub const AUTOPLAY_VAR: &str = "TIDAL_PLAYER_AUTOPLAY";
+/// Release the device after pausing for this many seconds, or `never`
+/// (spec 0005).
+pub const RELEASE_PAUSED_VAR: &str = "TIDAL_PLAYER_RELEASE_PAUSED";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -331,10 +334,22 @@ impl Default for Steps {
 }
 
 /// The player's settings and the client's steps.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerSettings {
     pub player: PlayerConfig,
     pub steps: Steps,
+    /// The engine's release delay (spec 0005); `None`: never.
+    pub release_paused: Option<Duration>,
+}
+
+impl Default for PlayerSettings {
+    fn default() -> Self {
+        Self {
+            player: PlayerConfig::default(),
+            steps: Steps::default(),
+            release_paused: Some(tidal_player_audio::DEFAULT_RELEASE_PAUSED),
+        }
+    }
 }
 
 /// The player settings from the environment (an empty variable counts as
@@ -1523,6 +1538,44 @@ mod tests {
                     assert_eq!(err.setting, *var, "{name}");
                     let text = err.to_string();
                     assert!(text.contains(var) && text.contains(range), "{name}: {text}");
+                }
+            }
+        }
+
+        // 0005 AC23: the release delay, 0–3600 s or `never`.
+        let release: &[(&str, Option<&str>, Result<Option<u64>, ()>)] = &[
+            ("unset", None, Ok(Some(10))),
+            ("empty counts as unset", Some(""), Ok(Some(10))),
+            ("at once", Some("0"), Ok(Some(0))),
+            ("an hour", Some("3600"), Ok(Some(3600))),
+            ("never", Some("never"), Ok(None)),
+            ("over an hour", Some("3601"), Err(())),
+            ("negative", Some("-1"), Err(())),
+            ("text", Some("x"), Err(())),
+        ];
+        for (name, value, want) in release {
+            let got = resolve_player_config(|key: &str| {
+                (key == RELEASE_PAUSED_VAR)
+                    .then_some(*value)
+                    .flatten()
+                    .map(Into::into)
+            });
+            match want {
+                Ok(secs) => assert_eq!(
+                    got.map(|s| s.release_paused).map_err(|e| e.to_string()),
+                    Ok(secs.map(Duration::from_secs)),
+                    "release delay: {name}"
+                ),
+                Err(()) => {
+                    let err = got.expect_err(name);
+                    assert_eq!(err.setting, RELEASE_PAUSED_VAR, "{name}");
+                    let text = err.to_string();
+                    assert!(
+                        text.contains(RELEASE_PAUSED_VAR)
+                            && text.contains("0 to 3600")
+                            && text.contains("never"),
+                        "{name}: {text}"
+                    );
                 }
             }
         }

@@ -469,6 +469,26 @@ mod tests {
         }
     }
 
+    /// 0005 AC20: `close_with` closes the PCM, then calls `between` (the
+    /// answer to `RequestRelease`), then releases the name; with nothing
+    /// open it only calls `between`.
+    #[test]
+    fn ac20_close_with_answers_between() {
+        let log = Log::default();
+        let mut s = sink(&log, device(&log));
+        s.open(&HIRES).unwrap();
+        log.clear();
+        let marks = log.clone();
+        s.close_with(&mut || marks.push(Call::Mark("answer")));
+        assert_eq!(
+            log.calls(),
+            vec![Call::Close, Call::Mark("answer"), Call::Release(1)]
+        );
+        log.clear();
+        s.close_with(&mut || marks.push(Call::Mark("answer")));
+        assert_eq!(log.calls(), vec![Call::Mark("answer")]);
+    }
+
     #[test]
     fn factory_shares_the_fallback_memo() {
         let log = Log::default();

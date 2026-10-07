@@ -132,6 +132,13 @@ pub trait Sink: Send {
     fn drain(&mut self) -> Result<(), SinkError>;
     /// Close the device and release any reservation. Idempotent.
     fn close(&mut self);
+    /// As [`Sink::close`], calling `between` once the PCM is closed and
+    /// before the reservation is released (spec 0005: `RequestRelease` is
+    /// answered between the two). Calls `between` even when nothing is open.
+    fn close_with(&mut self, between: &mut dyn FnMut()) {
+        self.close();
+        between();
+    }
 }
 
 /// Creates a [`Sink`] for a device name (`SetDevice`, spec 0003 AC21).
@@ -166,6 +173,15 @@ pub enum SinkCall {
     Close {
         device: String,
     },
+    /// The card was reserved, before its `Open` (scripted with
+    /// [`SinkScript::reserved`]).
+    Reserve {
+        device: String,
+    },
+    /// The reservation was released, after its `Close`.
+    Release {
+        device: String,
+    },
 }
 
 /// Scripted behaviour of a [`MemorySink`] (the engine tests' fake device).
@@ -185,6 +201,12 @@ pub struct SinkScript {
     /// Advanced by the duration of every frame written, as if the device
     /// played in real time (AC20).
     pub clock: Option<FakeClock>,
+    /// The device is reserved while open, like an exclusive output: `Open`
+    /// is preceded by `Reserve`, `Close` followed by `Release` (spec 0005).
+    pub reserved: bool,
+    /// `(n, error)`: the n-th `open` call (1-based) fails with `error`,
+    /// leaving nothing open and nothing reserved (spec 0005 AC21).
+    pub open_errors: Vec<(usize, SinkError)>,
 }
 
 /// How long a held write waits for a release before consuming nothing,
@@ -195,6 +217,9 @@ const HOLD_WAIT: Duration = Duration::from_millis(5);
 struct Shared {
     calls: Vec<SinkCall>,
     samples: Vec<(String, i32)>,
+    /// `samples` minus the frames a discard or close dropped unheard (the
+    /// device's delay at that moment).
+    heard: Vec<i32>,
     open: usize,
     max_open: usize,
     released: bool,
@@ -218,6 +243,7 @@ pub struct MemorySink {
     written: u64,
     buffered: u64,
     write_calls: usize,
+    open_calls: usize,
 }
 
 impl Default for MemorySink {
@@ -241,7 +267,16 @@ impl MemorySink {
             written: 0,
             buffered: 0,
             write_calls: 0,
+            open_calls: 0,
         }
+    }
+
+    /// Forget the frames still in the device: they were never heard.
+    fn drop_unheard(&mut self, shared: &mut Shared) {
+        let unheard = self.script.delay_frames.min(self.buffered) as usize * 2;
+        let keep = shared.heard.len().saturating_sub(unheard);
+        shared.heard.truncate(keep);
+        self.buffered = 0;
     }
 
     /// A handle on this sink's log and samples.
@@ -265,10 +300,24 @@ impl MemorySink {
 impl Sink for MemorySink {
     fn open(&mut self, source: &SourceFormat) -> Result<OutputInfo, SinkError> {
         self.close();
+        self.open_calls += 1;
+        if let Some((_, error)) = self
+            .script
+            .open_errors
+            .iter()
+            .find(|(n, _)| *n == self.open_calls)
+        {
+            return Err(error.clone());
+        }
         self.source = Some(*source);
         self.buffered = 0;
         {
             let mut shared = lock(&self.shared);
+            if self.script.reserved {
+                shared.calls.push(SinkCall::Reserve {
+                    device: self.device.clone(),
+                });
+            }
             shared.calls.push(SinkCall::Open {
                 device: self.device.clone(),
                 source: *source,
@@ -329,6 +378,7 @@ impl Sink for MemorySink {
                     .iter()
                     .map(|&s| (self.device.clone(), s)),
             );
+            shared.heard.extend_from_slice(&samples[..frames * 2]);
         }
         drop(shared);
         self.written += frames as u64;
@@ -352,8 +402,10 @@ impl Sink for MemorySink {
     }
 
     fn discard(&mut self) -> Result<(), SinkError> {
-        self.buffered = 0;
-        lock(&self.shared).calls.push(SinkCall::Discard {
+        let shared = self.shared.clone();
+        let mut shared = lock(&shared);
+        self.drop_unheard(&mut shared);
+        shared.calls.push(SinkCall::Discard {
             device: self.device.clone(),
         });
         Ok(())
@@ -368,13 +420,28 @@ impl Sink for MemorySink {
     }
 
     fn close(&mut self) {
-        if self.source.take().is_some() {
-            self.buffered = 0;
-            let mut shared = lock(&self.shared);
+        self.close_with(&mut || {});
+    }
+
+    fn close_with(&mut self, between: &mut dyn FnMut()) {
+        if self.source.take().is_none() {
+            between();
+            return;
+        }
+        let shared = self.shared.clone();
+        {
+            let mut shared = lock(&shared);
+            self.drop_unheard(&mut shared);
             shared.calls.push(SinkCall::Close {
                 device: self.device.clone(),
             });
             shared.open -= 1;
+        }
+        between();
+        if self.script.reserved {
+            lock(&shared).calls.push(SinkCall::Release {
+                device: self.device.clone(),
+            });
         }
     }
 }
@@ -404,6 +471,13 @@ impl MemorySinkHandle {
             .filter(|(d, _)| d == device)
             .map(|(_, s)| *s)
             .collect()
+    }
+
+    /// What the listener heard: every sample written, to any device, in
+    /// order, minus the frames a discard or close dropped from the device
+    /// before they were played (its delay at that moment).
+    pub fn heard(&self) -> Vec<i32> {
+        lock(&self.shared).heard.clone()
     }
 
     /// The number of frames written so far, to any device.

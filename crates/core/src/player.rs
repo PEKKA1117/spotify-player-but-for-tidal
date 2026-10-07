@@ -112,16 +112,34 @@ pub struct TrackDetails {
 /// given with the `EnginePlay`/`EnginePreload` of their track.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
-    Started { tag: u64, details: TrackDetails },
-    Transitioned { tag: u64, details: TrackDetails },
+    Started {
+        tag: u64,
+        details: TrackDetails,
+    },
+    Transitioned {
+        tag: u64,
+        details: TrackDetails,
+    },
     Position(Duration),
     Buffering,
     Buffered,
-    TrackEnded { tag: u64 },
+    TrackEnded {
+        tag: u64,
+    },
     Paused,
     Resumed,
     Stopped,
-    Error { tag: u64, failure: Failure },
+    Error {
+        tag: u64,
+        failure: Failure,
+    },
+    /// Paused, the engine released the output (spec 0005).
+    Released,
+    /// Reopening the output on resume failed (spec 0005): the engine is
+    /// still paused with the track; `failure` carries 0003's message.
+    ResumeFailed {
+        failure: Failure,
+    },
 }
 
 /// An input to the player.
@@ -342,6 +360,7 @@ impl PlayerState {
                     output: s.details.output.clone(),
                     bit_perfect: s.details.bit_perfect && !self.muted && self.volume == 100,
                     bit_perfect_reason: reason,
+                    released: false,
                 }
             }),
             message: self.message.clone(),
@@ -960,6 +979,21 @@ impl PlayerState {
                 }
             }
             EngineEvent::Paused | EngineEvent::Resumed | EngineEvent::Stopped => {}
+            EngineEvent::Released => {}
+            EngineEvent::ResumeFailed { failure } => {
+                // Stub (red): taken for a track failure.
+                if let Some(current) = self.queue.current {
+                    self.engine_busy = false;
+                    self.fail(
+                        current,
+                        Failure {
+                            kind: FailureKind::TrackOnly,
+                            ..failure
+                        },
+                        fx,
+                    );
+                }
+            }
         }
     }
 

@@ -624,6 +624,7 @@ mod tests {
             output: "hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
             bit_perfect: reason.is_none(),
             bit_perfect_reason: reason.map(Into::into),
+            released: false,
         }
     }
 
@@ -723,6 +724,36 @@ mod tests {
         assert!(!row(&text, 1).contains("80%"), "volume shown when muted");
         assert_contains(row(&text, 3), &["not bit-perfect: muted"]);
         insta::assert_snapshot!(text);
+    }
+
+    /// 0005 AC22: paused with the device released, the third row ends
+    /// with ` · device released`.
+    #[test]
+    fn ac22_released_row() {
+        let snapshot = PlayerSnapshot {
+            state: PlaybackState::Paused,
+            volume: 100,
+            now_playing: Some(NowPlaying {
+                released: true,
+                ..now_playing(None)
+            }),
+            ..playing()
+        };
+        let text = draw(&state_of(snapshot.clone()), 80, 24);
+        let third = row(&text, 3).trim_end_matches('│').trim_end();
+        assert!(
+            third.ends_with("· bit-perfect · device released"),
+            "third row: {third:?}\n{text}"
+        );
+        insta::assert_snapshot!(text);
+
+        // Not released: no note.
+        let snapshot = PlayerSnapshot {
+            now_playing: Some(now_playing(None)),
+            ..snapshot
+        };
+        let text = draw(&state_of(snapshot), 80, 24);
+        assert!(!row(&text, 3).contains("released"), "{text}");
     }
 
     #[test]

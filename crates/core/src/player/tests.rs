@@ -1977,3 +1977,101 @@ fn ac26_autoplay() {
         );
     }
 }
+
+// --- spec 0005 ------------------------------------------------------------------
+
+/// Playing track 2 of 1, 2, 3 at 0:42, paused, with the device released.
+fn paused_and_released() -> PlayerState {
+    let (mut st, _) = playing(&[1, 2, 3], 1);
+    position(&mut st, secs(42));
+    cmd(&mut st, C::TogglePause);
+    assert_eq!(st.snapshot().state, S::Paused);
+    engine(&mut st, EngineEvent::Released);
+    st
+}
+
+/// 0005 AC21: a failed resume after a release keeps the player paused at
+/// the same position with 0003's message; no resolve, no skip, no stop; the
+/// next toggle tries again (table over the output errors).
+#[test]
+fn ac21_resume_failed_stays_paused() {
+    let messages = [
+        "Output hw:1,0 is busy (used by PipeWire): close it, or use --device default",
+        "No such output device hw:1,0: see \"tidal-player devices\"",
+        "Output hw:1,0 was lost",
+    ];
+    for message in messages {
+        let mut st = paused_and_released();
+        let fx = cmd(&mut st, C::TogglePause);
+        assert_eq!(fx[..1], [PlayerEffect::EngineResume], "{message}");
+        let fx = engine(
+            &mut st,
+            EngineEvent::ResumeFailed {
+                failure: failure(FailureKind::Output, message),
+            },
+        );
+        assert!(!touches_engine(&fx), "{message}: {fx:?}");
+        assert!(!any_resolve(&fx), "{message}: {fx:?}");
+        let snapshot = st.snapshot();
+        assert_eq!(snapshot.state, S::Paused, "{message}");
+        assert_eq!(snapshot.position, secs(42), "{message}");
+        assert_eq!(current_track(&st), Some(2), "{message}: no skip");
+        assert_eq!(snapshot.message.as_deref(), Some(message));
+        assert!(
+            snapshot.now_playing.as_ref().is_some_and(|np| np.released),
+            "{message}: still released"
+        );
+
+        let fx = cmd(&mut st, C::TogglePause);
+        assert_eq!(fx[..1], [PlayerEffect::EngineResume], "{message}: retry");
+        assert!(!any_resolve(&fx), "{message}: {fx:?}");
+        engine(&mut st, EngineEvent::Resumed);
+        let snapshot = st.snapshot();
+        assert_eq!(snapshot.state, S::Playing, "{message}");
+        assert_eq!(current_track(&st), Some(2), "{message}");
+    }
+}
+
+/// 0005 AC22: `Released` sets `NowPlaying.released` in the next snapshot,
+/// `Resumed` clears it; a new track starts unreleased.
+#[test]
+fn ac22_released_flag() {
+    let released = |st: &PlayerState| {
+        st.snapshot()
+            .now_playing
+            .map(|np| np.released)
+            .unwrap_or_else(|| panic!("nothing playing"))
+    };
+    let (mut st, _) = playing(&[1, 2], 0);
+    assert!(!released(&st));
+    cmd(&mut st, C::TogglePause);
+    assert!(!released(&st), "paused, not released yet");
+    let fx = engine(&mut st, EngineEvent::Released);
+    assert!(
+        fx.iter().any(|e| matches!(
+            e,
+            PlayerEffect::Broadcast(Event::Player(s))
+                if s.now_playing.as_ref().is_some_and(|np| np.released)
+        )),
+        "Released is broadcast: {fx:?}"
+    );
+    assert!(released(&st));
+    cmd(&mut st, C::TogglePause);
+    let fx = engine(&mut st, EngineEvent::Resumed);
+    assert!(
+        fx.iter().any(|e| matches!(
+            e,
+            PlayerEffect::Broadcast(Event::Player(s))
+                if s.now_playing.as_ref().is_some_and(|np| !np.released)
+        )),
+        "Resumed is broadcast: {fx:?}"
+    );
+    assert!(!released(&st));
+
+    // Released, then the next track starts: not released.
+    cmd(&mut st, C::TogglePause);
+    engine(&mut st, EngineEvent::Released);
+    let fx = cmd(&mut st, C::Next);
+    complete(&mut st, &fx);
+    assert!(!released(&st), "the next track");
+}

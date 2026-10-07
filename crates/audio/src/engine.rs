@@ -4,6 +4,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
@@ -147,6 +148,13 @@ pub enum Event {
     Paused,
     Resumed,
     Stopped,
+    /// Paused, the output was closed and its reservation given back (spec
+    /// 0005 "Releasing the device while paused"); the track is kept. The
+    /// next `Resume` reopens it (`Resumed`, or `ResumeFailed`).
+    Released,
+    /// Reopening the output on `Resume` after a release failed: the engine
+    /// stays paused with nothing open, and the next `Resume` tries again.
+    ResumeFailed(SinkError),
     /// The track failed; no `TrackEnded` follows for it.
     Error {
         tag: u64,
@@ -154,21 +162,36 @@ pub enum Event {
     },
 }
 
+/// The release delay by default (spec 0005, decision 4).
+pub const DEFAULT_RELEASE_PAUSED: Duration = Duration::from_secs(10);
+
+/// How long another application waits for the engine's answer to
+/// `RequestRelease` at most (spec 0005: 400 ms; 0003's callers wait 500 ms).
+pub const ANSWER_WITHIN: Duration = Duration::from_millis(400);
+
 /// How to run the engine.
 #[derive(Clone)]
 pub struct EngineConfig {
     /// The output device to open first (`SetDevice` changes it).
     pub device: String,
-    /// Paces `Position` events.
+    /// Paces `Position` events and times the release delay.
     pub clock: Arc<dyn Clock>,
+    /// Paused this long, the engine releases the output (spec 0005);
+    /// `None`: never (a `RequestRelease` still releases it).
+    pub release_paused: Option<Duration>,
+    /// Bound to the engine when it is spawned: how the exported
+    /// reservation object asks it to release the device.
+    pub release_requests: ReleaseRequests,
 }
 
 impl EngineConfig {
-    /// `device` with the real clock.
+    /// `device` with the real clock and the default release delay.
     pub fn new(device: impl Into<String>) -> Self {
         Self {
             device: device.into(),
             clock: Arc::new(SystemClock::new()),
+            release_paused: Some(DEFAULT_RELEASE_PAUSED),
+            release_requests: ReleaseRequests::new(),
         }
     }
 
@@ -177,14 +200,71 @@ impl EngineConfig {
         self.clock = clock;
         self
     }
+
+    /// Replace the release delay (`None`: never).
+    pub fn with_release_paused(mut self, delay: Option<Duration>) -> Self {
+        self.release_paused = delay;
+        self
+    }
+
+    /// Use `requests` (made before the sink factory that hands it to the
+    /// reservation object) for this engine.
+    pub fn with_release_requests(mut self, requests: ReleaseRequests) -> Self {
+        self.release_requests = requests;
+        self
+    }
 }
 
 impl fmt::Debug for EngineConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EngineConfig")
             .field("device", &self.device)
+            .field("release_paused", &self.release_paused)
             .finish_non_exhaustive()
     }
+}
+
+/// Asks the engine to release the output for another application
+/// (`org.freedesktop.ReserveDevice1.RequestRelease`, spec 0005). Cloneable
+/// and usable from any thread; bound to an engine when it is spawned.
+#[derive(Clone, Default)]
+pub struct ReleaseRequests {
+    engine: Arc<Mutex<Option<Sender<Input>>>>,
+}
+
+impl fmt::Debug for ReleaseRequests {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReleaseRequests").finish_non_exhaustive()
+    }
+}
+
+impl ReleaseRequests {
+    /// Not bound to an engine yet: every request is refused.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ask the engine; `answer` is called once with its answer, on the
+    /// engine thread: `true` once the PCM is closed (the reservation is
+    /// released right after `answer` returns), `false` when it keeps the
+    /// device. Returns `false`, without calling `answer`, when no engine is
+    /// running.
+    pub fn ask(&self, answer: impl FnOnce(bool) + Send + 'static) -> bool {
+        answer(false);
+        true
+    }
+
+    /// Ask the engine and wait at most `within` for its answer; no answer
+    /// in time is `false` (the device is kept).
+    pub fn request(&self, within: Duration) -> bool {
+        let _ = within;
+        false
+    }
+}
+
+/// What the engine thread receives: a command, or a release request.
+enum Input {
+    Command(Command),
 }
 
 /// The engine thread has ended: commands can no longer be delivered.
@@ -198,6 +278,7 @@ pub struct Engine {
     commands: Sender<Command>,
     events: Receiver<Event>,
     underruns: Arc<AtomicU64>,
+    release_requests: ReleaseRequests,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -209,6 +290,7 @@ impl Engine {
         let (event_tx, events) = mpsc::channel();
         let underruns = Arc::new(AtomicU64::new(0));
         let thread_underruns = underruns.clone();
+        let release_requests = config.release_requests.clone();
         let thread = std::thread::Builder::new()
             .name("audio-engine".into())
             .spawn(move || {
@@ -219,8 +301,15 @@ impl Engine {
             commands,
             events,
             underruns,
+            release_requests,
             thread: Some(thread),
         }
+    }
+
+    /// The handle through which another application's `RequestRelease`
+    /// reaches this engine.
+    pub fn release_requests(&self) -> ReleaseRequests {
+        self.release_requests.clone()
     }
 
     /// Queue a command.

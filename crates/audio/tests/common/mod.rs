@@ -103,13 +103,24 @@ pub fn rig(script: SinkScript) -> Rig {
 /// `devices` (their scripts as given) with `default` for other devices; the
 /// engine starts on `device`.
 pub fn rig_with(devices: MemoryDevices, default: SinkScript, device: &str) -> Rig {
+    rig_full(devices, default, device, |config| config)
+}
+
+/// As [`rig_with`], with the engine's config adjusted by `configure` (the
+/// rig's fake clock is already in it).
+pub fn rig_full(
+    devices: MemoryDevices,
+    default: SinkScript,
+    device: &str,
+    configure: impl FnOnce(EngineConfig) -> EngineConfig,
+) -> Rig {
     let clock = FakeClock::new();
     let devices = devices.with_default_script(SinkScript {
         clock: Some(clock.clone()),
         ..default
     });
     let sinks = devices.handle();
-    let config = EngineConfig::new(device).with_clock(Arc::new(clock.clone()));
+    let config = configure(EngineConfig::new(device).with_clock(Arc::new(clock.clone())));
     let engine = Engine::spawn(Box::new(devices), config);
     Rig {
         engine,

@@ -1040,3 +1040,456 @@ fn ac15_gain() {
         "device b continues at the same gain",
     );
 }
+
+// --- spec 0005: releasing the device while paused ---------------------------
+
+/// The fake device's delay in the 0005 tests: frames written but not heard.
+const DEVICE_DELAY: u64 = 1_000;
+/// The fake device holds after this many frames, so the engine is paused
+/// at a known point.
+const HOLD: u64 = 9_216;
+/// The default release delay.
+const RELEASE_DELAY: Duration = Duration::from_secs(10);
+
+type Fixture = fn() -> FakeSource;
+
+/// The 16- and 24-bit fixtures.
+fn fixtures() -> [(&'static str, Fixture); 2] {
+    [("16-bit", flac16), ("24-bit", flac24)]
+}
+
+/// A reserved fake device with a delay, held at [`HOLD`] frames.
+fn reserved_device() -> SinkScript {
+    SinkScript {
+        delay_frames: DEVICE_DELAY,
+        reserved: true,
+        ..held(HOLD)
+    }
+}
+
+/// An engine on [`reserved_device`]s (every device, `script` changes the
+/// default) releasing after `delay`.
+fn releasing(script: SinkScript, delay: Option<Duration>) -> Rig {
+    rig_full(MemoryDevices::new(), script, "test", |config| {
+        config.with_release_paused(delay)
+    })
+}
+
+/// What the listener hears in an unpaused run of `source` on the same fake
+/// device.
+fn unpaused(source: Fixture) -> Vec<i32> {
+    let rig = releasing(reserved_device(), None);
+    rig.play(source());
+    rig.until("Started", is_started);
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert!(
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
+        "unpaused run: {events:?}"
+    );
+    rig.sinks.heard()
+}
+
+/// Opens, closes, reservations and releases logged so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Counts {
+    opens: usize,
+    closes: usize,
+    reserves: usize,
+    releases: usize,
+}
+
+fn counts(calls: &[SinkCall]) -> Counts {
+    Counts {
+        opens: count_calls(calls, |c| matches!(c, SinkCall::Open { .. })),
+        closes: count_calls(calls, |c| matches!(c, SinkCall::Close { .. })),
+        reserves: count_calls(calls, |c| matches!(c, SinkCall::Reserve { .. })),
+        releases: count_calls(calls, |c| matches!(c, SinkCall::Release { .. })),
+    }
+}
+
+fn counts_of(opens: usize, closes: usize) -> Counts {
+    Counts {
+        opens,
+        closes,
+        reserves: opens,
+        releases: closes,
+    }
+}
+
+/// Plays `source` until the device holds, then pauses; the position at
+/// the pause.
+fn play_and_pause(rig: &Rig, source: FakeSource) -> Duration {
+    rig.play(source);
+    rig.until("Started", is_started);
+    rig.wait_frames(HOLD as usize);
+    rig.send(Command::Pause);
+    rig.until("Paused", |e| matches!(e, Event::Paused));
+    match rig.next() {
+        Event::Position(p) => p,
+        other => panic!("expected a Position after Paused, got {other:?}"),
+    }
+}
+
+/// Waits out the release delay on the fake clock: nothing is released
+/// before it, `Released` comes once it passed (`None`: never, even an hour
+/// later). Returns whether the device was released.
+fn wait_for_release(rig: &Rig, delay: Option<Duration>, what: &str) -> bool {
+    let not_released = |rig: &Rig, when: &str| {
+        let quiet = rig.quiet_for(QUIET);
+        assert!(
+            !quiet.contains(&Event::Released),
+            "{what}: released {when}: {quiet:?}"
+        );
+    };
+    match delay {
+        None => {
+            not_released(rig, "at once");
+            rig.clock.advance(Duration::from_secs(3_600));
+            not_released(rig, "with the delay set to never");
+            false
+        }
+        Some(delay) => {
+            if !delay.is_zero() {
+                not_released(rig, "at once");
+                rig.clock.advance(delay - Duration::from_millis(1));
+                not_released(rig, "before the delay");
+                rig.clock.advance(Duration::from_millis(1));
+            }
+            let events = rig.until("Released", |e| *e == Event::Released);
+            assert_eq!(events, [Event::Released], "{what}");
+            true
+        }
+    }
+}
+
+/// The samples written after the `n`-th `Open` (1-based).
+fn after_open(rig: &Rig, n: usize) -> Vec<i32> {
+    let calls = rig.sinks.calls();
+    let open = calls
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| matches!(c, SinkCall::Open { .. }))
+        .nth(n - 1)
+        .map(|(i, _)| i)
+        .unwrap_or_else(|| panic!("no open #{n}: {calls:?}"));
+    let before: usize = calls[..open]
+        .iter()
+        .map(|c| match c {
+            SinkCall::Write { frames, .. } => *frames,
+            _ => 0,
+        })
+        .sum();
+    rig.sinks.samples()[before * 2..].to_vec()
+}
+
+/// 0005 AC19: release while paused (table: 16/24-bit; delay 0, 10 s and
+/// never; resume, seek, play, stop and device change while released).
+#[test]
+fn ac19_release_while_paused() {
+    #[derive(Debug, Clone, Copy)]
+    enum Then {
+        Resume,
+        Seek,
+        Play,
+        Stop,
+        SetDevice,
+    }
+    let delays = [Some(Duration::ZERO), Some(RELEASE_DELAY)];
+    let thens = [
+        Then::Resume,
+        Then::Seek,
+        Then::Play,
+        Then::Stop,
+        Then::SetDevice,
+    ];
+    for (fixture, source) in fixtures() {
+        let (format, full) = reference(source());
+        let rate = format.sample_rate;
+        let expected = unpaused(source);
+        assert_samples(&expected, &full, &format!("{fixture}: unpaused run"));
+
+        // Never: paused for an hour, nothing is released (0003's pause).
+        let what = format!("{fixture}, never");
+        let rig = releasing(reserved_device(), None);
+        let at_pause = play_and_pause(&rig, source());
+        assert!(!wait_for_release(&rig, None, &what));
+        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 0), "{what}");
+        rig.sinks.release();
+        rig.send(Command::Resume);
+        assert_eq!(rig.next(), Event::Resumed, "{what}");
+        assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
+        rig.until_end();
+        assert_samples(&rig.sinks.heard(), &expected, &what);
+        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+
+        for delay in delays {
+            for then in thens {
+                let what = format!("{fixture}, delay {delay:?}, {then:?}");
+                let rig = releasing(reserved_device(), delay);
+                let at_pause = play_and_pause(&rig, source());
+                assert!(wait_for_release(&rig, delay, &what));
+                let calls = rig.sinks.calls();
+                assert_eq!(counts(&calls), counts_of(1, 1), "{what}: {calls:?}");
+                assert!(
+                    matches!(
+                        calls[calls.len() - 2..],
+                        [SinkCall::Close { .. }, SinkCall::Release { .. }]
+                    ),
+                    "{what}: closed, then released: {calls:?}"
+                );
+                assert_eq!(rig.sinks.open_now(), 0, "{what}");
+                let on_test = rig.sinks.samples_of("test").len() as u64 / 2;
+                let first_unheard = (on_test - DEVICE_DELAY) as usize;
+                assert_eq!(
+                    at_pause,
+                    frames_to_duration(first_unheard as u64, rate),
+                    "{what}: position at the pause"
+                );
+                rig.sinks.release();
+                match then {
+                    Then::Resume => {
+                        rig.send(Command::Resume);
+                        assert_eq!(rig.next(), Event::Resumed, "{what}");
+                        assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
+                        let events = rig.until_end();
+                        assert!(
+                            matches!(events.last(), Some(Event::TrackEnded { .. })),
+                            "{what}: {events:?}"
+                        );
+                        assert_samples(
+                            &after_open(&rig, 2),
+                            &full[first_unheard * 2..],
+                            &format!("{what}: from the first unheard frame"),
+                        );
+                        assert_samples(&rig.sinks.heard(), &expected, &what);
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
+                    }
+                    Then::Seek => {
+                        let t = Duration::from_millis(300);
+                        rig.send(Command::Seek(t));
+                        assert_eq!(rig.next(), Event::Position(t), "{what}");
+                        let quiet = rig.quiet_for(QUIET);
+                        assert!(quiet.is_empty(), "{what}: {quiet:?}");
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+                        rig.send(Command::Resume);
+                        assert_eq!(rig.next(), Event::Resumed, "{what}");
+                        assert_eq!(rig.next(), Event::Position(t), "{what}");
+                        rig.until_end();
+                        let first = duration_to_frames(t, rate) as usize;
+                        assert_samples(
+                            &after_open(&rig, 2),
+                            &full[first * 2..],
+                            &format!("{what}: from the seek target"),
+                        );
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
+                    }
+                    Then::Play => {
+                        let (_, mono) = reference(mono16());
+                        rig.play(mono16());
+                        let events = rig.until_end();
+                        assert!(
+                            matches!(events.last(), Some(Event::TrackEnded { .. })),
+                            "{what}: {events:?}"
+                        );
+                        assert_samples(&after_open(&rig, 2), &mono, &what);
+                        let calls = rig.sinks.calls();
+                        assert_eq!(counts(&calls), counts_of(2, 2), "{what}: {calls:?}");
+                        assert_eq!(rig.sinks.max_open(), 1, "{what}");
+                    }
+                    Then::Stop => {
+                        let events = rig.stop();
+                        assert_eq!(events, [Event::Stopped], "{what}");
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+                        assert_eq!(rig.sinks.open_now(), 0, "{what}");
+                    }
+                    Then::SetDevice => {
+                        rig.send(Command::SetDevice("b".into()));
+                        let quiet = rig.quiet_for(QUIET);
+                        assert!(quiet.is_empty(), "{what}: {quiet:?}");
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+                        rig.send(Command::Resume);
+                        assert_eq!(rig.next(), Event::Resumed, "{what}");
+                        rig.until_end();
+                        assert_samples(
+                            &rig.sinks.samples_of("b"),
+                            &full[first_unheard * 2..],
+                            &format!("{what}: b continues from the first unheard frame"),
+                        );
+                        assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
+                        assert_eq!(rig.sinks.max_open(), 1, "{what}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Asks the engine to release the device; its answer and the sink calls
+/// logged when it answered. Fails unless it answers within 400 ms.
+fn ask_release(rig: &Rig) -> (bool, Vec<SinkCall>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let sinks = rig.sinks.clone();
+    assert!(
+        rig.engine.release_requests().ask(move |answer| {
+            let _ = tx.send((answer, sinks.calls()));
+        }),
+        "the engine is running"
+    );
+    rx.recv_timeout(tidal_player_audio::ANSWER_WITHIN)
+        .expect("answered within 400 ms")
+}
+
+/// 0005 AC20: `RequestRelease` (table over engine states): `true` within
+/// 400 ms while paused (released or not, any delay), with the PCM closed
+/// before the answer and the reservation released after it; `false` while
+/// loading, playing or buffering, which keeps the device.
+#[test]
+fn ac20_request_release() {
+    // Refused: loading, playing, buffering.
+    let rig = releasing(reserved_device(), Some(Duration::ZERO));
+    let (source, gate) = flac16().block_after(0);
+    rig.play(source);
+    let quiet = rig.quiet_for(QUIET);
+    assert!(quiet.is_empty(), "loading: {quiet:?}");
+    let (answer, _) = ask_release(&rig);
+    assert!(!answer, "loading");
+    gate.open();
+    rig.stop();
+
+    let (_, full) = reference(flac16());
+    let rig = releasing(reserved_device(), Some(Duration::ZERO));
+    rig.play(flac16());
+    rig.until("Started", is_started);
+    let (answer, _) = ask_release(&rig);
+    assert!(!answer, "playing");
+    assert!(
+        !rig.engine
+            .release_requests()
+            .request(tidal_player_audio::ANSWER_WITHIN),
+        "playing, blocking request"
+    );
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert!(!events.contains(&Event::Released), "playing: {events:?}");
+    assert_samples(&rig.sinks.samples(), &full, "playing: kept the device");
+    assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "playing");
+
+    let rig = releasing(
+        SinkScript {
+            delay_frames: 500,
+            reserved: true,
+            ..SinkScript::default()
+        },
+        Some(Duration::ZERO),
+    );
+    let (source, gate) = flac16().stall_after(12_000);
+    rig.play(source);
+    rig.until("Buffering", |e| matches!(e, Event::Buffering));
+    let (answer, _) = ask_release(&rig);
+    assert!(!answer, "buffering");
+    gate.open();
+    let events = rig.until_end();
+    assert!(!events.contains(&Event::Released), "buffering: {events:?}");
+    assert_samples(&rig.sinks.samples(), &full, "buffering: kept the device");
+
+    // Answered: paused, before the delay (10 s, never) and after it (0).
+    let rows = [
+        ("paused, 10 s delay", Some(RELEASE_DELAY), false),
+        ("paused, never", None, false),
+        ("paused, released", Some(Duration::ZERO), true),
+    ];
+    let expected = unpaused(flac16);
+    for (what, delay, already) in rows {
+        let rig = releasing(reserved_device(), delay);
+        let at_pause = play_and_pause(&rig, flac16());
+        if already {
+            assert!(wait_for_release(&rig, delay, what));
+        }
+        let (answer, at_answer) = ask_release(&rig);
+        assert!(answer, "{what}");
+        assert_eq!(
+            counts(&at_answer),
+            Counts {
+                opens: 1,
+                closes: 1,
+                reserves: 1,
+                releases: usize::from(already),
+            },
+            "{what}: the PCM is closed, the name not yet released, when answering: {at_answer:?}"
+        );
+        if !already {
+            let events = rig.until("Released", |e| *e == Event::Released);
+            assert_eq!(events, [Event::Released], "{what}");
+        }
+        assert_eq!(
+            counts(&rig.sinks.calls()),
+            counts_of(1, 1),
+            "{what}: released after the answer"
+        );
+        // Asked again: still true, nothing closed or released twice.
+        let (answer, _) = ask_release(&rig);
+        assert!(answer, "{what}: asked again");
+        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+
+        rig.sinks.release();
+        rig.send(Command::Resume);
+        assert_eq!(rig.next(), Event::Resumed, "{what}");
+        assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
+        rig.until_end();
+        assert_samples(&rig.sinks.heard(), &expected, what);
+    }
+}
+
+/// 0005 AC21: a busy, missing or lost device on resume gives
+/// `ResumeFailed(error)`, leaves nothing open, and a later `Resume` tries
+/// again (table).
+#[test]
+fn ac21_resume_failure() {
+    let errors = [
+        SinkError::Busy {
+            device: "test".into(),
+            holder: Some("PipeWire".into()),
+        },
+        SinkError::NotFound("test".into()),
+        SinkError::Lost("test".into()),
+    ];
+    let expected = unpaused(flac16);
+    for error in errors {
+        let what = format!("{error:?}");
+        let rig = releasing(
+            SinkScript {
+                open_errors: vec![(2, error.clone())],
+                ..reserved_device()
+            },
+            Some(Duration::ZERO),
+        );
+        let at_pause = play_and_pause(&rig, flac16());
+        assert!(wait_for_release(&rig, Some(Duration::ZERO), &what));
+        rig.sinks.release();
+        let written = rig.sinks.frames_written();
+
+        rig.send(Command::Resume);
+        assert_eq!(rig.next(), Event::ResumeFailed(error.clone()), "{what}");
+        let quiet = rig.quiet_for(QUIET);
+        assert!(quiet.is_empty(), "{what}: still paused: {quiet:?}");
+        assert_eq!(
+            rig.sinks.frames_written(),
+            written,
+            "{what}: nothing written"
+        );
+        assert_eq!(rig.sinks.open_now(), 0, "{what}: nothing open");
+        assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
+
+        rig.send(Command::Resume);
+        assert_eq!(rig.next(), Event::Resumed, "{what}: tried again");
+        assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
+        let events = rig.until_end();
+        assert!(
+            matches!(events.last(), Some(Event::TrackEnded { .. })),
+            "{what}: {events:?}"
+        );
+        assert_samples(&rig.sinks.heard(), &expected, &what);
+        assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
+    }
+}

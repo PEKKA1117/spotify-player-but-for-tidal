@@ -158,6 +158,9 @@ pub struct NowPlaying {
     /// Why it is not bit-perfect (`muted`, `volume below 100%`, or the
     /// engine's reason); `None` when bit-perfect.
     pub bit_perfect_reason: Option<String>,
+    /// Paused, the engine released the output for other applications
+    /// (spec 0005); resuming reopens it.
+    pub released: bool,
 }
 
 #[cfg(test)]
@@ -256,6 +259,7 @@ mod tests {
                 output: "hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
                 bit_perfect: false,
                 bit_perfect_reason: Some("volume below 100%".into()),
+                released: false,
             }),
             message: Some("Track 2 was not found".into()),
         };
@@ -289,6 +293,15 @@ mod tests {
                 repeat: RepeatMode::Off,
                 ..snapshot.clone()
             })
+        }));
+        // 0005 AC1: the device released while paused.
+        events.push(Event::Player(PlayerSnapshot {
+            state: PlaybackState::Paused,
+            now_playing: snapshot.now_playing.clone().map(|np| NowPlaying {
+                released: true,
+                ..np
+            }),
+            ..snapshot.clone()
         }));
         events
     }

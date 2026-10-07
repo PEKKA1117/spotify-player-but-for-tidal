@@ -504,6 +504,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             audio::Event::Paused => (EngineEvent::Paused, Notice::None),
             audio::Event::Resumed => (EngineEvent::Resumed, Notice::None),
             audio::Event::Stopped => (EngineEvent::Stopped, Notice::None),
+            // Stub (red): not mapped yet.
+            audio::Event::Released | audio::Event::ResumeFailed(_) => {
+                (EngineEvent::Stopped, Notice::None)
+            }
             audio::Event::Error { tag, error } => {
                 let track = sent(tag).map_or(0, |s| s.track.0);
                 let failure = engine_failure(track, &error);
