@@ -52,11 +52,29 @@ fn refused(error: alsa::Error) -> PcmError {
     }
 }
 
+/// Runs `f` with alsa-lib's error output captured instead of printed to
+/// stderr (spec 0003 AC28), and logs what it wrote at debug level.
+/// alsa-lib's handler is per thread, so it is installed on every call; each
+/// call replaces (and frees) the previous buffer.
+fn quiet<T>(f: impl FnOnce() -> T) -> T {
+    let captured = alsa::Output::local_error_handler().ok();
+    let result = f();
+    if let Some(output) = captured {
+        let text = output.borrow().to_string();
+        let text = text.trim();
+        if !text.is_empty() {
+            tracing::debug!(diagnostic = text, "alsa-lib");
+        }
+    }
+    result
+}
+
 /// Maps an `snd_pcm_open` failure (spec 0003 AC28).
 fn open_error(errno: i32, message: &str) -> PcmError {
     match errno {
         EBUSY => PcmError::Busy,
-        ENOENT | ENODEV | ENXIO => PcmError::NotFound,
+        // A card index that does not exist (`hw:99,0`) is EINVAL.
+        ENOENT | ENODEV | ENXIO | EINVAL => PcmError::NotFound,
         _ => PcmError::Other(message.to_owned()),
     }
 }
@@ -129,13 +147,13 @@ fn configure(pcm: &PCM, config: &HwConfig) -> Result<bool, PcmError> {
 impl PcmBackend for AlsaBackend {
     fn card_index(&mut self, card: &str) -> Option<u32> {
         let name = CString::new(card).ok()?;
-        let card = alsa::card::Card::from_str(&name).ok()?;
+        let card = quiet(|| alsa::card::Card::from_str(&name)).ok()?;
         u32::try_from(card.get_index()).ok()
     }
 
     fn open(&mut self, name: &str) -> Result<(), PcmError> {
         self.close();
-        let pcm = PCM::new(name, Direction::Playback, false)
+        let pcm = quiet(|| PCM::new(name, Direction::Playback, false))
             .map_err(|e| open_error(e.errno(), &e.to_string()))?;
         self.pcm = Some(pcm);
         Ok(())
@@ -148,7 +166,7 @@ impl PcmBackend for AlsaBackend {
         resample: bool,
     ) -> Result<Vec<SampleFormat>, PcmError> {
         let pcm = self.pcm()?;
-        let hw = match base_params(pcm, rate, channels, resample) {
+        let hw = match quiet(|| base_params(pcm, rate, channels, resample)) {
             Ok(hw) => hw,
             Err(PcmError::Refused(_)) => return Ok(Vec::new()),
             Err(e) => return Err(e),
@@ -160,7 +178,8 @@ impl PcmBackend for AlsaBackend {
     }
 
     fn configure(&mut self, config: &HwConfig) -> Result<(), PcmError> {
-        self.can_pause = configure(self.pcm()?, config)?;
+        let pcm = self.pcm()?;
+        self.can_pause = quiet(|| configure(pcm, config))?;
         Ok(())
     }
 
