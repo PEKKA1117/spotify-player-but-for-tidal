@@ -33,7 +33,8 @@ use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
 };
-use tidal_player_core::protocol::{Command, Event, PlayerSnapshot};
+use tidal_player_core::protocol::{Command, Event, InsertAt, PlayerSnapshot};
+use tidal_player_core::ui;
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::play::{engine_failure, output_description, source_description};
@@ -209,6 +210,16 @@ pub fn startup_commands(tracks: Vec<Track>) -> Vec<Command> {
         Vec::new()
     } else {
         vec![Command::LoadQueue { tracks, start: 0 }]
+    }
+}
+
+/// Expands one item from the open prompt (spec 0004 AC28) as the command
+/// line does, into the UI model's answer: the tracks, or the message.
+pub async fn expand_for_queue(meta: &dyn Metadata, item: Item, at: InsertAt) -> ui::Action {
+    let _ = (meta, item);
+    ui::Action::Expanded {
+        at,
+        result: Ok(Vec::new()),
     }
 }
 
@@ -1236,5 +1247,183 @@ mod tests {
             vec![Command::LoadQueue { tracks, start: 0 }]
         );
         assert_eq!(startup_commands(Vec::new()), vec![]);
+    }
+
+    /// Metadata from memory for the open prompt: album 10 is tracks 1 and
+    /// 2, track 3 exists, anything else is not found.
+    struct PromptMeta;
+
+    impl Metadata for PromptMeta {
+        fn track(&self, id: TrackId) -> BoxFuture<'_, Result<Track, MetadataError>> {
+            let result = match id.0 {
+                3 => Ok(track(3, Some(200))),
+                _ => Err(MetadataError::NotFound(Item::Track(id))),
+            };
+            Box::pin(async move { result })
+        }
+
+        fn album(&self, id: u64) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            let result = match id {
+                10 => Ok(vec![track(1, Some(200)), track(2, Some(200))]),
+                _ => Err(MetadataError::NotFound(Item::Album(id))),
+            };
+            Box::pin(async move { result })
+        }
+
+        fn playlist(&self, uuid: String) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            Box::pin(async move { Err(MetadataError::NotFound(Item::Playlist(uuid))) })
+        }
+
+        fn suggestions(&self, _: TrackId) -> BoxFuture<'_, Result<Vec<Track>, MetadataError>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
+
+    /// A client (the UI model) wired to a runtime with fakes, as `main`
+    /// wires them: effects are executed, expansions run on a tokio runtime
+    /// and the player's events come back as actions.
+    struct Client {
+        ui: ui::State,
+        rt: PlayerRuntime<FakeEngine, FakeJobs>,
+        inputs: Receiver<RuntimeInput>,
+        tokio: tokio::runtime::Runtime,
+        /// Every command the client sent, in order.
+        sent: Vec<Command>,
+    }
+
+    impl Client {
+        fn new() -> (Self, Log) {
+            let (rt, log, inputs) = runtime(Script::Plays, true);
+            let tokio = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let client = Self {
+                ui: ui::State::default(),
+                rt,
+                inputs,
+                tokio,
+                sent: Vec::new(),
+            };
+            (client, log)
+        }
+
+        fn act(&mut self, actions: Vec<ui::Action>) {
+            let mut pending: std::collections::VecDeque<ui::Action> = actions.into();
+            while let Some(action) = pending.pop_front() {
+                for effect in ui::update(&mut self.ui, action) {
+                    match effect {
+                        ui::Effect::Send(command) => {
+                            self.sent.push(command.clone());
+                            let mut input = Some(RuntimeInput::Command(command));
+                            while let Some(next) = input {
+                                let handled = self.rt.handle(next);
+                                pending.extend(handled.events.into_iter().map(ui::Action::Player));
+                                input = self.rt.next_input(&self.inputs, Duration::ZERO);
+                            }
+                        }
+                        ui::Effect::Expand { item, at } => pending.push_back(
+                            self.tokio.block_on(expand_for_queue(&PromptMeta, item, at)),
+                        ),
+                        ui::Effect::Quit => {}
+                    }
+                }
+            }
+        }
+
+        fn open(&mut self, key: char, text: &str) {
+            self.act(vec![
+                ui::Action::Key(ui::Key::Char(key)),
+                ui::Action::Paste(text.into()),
+                ui::Action::Key(ui::Key::Enter),
+            ]);
+        }
+
+        fn queue(&self) -> Vec<u64> {
+            self.rt
+                .snapshot()
+                .queue
+                .iter()
+                .map(|e| e.track.id.0)
+                .collect()
+        }
+
+        fn entry_of(&self, track: u64) -> EntryId {
+            let snapshot = self.rt.snapshot();
+            snapshot
+                .queue
+                .iter()
+                .find(|e| e.track.id.0 == track)
+                .map(|e| e.id)
+                .expect("the track is queued")
+        }
+    }
+
+    /// AC28: the prompt's item is expanded (fake metadata) and sent as
+    /// `AddToQueue { at }`; with nothing playing, `PlayEntry` of the first
+    /// added entry follows and it plays; a fetch error only sets the
+    /// message.
+    #[test]
+    fn ac28_open_adds_and_starts() {
+        // `o` on an empty player: added at the end, the first one starts.
+        let (mut client, log) = Client::new();
+        client.open('o', "https://tidal.com/browse/album/10");
+        assert_eq!(client.queue(), vec![1, 2]);
+        let first = client.entry_of(1);
+        assert_eq!(
+            client.sent,
+            vec![
+                Command::AddToQueue {
+                    tracks: vec![track(1, Some(200)), track(2, Some(200))],
+                    at: InsertAt::End,
+                },
+                Command::PlayEntry(first),
+            ]
+        );
+        let snapshot = client.rt.snapshot();
+        assert_eq!(snapshot.current, Some(first));
+        assert_eq!(snapshot.state, PlaybackState::Playing);
+        let calls = take(&log);
+        assert!(
+            calls
+                .iter()
+                .any(|c| matches!(c, Call::Play { track: 1, .. })),
+            "{calls:?}"
+        );
+
+        // `O` while playing: added after the current entry, nothing restarts.
+        take(&log);
+        client.sent.clear();
+        client.open('O', "3");
+        assert_eq!(
+            client.sent,
+            vec![Command::AddToQueue {
+                tracks: vec![track(3, Some(200))],
+                at: InsertAt::Next,
+            }]
+        );
+        assert_eq!(client.queue(), vec![1, 3, 2]);
+        assert_eq!(client.rt.snapshot().current, Some(first));
+        let calls = take(&log);
+        assert!(
+            !calls
+                .iter()
+                .any(|c| matches!(c, Call::Play { .. } | Call::Stop)),
+            "{calls:?}"
+        );
+
+        // `O` on an empty player: the first added one starts too.
+        let (mut client, _log) = Client::new();
+        client.open('O', "https://tidal.com/browse/album/10");
+        assert_eq!(client.queue(), vec![1, 2]);
+        let first = client.entry_of(1);
+        assert_eq!(client.sent.last(), Some(&Command::PlayEntry(first)));
+        assert_eq!(client.rt.snapshot().state, PlaybackState::Playing);
+
+        // A fetch error: nothing sent, the message in the playback window.
+        let (mut client, log) = Client::new();
+        client.open('o', "https://tidal.com/browse/album/404");
+        assert_eq!(client.sent, vec![]);
+        assert_eq!(client.ui.message(), Some("Album 404 was not found"));
+        assert_eq!(take(&log), vec![]);
     }
 }

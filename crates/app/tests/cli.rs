@@ -352,3 +352,28 @@ fn ac18_bad_item() {
         .stdout("")
         .stderr(refused);
 }
+
+// Spec 0004 AC28: `--add-to-queue` and `--play-next` are mutually exclusive
+// and need an item (exit 2). The invalid quality makes sure no case gets as
+// far as a login prompt: the flags are refused before any setting is read.
+
+#[test]
+fn ac28_queue_flags() {
+    let state = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        bin_in(state.path())
+            .args(args)
+            .env("TIDAL_PLAYER_QUALITY", "bogus")
+            .assert()
+            .code(2)
+            .stdout("")
+    };
+    run(&["--add-to-queue", "--play-next", "123"])
+        .stderr(predicate::str::contains("cannot be used with"));
+    for flag in ["--add-to-queue", "--play-next"] {
+        run(&[flag]).stderr(predicate::str::contains("required"));
+        // With an item, the flag is accepted and the item is checked.
+        let artist = "https://tidal.com/browse/artist/1";
+        run(&[flag, artist]).stderr(format!("Not a Tidal track, album or playlist: {artist}\n"));
+    }
+}

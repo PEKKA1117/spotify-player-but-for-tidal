@@ -37,7 +37,7 @@ use tidal_player_api::auth::{
 use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
-use tidal_player_core::protocol::{Event as PlayerEvent, RepeatMode};
+use tidal_player_core::protocol::{Event as PlayerEvent, InsertAt, RepeatMode};
 use tidal_player_core::ui::{Action, Effect, State, update};
 use tokio::sync::watch;
 
@@ -56,6 +56,20 @@ struct Cli {
     /// queue (the first one plays).
     #[arg(value_name = "ITEM")]
     items: Vec<String>,
+    /// Add the items at the end of the queue instead of replacing it.
+    #[arg(long)]
+    add_to_queue: bool,
+    /// Add the items right after the current entry instead of replacing
+    /// the queue.
+    #[arg(long)]
+    play_next: bool,
+}
+
+/// Where `--add-to-queue` / `--play-next` add the items; `None` replaces
+/// the queue (spec 0004 "Commands").
+fn queue_mode(cli: &Cli) -> Option<InsertAt> {
+    let _ = cli;
+    None
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -415,7 +429,9 @@ fn devices() -> ExitCode {
 }
 
 fn main() -> Result<ExitCode> {
-    let Cli { command, items } = Cli::parse();
+    let cli = Cli::parse();
+    let _ = queue_mode(&cli);
+    let Cli { command, items, .. } = cli;
     let plan = StorePlan::from_env();
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
@@ -427,5 +443,39 @@ fn main() -> Result<ExitCode> {
         Some(Command::Play(args)) => Ok(play(&plan, &args)),
         Some(Command::Devices) => Ok(devices()),
         None => standalone(plan.build_store(), &items),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AC28: `--add-to-queue` and `--play-next` parse into the matching
+    /// `at`, are mutually exclusive and need an item.
+    #[test]
+    fn ac28_queue_flags_parse() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("tidal-player").chain(args.iter().copied()))
+        };
+        let rows: [(&[&str], Option<InsertAt>); 5] = [
+            (&["123"], None),
+            (&[], None),
+            (&["--add-to-queue", "123"], Some(InsertAt::End)),
+            (&["--play-next", "1", "2"], Some(InsertAt::Next)),
+            (&["123", "--play-next"], Some(InsertAt::Next)),
+        ];
+        for (args, at) in rows {
+            let cli = parse(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert_eq!(queue_mode(&cli), at, "{args:?}");
+        }
+        let refused: [&[&str]; 4] = [
+            &["--add-to-queue", "--play-next", "1"],
+            &["--add-to-queue"],
+            &["--play-next"],
+            &["--add-to-queue", "play", "1"],
+        ];
+        for args in refused {
+            assert!(parse(args).is_err(), "{args:?} accepted");
+        }
     }
 }
