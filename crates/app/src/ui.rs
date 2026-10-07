@@ -12,7 +12,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
-use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry};
+use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
 use tidal_player_core::ui::State;
 
 /// Rows of the playback window, inside the frame.
@@ -143,9 +143,9 @@ fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> String {
         all.push("shuffle".to_owned());
     }
     match player.repeat {
-        tidal_player_core::protocol::RepeatMode::Off => {}
-        tidal_player_core::protocol::RepeatMode::Queue => all.push("repeat: queue".to_owned()),
-        tidal_player_core::protocol::RepeatMode::Track => all.push("repeat: track".to_owned()),
+        RepeatMode::Off => {}
+        RepeatMode::Queue => all.push("repeat: queue".to_owned()),
+        RepeatMode::Track => all.push("repeat: track".to_owned()),
     }
     if player.autoplay {
         all.push("autoplay".to_owned());
