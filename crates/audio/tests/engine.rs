@@ -1221,6 +1221,7 @@ fn ac19_release_while_paused() {
         assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
         rig.until_end();
         assert_samples(&rig.sinks.heard(), &expected, &what);
+        rig.stop(); // the device closes after TrackEnded
         assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "{what}");
 
         for delay in delays {
@@ -1263,6 +1264,7 @@ fn ac19_release_while_paused() {
                             &format!("{what}: from the first unheard frame"),
                         );
                         assert_samples(&rig.sinks.heard(), &expected, &what);
+                        rig.stop(); // the device closes after TrackEnded
                         assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
                     }
                     Then::Seek => {
@@ -1282,6 +1284,7 @@ fn ac19_release_while_paused() {
                             &full[first * 2..],
                             &format!("{what}: from the seek target"),
                         );
+                        rig.stop(); // the device closes after TrackEnded
                         assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
                     }
                     Then::Play => {
@@ -1293,6 +1296,7 @@ fn ac19_release_while_paused() {
                             "{what}: {events:?}"
                         );
                         assert_samples(&after_open(&rig, 2), &mono, &what);
+                        rig.stop(); // the device closes after TrackEnded
                         let calls = rig.sinks.calls();
                         assert_eq!(counts(&calls), counts_of(2, 2), "{what}: {calls:?}");
                         assert_eq!(rig.sinks.max_open(), 1, "{what}");
@@ -1316,6 +1320,7 @@ fn ac19_release_while_paused() {
                             &full[first_unheard * 2..],
                             &format!("{what}: b continues from the first unheard frame"),
                         );
+                        rig.stop(); // the device closes after TrackEnded
                         assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
                         assert_eq!(rig.sinks.max_open(), 1, "{what}");
                     }
@@ -1373,6 +1378,7 @@ fn ac20_request_release() {
     let events = rig.until_end();
     assert!(!events.contains(&Event::Released), "playing: {events:?}");
     assert_samples(&rig.sinks.samples(), &full, "playing: kept the device");
+    rig.stop(); // the device closes after TrackEnded
     assert_eq!(counts(&rig.sinks.calls()), counts_of(1, 1), "playing");
 
     let rig = releasing(
@@ -1490,6 +1496,7 @@ fn ac21_resume_failure() {
             "{what}: {events:?}"
         );
         assert_samples(&rig.sinks.heard(), &expected, &what);
+        rig.stop(); // the device closes after TrackEnded
         assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
     }
 }

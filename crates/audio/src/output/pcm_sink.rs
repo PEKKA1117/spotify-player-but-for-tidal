@@ -182,11 +182,20 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
     }
 
     fn close(&mut self) {
-        if let Some(state) = self.open.take() {
-            self.backend.close();
-            if let Some(card) = state.reserved {
-                self.reserver.release(card);
-            }
+        self.close_with(&mut || {});
+    }
+
+    /// Closes the PCM, calls `between` (the answer to `RequestRelease`,
+    /// spec 0005), then gives the card's name back.
+    fn close_with(&mut self, between: &mut dyn FnMut()) {
+        let Some(state) = self.open.take() else {
+            between();
+            return;
+        };
+        self.backend.close();
+        between();
+        if let Some(card) = state.reserved {
+            self.reserver.release(card);
         }
     }
 }

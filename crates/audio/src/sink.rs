@@ -632,6 +632,51 @@ mod tests {
         );
     }
 
+    /// The 0005 fake: reservation log around open and close (with
+    /// `close_with`'s step between), scripted open failures, and the
+    /// heard samples (a discard or close drops the delay unheard).
+    #[test]
+    fn reserved_open_errors_and_heard() {
+        let script = SinkScript {
+            delay_frames: 1,
+            reserved: true,
+            open_errors: vec![(
+                2,
+                SinkError::Busy {
+                    device: "d".into(),
+                    holder: None,
+                },
+            )],
+            ..SinkScript::default()
+        };
+        let mut sink = MemorySink::new("d", script);
+        let handle = sink.handle();
+        sink.open(&SOURCE).unwrap();
+        sink.write(&[1, 1, 2, 2]).unwrap();
+        let log = handle.clone();
+        let mut at_between = Vec::new();
+        sink.close_with(&mut || at_between = log.calls());
+        assert!(matches!(at_between.last(), Some(SinkCall::Close { .. })));
+        assert!(matches!(
+            handle.calls().last(),
+            Some(SinkCall::Release { .. })
+        ));
+        assert_eq!(handle.heard(), [1, 1], "the last frame was in the device");
+        assert!(matches!(sink.open(&SOURCE), Err(SinkError::Busy { .. })));
+        assert_eq!(handle.open_now(), 0);
+        sink.open(&SOURCE).unwrap();
+        sink.write(&[3, 3]).unwrap();
+        sink.drain().unwrap();
+        sink.close();
+        assert_eq!(handle.heard(), [1, 1, 3, 3], "drained frames are heard");
+        let reserves = handle
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, SinkCall::Reserve { .. }))
+            .count();
+        assert_eq!(reserves, 2, "a failed open reserves nothing");
+    }
+
     #[test]
     fn hold_until_release() {
         let script = SinkScript {
