@@ -1,6 +1,6 @@
 # 0005 — Daemon & client mode
 
-- **Status**: approved (2026-10-07)
+- **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented: run modes, the `Command`/`Event` boundary), 0002 (implemented: the daemon's passphrase sources, `LoginRequired`/`LoginRestored`), 0003 (implemented: the engine and the reservation), 0004 (implemented: the player runtime, the TUI)
 - **User docs**: a new [`docs/daemon.md`](../daemon.md); [`docs/playback.md`](../playback.md), [`docs/tui.md`](../tui.md) and [`docs/login.md`](../login.md) lose their "until 0005" notes (AC24)
@@ -136,7 +136,7 @@ Output: nothing on success (exit 0), except `status`; the reply's message on std
 Queue: 2 of 12
 ```
 
-(the state symbols and indicators of 0004's TUI; `Nothing playing` alone for an empty queue; a fourth line with the message, if any, or `Session expired: run "tidal-player login"` when the login is required). `--json` prints the `Welcome` as one JSON line, for scripts.
+(the state symbols and indicators of 0004's TUI; `Nothing playing` alone when there is no current entry (an empty queue, or a queue with nothing current); a fourth line with the message, if any, or `Session expired: run "tidal-player login"` when the login is required). `--json` prints the `Welcome` as one JSON line, for scripts.
 
 `tidal-player daemon stop` sends `Shutdown` and waits until the lock is free.
 
@@ -191,8 +191,8 @@ The engine releases the output while paused, so other applications can use the c
 - After the **release delay** in `Paused` (a setting, `TIDAL_PLAYER_RELEASE_PAUSED`: `0`–`3600` seconds or `never`; default **10**, decision 4), the engine closes the PCM and, for exclusive output, releases the `ReserveDevice1` name. It keeps the track: source, decoder and position. Event `Released`
 - **Another application asks** (`RequestRelease` on the name we hold): while `Paused` (released or not), the engine closes the PCM, answers `true`, then releases the name. While loading, playing or buffering it answers `false`, as 0003 does today. It answers within 400 ms (0003's callers wait 500 ms). This holds even with the delay set to `never`
 - **Resume** after a release: reserve (0003's table), reopen and negotiate as on a track start, then continue from the first frame that was not yet heard: the frames still in the device buffer at release time are played again from the decoder, so nothing is lost or repeated. Event `Resumed`
-- **Resume fails** (busy, gone): the engine stays paused with nothing open; event `ResumeFailed(error)`. The player stays `Paused` at the same position with 0003's message (`Output hw:1,0 is busy (used by …)`); it never skips (this is not a track failure). Play/pause tries again
-- Seek while released moves the position and takes effect on resume. `Play`, `Next`, `Stop` and `SetDevice` while released behave as when not released (a `Stop` closes nothing twice and releases nothing twice)
+- **Resume fails** (busy, gone): the engine stays paused with nothing open; event `ResumeFailed(error)`. The player stays `Paused` at the same position with 0003's message (`Output hw:1,0 is busy (used by …)`); it never skips (this is not a track failure). Play/pause tries again; the message is cleared by the next successful `Resumed`
+- Seek while released moves the position and takes effect on resume. `Play`, `Next`, `Stop` and `SetDevice` while released behave as when not released (a `Stop` closes nothing twice and releases nothing twice). `released` is cleared when a track starts and when the player stops. An engine with nothing open answers `RequestRelease` with `true` (it holds nothing)
 - Shared output is closed and reopened the same way (no reservation)
 - The snapshot's now-playing details gain `released: bool`; the TUI's third row ends with ` · device released` while it is true; `playback status` shows the same
 
@@ -279,12 +279,12 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (extended) | round trip of every new variant | new types' hand-written stub `Serialize` writes `null` |
 | AC2 | `crates/app/src/ipc/codec.rs` :: `ac2_framing` (table) | messages or errors per row; memory bound on the oversized line | stub decoder returns nothing for every input |
-| AC3 | `crates/app/src/ipc/codec.rs` :: `ac3_greeting` (table) | exact greeting text; accept / mismatch / not ours | stub accepts every greeting |
-| AC4 | `crates/app/src/ipc/server.rs` :: `ac4_subscribe_ordering` (table), `ac4_clients_converge` (200 seeded runs) | client state after `Welcome` + events equals the runtime's snapshot; identical sequences; every client equals the player when idle | stub sends `Welcome` from a snapshot taken outside the runtime thread, so events in between are lost or doubled |
-| AC5 | `crates/app/src/ipc/server.rs` :: `ac5_requests_replied_in_order`, `ac5_nothing_dropped` | one reply per id, after its events; counts | stub replies before applying and drops when the input channel is busy |
-| AC6 | `crates/app/src/ipc/server.rs` :: `ac6_stalled_client_disconnected`, `ac6_bad_clients_dropped` (table) | disconnection at 1024; others unaffected; reply latency | stub writes to each client synchronously, so the stalled one blocks the player |
-| AC7 | `crates/app/src/player_runtime.rs` :: `ac7_open` (table) | commands applied, start rule, error reply, order | stub applies each `Open` when its expansion finishes |
-| AC8 | `crates/app/src/ipc/server.rs` :: `ac8_login_status` | events and `Welcome.login_required` | stub always sends `login_required: false` and no events |
+| AC3 | `crates/app/src/ipc/codec.rs` :: `ac3_greeting` (table) + `crates/app/src/ipc/server/tests.rs` :: `ac3_server_greets_first` | exact greeting text; accept / mismatch / not ours | stub accepts every greeting |
+| AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac4_subscribe_ordering` (table), `ac4_clients_converge` (200 seeded runs) | client state after `Welcome` + events equals the runtime's snapshot; identical sequences; every client equals the player when idle | stub sends `Welcome` from a snapshot taken outside the runtime thread, so events in between are lost or doubled |
+| AC5 | `crates/app/src/ipc/server/tests.rs` :: `ac5_requests_replied_in_order`, `ac5_nothing_dropped` | one reply per id, after its events; counts | stub replies before applying and drops when the input channel is busy |
+| AC6 | `crates/app/src/ipc/server/tests.rs` :: `ac6_stalled_client_disconnected`, `ac6_bad_clients_dropped` (table) | disconnection at 1024; others unaffected; reply latency | stub writes to each client synchronously, so the stalled one blocks the player |
+| AC7 | `crates/app/src/player_runtime.rs` :: `ac7_open` (table), `ac7_open_errors_and_order` | commands applied, start rule, error reply, order | stub applies each `Open` when its expansion finishes |
+| AC8 | `crates/app/src/ipc/server/tests.rs` :: `ac8_login_status` | events and `Welcome.login_required` | stub always sends `login_required: false` and no events |
 | AC9 | `crates/app/src/ipc/paths.rs` :: `ac9_runtime_dir` (table), `ac9_private_dir` | chosen path; created mode; refusals | stub returns `/tmp/tidal-player` for every input and never checks |
 | AC10 | `crates/app/tests/daemon.rs` :: `ac10_second_player_exits_3`, `ac10_stale_socket_removed`, `ac10_race_one_wins` | exit codes, messages, a client can connect afterwards | stub daemon never takes the lock, so the second one also starts |
 | AC11 | `crates/app/tests/daemon.rs` :: `ac11_tui_attaches` + `crates/app/src/client.rs` :: `ac11_startup_open`, `ac11_connect_retry` | attach without lock or engine; the `Open` sent; retry then message | stub starts a standalone player regardless |
