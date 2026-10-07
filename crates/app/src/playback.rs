@@ -32,6 +32,8 @@ pub struct PlayRequest {
     /// From the environment and `--autoplay`; the country is filled in from
     /// the session.
     pub player: PlayerConfig,
+    /// The engine's release delay (spec 0005); `None`: never.
+    pub release_paused: Option<Duration>,
     pub options: PlayOptions,
 }
 
@@ -113,23 +115,37 @@ fn duration(resolved: &ResolvedStream) -> Option<Duration> {
     }
 }
 
-/// The output engine on `device`: ALSA, or, in a build without it, an
-/// engine whose every track fails with [`NO_ALSA`].
+/// The output engine on `device`, releasing it after `release_paused`
+/// paused (spec 0005): ALSA, or, in a build without it, an engine whose
+/// every track fails with [`NO_ALSA`].
 #[cfg(feature = "alsa")]
-pub fn spawn_output(device: &str) -> Box<dyn EngineControl + Send> {
+pub fn spawn_output(
+    device: &str,
+    release_paused: Option<Duration>,
+) -> Box<dyn EngineControl + Send> {
     use crate::reserve::ZbusReserver;
-    use tidal_player_audio::{Engine, EngineConfig, Reserver, alsa_sink_factory};
-    let factory = alsa_sink_factory(|| Box::new(ZbusReserver::new()) as Box<dyn Reserver>);
+    use tidal_player_audio::{Engine, EngineConfig, ReleaseRequests, Reserver, alsa_sink_factory};
+    // The reservation object each sink exports asks this engine.
+    let requests = ReleaseRequests::new();
+    let for_sinks = requests.clone();
+    let factory = alsa_sink_factory(move || {
+        Box::new(ZbusReserver::new(for_sinks.clone())) as Box<dyn Reserver>
+    });
     Box::new(Engine::spawn(
         Box::new(factory),
-        EngineConfig::new(device.to_owned()),
+        EngineConfig::new(device.to_owned())
+            .with_release_paused(release_paused)
+            .with_release_requests(requests),
     ))
 }
 
 /// The output engine of a build without ALSA: every track fails.
 #[cfg(not(feature = "alsa"))]
-pub fn spawn_output(device: &str) -> Box<dyn EngineControl + Send> {
-    let _ = device;
+pub fn spawn_output(
+    device: &str,
+    release_paused: Option<Duration>,
+) -> Box<dyn EngineControl + Send> {
+    let _ = (device, release_paused);
     Box::new(NoOutput::default())
 }
 
@@ -237,7 +253,7 @@ mod alsa_play {
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);
-        let engine = spawn_output(&request.settings.device);
+        let engine = spawn_output(&request.settings.device, request.release_paused);
         let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs);
         let stdout = io::stdout();
         let tty = stdout.is_terminal();

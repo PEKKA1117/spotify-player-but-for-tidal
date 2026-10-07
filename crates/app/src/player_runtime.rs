@@ -504,6 +504,13 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             audio::Event::Paused => (EngineEvent::Paused, Notice::None),
             audio::Event::Resumed => (EngineEvent::Resumed, Notice::None),
             audio::Event::Stopped => (EngineEvent::Stopped, Notice::None),
+            audio::Event::Released => (EngineEvent::Released, Notice::None),
+            audio::Event::ResumeFailed(error) => {
+                // 0003's output message (it names the device, not the track).
+                let failure = engine_failure(0, &audio::EngineError::Output(error));
+                handled.failures.push(failure.clone());
+                (EngineEvent::ResumeFailed { failure }, Notice::None)
+            }
             audio::Event::Error { tag, error } => {
                 let track = sent(tag).map_or(0, |s| s.track.0);
                 let failure = engine_failure(track, &error);

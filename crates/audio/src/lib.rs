@@ -13,7 +13,10 @@ pub mod source;
 pub mod testing;
 mod worker;
 
-pub use engine::{Command, Engine, EngineConfig, EngineError, EngineGone, Event};
+pub use engine::{
+    ANSWER_WITHIN, Command, DEFAULT_RELEASE_PAUSED, Engine, EngineConfig, EngineError, EngineGone,
+    Event, ReleaseRequests,
+};
 #[cfg(feature = "alsa")]
 pub use output::{AlsaBackend, alsa_sink_factory};
 pub use output::{

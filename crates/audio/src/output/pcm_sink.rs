@@ -182,11 +182,20 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
     }
 
     fn close(&mut self) {
-        if let Some(state) = self.open.take() {
-            self.backend.close();
-            if let Some(card) = state.reserved {
-                self.reserver.release(card);
-            }
+        self.close_with(&mut || {});
+    }
+
+    /// Closes the PCM, calls `between` (the answer to `RequestRelease`,
+    /// spec 0005), then gives the card's name back.
+    fn close_with(&mut self, between: &mut dyn FnMut()) {
+        let Some(state) = self.open.take() else {
+            between();
+            return;
+        };
+        self.backend.close();
+        between();
+        if let Some(card) = state.reserved {
+            self.reserver.release(card);
         }
     }
 }
@@ -467,6 +476,26 @@ mod tests {
                 .collect();
             assert_eq!(seen, pauses, "{name}");
         }
+    }
+
+    /// 0005 AC20: `close_with` closes the PCM, then calls `between` (the
+    /// answer to `RequestRelease`), then releases the name; with nothing
+    /// open it only calls `between`.
+    #[test]
+    fn ac20_close_with_answers_between() {
+        let log = Log::default();
+        let mut s = sink(&log, device(&log));
+        s.open(&HIRES).unwrap();
+        log.clear();
+        let marks = log.clone();
+        s.close_with(&mut || marks.push(Call::Mark("answer")));
+        assert_eq!(
+            log.calls(),
+            vec![Call::Close, Call::Mark("answer"), Call::Release(1)]
+        );
+        log.clear();
+        s.close_with(&mut || marks.push(Call::Mark("answer")));
+        assert_eq!(log.calls(), vec![Call::Mark("answer")]);
     }
 
     #[test]

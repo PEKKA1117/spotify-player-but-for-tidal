@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use tidal_player_audio::output::reserve::REPLY_TIMEOUT;
-use tidal_player_audio::{ReleaseReply, Reserver};
+use tidal_player_audio::{ANSWER_WITHIN, ReleaseReply, ReleaseRequests, Reserver};
 use zbus::blocking::{Connection, Proxy, connection, proxy::Builder as ProxyBuilder};
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
 use zbus::proxy::CacheProperties;
@@ -87,21 +87,26 @@ pub fn classify_release(answer: Result<bool, CallFailure>, holder: Option<String
     }
 }
 
-/// The object exported while holding a card: refuses every
-/// `RequestRelease` (answering it is spec 0005's).
+/// The object exported while holding a card: asks the engine, which
+/// releases the card while paused and refuses otherwise (spec 0005). The
+/// engine closes the PCM before it answers and gives the name back right
+/// after; no answer within [`ANSWER_WITHIN`] is a refusal.
 struct Device {
     card: u32,
+    requests: ReleaseRequests,
 }
 
 #[zbus::interface(name = "org.freedesktop.ReserveDevice1")]
 impl Device {
     fn request_release(&self, priority: i32) -> bool {
+        let released = self.requests.request(ANSWER_WITHIN);
         tracing::info!(
             card = self.card,
             priority,
-            "refused a request to release the card"
+            released,
+            "answered a request to release the card"
         );
-        false
+        released
     }
 
     #[zbus(property)]
@@ -125,6 +130,7 @@ impl Device {
 #[derive(Default)]
 pub struct ZbusReserver {
     held: HashMap<u32, Connection>,
+    requests: ReleaseRequests,
 }
 
 impl std::fmt::Debug for ZbusReserver {
@@ -136,8 +142,12 @@ impl std::fmt::Debug for ZbusReserver {
 }
 
 impl ZbusReserver {
-    pub fn new() -> Self {
-        Self::default()
+    /// `requests` reaches the engine that owns this reserver's sink.
+    pub fn new(requests: ReleaseRequests) -> Self {
+        Self {
+            held: HashMap::new(),
+            requests,
+        }
     }
 
     /// A proxy on the current owner of the card's name.
@@ -182,7 +192,15 @@ impl Reserver for ZbusReserver {
         let name = reservation_name(card);
         let connection = connection::Builder::session()
             .map(|b| b.method_timeout(REPLY_TIMEOUT))
-            .and_then(|b| b.serve_at(reservation_path(card), Device { card }))
+            .and_then(|b| {
+                b.serve_at(
+                    reservation_path(card),
+                    Device {
+                        card,
+                        requests: self.requests.clone(),
+                    },
+                )
+            })
             .and_then(connection::Builder::build)
             .map_err(|e| {
                 tracing::warn!("cannot reserve card {card}: {e}");

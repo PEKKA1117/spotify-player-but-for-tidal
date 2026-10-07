@@ -6,11 +6,12 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use std::collections::VecDeque;
-use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 
 use crate::clock::{Clock, SystemClock, duration_to_frames, frames_to_duration};
 use crate::decode::Chunk;
@@ -31,6 +32,8 @@ const REFILL: Duration = Duration::from_secs(2);
 /// Written frames kept to replay on another device after `SetDevice`
 /// (more than any device buffer).
 const HISTORY: Duration = Duration::from_secs(1);
+/// How often a paused engine looks at the clock while a release is due.
+const PAUSED_POLL: Duration = Duration::from_millis(20);
 
 /// Why a track failed. The engine is idle afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -147,6 +150,13 @@ pub enum Event {
     Paused,
     Resumed,
     Stopped,
+    /// Paused, the output was closed and its reservation given back (spec
+    /// 0005 "Releasing the device while paused"); the track is kept. The
+    /// next `Resume` reopens it (`Resumed`, or `ResumeFailed`).
+    Released,
+    /// Reopening the output on `Resume` after a release failed: the engine
+    /// stays paused with nothing open, and the next `Resume` tries again.
+    ResumeFailed(SinkError),
     /// The track failed; no `TrackEnded` follows for it.
     Error {
         tag: u64,
@@ -154,21 +164,36 @@ pub enum Event {
     },
 }
 
+/// The release delay by default (spec 0005, decision 4).
+pub const DEFAULT_RELEASE_PAUSED: Duration = Duration::from_secs(10);
+
+/// How long another application waits for the engine's answer to
+/// `RequestRelease` at most (spec 0005: 400 ms; 0003's callers wait 500 ms).
+pub const ANSWER_WITHIN: Duration = Duration::from_millis(400);
+
 /// How to run the engine.
 #[derive(Clone)]
 pub struct EngineConfig {
     /// The output device to open first (`SetDevice` changes it).
     pub device: String,
-    /// Paces `Position` events.
+    /// Paces `Position` events and times the release delay.
     pub clock: Arc<dyn Clock>,
+    /// Paused this long, the engine releases the output (spec 0005);
+    /// `None`: never (a `RequestRelease` still releases it).
+    pub release_paused: Option<Duration>,
+    /// Bound to the engine when it is spawned: how the exported
+    /// reservation object asks it to release the device.
+    pub release_requests: ReleaseRequests,
 }
 
 impl EngineConfig {
-    /// `device` with the real clock.
+    /// `device` with the real clock and the default release delay.
     pub fn new(device: impl Into<String>) -> Self {
         Self {
             device: device.into(),
             clock: Arc::new(SystemClock::new()),
+            release_paused: Some(DEFAULT_RELEASE_PAUSED),
+            release_requests: ReleaseRequests::new(),
         }
     }
 
@@ -177,14 +202,83 @@ impl EngineConfig {
         self.clock = clock;
         self
     }
+
+    /// Replace the release delay (`None`: never).
+    pub fn with_release_paused(mut self, delay: Option<Duration>) -> Self {
+        self.release_paused = delay;
+        self
+    }
+
+    /// Use `requests` (made before the sink factory that hands it to the
+    /// reservation object) for this engine.
+    pub fn with_release_requests(mut self, requests: ReleaseRequests) -> Self {
+        self.release_requests = requests;
+        self
+    }
 }
 
 impl fmt::Debug for EngineConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EngineConfig")
             .field("device", &self.device)
+            .field("release_paused", &self.release_paused)
             .finish_non_exhaustive()
     }
+}
+
+/// Asks the engine to release the output for another application
+/// (`org.freedesktop.ReserveDevice1.RequestRelease`, spec 0005). Cloneable
+/// and usable from any thread; bound to an engine when it is spawned.
+#[derive(Clone, Default)]
+pub struct ReleaseRequests {
+    engine: Arc<Mutex<Option<Sender<Input>>>>,
+}
+
+impl fmt::Debug for ReleaseRequests {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReleaseRequests").finish_non_exhaustive()
+    }
+}
+
+impl ReleaseRequests {
+    /// Not bound to an engine yet: every request is refused.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ask the engine; `answer` is called once with its answer, on the
+    /// engine thread: `true` once the PCM is closed (the reservation is
+    /// released right after `answer` returns), `false` when it keeps the
+    /// device. Returns `false`, without calling `answer`, when no engine is
+    /// running.
+    pub fn ask(&self, answer: impl FnOnce(bool) + Send + 'static) -> bool {
+        let engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+        engine
+            .as_ref()
+            .is_some_and(|tx| tx.send(Input::Release(Box::new(answer))).is_ok())
+    }
+
+    /// Ask the engine and wait at most `within` for its answer; no answer
+    /// in time is `false` (the device is kept).
+    pub fn request(&self, within: Duration) -> bool {
+        let (tx, rx) = mpsc::channel();
+        self.ask(move |answer| {
+            let _ = tx.send(answer);
+        }) && rx.recv_timeout(within).unwrap_or(false)
+    }
+
+    fn bind(&self, engine: Sender<Input>) {
+        *self.engine.lock().unwrap_or_else(PoisonError::into_inner) = Some(engine);
+    }
+}
+
+/// The answer to a release request, called once on the engine thread.
+type ReleaseAnswer = Box<dyn FnOnce(bool) + Send>;
+
+/// What the engine thread receives: a command, or a release request.
+enum Input {
+    Command(Command),
+    Release(ReleaseAnswer),
 }
 
 /// The engine thread has ended: commands can no longer be delivered.
@@ -195,9 +289,10 @@ pub struct EngineGone;
 /// A handle on the engine thread. Dropping it shuts the engine down.
 #[derive(Debug)]
 pub struct Engine {
-    commands: Sender<Command>,
+    commands: Sender<Input>,
     events: Receiver<Event>,
     underruns: Arc<AtomicU64>,
+    release_requests: ReleaseRequests,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -205,10 +300,12 @@ impl Engine {
     /// Start the engine thread. Sinks are created by `factory`, for
     /// `config.device` first.
     pub fn spawn(factory: Box<dyn SinkFactory>, config: EngineConfig) -> Self {
-        let (commands, command_rx) = mpsc::channel::<Command>();
+        let (commands, command_rx) = mpsc::channel::<Input>();
         let (event_tx, events) = mpsc::channel();
         let underruns = Arc::new(AtomicU64::new(0));
         let thread_underruns = underruns.clone();
+        let release_requests = config.release_requests.clone();
+        release_requests.bind(commands.clone());
         let thread = std::thread::Builder::new()
             .name("audio-engine".into())
             .spawn(move || {
@@ -219,13 +316,22 @@ impl Engine {
             commands,
             events,
             underruns,
+            release_requests,
             thread: Some(thread),
         }
     }
 
+    /// The handle through which another application's `RequestRelease`
+    /// reaches this engine.
+    pub fn release_requests(&self) -> ReleaseRequests {
+        self.release_requests.clone()
+    }
+
     /// Queue a command.
     pub fn send(&self, command: Command) -> Result<(), EngineGone> {
-        self.commands.send(command).map_err(|_| EngineGone)
+        self.commands
+            .send(Input::Command(command))
+            .map_err(|_| EngineGone)
     }
 
     /// The events, in the order they happened.
@@ -249,7 +355,7 @@ impl Engine {
 impl Drop for Engine {
     fn drop(&mut self) {
         if let Some(thread) = self.thread.take() {
-            let _ = self.commands.send(Command::Shutdown);
+            let _ = self.commands.send(Input::Command(Command::Shutdown));
             let _ = thread.join();
         }
     }
@@ -393,6 +499,13 @@ struct EngineThread {
     scratch: Vec<i32>,
     last_position: Option<Duration>,
     last_emit: Duration,
+    /// Release the output after this long paused (`None`: never).
+    release_paused: Option<Duration>,
+    /// Clock time of the last `Pause`.
+    paused_at: Duration,
+    /// Paused with the output released (spec 0005): the format to reopen
+    /// on `Resume`.
+    released: Option<SourceFormat>,
 }
 
 impl EngineThread {
@@ -420,28 +533,123 @@ impl EngineThread {
             scratch: Vec::new(),
             last_position: None,
             last_emit: Duration::ZERO,
+            release_paused: config.release_paused,
+            paused_at: Duration::ZERO,
+            released: None,
         }
     }
 
-    fn run(mut self, commands: Receiver<Command>) {
+    fn run(mut self, inputs: Receiver<Input>) {
+        let shutdown = || Input::Command(Command::Shutdown);
         loop {
             let active = self.current.is_some() && !self.paused;
-            let command = if active {
-                match commands.try_recv() {
-                    Ok(command) => Some(command),
+            let input = if active {
+                match inputs.try_recv() {
+                    Ok(input) => Some(input),
                     Err(TryRecvError::Empty) => None,
-                    Err(TryRecvError::Disconnected) => Some(Command::Shutdown),
+                    Err(TryRecvError::Disconnected) => Some(shutdown()),
+                }
+            } else if self.release_due().is_some() {
+                match inputs.recv_timeout(PAUSED_POLL) {
+                    Ok(input) => Some(input),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => Some(shutdown()),
                 }
             } else {
-                Some(commands.recv().unwrap_or(Command::Shutdown))
+                Some(inputs.recv().unwrap_or_else(|_| shutdown()))
             };
-            match command {
-                Some(command) => {
+            match input {
+                Some(Input::Command(command)) => {
                     if let Flow::Exit = self.handle(command) {
                         return;
                     }
                 }
-                None => self.step(),
+                Some(Input::Release(answer)) => self.request_release(answer),
+                None if active => self.step(),
+                None => self.release_if_due(),
+            }
+        }
+    }
+
+    /// When the paused output is to be released: paused, open, not
+    /// released yet, and a delay set.
+    fn release_due(&self) -> Option<Duration> {
+        let delay = self.release_paused?;
+        (self.paused && self.current.is_some() && self.open.is_some() && self.released.is_none())
+            .then_some(self.paused_at + delay)
+    }
+
+    fn release_if_due(&mut self) {
+        if self
+            .release_due()
+            .is_some_and(|due| self.clock.now() >= due)
+        {
+            self.release(&mut || {});
+        }
+    }
+
+    /// Another application asks for the device (spec 0005): granted while
+    /// paused (and when idle, holding nothing), refused while a track
+    /// loads, plays or buffers.
+    fn request_release(&mut self, answer: ReleaseAnswer) {
+        if self.current.is_some() && !self.paused {
+            answer(false);
+            return;
+        }
+        let mut answer = Some(answer);
+        let mut reply = || {
+            if let Some(answer) = answer.take() {
+                answer(true);
+            }
+        };
+        if self.current.is_some() && self.open.is_some() {
+            self.release(&mut reply);
+        }
+        reply();
+    }
+
+    /// Close the paused output and give its reservation back, calling
+    /// `between` once the PCM is closed and before the reservation is
+    /// released. The frames still in the device were not heard: they go
+    /// back in front of the track's queue, to be played on resume.
+    fn release(&mut self, between: &mut dyn FnMut()) {
+        let Some((format, _)) = self.open.take() else {
+            between();
+            return;
+        };
+        let mut replay = Vec::new();
+        if let Some(sink) = self.sink.as_mut() {
+            let delay = sink.delay_frames().unwrap_or(0);
+            let _ = sink.discard();
+            sink.close_with(between);
+            replay = self.take_unheard(delay);
+        } else {
+            between();
+        }
+        self.sink_paused = false;
+        let format = match self.current.as_mut() {
+            Some(track) => {
+                track.unshift(replay);
+                track.format.unwrap_or(format)
+            }
+            None => format,
+        };
+        self.released = Some(format);
+        self.emit(Event::Released);
+    }
+
+    /// `Resume` after a release: reopen (reserving again), or report why
+    /// not and stay paused with nothing open.
+    fn reacquire(&mut self, format: SourceFormat) -> bool {
+        match self.open_output(format) {
+            Ok(()) => {
+                self.released = None;
+                true
+            }
+            Err(error) => {
+                self.close_output();
+                self.emit(Event::ResumeFailed(error));
+                false
             }
         }
     }
@@ -465,12 +673,19 @@ impl EngineThread {
             Command::Pause => {
                 if self.current.is_some() && !self.paused {
                     self.paused = true;
+                    self.paused_at = self.clock.now();
                     self.sync_pause();
                     self.emit(Event::Paused);
                     self.emit_position();
+                    self.release_if_due();
                 }
             }
             Command::Resume => {
+                if let Some(format) = self.released.filter(|_| self.paused)
+                    && !self.reacquire(format)
+                {
+                    return Flow::Continue;
+                }
                 if self.current.is_some() && self.paused {
                     self.paused = false;
                     self.sync_pause();
@@ -508,6 +723,7 @@ impl EngineThread {
         self.close_output();
         self.paused = false;
         self.buffering = false;
+        self.released = None;
         self.history.clear();
         self.last_position = None;
     }
@@ -520,6 +736,7 @@ impl EngineThread {
         }
         self.paused = false;
         self.buffering = false;
+        self.released = None;
         self.sync_pause();
         self.history.clear();
         self.last_position = None;
@@ -563,13 +780,7 @@ impl EngineThread {
             let delay = old.delay_frames().unwrap_or(0);
             let _ = old.discard();
             old.close();
-            if let Some(track) = &self.current {
-                let frames = delay
-                    .min(track.written)
-                    .min((self.history.len() / 2) as u64);
-                let start = self.history.len() - frames as usize * 2;
-                replay = self.history.drain(start..).collect();
-            }
+            replay = self.take_unheard(delay);
         }
         self.sink_paused = false;
         let Some(track) = self.current.as_mut() else {
@@ -580,6 +791,19 @@ impl EngineThread {
         if let Err(error) = self.open_output(format) {
             self.fail(EngineError::Output(error));
         }
+    }
+
+    /// The last `delay` frames written (the ones a device dropped unheard),
+    /// taken from the history to be played again.
+    fn take_unheard(&mut self, delay: u64) -> Vec<i32> {
+        let Some(track) = &self.current else {
+            return Vec::new();
+        };
+        let frames = delay
+            .min(track.written)
+            .min((self.history.len() / 2) as u64);
+        let start = self.history.len() - frames as usize * 2;
+        self.history.drain(start..).collect()
     }
 
     /// Pause the device while paused or buffering, so nothing it holds is
