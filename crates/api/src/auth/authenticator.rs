@@ -8,7 +8,7 @@ use reqwest::{StatusCode, Url};
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, watch};
 
-use crate::ApiResponse;
+use crate::{ApiResponse, SUB_STATUS_NOT_AVAILABLE};
 
 use super::{
     AuthConfig, AuthError, Clock, LOST_RECHECK, RefreshFailure, SCOPE, Session, SessionStore,
@@ -123,7 +123,9 @@ impl Authenticator {
     ///
     /// Refreshes first when the token expires within 60 s, and once more on
     /// a `401` before retrying once (AC5); a second `401` is
-    /// [`AuthError::Unauthorized`]. Fails fast with
+    /// [`AuthError::Unauthorized`]. A `401` with `subStatus`
+    /// [`SUB_STATUS_NOT_AVAILABLE`] is not about the token: it is returned
+    /// as is, with no refresh and no retry (AC18). Fails fast with
     /// [`AuthError::LoginRequired`] while the session is lost (AC7, AC9).
     /// `timeout` bounds each HTTP request (none by default).
     pub async fn get(
@@ -135,10 +137,10 @@ impl Authenticator {
         let url = self.api_url_with_query(path, query)?;
         let token = self.valid_token().await?;
         let mut response = self.send_get(&url, &token, timeout).await?;
-        if response.status == StatusCode::UNAUTHORIZED {
+        if is_token_rejection(&response) {
             let token = self.token_after_401(&token).await?;
             response = self.send_get(&url, &token, timeout).await?;
-            if response.status == StatusCode::UNAUTHORIZED {
+            if is_token_rejection(&response) {
                 return Err(AuthError::Unauthorized);
             }
         }
@@ -314,6 +316,13 @@ impl Authenticator {
             changed
         });
     }
+}
+
+/// Whether `response` rejects the access token: a `401`, unless its
+/// `subStatus` is [`SUB_STATUS_NOT_AVAILABLE`].
+fn is_token_rejection(response: &ApiResponse) -> bool {
+    response.status() == StatusCode::UNAUTHORIZED
+        && response.sub_status() != Some(SUB_STATUS_NOT_AVAILABLE)
 }
 
 /// Why a refresh is attempted.

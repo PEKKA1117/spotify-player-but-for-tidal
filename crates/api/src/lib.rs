@@ -12,6 +12,11 @@ use std::fmt;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 
+/// Tidal's `subStatus` for "Asset is not ready for playback": a `401` that
+/// says the track (or quality) is not available to the account, not that
+/// the token is bad (spec 0002 AC18).
+pub const SUB_STATUS_NOT_AVAILABLE: u64 = 4005;
+
 /// A response from [`auth::Authenticator::get`]: the status and the whole body,
 /// as the server sent them.
 #[derive(Clone, PartialEq, Eq)]

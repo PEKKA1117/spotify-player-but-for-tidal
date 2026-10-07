@@ -59,8 +59,19 @@ impl FromStr for AudioQuality {
 
     /// Parses a CLI name: `high`, `lossless` or `hi-res` (any case).
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let _ = s;
-        Err(ParseQualityError(String::new()))
+        match s.to_ascii_lowercase().as_str() {
+            "high" => Ok(Self::High),
+            "lossless" => Ok(Self::Lossless),
+            "hi-res" => Ok(Self::HiResLossless),
+            "low" => Err(ParseQualityError(
+                "quality \"low\" is not available: Tidal's LOW streams are HE-AAC, \
+                 which is not supported (use high, lossless or hi-res)"
+                    .into(),
+            )),
+            _ => Err(ParseQualityError(format!(
+                "unknown quality {s:?}: expected hi-res, lossless or high"
+            ))),
+        }
     }
 }
 
