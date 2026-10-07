@@ -349,7 +349,12 @@ fn daemon(plan: &StorePlan) -> Result<ExitCode> {
     config.country = Some(country);
     // The engine opens the device only once something plays (0003).
     let player = spawn_runtime(
-        PlayerRuntime::new(config, time_seed(), spawn_output(&settings.device), jobs),
+        PlayerRuntime::new(
+            config,
+            time_seed(),
+            spawn_output(&settings.device, player_settings.release_paused),
+            jobs,
+        ),
         inputs,
         results,
     );
