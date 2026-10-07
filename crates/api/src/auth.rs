@@ -613,6 +613,9 @@ mod tests {
             "refresh_invalid_client" => {
                 include_str!("../tests/fixtures/auth/refresh_invalid_client.json")
             }
+            "refresh_unauthorized_client" => {
+                include_str!("../tests/fixtures/auth/refresh_unauthorized_client.json")
+            }
             "echoing_error" => include_str!("../tests/fixtures/auth/echoing_error.json"),
             "echoing_malformed_grant" => {
                 include_str!("../tests/fixtures/auth/echoing_malformed_grant.json")
@@ -833,6 +836,8 @@ mod tests {
             (401, "refresh_invalid_grant", SessionLost),
             (400, "refresh_invalid_client", SessionLost),
             (401, "refresh_invalid_client", SessionLost),
+            (400, "refresh_unauthorized_client", SessionLost),
+            (401, "refresh_unauthorized_client", SessionLost),
             (401, "", SessionLost),
             (500, "", Transient),
             (502, "refresh_invalid_grant", Transient),
@@ -849,6 +854,15 @@ mod tests {
                 expected,
                 "{status} {body}"
             );
+        }
+    }
+
+    /// AC19: the warning is true whatever made the PKCE refresh fail.
+    #[test]
+    fn ac19_warning_names_no_cause() {
+        assert!(LOSSY_WARNING.contains("AAC"), "{LOSSY_WARNING}");
+        for cause in ["did not accept", "rejected", "refused"] {
+            assert!(!LOSSY_WARNING.contains(cause), "{LOSSY_WARNING}");
         }
     }
 
