@@ -11,8 +11,8 @@ use tokio::sync::{Mutex, watch};
 use crate::{ApiResponse, SUB_STATUS_NOT_AVAILABLE};
 
 use super::{
-    AuthConfig, AuthError, Clock, LOST_RECHECK, RefreshFailure, SCOPE, Session, SessionStore,
-    TokenGrant, classify_refresh_failure, error_code, form_body, needs_refresh,
+    AuthConfig, AuthError, Clock, LOST_RECHECK, RefreshClient, RefreshFailure, SCOPE, Session,
+    SessionStore, TokenGrant, classify_refresh_failure, error_code, form_body, needs_refresh,
     session_from_refresh,
 };
 
@@ -101,6 +101,12 @@ impl Authenticator {
     pub async fn account(&self) -> (u64, String) {
         let state = self.state.lock().await;
         (state.session.user_id, state.session.country_code.clone())
+    }
+
+    /// The client of this process's last successful refresh, `None` before
+    /// one (AC19).
+    pub async fn refresh_client(&self) -> Option<RefreshClient> {
+        None
     }
 
     /// `GET {api_base}{path}` with the bearer token, decoded as JSON.

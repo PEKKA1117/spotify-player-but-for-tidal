@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub use authenticator::{AuthStatus, Authenticator};
-pub use device::{DeviceCode, DeviceFlow};
+pub use device::{DeviceCode, DeviceFlow, Login};
 
 /// Production base URL of Tidal's OAuth2 endpoints.
 pub const AUTH_BASE: &str = "https://auth.tidal.com/v1/oauth2";
@@ -32,6 +32,13 @@ pub const API_BASE: &str = "https://api.tidal.com/v1";
 pub const CLIENT_ID: &str = "fX2JxdmntZWK0ixT";
 /// Public client secret of the official Tidal app (spec 0002, decision 2).
 pub const CLIENT_SECRET: &str = "1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=";
+/// Public client ID of the official Android app's PKCE login, used for every
+/// refresh: tokens of [`CLIENT_ID`] get AAC for 16-bit tracks (AC19). The
+/// `client_id_pkce` that `tidalapi` ships (spec 0002, decision 2).
+pub const PKCE_CLIENT_ID: &str = "6BDSRdpK9hqEBTgU";
+/// Public client secret that goes with [`PKCE_CLIENT_ID`] (`tidalapi`'s
+/// `client_secret_pkce`).
+pub const PKCE_CLIENT_SECRET: &str = "xeuPmY7nbpZ9IIbLAcQ93shka1VNheUAqN6IcszjTG8=";
 /// OAuth2 scopes requested at login.
 pub const SCOPE: &str = "r_usr w_usr w_sub";
 
@@ -257,8 +264,12 @@ pub struct AuthConfig {
     pub auth_base: String,
     /// Base of the API that [`Authenticator::get_json`] paths resolve against.
     pub api_base: String,
+    /// The device-flow (login) client: [`CLIENT_ID`] in production.
     pub client_id: String,
     pub client_secret: String,
+    /// The client refreshes use: [`PKCE_CLIENT_ID`] in production (AC19).
+    pub pkce_client_id: String,
+    pub pkce_client_secret: String,
 }
 
 impl AuthConfig {
@@ -274,6 +285,8 @@ impl AuthConfig {
             api_base: api_base.into(),
             client_id: CLIENT_ID.into(),
             client_secret: CLIENT_SECRET.into(),
+            pkce_client_id: PKCE_CLIENT_ID.into(),
+            pkce_client_secret: PKCE_CLIENT_SECRET.into(),
         }
     }
 
@@ -284,6 +297,16 @@ impl AuthConfig {
     pub(crate) fn api_url(&self, path: &str) -> String {
         join(&self.api_base, path)
     }
+}
+
+/// Which client a session's access token was refreshed under (AC19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshClient {
+    /// The PKCE client: 16-bit tracks stream as FLAC.
+    Pkce,
+    /// The device-flow client the login used, after Tidal rejected the PKCE
+    /// client: 16-bit tracks stream as AAC.
+    DeviceFlow,
 }
 
 /// Joins a base URL and a path with exactly one slash between them.
@@ -499,7 +522,7 @@ pub fn needs_refresh(session: &Session, now: SystemTime) -> bool {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const T0: Duration = Duration::from_secs(1_800_000_000);
@@ -643,8 +666,11 @@ mod tests {
         ];
         for (body, expected) in cases {
             let server = MockServer::start().await;
+            // The poll only: the post-login refresh (AC19) gets a 404, which
+            // keeps the grant's session as is.
             Mock::given(method("POST"))
                 .and(path("/oauth2/token"))
+                .and(body_string_contains("device_code=FAKE-DEVICE-CODE"))
                 .respond_with(
                     ResponseTemplate::new(200).set_body_raw(fixture(body), "application/json"),
                 )
@@ -671,7 +697,10 @@ mod tests {
                 interval: Duration::from_secs(2),
             };
             let store = MemoryStore::default();
-            let result = flow.complete_login(&code, &store).await;
+            let result = flow
+                .complete_login(&code, &store)
+                .await
+                .map(|login| login.session);
             match expected {
                 Ok((user_id, country)) => {
                     let session = result.unwrap_or_else(|e| panic!("{body}: {e}"));

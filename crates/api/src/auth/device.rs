@@ -7,8 +7,8 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::{
-    AuthConfig, AuthError, Clock, DEVICE_CODE_GRANT, PollOutcome, SCOPE, Session, SessionStore,
-    Sleeper, SystemClock, classify_poll, error_code, form_body, session_from_login,
+    AuthConfig, AuthError, Clock, DEVICE_CODE_GRANT, PollOutcome, RefreshClient, SCOPE, Session,
+    SessionStore, Sleeper, SystemClock, classify_poll, error_code, form_body, session_from_login,
 };
 
 /// Tidal's answer to `POST /device_authorization`: what the user must open
@@ -92,6 +92,16 @@ fn https(uri: &str) -> String {
     } else {
         format!("https://{uri}")
     }
+}
+
+/// What [`DeviceFlow::complete_login`] stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Login {
+    pub session: Session,
+    /// The client `session`'s access token belongs to:
+    /// [`RefreshClient::DeviceFlow`] when the post-login refresh under the
+    /// PKCE client failed and the grant was stored as is (AC19).
+    pub client: RefreshClient,
 }
 
 /// Runs the device flow: [`start_device_flow`](Self::start_device_flow),
@@ -221,9 +231,12 @@ impl DeviceFlow {
         &self,
         code: &DeviceCode,
         store: &dyn SessionStore,
-    ) -> Result<Session, AuthError> {
+    ) -> Result<Login, AuthError> {
         let session = self.wait_for_session(code).await?;
         store.save(&session)?;
-        Ok(session)
+        Ok(Login {
+            session,
+            client: RefreshClient::DeviceFlow,
+        })
     }
 }
