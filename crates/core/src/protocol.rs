@@ -63,7 +63,7 @@ pub enum Command {
 }
 
 /// What a client sends over the socket (spec 0005 "Messages").
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMessage {
     /// Answered with a [`ServerMessage::Welcome`], then every event.
     Subscribe,
@@ -73,7 +73,7 @@ pub enum ClientMessage {
 }
 
 /// What the player sends over the socket (spec 0005 "Messages").
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerMessage {
     /// The answer to `Subscribe`: the state after every input handled so
     /// far; every later event follows.
@@ -87,30 +87,6 @@ pub enum ServerMessage {
         id: u64,
         result: Result<(), String>,
     },
-}
-
-// Red stubs (spec 0005 Test plan AC1): replaced by derives.
-impl Serialize for ClientMessage {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_unit()
-    }
-}
-impl<'de> Deserialize<'de> for ClientMessage {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let _ = d;
-        Err(serde::de::Error::custom("stub"))
-    }
-}
-impl Serialize for ServerMessage {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_unit()
-    }
-}
-impl<'de> Deserialize<'de> for ServerMessage {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let _ = d;
-        Err(serde::de::Error::custom("stub"))
-    }
 }
 
 /// Where `AddToQueue` inserts its tracks.

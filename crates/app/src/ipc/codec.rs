@@ -29,8 +29,10 @@ pub enum DecodeError {
 
 /// `message` as one JSON line, newline included.
 pub fn encode<T: Serialize>(message: &T) -> Vec<u8> {
-    let _ = message;
-    Vec::new()
+    // The protocol's types have string keys only: serialising cannot fail.
+    let mut line = serde_json::to_vec(message).expect("a protocol message serialises");
+    line.push(b'\n');
+    line
 }
 
 /// Decodes one line (without its newline).
@@ -77,8 +79,29 @@ impl LineBuffer {
     /// Takes the next bytes read; returns every line they finished, in
     /// order (a refused one as its error).
     pub fn push(&mut self, mut bytes: &[u8]) -> Vec<Result<Vec<u8>, DecodeError>> {
-        let _ = (&mut bytes, self.discarding, self.limit, &self.buf);
-        Vec::new()
+        let mut lines = Vec::new();
+        let too_long = DecodeError::TooLong { limit: self.limit };
+        while !bytes.is_empty() {
+            let end = bytes.iter().position(|b| *b == b'\n');
+            let part = &bytes[..end.unwrap_or(bytes.len())];
+            if !self.discarding {
+                if self.buf.len() + part.len() > self.limit {
+                    lines.push(Err(too_long.clone()));
+                    self.buf = Vec::new();
+                    self.discarding = true;
+                } else {
+                    self.buf.extend_from_slice(part);
+                }
+            }
+            let Some(end) = end else {
+                break;
+            };
+            if !std::mem::take(&mut self.discarding) {
+                lines.push(Ok(std::mem::take(&mut self.buf)));
+            }
+            bytes = &bytes[end + 1..];
+        }
+        lines
     }
 }
 
@@ -130,10 +153,9 @@ struct Greeting {
 
 /// The player's first line, newline included.
 pub fn greeting() -> Vec<u8> {
-    let _ = Greeting {
+    encode(&Greeting {
         tidal_player: VERSION.to_owned(),
-    };
-    Vec::new()
+    })
 }
 
 /// Why the first line from a socket is not a player this client can use.
@@ -150,8 +172,14 @@ pub enum GreetingError {
 
 /// Checks the first line read from `socket` (without its newline).
 pub fn check_greeting(line: &[u8], socket: &Path) -> Result<(), GreetingError> {
-    let _ = (line, socket);
-    Ok(())
+    match serde_json::from_slice::<Greeting>(line) {
+        Ok(Greeting { tidal_player }) if tidal_player == VERSION => Ok(()),
+        Ok(Greeting { tidal_player }) => Err(GreetingError::Mismatch {
+            theirs: tidal_player,
+            ours: VERSION.to_owned(),
+        }),
+        Err(_) => Err(GreetingError::NotOurs(socket.to_owned())),
+    }
 }
 
 #[cfg(test)]

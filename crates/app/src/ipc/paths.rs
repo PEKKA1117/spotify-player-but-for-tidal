@@ -17,8 +17,10 @@ pub const LOCK_NAME: &str = "player.lock";
 /// The runtime directory: `$TIDAL_PLAYER_RUNTIME_DIR` if set and not empty,
 /// else `$XDG_RUNTIME_DIR/tidal-player`, else `/tmp/tidal-player-<uid>`.
 pub fn runtime_dir(env: impl Fn(&str) -> Option<String>, uid: u32) -> PathBuf {
-    let _ = (env, uid);
-    PathBuf::from("/tmp/tidal-player")
+    let set = |key: &str| env(key).filter(|v| !v.is_empty()).map(PathBuf::from);
+    set(RUNTIME_DIR_VAR)
+        .or_else(|| set("XDG_RUNTIME_DIR").map(|dir| dir.join("tidal-player")))
+        .unwrap_or_else(|| PathBuf::from(format!("/tmp/tidal-player-{uid}")))
 }
 
 /// What [`check_private`] looks at.
@@ -46,8 +48,18 @@ impl DirMeta {
 
 /// `Ok` when a directory with `meta` is private to `uid`, else the reason.
 pub fn check_private(meta: DirMeta, uid: u32) -> Result<(), String> {
-    let _ = (meta, uid);
-    Ok(())
+    if !meta.is_dir {
+        Err("not a directory".to_owned())
+    } else if meta.uid != uid {
+        Err(format!("owned by uid {}", meta.uid))
+    } else if meta.mode & 0o077 != 0 {
+        Err(format!(
+            "mode {:04o}, group or others have access",
+            meta.mode & 0o777
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Why the runtime directory cannot be used (exit 1).
@@ -63,8 +75,24 @@ pub enum RuntimeDirError {
 /// existing one is a directory owned by `uid` that only `uid` can use.
 /// Nothing is ever chmod'ed.
 pub fn prepare_runtime_dir(path: &Path, uid: u32) -> Result<(), RuntimeDirError> {
-    let _ = (path, uid);
-    Ok(())
+    use std::os::unix::fs::DirBuilderExt;
+    let io_error = |source| RuntimeDirError::Io {
+        path: path.to_owned(),
+        source,
+    };
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(io_error(e)),
+    }
+    let meta = DirMeta::of(path).map_err(io_error)?;
+    check_private(meta, uid).map_err(|reason| RuntimeDirError::NotPrivate {
+        path: path.to_owned(),
+        reason,
+    })
 }
 
 /// This process's user ID: the owner of `/proc/self` (std has no
