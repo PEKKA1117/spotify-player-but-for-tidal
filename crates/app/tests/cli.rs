@@ -328,3 +328,52 @@ fn ac26_play_end_to_end_errors() {
         .code(1)
         .stderr("Track 404 is not available in NO\n");
 }
+
+// Spec 0004 AC18: a bad item is refused before anything plays (exit 2),
+// before the session is even looked at.
+
+#[test]
+fn ac18_bad_item() {
+    let state = tempfile::tempdir().unwrap();
+    let artist = "https://tidal.com/browse/artist/1";
+    let refused = format!("Not a Tidal track, album or playlist: {artist}\n");
+    bin_in(state.path())
+        .args(["play", "123", artist])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(refused.clone());
+    // `tidal-player [ITEM]...` too, before a login prompt or the terminal.
+    bin_in(state.path())
+        .args(["123", artist])
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(refused);
+}
+
+// Spec 0004 AC28: `--add-to-queue` and `--play-next` are mutually exclusive
+// and need an item (exit 2). The invalid quality makes sure no case gets as
+// far as a login prompt: the flags are refused before any setting is read.
+
+#[test]
+fn ac28_queue_flags() {
+    let state = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        bin_in(state.path())
+            .args(args)
+            .env("TIDAL_PLAYER_QUALITY", "bogus")
+            .assert()
+            .code(2)
+            .stdout("")
+    };
+    run(&["--add-to-queue", "--play-next", "123"])
+        .stderr(predicate::str::contains("cannot be used with"));
+    for flag in ["--add-to-queue", "--play-next"] {
+        run(&[flag]).stderr(predicate::str::contains("required"));
+        // With an item, the flag is accepted and the item is checked.
+        let artist = "https://tidal.com/browse/artist/1";
+        run(&[flag, artist]).stderr(format!("Not a Tidal track, album or playlist: {artist}\n"));
+    }
+}

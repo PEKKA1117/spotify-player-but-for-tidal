@@ -1,0 +1,16 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────┐
+│▶ Hell Above · Pierce The Veil     80%│
+│  Collide With The Sky                │
+│  not bit-perfect: volume below 100%  │
+│  ━━━━━━━━━──────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────┐│
+││  1   May These N…  Pierce T…   4:01││
+││▶ 2   Hell Above    Pierce T…   3:32││
+││  3   A Match Int…  Pierce T…   4:22││
+││  4   King For A…   Pierce T…   3:52││
+│└────────────────────────────────────┘│
+└──────────────────────────────────────┘

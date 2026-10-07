@@ -17,6 +17,19 @@ struct OpenState {
     channels: usize,
     period_frames: usize,
     reserved: Option<u32>,
+    pcm: Pcm,
+}
+
+/// Where the PCM is, as far as pausing goes (0003 AC29): ALSA accepts
+/// `snd_pcm_pause(1)` only on a running PCM and `snd_pcm_pause(0)` only on a
+/// paused one, and answers `EBADFD` otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pcm {
+    /// Opened, discarded, drained or recovered: holds nothing, plays nothing
+    /// until written to.
+    Prepared,
+    Running,
+    Paused,
 }
 
 /// A [`Sink`] for one device name, generic over the PCM backend.
@@ -54,6 +67,12 @@ impl<B: PcmBackend> PcmSink<B> {
         self.open.as_ref().ok_or(SinkError::NotOpen)
     }
 
+    fn set_pcm(&mut self, pcm: Pcm) {
+        if let Some(state) = self.open.as_mut() {
+            state.pcm = pcm;
+        }
+    }
+
     fn error(&self, error: PcmError) -> SinkError {
         match error {
             PcmError::Lost => SinkError::Lost(self.requested.clone()),
@@ -89,6 +108,7 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
             channels: usize::from(config.channels),
             period_frames: config.period_frames as usize,
             reserved,
+            pcm: Pcm::Prepared,
         });
         Ok(info)
     }
@@ -101,12 +121,18 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
         self.bytes.clear();
         pack_into(&samples[..frames * channels], format, &mut self.bytes);
         match self.backend.write(&self.bytes) {
-            Ok(frames) => Ok(WriteOutcome {
-                frames,
-                underrun: false,
-            }),
+            Ok(frames) => {
+                if frames > 0 {
+                    self.set_pcm(Pcm::Running);
+                }
+                Ok(WriteOutcome {
+                    frames,
+                    underrun: false,
+                })
+            }
             Err(error @ (PcmError::Underrun | PcmError::Suspended)) => {
                 self.backend.recover(&error).map_err(|e| self.error(e))?;
+                self.set_pcm(Pcm::Prepared);
                 Ok(WriteOutcome {
                     frames: 0,
                     underrun: true,
@@ -125,21 +151,34 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
         }
     }
 
+    /// Pauses or resumes the device where ALSA allows it (0003 AC29). A
+    /// prepared PCM holds nothing and plays nothing until written to, which
+    /// the engine does not do while paused, so there is nothing to pause.
     fn set_paused(&mut self, paused: bool) -> Result<(), SinkError> {
-        self.state()?;
-        self.backend.pause(paused).map_err(|e| self.error(e))
+        let target = match (paused, self.state()?.pcm) {
+            (true, Pcm::Running) => Pcm::Paused,
+            (false, Pcm::Paused) => Pcm::Running,
+            _ => return Ok(()),
+        };
+        self.backend.pause(paused).map_err(|e| self.error(e))?;
+        self.set_pcm(target);
+        Ok(())
     }
 
     fn discard(&mut self) -> Result<(), SinkError> {
         self.state()?;
         self.backend.drop_frames().map_err(|e| self.error(e))?;
-        self.backend.prepare().map_err(|e| self.error(e))
+        self.backend.prepare().map_err(|e| self.error(e))?;
+        self.set_pcm(Pcm::Prepared);
+        Ok(())
     }
 
     fn drain(&mut self) -> Result<(), SinkError> {
         self.state()?;
         self.backend.drain().map_err(|e| self.error(e))?;
-        self.backend.prepare().map_err(|e| self.error(e))
+        self.backend.prepare().map_err(|e| self.error(e))?;
+        self.set_pcm(Pcm::Prepared);
+        Ok(())
     }
 
     fn close(&mut self) {
@@ -338,6 +377,9 @@ mod tests {
         log.clear();
         backend.set_delay(4096);
         assert_eq!(s.delay_frames(), Ok(4096));
+        // Pausing needs a running PCM (0003 AC29).
+        s.write(&[0, 0]).unwrap();
+        log.clear();
         s.set_paused(true).unwrap();
         s.set_paused(false).unwrap();
         s.discard().unwrap();
@@ -353,6 +395,78 @@ mod tests {
                 Call::Prepare,
             ]
         );
+    }
+
+    /// 0003 AC29: `snd_pcm_pause` only where ALSA accepts it (the fake
+    /// answers `EBADFD` elsewhere, as ALSA does).
+    #[test]
+    fn ac29_pause_follows_pcm_state() {
+        #[derive(Debug, Clone, Copy)]
+        enum Step {
+            Write,
+            Pause,
+            Resume,
+            Discard,
+            Underrun,
+        }
+        use Step::*;
+        let rows: [(&str, &[Step], &[Call]); 6] = [
+            ("pause right after open", &[Pause, Resume], &[]),
+            (
+                "pause, then resume",
+                &[Write, Pause, Resume],
+                &[Call::Pause(true), Call::Pause(false)],
+            ),
+            (
+                "seek, then buffering pause and resume",
+                &[Write, Discard, Pause, Resume],
+                &[],
+            ),
+            (
+                "seek while paused, then resume",
+                &[Write, Pause, Discard, Resume],
+                &[Call::Pause(true)],
+            ),
+            (
+                "seek while paused, resume, write, pause",
+                &[Write, Pause, Discard, Resume, Write, Pause],
+                &[Call::Pause(true), Call::Pause(true)],
+            ),
+            (
+                "underrun recovered, then pause",
+                &[Write, Underrun, Pause],
+                &[],
+            ),
+        ];
+        for (name, steps, pauses) in rows {
+            let log = Log::default();
+            let script: Vec<_> = steps
+                .iter()
+                .filter(|s| matches!(s, Write | Underrun))
+                .map(|s| match s {
+                    Underrun => Err(PcmError::Underrun),
+                    _ => Ok(1),
+                })
+                .collect();
+            let backend = device(&log).with_write_results(script);
+            let mut s = sink(&log, backend);
+            s.open(&HIRES).unwrap();
+            for step in steps {
+                let result = match step {
+                    Write | Underrun => s.write(&[0, 0]).map(|_| ()),
+                    Pause => s.set_paused(true),
+                    Resume => s.set_paused(false),
+                    Discard => s.discard(),
+                };
+                assert_eq!(result, Ok(()), "{name}: {step:?}");
+            }
+            let seen: Vec<Call> = log
+                .calls()
+                .into_iter()
+                .filter(|c| matches!(c, Call::Pause(_)))
+                .collect();
+            assert_eq!(seen, pauses, "{name}");
+        }
     }
 
     #[test]

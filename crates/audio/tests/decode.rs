@@ -115,11 +115,14 @@ fn ac8_aac_lc_and_he_aac() {
     assert!(
         matches!(
             events.last(),
-            Some(Event::Error(EngineError::Unsupported(_)))
+            Some(Event::Error {
+                error: EngineError::Unsupported(_),
+                ..
+            })
         ),
         "{events:?}"
     );
-    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded)), 0);
+    assert_eq!(count(&events, |e| matches!(e, Event::TrackEnded { .. })), 0);
     rig.stop();
     assert!(
         !rig.sinks

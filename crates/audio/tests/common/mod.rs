@@ -124,10 +124,36 @@ impl Rig {
     }
 
     pub fn play(&self, source: FakeSource) {
+        self.play_tagged(0, source);
+    }
+
+    pub fn play_tagged(&self, tag: u64, source: FakeSource) {
         self.send(Command::Play {
+            tag,
             source: Box::new(source),
             start_at: Duration::ZERO,
         });
+    }
+
+    pub fn preload(&self, tag: u64, source: FakeSource) {
+        self.send(Command::Preload {
+            tag,
+            source: Box::new(source),
+        });
+    }
+
+    /// Wait until `frames` frames reached the fake devices (a held device
+    /// stops there).
+    pub fn wait_frames(&self, frames: usize) {
+        let deadline = std::time::Instant::now() + SOON;
+        while self.sinks.frames_written() < frames {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {frames} frames, got {}",
+                self.sinks.frames_written()
+            );
+            std::thread::yield_now();
+        }
     }
 
     /// The next event; panics after `SOON`.
@@ -158,7 +184,7 @@ impl Rig {
     /// Events until the track ends or fails (inclusive).
     pub fn until_end(&self) -> Vec<Event> {
         self.until("TrackEnded or Error", |e| {
-            matches!(e, Event::TrackEnded | Event::Error(_))
+            matches!(e, Event::TrackEnded { .. } | Event::Error { .. })
         })
     }
 

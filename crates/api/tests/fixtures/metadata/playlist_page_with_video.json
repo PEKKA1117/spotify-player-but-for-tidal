@@ -1,0 +1,282 @@
+{
+  "limit": 100,
+  "offset": 0,
+  "totalNumberOfItems": 4,
+  "items": [
+    {
+      "item": {
+        "id": 1001,
+        "title": "Track One",
+        "duration": 200,
+        "replayGain": -11.56,
+        "peak": 0.922334,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2014-10-13T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 1,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 79,
+        "copyright": "(P) 1980 Fake Records",
+        "bpm": 137,
+        "key": "A",
+        "keyScale": "MAJOR",
+        "url": "http://www.tidal.com/track/1001",
+        "isrc": "XXXX11000001",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS",
+            "HIRES_LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "accessType": "PUBLIC",
+        "spotlighted": false,
+        "ai": false,
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "handle": null,
+          "type": "MAIN",
+          "picture": "00000000-0000-4000-8000-000000000001"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "00000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "album": {
+          "id": 2001,
+          "title": "Album One",
+          "cover": "00000000-0000-4000-8000-000000000002",
+          "vibrantColor": "#ecd369",
+          "videoCover": null,
+          "releaseDate": "1980-09-20T00:00:00.000+0000"
+        },
+        "mixes": {
+          "TRACK_MIX": "0000000000000000000000000000aa"
+        },
+        "dateAdded": "2026-09-02T07:58:18.723+0000",
+        "index": 100000,
+        "itemUuid": "00000000-0000-4000-8000-000000000101",
+        "description": null
+      },
+      "type": "track",
+      "cut": null
+    },
+    {
+      "item": {
+        "id": 1002,
+        "title": "Track Two",
+        "duration": 201,
+        "replayGain": -11.56,
+        "peak": 0.922334,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2014-10-13T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 2,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 79,
+        "copyright": "(P) 1980 Fake Records",
+        "bpm": 137,
+        "key": "A",
+        "keyScale": "MAJOR",
+        "url": "http://www.tidal.com/track/1002",
+        "isrc": "XXXX11000001",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS",
+            "HIRES_LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "accessType": "PUBLIC",
+        "spotlighted": false,
+        "ai": false,
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "handle": null,
+          "type": "MAIN",
+          "picture": "00000000-0000-4000-8000-000000000001"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "00000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "album": {
+          "id": 2001,
+          "title": "Album One",
+          "cover": "00000000-0000-4000-8000-000000000002",
+          "vibrantColor": "#ecd369",
+          "videoCover": null,
+          "releaseDate": "1980-09-20T00:00:00.000+0000"
+        },
+        "mixes": {
+          "TRACK_MIX": "0000000000000000000000000000aa"
+        },
+        "dateAdded": "2026-09-02T07:58:18.723+0000",
+        "index": 200000,
+        "itemUuid": "00000000-0000-4000-8000-000000000102",
+        "description": null
+      },
+      "type": "track",
+      "cut": null
+    },
+    {
+      "item": {
+        "id": 5001,
+        "title": "Video One",
+        "volumeNumber": 0,
+        "trackNumber": 0,
+        "releaseDate": "2021-04-28T00:00:00.000+0000",
+        "imagePath": null,
+        "imageId": "00000000-0000-4000-8000-000000000003",
+        "vibrantColor": "#f2aafe",
+        "duration": 244,
+        "quality": "MP4_1080P",
+        "streamReady": true,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2026-02-16T00:00:00.000+0000",
+        "allowStreaming": true,
+        "explicit": false,
+        "popularity": 0,
+        "type": "Music Video",
+        "adsUrl": null,
+        "adsPrePaywallOnly": true,
+        "artist": {
+          "id": 3003,
+          "name": "Artist C",
+          "handle": null,
+          "type": "MAIN",
+          "picture": "00000000-0000-4000-8000-000000000001"
+        },
+        "artists": [
+          {
+            "id": 3003,
+            "name": "Artist C",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "00000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "album": null,
+        "dateAdded": "2026-09-02T07:58:18.723+0000",
+        "index": 2500000,
+        "itemUuid": "00000000-0000-4000-8000-000000000199"
+      },
+      "type": "video",
+      "cut": null
+    },
+    {
+      "item": {
+        "id": 1003,
+        "title": "Track Three",
+        "duration": 202,
+        "replayGain": -11.56,
+        "peak": 0.922334,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2014-10-13T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 3,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 79,
+        "copyright": "(P) 1980 Fake Records",
+        "bpm": 137,
+        "key": "A",
+        "keyScale": "MAJOR",
+        "url": "http://www.tidal.com/track/1003",
+        "isrc": "XXXX11000001",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS",
+            "HIRES_LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "accessType": "PUBLIC",
+        "spotlighted": false,
+        "ai": false,
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "handle": null,
+          "type": "MAIN",
+          "picture": "00000000-0000-4000-8000-000000000001"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "00000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "album": {
+          "id": 2001,
+          "title": "Album One",
+          "cover": "00000000-0000-4000-8000-000000000002",
+          "vibrantColor": "#ecd369",
+          "videoCover": null,
+          "releaseDate": "1980-09-20T00:00:00.000+0000"
+        },
+        "mixes": {
+          "TRACK_MIX": "0000000000000000000000000000aa"
+        },
+        "dateAdded": "2026-09-02T07:58:18.723+0000",
+        "index": 300000,
+        "itemUuid": "00000000-0000-4000-8000-000000000103",
+        "description": null
+      },
+      "type": "track",
+      "cut": null
+    }
+  ]
+}

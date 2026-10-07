@@ -1,0 +1,28 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Track 30 · Artist                                shuffle  repeat: queue  80%│
+│  Album                                                                       │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:30│
+│┌Queue (40)──────────────────────────────────────────────────────────────────┐│
+││  22  Track 22                 Artist             Album                 3:22││
+││  23  Track 23                 Artist             Album                 3:23││
+││  24  Track 24                 Artist             Album                 3:24││
+││  25  Track 25                 Artist             Album                 3:25││
+││  26  Track 26                 Artist             Album                 3:26││
+││  27  Track 27                 Artist             Album                 3:27││
+││  28  Track 28                 Artist             Album                 3:28││
+││  29  Track 29                 Artist             Album                 3:29││
+││▶ 30  Track 30                 Artist             Album                 3:30││
+││  31  Track 31                 Artist             Album                 3:31││
+││  32  Track 32                 Artist             Album                 3:32││
+││  33  Track 33                 Artist             Album                 3:33││
+││  34  Track 34                 Artist             Album                 3:34││
+││  35  Track 35                 Artist             Album                 3:35││
+││  36  Track 36                 Artist             Album                 3:36││
+││  37  Track 37                 Artist             Album                 3:37││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘
