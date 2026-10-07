@@ -427,35 +427,32 @@ impl Window {
                 }
             }
         }
-        let (offset, received, total, hidden) = match (&mut self.rows, &items) {
+        let (offset, total, hidden) = match (&mut self.rows, &items) {
             (Rows::Tracks(rows), ListItems::Tracks(page)) => {
                 add(rows, &mut self.positions, page, |t| Row::Track(t).key());
-                (page.offset, page.items.len(), page.total, page.hidden)
+                (page.offset, page.total, page.hidden)
             }
             (Rows::Albums(rows), ListItems::Albums(page)) => {
                 add(rows, &mut self.positions, page, |a| Row::Album(a).key());
-                (page.offset, page.items.len(), page.total, page.hidden)
+                (page.offset, page.total, page.hidden)
             }
             (Rows::Playlists(rows), ListItems::Playlists(page)) => {
                 add(rows, &mut self.positions, page, |p| Row::Playlist(p).key());
-                (page.offset, page.items.len(), page.total, page.hidden)
+                (page.offset, page.total, page.hidden)
             }
             (Rows::Artists(rows), ListItems::Artists(page)) => {
                 add(rows, &mut self.positions, page, |a| Row::Artist(a).key());
-                (page.offset, page.items.len(), page.total, page.hidden)
+                (page.offset, page.total, page.hidden)
             }
             (Rows::Credits(rows), ListItems::Credits(page)) => {
                 add(rows, &mut self.positions, page, |c| Row::Credit(c).key());
-                (page.offset, page.items.len(), page.total, page.hidden)
+                (page.offset, page.total, page.hidden)
             }
             _ => return,
         };
-        let received = u32::try_from(received).unwrap_or(u32::MAX);
         self.total = Some(total);
         self.hidden += hidden;
-        self.next_offset = self
-            .next_offset
-            .max(offset.saturating_add(limit.max(received)));
+        self.next_offset = self.next_offset.max(offset.saturating_add(limit));
         self.load = Load::Idle;
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
     }
@@ -668,7 +665,7 @@ pub fn group(n: u32) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(' ');
         }
         out.push(c);

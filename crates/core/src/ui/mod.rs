@@ -420,7 +420,8 @@ fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
     // volume and modes (they apply to the next load too) and playback keys
     // (they need a queue).
     let command = match key {
-        Key::Char('q') | Key::Esc => return vec![Effect::Quit],
+        Key::Char('q') | Key::Ctrl('c') => return vec![Effect::Quit],
+        Key::Esc => return Vec::new(),
         Key::Char('z') => return browse::open(state, PageKind::Queue),
         Key::Backspace | Key::Ctrl('q') => return browse::back(state),
         Key::Ctrl(' ') => return browse::actions_on_selected(state),

@@ -321,7 +321,8 @@ fn ac9_history() {
 
     // (keys from a loaded library page, the page pushed, its request, the
     // keys that open it again)
-    let cases: Vec<(Vec<Key>, PageKind, Option<PageRequest>, Vec<Key>)> = vec![
+    type Case = (Vec<Key>, PageKind, Option<PageRequest>, Vec<Key>);
+    let cases: Vec<Case> = vec![
         (
             GY.to_vec(),
             PageKind::FavoriteTracks,
@@ -466,10 +467,18 @@ fn ac9_reply_by_id() {
             },
         ),
         (
-            "an album's error is shown as the player words it",
+            "the favorite tracks' error",
             Who::Top,
-            Err("Album 1 was not found".into()),
-            |s| assert_eq!(s.page().load, Load::Failed("Album 1 was not found".into())),
+            Err("Tidal answered 429: try again in a moment".into()),
+            |s| {
+                assert_eq!(
+                    s.page().load,
+                    Load::Failed(
+                        "Could not load the favorite tracks: Tidal answered 429: try again in a moment"
+                            .into()
+                    )
+                )
+            },
         ),
         (
             "an unknown ID is dropped",
@@ -496,6 +505,15 @@ fn ac9_reply_by_id() {
         );
         check(&state);
     }
+
+    // An album's error is shown as the player words it.
+    let mut state = library();
+    let (id, _) = one_request(&press(&mut state, &[Key::Tab, Key::Enter]));
+    assert_eq!(fail(&mut state, id, "Album 10 was not found"), vec![]);
+    assert_eq!(
+        state.page().load,
+        Load::Failed("Album 10 was not found".into())
+    );
 
     // A second reply with an answered ID is dropped.
     let (mut state, a, _) = setup();
@@ -854,7 +872,8 @@ fn ac12_play_and_queue() {
         open(&mut state, &GY, fav_data(tracks([4, 6]), 2));
         state
     };
-    let cases: Vec<(fn() -> State, Vec<Key>, Vec<Out>)> = vec![
+    type Case = (fn() -> State, Vec<Key>, Vec<Out>);
+    let cases: Vec<Case> = vec![
         (
             fav,
             vec![Char('Z')],
@@ -1215,7 +1234,7 @@ fn ac13_actions_popup() {
     };
     assert_eq!(press(&mut state, &[Char('k')]), vec![]);
     assert_eq!(cursor(&state), 0);
-    press(&mut state, &vec![Char('j'); 20]);
+    press(&mut state, &[Char('j'); 20]);
     assert_eq!(cursor(&state), 7);
     let before = state.clone();
     assert_eq!(

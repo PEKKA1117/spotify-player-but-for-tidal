@@ -6,7 +6,7 @@ use crate::item::Item;
 use crate::library::{AlbumSummary, FavoriteKind, PlaylistSummary};
 use crate::track::{ArtistRef, EntryId, Track};
 
-use super::page::{PageKind, Window};
+use super::page::{PageKind, Rows, Window};
 
 /// The first row of *Add to playlist…*.
 pub const NEW_PLAYLIST: &str = "New playlist…";
@@ -121,12 +121,17 @@ impl Popup {
     /// The own playlists *Add to playlist…* lists, in Tidal's order.
     pub fn own_playlists(&self) -> Vec<&PlaylistSummary> {
         match self {
-            Self::AddToPlaylist { playlists, .. } => match &playlists.rows {
-                super::page::Rows::Playlists(rows) => rows.iter().filter(|p| p.own).collect(),
-                _ => Vec::new(),
-            },
+            Self::AddToPlaylist { playlists, .. } => own(playlists),
             _ => Vec::new(),
         }
+    }
+}
+
+/// The own playlists among a playlists window's rows.
+pub(super) fn own(playlists: &Window) -> Vec<&PlaylistSummary> {
+    match &playlists.rows {
+        Rows::Playlists(rows) => rows.iter().filter(|p| p.own).collect(),
+        _ => Vec::new(),
     }
 }
 
