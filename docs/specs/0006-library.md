@@ -294,8 +294,21 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-library-probe.
 - `GET /v1/artists/{id}/albums` → bare albums, default page 10, `limit=1000` accepted; without `filter` only `type: ALBUM` (12). `filter=EPSANDSINGLES` → `EP` and `SINGLE` (66). `filter=COMPILATIONS` → the "appears on" albums (30, mostly by `Various Artists`, of every type). The same title can appear twice with different IDs (two `DISASTERPIECE` releases differing in `mediaMetadata.tags`); both are kept, as Tidal lists them
 - `GET /v1/artists/{id}/similar` → `{limit, offset, totalNumberOfItems, items: [artist + relationType: "SIMILAR_ARTIST"], source: "TiVo"}` (4 for this artist)
 
+Verified on 2026-10-07 against the **live API** by `scripts/tidal-library-write-probe.sh`, run by the user (everything it added was removed again; the probe playlist was deleted):
+
+- **Favorites**: `POST /v1/users/{user}/favorites/{tracks|albums|artists|playlists}?countryCode=…` with a form body `trackIds` / `albumIds` / `artistIds` / `uuids` → `200`, empty body, an `ETag` header. Adding again is `200` too (no duplicate: the total grew by one). A comma list (`trackIds=a,b`) adds both. The added item comes first in the DATE DESC list. `DELETE /v1/users/{user}/favorites/{kind}/{id}` → `200`, also when it is not a favorite. An unknown track → `404`/`2001` (with the message `Album not found`, so the message is not shown as is)
+- **Create**: `POST /v1/users/{user}/playlists?countryCode=…` with form `title`, `description` → `201` and the playlist object (`uuid`, `numberOfTracks: 0`, `publicPlaylist: false`), `ETag` header
+- **Edit needs the current ETag**: `GET /v1/playlists/{uuid}` returns `ETag: "<lastUpdated ms>"`; every edit sends it as `If-None-Match`. Without it, or with an outdated one, `412 {"subStatus":7002,"userMessage":"You must send the correct Etag value in the If-None-Match header to modify a playlist"}`. Each successful edit answers the new ETag
+- **Add**: `POST /v1/playlists/{uuid}/items` with form `trackIds` (comma list), `onDupes` (`FAIL`/`ADD`), optional `toIndex` → `200 {"lastUpdated", "addedItemIds"}`; `toIndex=0` inserted at the top. Whether `onDupes=FAIL` refuses a track already in the playlist was not shown (the probe's "duplicate" was not one yet); the app sends `onDupes=ADD` only when the user confirms adding a duplicate, else it checks the loaded list itself
+- **Remove**: `DELETE /v1/playlists/{uuid}/items/{index}` (0-based position) with the ETag → `200`; the same request with the previous ETag → `412`. Positions shift after each removal, so a removal is addressed by position *and* checked against the ETag the list was loaded with: on `412` the app reloads the playlist and says `The playlist changed: removed nothing, try again`, never removing by a stale position
+- **Delete**: `DELETE /v1/playlists/{uuid}` with the ETag → `204`; then `GET` → `404`/`2001`
+- Someone else's playlist without an ETag → `412`/`7002`, so ownership was not tested; *Add to playlist* lists only the user's own playlists (`USER_CREATED`), so it never tries
+
+Verified by the user's capture and `scripts/tidal-artist-tracks-probe.sh` (first request only; the rest of its output was cut): `GET /v1/pages/contributor?artistId=…&countryCode=…&deviceType=BROWSER&locale=en_US` answers `200` on `api.tidal.com` **without any token** as well, with the same body as tidal.com's.
+
 Not verified:
 
+- Whether `pages/data/<uuid>?artistId=…` pages with `limit`/`offset` and its largest page (the probe is rerun with a summarised output)
 - Whether the short page (358 of 362) is the server dropping tracks unavailable in the country, and whether it happens on pages other than the last (the walk handles both, AC4)
 - Page sizes above 1000 on the favorites albums/artists and artist-albums endpoints (not needed: the walk uses 1000)
 - The order the Tidal apps themselves show the library in
