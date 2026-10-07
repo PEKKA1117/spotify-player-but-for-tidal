@@ -1,6 +1,6 @@
 # 0005 — Daemon & client mode
 
-- **Status**: draft
+- **Status**: approved (2026-10-07)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented: run modes, the `Command`/`Event` boundary), 0002 (implemented: the daemon's passphrase sources, `LoginRequired`/`LoginRestored`), 0003 (implemented: the engine and the reservation), 0004 (implemented: the player runtime, the TUI)
 - **User docs**: a new [`docs/daemon.md`](../daemon.md); [`docs/playback.md`](../playback.md), [`docs/tui.md`](../tui.md) and [`docs/login.md`](../login.md) lose their "until 0005" notes (AC24)
@@ -333,14 +333,14 @@ Assumptions to check during implementation or at acceptance:
 - The 0003 reservation dance plus reopen makes resume after a release take well under a second on the user's DAC (manual check)
 - A browser `tidal://` handler is not part of this spec; `docs/daemon.md` may show `tidal-player playback add` as one
 
-## Decisions (proposed, for the user to answer before approval)
+## Decisions (answered by the user, 2026-10-07: all as proposed)
 
-1. **Transport**: a Unix socket with JSON lines (proposed) rather than a private D-Bus interface as tidalt had. The `Command`/`Event` types already serialise to JSON; a socket needs no session bus (a headless box over SSH may have none), carries push events and a connection lifetime (attach/detach) for free, and is testable in-process. MPRIS (0010) is D-Bus and stays separate: a public adapter on top of the player, not the client channel
-2. **Who is the player when no daemon runs**: the first `tidal-player` (standalone, as in 0004), which also serves the socket (proposed). Alternative: `tidal-player` always starts a background daemon and is only ever a client, so quitting the TUI never stops the music. Proposed keeps 0001's three modes and spotify-player's behaviour (quitting stops)
-3. **Item expansion in the player** (`Command::Open`, proposed): clients need no session, no passphrase and no API access, and one-shot commands are a single message. Alternative: clients expand and send tracks (needs a session in every client, which 0006's browsing will need anyway). Proposed for now; 0006 decides how its browsing pages fetch
-4. **Release delay**: 10 s by default, `0` for tidalt's release-at-once, `never` (proposed). `RequestRelease` is honoured while paused whatever the setting
-5. **systemd unit**: printed by `tidal-player daemon unit`, installed by the user (proposed), rather than tidalt's `setup --daemon` writing it and running `systemctl` itself
-6. **One-shot commands**: the table under "One-shot commands" (proposed): toggles only, as 0004's protocol has; explicit `play`/`pause`/`set` commands come with MPRIS's setters (0010)
+1. **Transport**: a Unix socket with JSON lines (*accepted*) rather than a private D-Bus interface as tidalt had. The `Command`/`Event` types already serialise to JSON; a socket needs no session bus (a headless box over SSH may have none), carries push events and a connection lifetime (attach/detach) for free, and is testable in-process. MPRIS (0010) is D-Bus and stays separate: a public adapter on top of the player, not the client channel
+2. **Who is the player when no daemon runs**: the first `tidal-player` (standalone, as in 0004), which also serves the socket (*accepted*). Alternative: `tidal-player` always starts a background daemon and is only ever a client, so quitting the TUI never stops the music. Proposed keeps 0001's three modes and spotify-player's behaviour (quitting stops)
+3. **Item expansion in the player** (`Command::Open`, *accepted*): clients need no session, no passphrase and no API access, and one-shot commands are a single message. Alternative: clients expand and send tracks (needs a session in every client, which 0006's browsing will need anyway). Proposed for now; 0006 decides how its browsing pages fetch
+4. **Release delay**: 10 s by default, `0` for tidalt's release-at-once, `never` (*accepted*). `RequestRelease` is honoured while paused whatever the setting
+5. **systemd unit**: printed by `tidal-player daemon unit`, installed by the user (*accepted*), rather than tidalt's `setup --daemon` writing it and running `systemctl` itself
+6. **One-shot commands**: the table under "One-shot commands" (*accepted*): toggles only, as 0004's protocol has; explicit `play`/`pause`/`set` commands come with MPRIS's setters (0010)
 
 ## Out of scope
 
