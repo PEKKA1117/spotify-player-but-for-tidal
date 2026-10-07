@@ -37,7 +37,7 @@ Read from `internal/tidal/api.go` and `internal/player/{mpv.go,alsa.c,avcodec.c,
 
 | Command | What it does |
 |---|---|
-| `tidal-player play <track-id> [--quality Q] [--device PCM] [--start SECONDS]` | Resolves and plays one track in the foreground, headless (no TUI), and exits when it ends. Meant for trying the engine and for acceptance until 0004 adds the queue and the TUI controls. Needs a stored session (spec 0002); without one it exits 1 with `Not logged in: run "tidal-player login"` |
+| `tidal-player play <track-id> [--quality Q] [--device PCM] [--start SECONDS]` | Resolves and plays one track in the foreground, headless (no TUI), and exits when it ends. A permanent CLI command (decision 3); also how the engine is accepted before 0004 adds the queue and the TUI controls. Needs a stored session (spec 0002); without one it exits 1 with `Not logged in: run "tidal-player login"` |
 | `tidal-player devices` | Lists the playback devices: `default` (shared) first, then every `hw:C,D` with a playback stream, with the card's name. The device that `play` would use is marked `*` |
 
 `play` prints, then a progress line that redraws in place when stdout is a terminal (and nothing more when it is not):
@@ -58,7 +58,7 @@ Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect
 | Setting | Flag | Environment | Default |
 |---|---|---|---|
 | Highest quality to ask for | `--quality` (`hi-res`, `lossless`, `high`) | `TIDAL_PLAYER_QUALITY` | `hi-res` |
-| Output device | `--device` (any ALSA PCM name) | `TIDAL_PLAYER_DEVICE` | see decision 2 (proposed: `default`) |
+| Output device | `--device` (any ALSA PCM name) | `TIDAL_PLAYER_DEVICE` | `default` (shared; decision 2) |
 
 Flag beats environment beats default. 0008 moves both into `app.toml` and keeps the variables working.
 
@@ -329,13 +329,13 @@ Assumed, checked at manual acceptance:
 - PipeWire (WirePlumber) still implements `org.freedesktop.ReserveDevice1` and releases the card on request
 - `zbus` 5's blocking API works from the engine thread without a tokio runtime on it
 
-## Decisions (for the user, before approval)
+## Decisions (answered by the user, 2026-10-07)
 
 1. **Endpoint**: use `playbackinfopostpaywall` instead of tidalt's `urlpostpaywall`. *Settled by the probe*: `urlpostpaywall` refuses hi-res for this client
-2. **Default output device** when none is configured. *Proposed: `default` (shared)*, so a first run never takes the sound card away from other apps; bit-perfect is opt-in with `--device hw:C,D` / `TIDAL_PLAYER_DEVICE`, and `devices` shows the names. The alternative is tidalt's: auto-pick the first USB DAC exclusively (its hard-coded DAC name list was fragile; this would pick the first USB card instead)
-3. **Interim `play` / `devices` commands**: add them now for acceptance on real hardware, and keep them afterwards as one-shot CLI commands (0005 may rename them under `playback …`). *Proposed: yes*
+2. **Default output device**: `default` (shared), so a first run never takes the sound card away from other apps; bit-perfect is opt-in with `--device hw:C,D` / `TIDAL_PLAYER_DEVICE`, and `devices` shows the names. No DAC auto-detection
+3. **`play` / `devices`**: kept as permanent CLI commands, not only for acceptance (a CLI alongside the TUI is welcome). 0005 may group them under `playback …` when it adds the other one-shot commands
 4. **`LOW` is HE-AAC** (probe): reject `low` as a setting rather than adding an AAC decoder with SBR (none in pure Rust today; FFmpeg is what 0001 removed). *Proposed: reject it*
-5. **Any tidalt playback bug not listed under "Context"** that you remember (crackles, specific DACs, specific tracks)? Each becomes a criterion
+5. **Other tidalt bugs**: none beyond "Context" for playback; the ones that hurt most were in daemon-client communication. They are collected from tidalt's history when spec 0005 is drafted
 6. **CD-quality as FLAC**: *settled by probe 2*. Refreshing under the PKCE client (spec 0002 AC19, implemented together with this spec) gives 16/44.1 FLAC over DASH and keeps hi-res. `LOSSLESS` therefore always arrives as DASH; the BTS path stays for `HIGH` (AAC) and for any BTS FLAC Tidal may still send
 
 ## Out of scope
