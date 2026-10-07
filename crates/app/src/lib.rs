@@ -3,6 +3,7 @@
 
 pub mod http_source;
 pub mod input;
+pub mod ipc;
 pub mod login;
 pub mod panic_hook;
 pub mod passphrase;

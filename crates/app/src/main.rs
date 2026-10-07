@@ -17,13 +17,16 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tidal_player::{
     input::key_to_action,
+    ipc::{self, ClaimError, lock::PlayerLock, paths::current_uid, server},
     login::{LoginOutcome, run_login},
     panic_hook::install_panic_hook,
     play::{
         ASOUND_DIR_VAR, PlayOptions, configured_device, resolve_play_config, resolve_player_config,
         resolve_settings,
     },
-    playback::{HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, play_items, spawn_output},
+    playback::{
+        HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
+    },
     player_runtime::{
         Expander, PlayerRuntime, RuntimeHandle, TokioJobs, expand_items, parse_items,
         spawn_runtime, startup_commands, time_seed,
@@ -83,7 +86,7 @@ enum Command {
     Login,
     /// Delete the stored session from this machine.
     Logout,
-    /// Run headless (not implemented yet, spec 0005).
+    /// Run the player headless, for clients to attach to.
     Daemon,
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
@@ -263,18 +266,102 @@ fn logout(plan: &StorePlan) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn daemon(store: &dyn SessionStore) -> ExitCode {
-    match store.load() {
-        Ok(Some(_)) => {
-            eprintln!("daemon mode is not implemented yet (spec 0005)");
-            ExitCode::SUCCESS
+/// Becomes this user's player (spec 0005 "Transport"): the lock in the
+/// runtime directory. `hint` follows "Another player is running (pid N)".
+fn claim_player(hint: &str) -> Result<PlayerLock, ExitCode> {
+    let uid = current_uid().map_err(|e| {
+        eprintln!("Cannot tell this user's ID: {e}");
+        ExitCode::from(1)
+    })?;
+    ipc::claim(env_var, uid).map_err(|e| {
+        match &e {
+            ClaimError::Lock(ipc::lock::LockError::Held { .. }) => eprintln!("{e}{hint}"),
+            _ => eprintln!("{e}"),
         }
+        ExitCode::from(e.exit_code())
+    })
+}
+
+/// Binds the player's socket (after the lock).
+fn bind_player(lock: &PlayerLock) -> Result<(std::os::unix::net::UnixListener, PathBuf), ExitCode> {
+    ipc::bind(lock).map_err(|e| {
+        eprintln!("{e}");
+        ExitCode::from(e.exit_code())
+    })
+}
+
+/// `tidal-player daemon` (spec 0005 "The daemon"): the lock, the session,
+/// the settings, the socket; then the player serves its clients until one
+/// asks it to shut down.
+fn daemon(plan: &StorePlan) -> Result<ExitCode> {
+    let lock = match claim_player("") {
+        Ok(lock) => lock,
+        Err(code) => return Ok(code),
+    };
+    let store = plan.build_store();
+    let session = match store.load() {
+        Ok(Some(session)) => session,
         Ok(None) => {
             eprintln!("Not logged in: run \"tidal-player login\"");
-            ExitCode::from(1)
+            return Ok(ExitCode::from(1));
         }
-        Err(e) => report_store_error(&e),
-    }
+        Err(e) => return Ok(report_store_error(&e)),
+    };
+    let settings = match resolve_settings(None, None, env_var) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let player_settings = match resolve_player_config(env_var) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let auth = match Authenticator::new(api_config(), store, session, Arc::new(SystemClock)) {
+        Ok(auth) => Arc::new(auth),
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(1));
+        }
+    };
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return Ok(code),
+    };
+
+    let runtime = runtime()?;
+    let metadata = Arc::new(MetadataClient::new(Arc::clone(&auth)));
+    let (_, country) = runtime.block_on(auth.account());
+    let opener = match HttpOpener::new(Arc::clone(&auth), settings.quality, country.clone()) {
+        Ok(opener) => Arc::new(opener),
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(ExitCode::from(1));
+        }
+    };
+    let (results, inputs) = std::sync::mpsc::channel();
+    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
+    let mut config = player_settings.player;
+    config.country = Some(country);
+    // The engine opens the device only once something plays (0003).
+    let player = spawn_runtime(
+        PlayerRuntime::new(config, time_seed(), spawn_output(&settings.device), jobs),
+        inputs,
+        results,
+    );
+    server::forward_login(auth.status(), player.inputs(), runtime.handle());
+    let server = server::serve(listener, socket, player.inputs());
+    eprintln!("Listening on {}", server.path().display());
+    // The player's own events go to its clients; this loop only waits for
+    // the player thread to end (a client's `Shutdown`).
+    for _ in player.events().iter() {}
+    drop(server);
+    drop(lock);
+    Ok(ExitCode::SUCCESS)
 }
 
 fn standalone(
@@ -303,6 +390,12 @@ fn standalone(
             eprintln!("{e}");
             return Ok(ExitCode::from(2));
         }
+    };
+    // Every player serves the socket (spec 0005 "Roles"). Attaching to a
+    // running player instead comes with the TUI client.
+    let lock = match claim_player("") {
+        Ok(lock) => lock,
+        Err(code) => return Ok(code),
     };
     match store.load() {
         Ok(Some(_)) => {}
@@ -357,6 +450,10 @@ fn standalone(
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return Ok(code),
+    };
     let player = spawn_runtime(
         PlayerRuntime::new(
             config,
@@ -367,6 +464,8 @@ fn standalone(
         inputs,
         results,
     );
+    server::forward_login(auth.status(), player.inputs(), runtime.handle());
+    let server = server::serve(listener, socket, player.inputs());
     // The plain form replaces the queue; `--add-to-queue`/`--play-next`
     // add to it the way the open prompt does, which starts the first added
     // track on the (until 0005, always empty) startup queue.
@@ -397,6 +496,8 @@ fn standalone(
     let result = tui(&client, auth.status(), state, startup);
     // Quit: the player stops and releases the device first.
     player.shutdown();
+    drop(server);
+    drop(lock);
     restore_terminal();
     result.map(|()| ExitCode::SUCCESS)
 }
@@ -471,6 +572,10 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         eprintln!("{NO_ALSA}");
         return ExitCode::from(1);
     }
+    let lock = match claim_player(": use \"tidal-player playback load\"") {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -487,8 +592,17 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return code,
+    };
     play_items(
         auth,
+        PlayerSocket {
+            lock,
+            listener,
+            path: socket,
+        },
         PlayRequest {
             items,
             settings,
@@ -523,7 +637,7 @@ fn main() -> Result<ExitCode> {
     let plan = StorePlan::from_env();
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
-        Some(Command::Daemon) => Ok(daemon(plan.build_store().as_ref())),
+        Some(Command::Daemon) => daemon(&plan),
         Some(Command::Login) => {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))

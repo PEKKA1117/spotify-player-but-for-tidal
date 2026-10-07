@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::item::Item;
 use crate::quality::AudioQuality;
 use crate::track::{EntryId, Track};
 
@@ -52,6 +53,40 @@ pub enum Command {
     /// Set the volume in percent (values above 100 are clamped).
     SetVolume(u8),
     ToggleMute,
+    /// Expand `items` in the player (spec 0005 "Opening items in the
+    /// player"), in item order, then load them (`at: None`: replace the
+    /// queue and play the first) or add them at `at`.
+    Open {
+        items: Vec<Item>,
+        at: Option<InsertAt>,
+    },
+}
+
+/// What a client sends over the socket (spec 0005 "Messages").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientMessage {
+    /// Answered with a [`ServerMessage::Welcome`], then every event.
+    Subscribe,
+    /// Apply `command`; answered with a [`ServerMessage::Reply`] carrying
+    /// the same `id`, after the events the command caused.
+    Request { id: u64, command: Command },
+}
+
+/// What the player sends over the socket (spec 0005 "Messages").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerMessage {
+    /// The answer to `Subscribe`: the state after every input handled so
+    /// far; every later event follows.
+    Welcome {
+        snapshot: PlayerSnapshot,
+        login_required: bool,
+    },
+    Event(Event),
+    /// The answer to a `Request`: applied, or why not.
+    Reply {
+        id: u64,
+        result: Result<(), String>,
+    },
 }
 
 /// Where `AddToQueue` inserts its tracks.
@@ -222,7 +257,59 @@ mod tests {
             Command::ChangeVolume(-25),
             Command::SetVolume(80),
             Command::ToggleMute,
+            Command::Open {
+                items: vec![
+                    Item::Track(TrackId(1)),
+                    Item::Album(2),
+                    Item::Playlist("36ea71a8-445e-41a4-82ab-6628c581535d".into()),
+                ],
+                at: None,
+            },
+            Command::Open {
+                items: vec![Item::Track(TrackId(3))],
+                at: Some(InsertAt::End),
+            },
+            Command::Open {
+                items: vec![],
+                at: Some(InsertAt::Next),
+            },
         ]
+    }
+
+    /// Every variant of `ClientMessage` and `ServerMessage` (spec 0005
+    /// AC1); extend when a variant is added.
+    fn all_messages() -> (Vec<ClientMessage>, Vec<ServerMessage>) {
+        let mut client = vec![ClientMessage::Subscribe];
+        client.extend(all_commands().into_iter().enumerate().map(|(id, command)| {
+            ClientMessage::Request {
+                id: id as u64 * 1_000_003,
+                command,
+            }
+        }));
+        let snapshot = match &all_events()[3] {
+            Event::Player(snapshot) => snapshot.clone(),
+            other => panic!("expected a snapshot, got {other:?}"),
+        };
+        let mut server = vec![
+            ServerMessage::Welcome {
+                snapshot: snapshot.clone(),
+                login_required: false,
+            },
+            ServerMessage::Welcome {
+                snapshot,
+                login_required: true,
+            },
+            ServerMessage::Reply {
+                id: 0,
+                result: Ok(()),
+            },
+            ServerMessage::Reply {
+                id: u64::MAX,
+                result: Err("Album 1 was not found".into()),
+            },
+        ];
+        server.extend(all_events().into_iter().map(ServerMessage::Event));
+        (client, server)
     }
 
     /// Every variant of `Event`; extend when a variant is added.
@@ -311,5 +398,9 @@ mod tests {
         // 0001 AC11, extended by 0004 AC12.
         all_commands().iter().for_each(round_trip);
         all_events().iter().for_each(round_trip);
+        // 0005 AC1: the socket messages.
+        let (client, server) = all_messages();
+        client.iter().for_each(round_trip);
+        server.iter().for_each(round_trip);
     }
 }

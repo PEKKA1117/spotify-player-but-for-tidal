@@ -722,7 +722,9 @@ impl PlayerState {
 
     fn on_command(&mut self, command: Command, fx: &mut Fx) {
         match command {
-            Command::Shutdown => {}
+            // Both are the runtime's: it stops the engine, or expands the
+            // items and sends `LoadQueue`/`AddToQueue` (spec 0005).
+            Command::Shutdown | Command::Open { .. } => {}
             Command::LoadQueue { tracks, start } => self.load(tracks, start, fx),
             Command::AddToQueue { tracks, at } => self.add(tracks, at, fx),
             Command::RemoveFromQueue(id) => self.remove(id, fx),
