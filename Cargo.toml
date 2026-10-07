@@ -14,7 +14,7 @@ repository = "https://github.com/PEKKA1117/spotify-player-but-for-tidal"
 [workspace.dependencies]
 tidal-player-core = { path = "crates/core" }
 tidal-player-api = { path = "crates/api" }
-tidal-player-audio = { path = "crates/audio" }
+tidal-player-audio = { path = "crates/audio", default-features = false }
 
 age = "0.12.1"
 anyhow = "1.0.104"
