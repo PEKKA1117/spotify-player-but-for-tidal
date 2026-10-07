@@ -1,6 +1,7 @@
 //! Library half of the `tidal-player` binary: rendering, key mapping and the
 //! panic hook, kept here so integration tests can import them.
 
+pub mod http_source;
 pub mod input;
 pub mod login;
 pub mod panic_hook;
