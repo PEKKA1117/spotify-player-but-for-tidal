@@ -410,8 +410,9 @@ impl Window {
     }
 
     /// Appends one list page asked with `limit`: rows already loaded are
-    /// skipped; `next_offset` advances by what was asked. A page of
-    /// another row type is ignored.
+    /// skipped (by ID; for a playlist's tracks by position, as a playlist
+    /// can hold a track twice: spec 0006 "Bugs"); `next_offset` advances by
+    /// what was asked. A page of another row type is ignored.
     pub(super) fn append(&mut self, items: ListItems, limit: u32) {
         fn add<T: Clone>(
             rows: &mut Vec<T>,
@@ -427,7 +428,25 @@ impl Window {
                 }
             }
         }
+        fn add_by_position<T: Clone>(
+            rows: &mut Vec<T>,
+            positions: &mut Vec<u32>,
+            page: &ListPage<T>,
+        ) {
+            for (i, item) in page.items.iter().enumerate() {
+                let position = page.offset + i as u32;
+                if !positions.contains(&position) {
+                    rows.push(item.clone());
+                    positions.push(position);
+                }
+            }
+        }
+        let by_position = matches!(self.list, ListRef::PlaylistTracks(_));
         let (offset, total, hidden) = match (&mut self.rows, &items) {
+            (Rows::Tracks(rows), ListItems::Tracks(page)) if by_position => {
+                add_by_position(rows, &mut self.positions, page);
+                (page.offset, page.total, page.hidden)
+            }
             (Rows::Tracks(rows), ListItems::Tracks(page)) => {
                 add(rows, &mut self.positions, page, |t| Row::Track(t).key());
                 (page.offset, page.total, page.hidden)
