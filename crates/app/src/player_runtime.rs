@@ -903,6 +903,7 @@ pub(crate) mod fakes {
         Codec, EngineError, OutputKind, ReadOutcome, SampleFormat, SourceError, SourceLayout,
     };
     use tidal_player_core::player::FailureKind;
+    use tidal_player_core::{AlbumRef, ArtistRef};
 
     /// One call the runtime made, on the engine or the jobs, in order.
     #[derive(Debug, Clone, PartialEq)]
@@ -1178,8 +1179,15 @@ pub(crate) mod fakes {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["Artist".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 1,
+                name: "Artist".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 1,
+                title: "Album".into(),
+            }),
             duration: duration.map(Duration::from_secs),
             streamable: true,
         }

@@ -20,15 +20,52 @@ impl fmt::Display for TrackId {
 pub struct Track {
     pub id: TrackId,
     pub title: String,
-    /// Artist names, in the API's order.
-    pub artists: Vec<String>,
-    /// The album title, when the track has one.
-    pub album: Option<String>,
+    /// Tidal's `version` (`Instrumental`, `Live`, ...), when it has one;
+    /// not part of `title` (spec 0006 "Alternate versions").
+    pub version: Option<String>,
+    /// The artists, in the API's order (spec 0006: IDs for *Go to artist*).
+    pub artists: Vec<ArtistRef>,
+    /// The album, when the track has one (spec 0006: its ID for *Go to
+    /// album*).
+    pub album: Option<AlbumRef>,
     /// `None` when the metadata has no duration.
     pub duration: Option<Duration>,
     /// `allowStreaming && streamReady`: a track that is not streamable is
     /// queued and shown, but skipped without a stream request.
     pub streamable: bool,
+}
+
+impl Track {
+    /// The artist names joined with `, `, as every view shows them.
+    pub fn artist_names(&self) -> String {
+        self.artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// The album title, when the track has an album.
+    pub fn album_title(&self) -> Option<&str> {
+        self.album.as_ref().map(|a| a.title.as_str())
+    }
+}
+
+/// An artist as a track or album names it: enough to show it and open its
+/// page (spec 0006 "Types").
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ArtistRef {
+    /// Tidal's artist ID.
+    pub id: u64,
+    pub name: String,
+}
+
+/// An album as a track names it (spec 0006 "Types").
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AlbumRef {
+    /// Tidal's album ID, as in [`crate::Item::Album`].
+    pub id: u64,
+    pub title: String,
 }
 
 /// Identifies one queue entry for the life of the player, so the same track

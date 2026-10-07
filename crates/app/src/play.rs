@@ -496,6 +496,7 @@ pub async fn play_tracks(
         return Ok(vec![Track {
             id: *id,
             title: String::new(),
+            version: None,
             artists: Vec::new(),
             album: None,
             duration: None,

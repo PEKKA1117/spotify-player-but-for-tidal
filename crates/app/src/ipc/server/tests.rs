@@ -183,7 +183,9 @@ impl View {
             }
             ServerMessage::Event(Event::LoginRequired) => self.login_required = true,
             ServerMessage::Event(Event::LoginRestored) => self.login_required = false,
-            ServerMessage::Event(Event::ShuttingDown) | ServerMessage::Reply { .. } => {}
+            ServerMessage::Event(Event::ShuttingDown)
+            | ServerMessage::Reply { .. }
+            | ServerMessage::LibraryReply { .. } => {}
         }
     }
 
@@ -448,6 +450,7 @@ impl ModelClient {
                     assert!(effects.is_empty(), "{effects:?}");
                 }
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
+                ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
             }
         }
     }

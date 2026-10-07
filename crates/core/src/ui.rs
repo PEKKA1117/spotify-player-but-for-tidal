@@ -410,7 +410,7 @@ mod tests {
     use super::*;
     use crate::item::Item;
     use crate::protocol::RepeatMode;
-    use crate::track::{Track, TrackId};
+    use crate::track::{AlbumRef, ArtistRef, Track, TrackId};
 
     #[test]
     fn ac5_quit_emits_quit() {
@@ -487,8 +487,15 @@ mod tests {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["Artist".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 1,
+                name: "Artist".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 1,
+                title: "Album".into(),
+            }),
             duration: Some(Duration::from_secs(200)),
             streamable: true,
         }

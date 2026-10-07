@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::protocol::{Command as C, Event, InsertAt, PlaybackState as S, RepeatMode};
+use crate::track::{AlbumRef, ArtistRef};
 
 const LEN: Duration = Duration::from_secs(200);
 
@@ -18,8 +19,15 @@ fn track(id: u64) -> Track {
     Track {
         id: TrackId(id),
         title: format!("Track {id}"),
-        artists: vec!["Artist".into()],
-        album: Some("Album".into()),
+        version: None,
+        artists: vec![ArtistRef {
+            id: 1,
+            name: "Artist".into(),
+        }],
+        album: Some(AlbumRef {
+            id: 1,
+            title: "Album".into(),
+        }),
         duration: Some(LEN),
         streamable: true,
     }

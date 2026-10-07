@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::item::Item;
+use crate::library::{LibraryRequest, LibraryResponse};
 use crate::quality::AudioQuality;
 use crate::track::{EntryId, Track};
 
@@ -70,6 +71,10 @@ pub enum ClientMessage {
     /// Apply `command`; answered with a [`ServerMessage::Reply`] carrying
     /// the same `id`, after the events the command caused.
     Request { id: u64, command: Command },
+    /// Ask the player about the library (spec 0006 "Talking to the
+    /// player"); answered to this client alone with one
+    /// [`ServerMessage::LibraryReply`] carrying the same `id`.
+    Library { id: u64, request: LibraryRequest },
 }
 
 /// What the player sends over the socket (spec 0005 "Messages").
@@ -86,6 +91,12 @@ pub enum ServerMessage {
     Reply {
         id: u64,
         result: Result<(), String>,
+    },
+    /// The answer to a `Library` request, sent to the asking client only
+    /// (not an [`Event`]): the response, or why not.
+    LibraryReply {
+        id: u64,
+        result: Result<LibraryResponse, String>,
     },
 }
 
@@ -201,7 +212,11 @@ pub struct NowPlaying {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::track::TrackId;
+    use crate::library::{
+        AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, ListItems, ListPage, ListRef,
+        PageData, PageRequest, PlaylistSummary, RoleCategory,
+    };
+    use crate::track::{AlbumRef, ArtistRef, TrackId};
     use serde::de::DeserializeOwned;
 
     fn round_trip<T>(v: &T)
@@ -220,11 +235,213 @@ mod tests {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["A".into(), "B".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![artist(10, "A"), artist(11, "B")],
+            album: Some(AlbumRef {
+                id: 20,
+                title: "Album".into(),
+            }),
             duration: Some(Duration::from_secs(212)),
             streamable: true,
         }
+    }
+
+    fn artist(id: u64, name: &str) -> ArtistRef {
+        ArtistRef {
+            id,
+            name: name.into(),
+        }
+    }
+
+    const UUID: &str = "36ea71a8-445e-41a4-82ab-6628c581535d";
+
+    fn album(id: u64, kind: AlbumKind) -> AlbumSummary {
+        AlbumSummary {
+            id,
+            title: format!("Album {id}"),
+            artists: vec![artist(10, "A")],
+            year: Some(2012),
+            kind,
+            tracks: Some(17),
+            duration: Some(Duration::from_secs(3735)),
+        }
+    }
+
+    fn playlist(own: bool) -> PlaylistSummary {
+        PlaylistSummary {
+            uuid: UUID.into(),
+            title: "Running".into(),
+            tracks: Some(42),
+            duration: Some(Duration::from_secs(9667)),
+            own,
+        }
+    }
+
+    fn list<T>(items: Vec<T>, offset: u32, total: u32) -> ListPage<T> {
+        ListPage {
+            items,
+            offset,
+            total,
+            hidden: 0,
+        }
+    }
+
+    /// Every `ListRef` variant (spec 0006 AC1).
+    fn all_list_refs() -> Vec<ListRef> {
+        vec![
+            ListRef::FavoriteTracks,
+            ListRef::Playlists,
+            ListRef::FavoriteAlbums,
+            ListRef::FavoriteArtists,
+            ListRef::AlbumTracks(1),
+            ListRef::PlaylistTracks(UUID.into()),
+            ListRef::TopTracks(2),
+            ListRef::ArtistAlbums(3),
+            ListRef::ArtistAppearsOn(4),
+            ListRef::Credits(5),
+        ]
+    }
+
+    /// Every variant of `LibraryRequest`, `PageRequest`, `ListRef` and
+    /// `FavoriteKind` (spec 0006 AC1); extend when a variant is added.
+    fn all_library_requests() -> Vec<LibraryRequest> {
+        let mut requests: Vec<LibraryRequest> = [
+            PageRequest::Library,
+            PageRequest::FavoriteTracks,
+            PageRequest::Album(1),
+            PageRequest::Playlist(UUID.into()),
+            PageRequest::Artist(2),
+        ]
+        .into_iter()
+        .map(LibraryRequest::Page)
+        .collect();
+        requests.extend(
+            all_list_refs()
+                .into_iter()
+                .map(|list| LibraryRequest::More {
+                    list,
+                    offset: 100,
+                    limit: 50,
+                }),
+        );
+        let kinds = [
+            (FavoriteKind::Track, "1"),
+            (FavoriteKind::Album, "2"),
+            (FavoriteKind::Artist, "3"),
+            (FavoriteKind::Playlist, UUID),
+        ];
+        for (kind, id) in kinds {
+            requests.push(LibraryRequest::IsFavorite(kind, id.into()));
+            requests.push(LibraryRequest::AddFavorite(kind, id.into()));
+            requests.push(LibraryRequest::RemoveFavorite(kind, id.into()));
+        }
+        requests.extend([
+            LibraryRequest::AddToPlaylist {
+                uuid: UUID.into(),
+                tracks: vec![TrackId(1), TrackId(2)],
+                allow_duplicates: false,
+            },
+            LibraryRequest::AddToPlaylist {
+                uuid: UUID.into(),
+                tracks: vec![],
+                allow_duplicates: true,
+            },
+            LibraryRequest::RemoveFromPlaylist {
+                uuid: UUID.into(),
+                index: 3,
+                etag: "\"1759831234567\"".into(),
+            },
+            LibraryRequest::CreatePlaylist {
+                title: "Late night".into(),
+            },
+            LibraryRequest::DeletePlaylist { uuid: UUID.into() },
+        ]);
+        requests
+    }
+
+    /// Every variant of `LibraryResponse`, `PageData`, `ListItems`,
+    /// `AlbumKind` and `RoleCategory`, the summaries, `CreditedTrack` and
+    /// `ListPage` (spec 0006 AC1); extend when a variant is added.
+    fn all_library_responses() -> Vec<LibraryResponse> {
+        let credited = CreditedTrack {
+            track: Track {
+                version: Some("Acoustic".into()),
+                ..track(7)
+            },
+            roles: vec![
+                RoleCategory::Performer,
+                RoleCategory::Songwriter,
+                RoleCategory::Producer,
+                RoleCategory::Engineer,
+            ],
+        };
+        let pages = vec![
+            PageData::Library {
+                playlists: list(vec![playlist(true), playlist(false)], 0, 22),
+                albums: list(vec![album(1, AlbumKind::Album)], 0, 14),
+                artists: list(vec![artist(10, "A")], 0, 196),
+            },
+            PageData::Library {
+                playlists: list(vec![], 0, 0),
+                albums: list(vec![], 0, 0),
+                artists: list(vec![], 0, 0),
+            },
+            PageData::FavoriteTracks {
+                tracks: list(vec![track(1), track(2)], 0, 362),
+            },
+            PageData::Album {
+                album: AlbumSummary {
+                    year: None,
+                    tracks: None,
+                    duration: None,
+                    ..album(2, AlbumKind::Ep)
+                },
+                tracks: list(vec![track(3)], 0, 1),
+            },
+            PageData::Playlist {
+                playlist: PlaylistSummary {
+                    tracks: None,
+                    duration: None,
+                    ..playlist(true)
+                },
+                etag: Some("\"1759831234567\"".into()),
+                tracks: list(vec![track(4)], 0, 39),
+            },
+            PageData::Playlist {
+                playlist: playlist(false),
+                etag: None,
+                tracks: list(vec![], 0, 0),
+            },
+            PageData::Artist {
+                artist: artist(10, "A"),
+                top_tracks: list(vec![track(5)], 0, 91),
+                albums: list(vec![album(3, AlbumKind::Single)], 0, 78),
+                appears_on: list(vec![album(4, AlbumKind::Album)], 0, 30),
+            },
+        ];
+        let mut responses: Vec<LibraryResponse> =
+            pages.into_iter().map(LibraryResponse::Page).collect();
+        responses.extend(
+            [
+                ListItems::Tracks(list(vec![track(6)], 100, 362)),
+                ListItems::Albums(list(vec![album(5, AlbumKind::Album)], 50, 78)),
+                ListItems::Playlists(list(vec![playlist(true)], 50, 51)),
+                ListItems::Artists(list(vec![], 1000, 196)),
+                ListItems::Credits(ListPage {
+                    hidden: 37,
+                    ..list(vec![credited], 50, 548)
+                }),
+            ]
+            .into_iter()
+            .map(LibraryResponse::Items),
+        );
+        responses.extend([
+            LibraryResponse::Favorite(true),
+            LibraryResponse::Favorite(false),
+            LibraryResponse::Created(playlist(true)),
+            LibraryResponse::Done,
+        ]);
+        responses
     }
 
     /// Every variant of `Command`; extend when a variant is added.
@@ -286,6 +503,16 @@ mod tests {
                 command,
             }
         }));
+        // 0006 AC1: library requests.
+        client.extend(
+            all_library_requests()
+                .into_iter()
+                .enumerate()
+                .map(|(id, request)| ClientMessage::Library {
+                    id: id as u64 * 1_000_003,
+                    request,
+                }),
+        );
         let snapshot = match &all_events()[3] {
             Event::Player(snapshot) => snapshot.clone(),
             other => panic!("expected a snapshot, got {other:?}"),
@@ -309,6 +536,20 @@ mod tests {
             },
         ];
         server.extend(all_events().into_iter().map(ServerMessage::Event));
+        // 0006 AC1: library replies.
+        server.extend(
+            all_library_responses()
+                .into_iter()
+                .enumerate()
+                .map(|(id, response)| ServerMessage::LibraryReply {
+                    id: id as u64,
+                    result: Ok(response),
+                }),
+        );
+        server.push(ServerMessage::LibraryReply {
+            id: u64::MAX,
+            result: Err("Artist 1 was not found".into()),
+        });
         (client, server)
     }
 
@@ -398,7 +639,10 @@ mod tests {
         // 0001 AC11, extended by 0004 AC12.
         all_commands().iter().for_each(round_trip);
         all_events().iter().for_each(round_trip);
-        // 0005 AC1: the socket messages.
+        // 0006 AC1: the library's requests and responses, standalone.
+        all_library_requests().iter().for_each(round_trip);
+        all_library_responses().iter().for_each(round_trip);
+        // 0005 AC1: the socket messages (0006 AC1: with the library's).
         let (client, server) = all_messages();
         client.iter().for_each(round_trip);
         server.iter().for_each(round_trip);

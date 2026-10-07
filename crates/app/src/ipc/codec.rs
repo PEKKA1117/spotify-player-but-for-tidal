@@ -185,6 +185,9 @@ pub fn check_greeting(line: &[u8], socket: &Path) -> Result<(), GreetingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tidal_player_core::library::{
+        LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, PageRequest,
+    };
     use tidal_player_core::protocol::{ClientMessage, Command, Event, ServerMessage};
 
     fn subscribe_line() -> Vec<u8> {
@@ -335,6 +338,64 @@ mod tests {
             ),
         ];
         check(rows, 64);
+
+        // 0006 AC1: the library's request decodes, as written by hand and
+        // as encoded; so does its reply, on the client's side.
+        let library = ClientMessage::Library {
+            id: 9,
+            request: LibraryRequest::More {
+                list: ListRef::PlaylistTracks("36ea71a8-445e-41a4-82ab-6628c581535d".into()),
+                offset: 100,
+                limit: 50,
+            },
+        };
+        check(
+            vec![
+                (
+                    "a library request",
+                    vec![b"{\"Library\":{\"id\":3,\"request\":{\"Page\":\"Library\"}}}\n".to_vec()],
+                    vec![Want::Message(ClientMessage::Library {
+                        id: 3,
+                        request: LibraryRequest::Page(PageRequest::Library),
+                    })],
+                ),
+                (
+                    "an encoded library request, split",
+                    encode(&library).chunks(5).map(<[u8]>::to_vec).collect(),
+                    vec![Want::Message(library)],
+                ),
+            ],
+            MAX_LINE,
+        );
+        let replies = [
+            ServerMessage::LibraryReply {
+                id: 3,
+                result: Ok(LibraryResponse::Items(ListItems::Tracks(ListPage {
+                    items: vec![],
+                    offset: 100,
+                    total: 362,
+                    hidden: 0,
+                }))),
+            },
+            ServerMessage::LibraryReply {
+                id: 4,
+                result: Err("Album 1 was not found".into()),
+            },
+        ];
+        let mut decoder = Decoder::<ServerMessage>::new();
+        let mut got = decoder.feed(b"{\"LibraryReply\":{\"id\":5,\"result\":{\"Ok\":\"Done\"}}}\n");
+        for reply in &replies {
+            got.extend(decoder.feed(&encode(reply)));
+        }
+        let want: Vec<_> = [ServerMessage::LibraryReply {
+            id: 5,
+            result: Ok(LibraryResponse::Done),
+        }]
+        .into_iter()
+        .chain(replies)
+        .map(Ok)
+        .collect();
+        assert_eq!(got, want, "library replies");
 
         // The real limit: a 17 MiB line is refused once it passes 16 MiB,
         // and never held whole.

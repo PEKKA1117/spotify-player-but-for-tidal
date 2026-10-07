@@ -165,6 +165,8 @@ impl Link for InProcessLink {
                 id,
                 command,
             },
+            // Not served yet: spec 0006 AC19 (a later slice).
+            ClientMessage::Library { .. } => return Ok(()),
         };
         self.inputs
             .send(RuntimeInput::Client(input))
@@ -424,6 +426,8 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::Reply { result, .. })) => {
                     actions.push(Action::Reply(result))
                 }
+                // Not handled yet: spec 0006 AC19 (a later slice).
+                Ok(Some(ServerMessage::LibraryReply { .. })) => {}
                 Err(_) => self.lost = true,
             }
         }
@@ -458,7 +462,7 @@ mod tests {
     use super::*;
     use tidal_player_core::protocol::{PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode};
     use tidal_player_core::ui::{self, Key, State};
-    use tidal_player_core::{EntryId, Track, TrackId};
+    use tidal_player_core::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
     /// What a fake link was sent, and what it will receive.
     #[derive(Default)]
@@ -519,8 +523,15 @@ mod tests {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["Artist".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 1,
+                name: "Artist".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 1,
+                title: "Album".into(),
+            }),
             duration: Some(Duration::from_secs(200)),
             streamable: true,
         }

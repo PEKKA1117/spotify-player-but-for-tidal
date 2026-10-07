@@ -78,7 +78,7 @@ fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
         Style::new().add_modifier(Modifier::BOLD),
     )];
     if let Some(entry) = entry {
-        let album = entry.track.album.as_deref().unwrap_or_default();
+        let album = entry.track.album_title().unwrap_or_default();
         lines.push(Line::raw(fit(&format!("  {album}"), width)));
         lines.push(match state.message() {
             Some(message) => Line::styled(
@@ -121,7 +121,7 @@ fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> String {
                 PlaybackState::Loading | PlaybackState::Buffering => "…",
                 PlaybackState::Stopped => "■",
             };
-            let artists = entry.track.artists.join(", ");
+            let artists = entry.track.artist_names();
             if artists.is_empty() {
                 format!("{symbol} {}", entry.track.title)
             } else {
@@ -363,10 +363,10 @@ impl Columns {
             n = self.number
         );
         if let Some(w) = self.artist {
-            row += &format!("  {}", pad(&fit(&track.artists.join(", "), w), w));
+            row += &format!("  {}", pad(&fit(&track.artist_names(), w), w));
         }
         if let Some(w) = self.album {
-            let album = track.album.as_deref().unwrap_or_default();
+            let album = track.album_title().unwrap_or_default();
             row += &format!("  {}", pad(&fit(album, w), w));
         }
         let duration = track.duration.map(clock).unwrap_or_default();
@@ -476,7 +476,7 @@ mod tests {
         Event, InsertAt, NowPlaying, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode,
     };
     use tidal_player_core::ui::{Action, Prompt, update};
-    use tidal_player_core::{AudioQuality, EntryId, Track, TrackId};
+    use tidal_player_core::{AlbumRef, ArtistRef, AudioQuality, EntryId, Track, TrackId};
 
     fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
         let buffer = terminal.backend().buffer();
@@ -559,8 +559,15 @@ mod tests {
         Track {
             id: TrackId(id),
             title: title.into(),
-            artists: vec![artist.into()],
-            album: Some(album.into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: id + 1000,
+                name: artist.into(),
+            }],
+            album: Some(AlbumRef {
+                id: id + 2000,
+                title: album.into(),
+            }),
             duration: secs.map(Duration::from_secs),
             streamable: true,
         }

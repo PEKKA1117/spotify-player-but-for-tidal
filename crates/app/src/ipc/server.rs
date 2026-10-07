@@ -258,6 +258,11 @@ fn attach(
                             id,
                             command,
                         },
+                        // Not served yet: spec 0006 AC8 (a later slice).
+                        Ok(ClientMessage::Library { id, .. }) => {
+                            tracing::debug!(client = client.0, id, "library request ignored");
+                            continue;
+                        }
                         Err(e) => {
                             tracing::warn!(client = client.0, "dropped: {e}");
                             break 'read;

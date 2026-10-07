@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use tidal_player_core::{Item, Track, TrackId};
+use tidal_player_core::{AlbumRef, ArtistRef, Item, Track, TrackId};
 
 use crate::auth::{AuthError, Authenticator};
 
@@ -182,6 +182,15 @@ struct AlbumDto {
     title: String,
 }
 
+impl From<ArtistDto> for ArtistRef {
+    fn from(dto: ArtistDto) -> Self {
+        ArtistRef {
+            id: 0,
+            name: dto.name,
+        }
+    }
+}
+
 /// The keys of a track response this player reads; the rest is ignored.
 #[derive(Deserialize)]
 struct TrackDto {
@@ -201,16 +210,20 @@ struct TrackDto {
 
 impl From<TrackDto> for Track {
     fn from(dto: TrackDto) -> Self {
-        let artists: Vec<String> = if dto.artists.is_empty() {
-            dto.artist.into_iter().map(|a| a.name).collect()
+        let artists: Vec<ArtistRef> = if dto.artists.is_empty() {
+            dto.artist.into_iter().map(ArtistRef::from).collect()
         } else {
-            dto.artists.into_iter().map(|a| a.name).collect()
+            dto.artists.into_iter().map(ArtistRef::from).collect()
         };
         Track {
             id: TrackId(dto.id),
             title: dto.title,
+            version: None,
             artists,
-            album: dto.album.map(|a| a.title),
+            album: dto.album.map(|a| AlbumRef {
+                id: 0,
+                title: a.title,
+            }),
             duration: dto.duration.map(Duration::from_secs),
             streamable: dto.allow_streaming && dto.stream_ready,
         }
