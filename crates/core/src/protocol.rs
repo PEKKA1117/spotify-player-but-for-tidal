@@ -20,47 +20,37 @@ pub enum Command {
     Shutdown,
     /// Replace the queue with `tracks` and play `tracks[start]` from the start
     /// (`start` past the end is clamped to the last track).
-    #[serde(skip_deserializing)]
-    LoadQueue { tracks: Vec<Track>, start: usize },
+    LoadQueue {
+        tracks: Vec<Track>,
+        start: usize,
+    },
     /// Add `tracks` after the current entry or at the end of the queue.
-    #[serde(skip_deserializing)]
-    AddToQueue { tracks: Vec<Track>, at: InsertAt },
+    AddToQueue {
+        tracks: Vec<Track>,
+        at: InsertAt,
+    },
     /// Remove one entry.
-    #[serde(skip_deserializing)]
     RemoveFromQueue(EntryId),
     /// Remove every entry except the current one.
-    #[serde(skip_deserializing)]
     ClearQueue,
     /// Make an entry current and play it from the start.
-    #[serde(skip_deserializing)]
     PlayEntry(EntryId),
     /// Play/pause.
-    #[serde(skip_deserializing)]
     TogglePause,
-    #[serde(skip_deserializing)]
     Next,
-    #[serde(skip_deserializing)]
     Previous,
     /// Seek relative to the current position, in signed milliseconds.
-    #[serde(skip_deserializing)]
     SeekBy(i64),
     /// Seek to a position in the current track.
-    #[serde(skip_deserializing)]
     SeekTo(Duration),
-    #[serde(skip_deserializing)]
     ToggleShuffle,
     /// `off` → `queue` → `track` → `off`.
-    #[serde(skip_deserializing)]
     CycleRepeat,
-    #[serde(skip_deserializing)]
     ToggleAutoplay,
     /// Change the volume by a signed number of percentage points (clamped).
-    #[serde(skip_deserializing)]
     ChangeVolume(i8),
     /// Set the volume in percent (values above 100 are clamped).
-    #[serde(skip_deserializing)]
     SetVolume(u8),
-    #[serde(skip_deserializing)]
     ToggleMute,
 }
 
@@ -84,10 +74,8 @@ pub enum Event {
     LoginRestored,
     /// The whole player state, sent after every input that changed it.
     /// Clients replace their copy with it and never reorder its queue.
-    #[serde(skip_deserializing)]
     Player(PlayerSnapshot),
     /// The position of the playing entry, forwarded from the engine.
-    #[serde(skip_deserializing)]
     Position { entry: EntryId, position: Duration },
 }
 

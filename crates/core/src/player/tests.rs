@@ -326,8 +326,9 @@ fn ac1_load_and_skip_paths() {
             assert_eq!(st.snapshot().current, Some(entry), "{ctx}");
             assert_eq!(st.snapshot().state, S::Loading, "{ctx}");
             assert_eq!(st.snapshot().position, Duration::ZERO, "{ctx}");
-            // Whatever played before is stopped, never waited for.
-            if matches!(from, From::Playing | From::Paused) {
+            // Whatever played before is stopped, never waited for (after a
+            // natural end the engine is already idle).
+            if matches!(from, From::Playing | From::Paused) && !matches!(path, Path::AutoAdvance) {
                 assert_eq!(fx[0], PlayerEffect::EngineStop, "{ctx}: {fx:?}");
             }
             let fx = resolved(&mut st, tag);
@@ -682,7 +683,15 @@ fn ac5_preload() {
     // (name, queue, current index, repeat cycles before playing, edit, the new
     // next track: Some(Some(t)) resolve t (0: whatever follows the current
     // entry now); Some(None) cancel only; None unchanged)
-    let rows: [(&str, &[u64], usize, usize, Edit, Option<Option<u64>>); 11] = [
+    type Row = (
+        &'static str,
+        &'static [u64],
+        usize,
+        usize,
+        Edit,
+        Option<Option<u64>>,
+    );
+    let rows: [Row; 11] = [
         ("remove next", &[1, 2, 3], 0, 0, remove_next, Some(Some(3))),
         (
             "remove the only next",
@@ -1407,7 +1416,8 @@ fn ac10_queue_edits() {
     let o_same: Order = |o, _| o.to_vec();
     // (name, current play-order index of 5, op, removed track (relative
     // neighbour: -1 before, 0 current, 1 after), order transform, then)
-    let rows: [(&str, usize, Op, Option<isize>, Order, Then); 13] = [
+    type Row = (&'static str, usize, Op, Option<isize>, Order, Then);
+    let rows: [Row; 13] = [
         (
             "add next, first",
             0,
