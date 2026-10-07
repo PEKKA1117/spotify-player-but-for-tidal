@@ -22,6 +22,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
+use tidal_player_core::library::LibraryRequest;
 use tidal_player_core::protocol::{ClientMessage, Command, Event, PlayerSnapshot, ServerMessage};
 use tokio::sync::watch;
 
@@ -76,6 +77,12 @@ pub enum ClientInput {
         client: ClientId,
         id: u64,
         command: Command,
+    },
+    /// A library request (spec 0006 AC8), answered by one `LibraryReply`.
+    Library {
+        client: ClientId,
+        id: u64,
+        request: LibraryRequest,
     },
     /// The client left, or was dropped for a bad line.
     Detach(ClientId),

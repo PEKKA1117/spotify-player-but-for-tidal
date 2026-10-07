@@ -21,7 +21,8 @@ use tidal_player_core::protocol::{
 use tidal_player_core::{AudioQuality, Item, ParseQualityError, Track};
 
 use crate::player_runtime::{
-    EngineControl, ExpandError, Handled, Jobs, Metadata, PlayerRuntime, RuntimeInput, expand_items,
+    EngineControl, ExpandError, Handled, Jobs, LibrarySettings, Metadata, PlayerRuntime,
+    RuntimeInput, expand_items,
 };
 
 /// Highest quality to ask for (spec 0003 "Settings").
@@ -333,6 +334,12 @@ impl Default for Steps {
     }
 }
 
+/// Items per page of a library list (spec 0006), 1 to 10000.
+pub const PAGE_SIZE_VAR: &str = "TIDAL_PLAYER_PAGE_SIZE";
+/// Comma-separated words hiding alternate versions from an artist's *All
+/// tracks* (spec 0006); empty hides nothing.
+pub const HIDE_VERSIONS_VAR: &str = "TIDAL_PLAYER_HIDE_VERSIONS";
+
 /// The player's settings and the client's steps.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerSettings {
@@ -340,6 +347,8 @@ pub struct PlayerSettings {
     pub steps: Steps,
     /// The engine's release delay (spec 0005); `None`: never.
     pub release_paused: Option<Duration>,
+    /// What the player passes to every library request.
+    pub library: LibrarySettings,
 }
 
 impl Default for PlayerSettings {
@@ -348,6 +357,7 @@ impl Default for PlayerSettings {
             player: PlayerConfig::default(),
             steps: Steps::default(),
             release_paused: Some(tidal_player_audio::DEFAULT_RELEASE_PAUSED),
+            library: LibrarySettings::default(),
         }
     }
 }
@@ -1084,6 +1094,7 @@ mod tests {
     use crate::player_runtime::parse_items;
     use tidal_player_api::auth::BoxFuture;
     use tidal_player_api::metadata::MetadataError;
+    use tidal_player_core::library::DEFAULT_HIDDEN_VERSIONS;
     use tidal_player_core::player::{
         self, EngineEvent, PlayerEffect, PlayerInput, PlayerState, Purpose, TrackDetails,
     };
@@ -1592,6 +1603,72 @@ mod tests {
                     );
                 }
             }
+        }
+
+        // 0006 AC3: the page size (empty = unset) and the hidden words
+        // (empty = hide nothing).
+        let default_words: Vec<String> = DEFAULT_HIDDEN_VERSIONS
+            .iter()
+            .map(|w| (*w).to_owned())
+            .collect();
+        let words = |list: &[&str]| list.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        type PageWant = Result<u32, ()>;
+        let pages: &[(&str, Option<&str>, PageWant)] = &[
+            ("unset", None, Ok(100)),
+            ("empty counts as unset", Some(""), Ok(100)),
+            ("lowest", Some("1"), Ok(1)),
+            ("highest", Some("10000"), Ok(10000)),
+            ("zero", Some("0"), Err(())),
+            ("over", Some("10001"), Err(())),
+            ("text", Some("x"), Err(())),
+        ];
+        for (name, value, want) in pages {
+            let got = resolve_player_config(|key: &str| {
+                (key == PAGE_SIZE_VAR)
+                    .then_some(*value)
+                    .flatten()
+                    .map(Into::into)
+            });
+            match want {
+                Ok(n) => assert_eq!(
+                    got.map(|s| s.library.page_size).map_err(|e| e.to_string()),
+                    Ok(*n),
+                    "page size: {name}"
+                ),
+                Err(()) => {
+                    let err = got.expect_err(name);
+                    assert_eq!(err.setting, PAGE_SIZE_VAR, "{name}");
+                    let text = err.to_string();
+                    assert!(
+                        text.contains(PAGE_SIZE_VAR) && text.contains("1 to 10000"),
+                        "{name}: {text}"
+                    );
+                }
+            }
+        }
+        let hidden: &[(&str, Option<&str>, Vec<String>)] = &[
+            ("unset", None, default_words),
+            ("empty hides nothing", Some(""), Vec::new()),
+            ("one word", Some("remix"), words(&["remix"])),
+            (
+                "trimmed list",
+                Some(" live , demo,,  8d audio "),
+                words(&["live", "demo", "8d audio"]),
+            ),
+        ];
+        for (name, value, want) in hidden {
+            let got = resolve_player_config(|key: &str| {
+                (key == HIDE_VERSIONS_VAR)
+                    .then_some(*value)
+                    .flatten()
+                    .map(Into::into)
+            });
+            assert_eq!(
+                got.map(|s| s.library.hidden_words)
+                    .map_err(|e| e.to_string()),
+                Ok(want.clone()),
+                "hidden words: {name}"
+            );
         }
 
         // `play --autoplay` beats the environment, even a bad value.

@@ -14,6 +14,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use tidal_player_core::Item;
+use tidal_player_core::library::{LibraryRequest, LibraryResponse};
 use tidal_player_core::protocol::{ClientMessage, Command, Event, InsertAt, ServerMessage};
 use tidal_player_core::ui::Action;
 
@@ -38,6 +39,13 @@ const POLL_BATCH: usize = 4096;
 /// What a client says when no player is running.
 pub const NO_PLAYER: &str =
     "No player is running: start \"tidal-player\" or \"tidal-player daemon\"";
+
+/// The player's answer to a library request, as the session hands it on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryReply {
+    pub id: u64,
+    pub result: Result<LibraryResponse, String>,
+}
 
 // --- connections -------------------------------------------------------------------
 
@@ -345,6 +353,8 @@ pub struct Session<C: Connector> {
     retry_at: Option<Instant>,
     /// Refused by the player: never retried.
     refused: bool,
+    /// Library replies that arrived, for [`Self::take_library_replies`].
+    library_replies: Vec<LibraryReply>,
 }
 
 impl<C: Connector> Session<C> {
@@ -358,6 +368,7 @@ impl<C: Connector> Session<C> {
             next_id: 0,
             retry_at: None,
             refused: false,
+            library_replies: Vec::new(),
         };
         if let Some(command) = open {
             session.send(command);
@@ -372,6 +383,17 @@ impl<C: Connector> Session<C> {
         let id = self.next_id;
         self.next_id += 1;
         self.write(&ClientMessage::Request { id, command });
+    }
+
+    /// Sends a library request (spec 0006 AC19); its answer comes back with
+    /// the same `id` through [`Self::take_library_replies`].
+    pub fn send_library(&mut self, id: u64, request: LibraryRequest) {
+        let _ = (id, request);
+    }
+
+    /// The library replies that arrived (during [`Self::poll`]), in order.
+    pub fn take_library_replies(&mut self) -> Vec<LibraryReply> {
+        std::mem::take(&mut self.library_replies)
     }
 
     fn write(&mut self, message: &ClientMessage) {
@@ -881,5 +903,118 @@ mod tests {
             .push_back(Ok(ServerMessage::Event(Event::Player(snapshot(&[1, 2])))));
         apply(&mut state, session.poll(Instant::now()));
         assert_eq!(ids(&state), vec![1, 2]);
+    }
+
+    /// A request the fakes answer: `Done`, or `Err` for `fail`.
+    fn deleting(label: &str) -> LibraryRequest {
+        crate::player_runtime::fakes::delete(label)
+    }
+
+    /// Polls `session` until `want` library replies came (or time is up).
+    fn library_replies<C: Connector>(session: &mut Session<C>, want: usize) -> Vec<LibraryReply> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut got = Vec::new();
+        while got.len() < want && Instant::now() < deadline {
+            session.poll(Instant::now());
+            got.extend(session.take_library_replies());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        got
+    }
+
+    /// AC19: `send_library` sends `ClientMessage::Library`; a
+    /// `LibraryReply` comes out of the session, not as a UI action.
+    #[test]
+    fn ac19_library_on_the_link() {
+        let wire = Shared::default();
+        let mut session = Session::new(FakeConnector::default(), FakeLink(Rc::clone(&wire)), None);
+        session.send_library(4, deleting("x"));
+        assert_eq!(
+            wire.borrow().sent.last(),
+            Some(&ClientMessage::Library {
+                id: 4,
+                request: deleting("x"),
+            })
+        );
+        wire.borrow_mut()
+            .incoming
+            .push_back(Ok(ServerMessage::LibraryReply {
+                id: 4,
+                result: Err("no".into()),
+            }));
+        assert!(session.poll(Instant::now()).is_empty());
+        assert_eq!(
+            session.take_library_replies(),
+            vec![LibraryReply {
+                id: 4,
+                result: Err("no".into()),
+            }]
+        );
+        assert!(session.take_library_replies().is_empty());
+    }
+
+    /// AC19: a request goes to the player and its reply comes back with
+    /// its `id`, over the socket and in-process.
+    #[test]
+    fn ac19_library_round_trip() {
+        use crate::ipc::client::Connection;
+        use crate::ipc::server::attach_stream;
+        use crate::player_runtime::fakes::{FakeEngine, FakeJobs, FakeLibrary, Log, Script};
+        use crate::player_runtime::{PlayerRuntime, spawn_runtime};
+        use std::sync::Arc;
+        use tidal_player_core::player::PlayerConfig;
+
+        let library = Arc::new(FakeLibrary::default());
+        library.fail("bad", "Playlist not found");
+        let log: Log = Log::default();
+        let (tx, rx) = mpsc::channel();
+        let engine = FakeEngine::new(&log, Script::Plays);
+        let jobs = FakeJobs::new(&log, &tx, true).with_library(library.clone());
+        let runtime = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+        let _player = spawn_runtime(runtime, rx, tx.clone());
+
+        // Over a socket pair.
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        attach_stream(ours, &tx).unwrap();
+        let link = Connection::handshake(theirs, Path::new("<pair>")).unwrap();
+        let connector = SocketConnector::new(PathBuf::from("<pair>"));
+        let mut socket = Session::new(connector, link, None);
+        socket.send_library(1, deleting("ok"));
+        socket.send_library(2, deleting("bad"));
+        assert_eq!(
+            library_replies(&mut socket, 2),
+            vec![
+                LibraryReply {
+                    id: 1,
+                    result: Ok(LibraryResponse::Done),
+                },
+                LibraryReply {
+                    id: 2,
+                    result: Err("Playlist not found".into()),
+                },
+            ]
+        );
+
+        // In-process.
+        let mut connector = InProcess::new(tx.clone());
+        let link = connector.connect().unwrap();
+        let mut inner = Session::new(connector, link, None);
+        inner.send_library(9, deleting("bad"));
+        inner.send_library(10, deleting("ok"));
+        assert_eq!(
+            library_replies(&mut inner, 2),
+            vec![
+                LibraryReply {
+                    id: 9,
+                    result: Err("Playlist not found".into()),
+                },
+                LibraryReply {
+                    id: 10,
+                    result: Ok(LibraryResponse::Done),
+                },
+            ]
+        );
+        // Each client got only its own.
+        assert!(library_replies(&mut socket, 1).is_empty());
     }
 }
