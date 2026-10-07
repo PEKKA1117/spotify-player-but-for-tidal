@@ -21,15 +21,22 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 : >"$OUT"
 log() { printf '%s\n' "$*" | tee -a "$OUT"; }
 redact='walk(if type == "object" then with_entries(if (.key | test("token|userId|user_id|email|username"; "")) then .value |= "<redacted>" else . end) else . end)'
-# Cut every array to 3 entries, but report its length.
-trim='walk(if type == "array" and length > 3 then .[:3] + ["… \(length) in total"] else . end)'
+# A short, valid summary instead of the whole body: page modules and their
+# paged lists, or a list's paging fields with the first item's keys and IDs.
+summary='def list: {limit, offset, totalNumberOfItems, n: (.items|length),
+    ids: [.items[]? | (.item.id // .id)][:5], entryKeys: ((.items[0] // {}) | keys),
+    modes: ([.items[]? | (.item.audioModes // .audioModes) | tostring] | group_by(.) | map({(.[0]): length}) | add),
+    cats: ([.items[]?.roles[]?.category] | group_by(.) | map({(.[0]): length}) | add)};
+  if has("rows") then {title, modules: [.rows[].modules[] | {type, title, dataApiPath: .pagedList.dataApiPath,
+    paged: (if .pagedList then (.pagedList | list) else null end)}]}
+  elif has("items") then list else . end' 
 
 req() {
   local name=$1 url=$2; shift 2
   sleep 1
   STATUS=$(curl -sS -o "$WORK/b" -w '%{http_code}' -H "Authorization: Bearer $ACCESS" "$@" "$url" || echo curl-error)
   log "### $name"; log "GET $(sed -E 's/countryCode=[A-Z]+/countryCode=<cc>/' <<<"$url")"; log "status: $STATUS"
-  if jq -e . >/dev/null 2>&1 <"$WORK/b"; then jq "$trim | $redact" <"$WORK/b" | head -c 6000 | tee -a "$OUT"; echo | tee -a "$OUT"
+  if jq -e . >/dev/null 2>&1 <"$WORK/b"; then jq -c "$summary | $redact" <"$WORK/b" | tee -a "$OUT"
   else log "non-JSON body: $(head -c 200 "$WORK/b")"; fi
   log ""
   [ "$STATUS" = 429 ] && { log "stopped: rate limited"; exit 1; }
