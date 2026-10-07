@@ -257,6 +257,8 @@ impl Drop for Engine {
 
 /// A track the engine plays (or has preloaded).
 struct Track {
+    /// The caller's label, from `Play`/`Preload`.
+    tag: u64,
     worker: Worker,
     /// Known once the worker probed the stream.
     format: Option<SourceFormat>,
@@ -280,8 +282,9 @@ struct Track {
 }
 
 impl Track {
-    fn new(source: Box<dyn TrackSource>, start_at: Duration, preloaded: bool) -> Self {
+    fn new(tag: u64, source: Box<dyn TrackSource>, start_at: Duration, preloaded: bool) -> Self {
         Self {
+            tag,
             worker: Worker::spawn(source, start_at),
             format: None,
             generation: 0,
@@ -382,8 +385,12 @@ struct EngineThread {
     next: Option<Track>,
     paused: bool,
     buffering: bool,
+    /// Applied to every sample written (`SetGain`); outlives tracks.
+    gain: f32,
     /// The current track's most recently written samples.
     history: VecDeque<i32>,
+    /// Reused buffer for scaled samples.
+    scratch: Vec<i32>,
     last_position: Option<Duration>,
     last_emit: Duration,
 }
@@ -408,7 +415,9 @@ impl EngineThread {
             next: None,
             paused: false,
             buffering: false,
+            gain: 1.0,
             history: VecDeque::new(),
+            scratch: Vec::new(),
             last_position: None,
             last_emit: Duration::ZERO,
         }
@@ -444,12 +453,15 @@ impl EngineThread {
     fn handle(&mut self, command: Command) -> Flow {
         match command {
             Command::Play {
-                source, start_at, ..
-            } => self.play(source, start_at),
-            Command::Preload { source, .. } => {
-                self.next = Some(Track::new(source, Duration::ZERO, true));
+                tag,
+                source,
+                start_at,
+            } => self.play(tag, source, start_at),
+            Command::Preload { tag, source } => {
+                self.next = Some(Track::new(tag, source, Duration::ZERO, true));
             }
-            Command::CancelPreload | Command::SetGain(_) => {}
+            Command::CancelPreload => self.next = None,
+            Command::SetGain(gain) => self.gain = gain.clamp(0.0, 1.0),
             Command::Pause => {
                 if self.current.is_some() && !self.paused {
                     self.paused = true;
@@ -500,7 +512,7 @@ impl EngineThread {
         self.last_position = None;
     }
 
-    fn play(&mut self, source: Box<dyn TrackSource>, start_at: Duration) {
+    fn play(&mut self, tag: u64, source: Box<dyn TrackSource>, start_at: Duration) {
         self.current = None;
         self.next = None;
         if let (Some(sink), Some(_)) = (self.sink.as_mut(), self.open.as_ref()) {
@@ -511,7 +523,7 @@ impl EngineThread {
         self.sync_pause();
         self.history.clear();
         self.last_position = None;
-        self.current = Some(Track::new(source, start_at, false));
+        self.current = Some(Track::new(tag, source, start_at, false));
     }
 
     fn seek(&mut self, position: Duration) {
@@ -616,8 +628,9 @@ impl EngineThread {
 
     /// The track failed: report it once, and go idle.
     fn fail(&mut self, error: EngineError) {
+        let tag = self.current.as_ref().map_or(0, |t| t.tag);
         self.stop();
-        self.emit(Event::Error { tag: 0, error });
+        self.emit(Event::Error { tag, error });
     }
 
     /// What the listener hears now (never backwards between seeks).
@@ -710,7 +723,9 @@ impl EngineThread {
         let max = duration_to_frames(WRITE_SLICE, format.sample_rate).max(1) as usize * 2;
         let end = chunk.samples.len().min(track.front + max);
         let slice = &chunk.samples[track.front..end];
-        let outcome = match sink.write(slice) {
+        // The history keeps the samples as decoded: a replay on another
+        // device is scaled by the gain then, once.
+        let outcome = match sink.write(&apply_gain(slice, self.gain, &mut self.scratch)) {
             Ok(outcome) => outcome,
             Err(error) => {
                 self.fail(EngineError::Output(error));
@@ -740,16 +755,17 @@ impl EngineThread {
         if !track.announced {
             track.announced = true;
             let preloaded = track.preloaded;
+            let tag = track.tag;
             if let Some((_, output)) = self.open.clone() {
                 self.emit(if preloaded {
                     Event::Transitioned {
-                        tag: 0,
+                        tag,
                         source: format,
                         output,
                     }
                 } else {
                     Event::Started {
-                        tag: 0,
+                        tag,
                         source: format,
                         output,
                     }
@@ -764,6 +780,7 @@ impl EngineThread {
 
     /// The decoder's last frame was written.
     fn end_of_track(&mut self) {
+        let tag = self.current.as_ref().map_or(0, |t| t.tag);
         if let Some(next) = self.next.take() {
             // Gapless when the output format matches: the next write
             // follows the last one on the open device (`write_some`
@@ -779,7 +796,24 @@ impl EngineThread {
             self.fail(EngineError::Output(error));
             return;
         }
-        self.emit(Event::TrackEnded { tag: 0 });
+        self.emit(Event::TrackEnded { tag });
         self.idle();
     }
+}
+
+/// `samples` scaled by `gain`: exactly 1.0 returns them untouched (no float
+/// math), otherwise each becomes `round(s × gain)` computed in `f64`, no
+/// dither. `scratch` holds the scaled copy.
+fn apply_gain<'a>(samples: &'a [i32], gain: f32, scratch: &'a mut Vec<i32>) -> &'a [i32] {
+    if gain == 1.0 {
+        return samples;
+    }
+    let gain = f64::from(gain);
+    scratch.clear();
+    scratch.extend(
+        samples
+            .iter()
+            .map(|&s| (f64::from(s) * gain).round() as i32),
+    );
+    scratch
 }

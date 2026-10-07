@@ -915,6 +915,21 @@ fn scaled(samples: &[i32], gain: f32) -> Vec<i32> {
         .collect()
 }
 
+/// `actual` is `input` unscaled up to some frame `k`, then scaled by `gain`,
+/// with `k` at most one write slice (50 ms) after frame `from` (the engine
+/// may be inside a write when the command arrives).
+fn assert_gain_change(actual: &[i32], input: &[i32], gain: f32, from: usize, what: &str) {
+    assert_eq!(actual.len(), input.len(), "{what}: sample count");
+    let slice = duration_to_frames(Duration::from_millis(50), 44_100) as usize;
+    let boundary = (from..=from + slice).find(|&k| {
+        actual[..k * 2] == input[..k * 2] && actual[k * 2..] == scaled(&input[k * 2..], gain)[..]
+    });
+    assert!(
+        boundary.is_some(),
+        "{what}: no unscaled-then-scaled boundary within {slice} frames after frame {from}"
+    );
+}
+
 /// 0004 AC15: `SetGain`.
 #[test]
 fn ac15_gain() {
@@ -958,8 +973,13 @@ fn ac15_gain() {
     rig.send(Command::SetGain(0.5));
     rig.sinks.release();
     rig.until_end();
-    let expected = [a[..HELD * 2].to_vec(), scaled(&a[HELD * 2..], 0.5)].concat();
-    assert_samples(&rig.sinks.samples(), &expected, "gain changed mid-track");
+    assert_gain_change(
+        &rig.sinks.samples(),
+        &a,
+        0.5,
+        HELD,
+        "gain changed mid-track",
+    );
 
     // Across a gapless transition (set during the first track).
     let rig = self::rig(held(HELD as u64));
@@ -973,12 +993,13 @@ fn ac15_gain() {
         count(&events, |e| matches!(e, Event::Transitioned { .. })),
         1
     );
-    let expected = [
-        a[..HELD * 2].to_vec(),
-        scaled(&[&a[HELD * 2..], &b[..]].concat(), 0.5),
-    ]
-    .concat();
-    assert_samples(&rig.sinks.samples(), &expected, "gain across a transition");
+    assert_gain_change(
+        &rig.sinks.samples(),
+        &[a.clone(), b.clone()].concat(),
+        0.5,
+        HELD,
+        "gain across a transition",
+    );
 
     // Across a new Play.
     let rig = self::rig(held(HELD as u64));
