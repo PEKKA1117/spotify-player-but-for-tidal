@@ -5,6 +5,7 @@
 //! [`auth::Authenticator`].
 
 pub mod auth;
+pub mod metadata;
 pub mod stream;
 
 use std::fmt;
