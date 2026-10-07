@@ -7,7 +7,17 @@
 //! "Not covered by automated tests"); the naming and the classification of
 //! the owner's answer are pure and tested here.
 
-use tidal_player_audio::ReleaseReply;
+use std::collections::HashMap;
+use std::time::Duration;
+
+use tidal_player_audio::output::reserve::REPLY_TIMEOUT;
+use tidal_player_audio::{ReleaseReply, Reserver};
+use zbus::blocking::{Connection, Proxy, connection, proxy::Builder as ProxyBuilder};
+use zbus::fdo::{RequestNameFlags, RequestNameReply};
+use zbus::proxy::CacheProperties;
+
+/// The ReserveDevice1 interface name.
+pub const INTERFACE: &str = "org.freedesktop.ReserveDevice1";
 
 /// The priority sent with `RequestRelease` and exported while holding a
 /// card: the highest, as a user asking for this exact device.
@@ -17,14 +27,12 @@ pub const APPLICATION_NAME: &str = "tidal-player";
 
 /// `org.freedesktop.ReserveDevice1.Audio{card}`.
 pub fn reservation_name(card: u32) -> String {
-    let _ = card;
-    String::new()
+    format!("{INTERFACE}.Audio{card}")
 }
 
 /// `/org/freedesktop/ReserveDevice1/Audio{card}`.
 pub fn reservation_path(card: u32) -> String {
-    let _ = card;
-    String::new()
+    format!("/org/freedesktop/ReserveDevice1/Audio{card}")
 }
 
 /// Why a `RequestRelease` call got no `bool` back.
@@ -40,15 +48,167 @@ pub enum CallFailure {
 
 /// Classifies a D-Bus error by its name.
 pub fn failure_for_error_name(name: &str) -> CallFailure {
-    let _ = name;
-    CallFailure::Other
+    match name {
+        "org.freedesktop.DBus.Error.ServiceUnknown"
+        | "org.freedesktop.DBus.Error.NameHasNoOwner" => CallFailure::NoOwner,
+        "org.freedesktop.DBus.Error.NoReply" | "org.freedesktop.DBus.Error.Timeout" => {
+            CallFailure::Timeout
+        }
+        _ => CallFailure::Other,
+    }
+}
+
+/// Classifies a zbus error (a timeout is an I/O `TimedOut`).
+fn failure_of(error: &zbus::Error) -> CallFailure {
+    match error {
+        zbus::Error::MethodError(name, _, _) => failure_for_error_name(name.as_str()),
+        zbus::Error::FDO(e) => match **e {
+            zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_) => {
+                CallFailure::NoOwner
+            }
+            zbus::fdo::Error::NoReply(_) | zbus::fdo::Error::Timeout(_) => CallFailure::Timeout,
+            _ => CallFailure::Other,
+        },
+        zbus::Error::InputOutput(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            CallFailure::Timeout
+        }
+        _ => CallFailure::Other,
+    }
 }
 
 /// Maps the owner's answer to the decision table's input; `holder` is the
 /// owner's `ApplicationName`, if it was read.
 pub fn classify_release(answer: Result<bool, CallFailure>, holder: Option<String>) -> ReleaseReply {
-    let _ = (answer, holder);
-    ReleaseReply::NoOwner
+    match answer {
+        Ok(true) => ReleaseReply::Released,
+        Ok(false) => ReleaseReply::Refused { holder },
+        Err(CallFailure::NoOwner) => ReleaseReply::NoOwner,
+        Err(CallFailure::Timeout | CallFailure::Other) => ReleaseReply::NoReply { holder },
+    }
+}
+
+/// The object exported while holding a card: refuses every
+/// `RequestRelease` (answering it is spec 0005's).
+struct Device {
+    card: u32,
+}
+
+#[zbus::interface(name = "org.freedesktop.ReserveDevice1")]
+impl Device {
+    fn request_release(&self, priority: i32) -> bool {
+        tracing::info!(
+            card = self.card,
+            priority,
+            "refused a request to release the card"
+        );
+        false
+    }
+
+    #[zbus(property)]
+    fn priority(&self) -> i32 {
+        PRIORITY
+    }
+
+    #[zbus(property)]
+    fn application_name(&self) -> String {
+        APPLICATION_NAME.into()
+    }
+
+    #[zbus(property)]
+    fn application_device_name(&self) -> String {
+        format!("hw:{}", self.card)
+    }
+}
+
+/// [`Reserver`] over the session bus. Each held card has its own
+/// connection, which owns the name and serves the [`Device`] object.
+#[derive(Default)]
+pub struct ZbusReserver {
+    held: HashMap<u32, Connection>,
+}
+
+impl std::fmt::Debug for ZbusReserver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZbusReserver")
+            .field("held", &self.held.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl ZbusReserver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A proxy on the current owner of the card's name.
+    fn owner<'c>(connection: &'c Connection, card: u32) -> zbus::Result<Proxy<'c>> {
+        ProxyBuilder::new(connection)
+            .destination(reservation_name(card))?
+            .path(reservation_path(card))?
+            .interface(INTERFACE)?
+            .cache_properties(CacheProperties::No)
+            .build()
+    }
+
+    /// The owner's `ApplicationName`, if it answers in time.
+    fn holder(connection: &Connection, card: u32) -> Option<String> {
+        Self::owner(connection, card)
+            .and_then(|p| p.get_property::<String>("ApplicationName"))
+            .ok()
+    }
+}
+
+impl Reserver for ZbusReserver {
+    fn request_release(&mut self, card: u32, timeout: Duration) -> ReleaseReply {
+        // A connection of its own, so the timeout bounds this call only.
+        let Ok(connection) = connection::Builder::session()
+            .map(|b| b.method_timeout(timeout))
+            .and_then(connection::Builder::build)
+        else {
+            return ReleaseReply::NoBus;
+        };
+        let answer = Self::owner(&connection, card)
+            .and_then(|owner| owner.call::<_, _, bool>("RequestRelease", &(PRIORITY,)))
+            .map_err(|e| failure_of(&e));
+        // Asked only of an owner that answered (no second wait on a slow one).
+        let holder = match answer {
+            Ok(false) => Self::holder(&connection, card),
+            _ => None,
+        };
+        classify_release(answer, holder)
+    }
+
+    fn claim(&mut self, card: u32) -> Result<(), Option<String>> {
+        let name = reservation_name(card);
+        let connection = connection::Builder::session()
+            .map(|b| b.method_timeout(REPLY_TIMEOUT))
+            .and_then(|b| b.serve_at(reservation_path(card), Device { card }))
+            .and_then(connection::Builder::build)
+            .map_err(|e| {
+                tracing::warn!("cannot reserve card {card}: {e}");
+                None
+            })?;
+        let flags = RequestNameFlags::ReplaceExisting
+            | RequestNameFlags::AllowReplacement
+            | RequestNameFlags::DoNotQueue;
+        match connection.request_name_with_flags(name.as_str(), flags) {
+            Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {
+                self.held.insert(card, connection);
+                Ok(())
+            }
+            Ok(_) => Err(Self::holder(&connection, card)),
+            Err(e) => {
+                tracing::warn!("cannot reserve card {card}: {e}");
+                Err(None)
+            }
+        }
+    }
+
+    fn release(&mut self, card: u32) {
+        if let Some(connection) = self.held.remove(&card) {
+            let _ = connection.release_name(reservation_name(card).as_str());
+        }
+    }
 }
 
 #[cfg(test)]
