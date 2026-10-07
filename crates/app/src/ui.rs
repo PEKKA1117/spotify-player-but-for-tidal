@@ -930,4 +930,689 @@ mod tests {
         );
         insta::assert_snapshot!(text);
     }
+
+    // --- spec 0006 AC17: pages ----------------------------------------------------
+
+    use ratatui::style::Modifier as Mod;
+    use tidal_player_core::library::{
+        AlbumKind, AlbumSummary, CreditedTrack, LibraryResponse, ListItems, ListPage, PageData,
+        PlaylistSummary, RoleCategory,
+    };
+    use tidal_player_core::ui::{Effect, Key};
+
+    fn press(state: &mut State, keys: &[Key]) -> Vec<Effect> {
+        keys.iter()
+            .flat_map(|key| update(state, Action::Key(*key)))
+            .collect()
+    }
+
+    /// The ID of the one library request the keys made.
+    fn ask(state: &mut State, keys: &[Key]) -> u64 {
+        let effects = press(state, keys);
+        effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Library { id, .. } => Some(*id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no library request from {keys:?}: {effects:?}"))
+    }
+
+    fn answer(state: &mut State, id: u64, response: LibraryResponse) {
+        update(
+            state,
+            Action::LibraryReply {
+                id,
+                result: Ok(response),
+            },
+        );
+    }
+
+    fn fail(state: &mut State, id: u64, message: &str) {
+        update(
+            state,
+            Action::LibraryReply {
+                id,
+                result: Err(message.into()),
+            },
+        );
+    }
+
+    fn list<T>(items: Vec<T>, total: u32, hidden: u32) -> ListPage<T> {
+        ListPage {
+            items,
+            offset: 0,
+            total,
+            hidden,
+        }
+    }
+
+    fn playlist(uuid: &str, title: &str, tracks: u32, own: bool) -> PlaylistSummary {
+        PlaylistSummary {
+            uuid: uuid.into(),
+            title: title.into(),
+            tracks: Some(tracks),
+            duration: Some(Duration::from_secs(u64::from(tracks) * 200)),
+            own,
+        }
+    }
+
+    fn album(id: u64, title: &str, artist: &str, year: u16, kind: AlbumKind) -> AlbumSummary {
+        AlbumSummary {
+            id,
+            title: title.into(),
+            artists: vec![ArtistRef {
+                id: 7,
+                name: artist.into(),
+            }],
+            year: Some(year),
+            kind,
+            tracks: Some(9),
+            duration: Some(Duration::from_secs(2400)),
+        }
+    }
+
+    fn artist_ref(id: u64, name: &str) -> ArtistRef {
+        ArtistRef {
+            id,
+            name: name.into(),
+        }
+    }
+
+    fn library_data() -> PageData {
+        PageData::Library {
+            playlists: list(
+                vec![
+                    playlist("p1", "Running", 42, true),
+                    playlist("p2", "Late night", 17, false),
+                    playlist("p3", "Gym mix", 8, true),
+                ],
+                22,
+                0,
+            ),
+            albums: list(
+                vec![
+                    album(
+                        1,
+                        "Collide With The Sky",
+                        "Pierce The Veil",
+                        2012,
+                        AlbumKind::Album,
+                    ),
+                    album(
+                        2,
+                        "Misadventures",
+                        "Pierce The Veil",
+                        2016,
+                        AlbumKind::Album,
+                    ),
+                    album(
+                        3,
+                        "Hold On Till May",
+                        "Pierce The Veil",
+                        2010,
+                        AlbumKind::Ep,
+                    ),
+                ],
+                14,
+                0,
+            ),
+            artists: list(
+                vec![
+                    artist_ref(7, "Pierce The Veil"),
+                    artist_ref(8, "Sleeping With Sirens"),
+                    artist_ref(9, "Bring Me The Horizon"),
+                ],
+                196,
+                0,
+            ),
+        }
+    }
+
+    fn empty_library() -> PageData {
+        PageData::Library {
+            playlists: list(vec![], 0, 0),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+        }
+    }
+
+    /// The library page, loaded.
+    fn library() -> State {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+        answer(&mut state, id, LibraryResponse::Page(library_data()));
+        state
+    }
+
+    fn browse_tracks(n: u64) -> Vec<Track> {
+        (1..=n)
+            .map(|i| {
+                track(
+                    100 + i,
+                    &format!("Song {i}"),
+                    "Pierce The Veil",
+                    "Album",
+                    Some(180 + i),
+                )
+            })
+            .collect()
+    }
+
+    fn favorites() -> State {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('y')]);
+        let mut tracks = browse_tracks(2);
+        tracks.push(Track {
+            streamable: false,
+            ..track(
+                500,
+                "Not Streamable Here",
+                "Pierce The Veil",
+                "Misadventures",
+                Some(201),
+            )
+        });
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::FavoriteTracks {
+                tracks: list(tracks, 362, 0),
+            }),
+        );
+        state
+    }
+
+    /// An album page, opened from the library's Albums window.
+    fn album_page(tracks: Vec<Track>) -> State {
+        let mut state = library();
+        let n = tracks.len() as u32;
+        let id = ask(&mut state, &[Key::Tab, Key::Enter]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Album {
+                album: album(
+                    1,
+                    "Collide With The Sky",
+                    "Pierce The Veil",
+                    2012,
+                    AlbumKind::Album,
+                ),
+                tracks: list(tracks, n, 0),
+            }),
+        );
+        state
+    }
+
+    fn playlist_page(tracks: Vec<Track>) -> State {
+        let mut state = library();
+        let n = tracks.len() as u32;
+        let id = ask(&mut state, &[Key::Enter]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Playlist {
+                playlist: playlist("p1", "Running", n, true),
+                etag: Some("\"1\"".into()),
+                tracks: list(tracks, n, 0),
+            }),
+        );
+        state
+    }
+
+    /// An artist page, opened from the library's Artists window.
+    fn artist_page(full: bool) -> State {
+        let mut state = library();
+        let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Enter]);
+        let data = if full {
+            PageData::Artist {
+                artist: artist_ref(7, "Pierce The Veil"),
+                top_tracks: list(browse_tracks(4), 91, 0),
+                albums: list(
+                    vec![
+                        album(
+                            1,
+                            "Collide With The Sky",
+                            "Pierce The Veil",
+                            2012,
+                            AlbumKind::Album,
+                        ),
+                        album(
+                            3,
+                            "Hold On Till May",
+                            "Pierce The Veil",
+                            2010,
+                            AlbumKind::Ep,
+                        ),
+                        album(
+                            4,
+                            "Pierce The Veil",
+                            "Pierce The Veil",
+                            2008,
+                            AlbumKind::Single,
+                        ),
+                    ],
+                    78,
+                    0,
+                ),
+                appears_on: list(
+                    vec![album(
+                        9,
+                        "Warped Tour 2013",
+                        "Various Artists",
+                        2013,
+                        AlbumKind::Album,
+                    )],
+                    30,
+                    0,
+                ),
+            }
+        } else {
+            PageData::Artist {
+                artist: artist_ref(7, "Pierce The Veil"),
+                top_tracks: list(vec![], 0, 0),
+                albums: list(vec![], 0, 0),
+                appears_on: list(vec![], 0, 0),
+            }
+        };
+        answer(&mut state, id, LibraryResponse::Page(data));
+        state
+    }
+
+    /// The artist page with *All tracks* focused and its first page in.
+    fn all_tracks(empty: bool) -> State {
+        let mut state = artist_page(!empty);
+        let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Tab]);
+        let page = if empty {
+            list(vec![], 0, 37)
+        } else {
+            list(
+                vec![
+                    CreditedTrack {
+                        track: track(300, "Hell Above", "Pierce The Veil", "Collide", Some(212)),
+                        roles: vec![RoleCategory::Performer, RoleCategory::Songwriter],
+                    },
+                    CreditedTrack {
+                        track: track(
+                            301,
+                            "Caraphernelia",
+                            "Pierce The Veil",
+                            "Selfish",
+                            Some(241),
+                        ),
+                        roles: vec![RoleCategory::Producer],
+                    },
+                ],
+                548,
+                37,
+            )
+        };
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Items(ListItems::Credits(page)),
+        );
+        state
+    }
+
+    fn own_playlists_page() -> LibraryResponse {
+        LibraryResponse::Items(ListItems::Playlists(list(
+            vec![
+                playlist("p1", "Running", 42, true),
+                playlist("p3", "Gym mix", 8, true),
+            ],
+            2,
+            0,
+        )))
+    }
+
+    /// The actions popup over the library's Albums window.
+    fn actions_popup() -> State {
+        let mut state = library();
+        press(&mut state, &[Key::Tab, Key::Ctrl(' ')]);
+        state
+    }
+
+    /// *Add to playlist…* from an album's actions, its playlists in.
+    fn add_to_playlist_popup() -> State {
+        let mut state = actions_popup();
+        // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
+        // Remove from favorites, Add to playlist…
+        let keys = [Key::Char('j'); 6];
+        press(&mut state, &keys);
+        let id = ask(&mut state, &[Key::Enter]);
+        answer(&mut state, id, own_playlists_page());
+        state
+    }
+
+    fn confirm_popup() -> State {
+        let mut state = library();
+        // Open, Add to queue, Play next, Delete playlist.
+        press(
+            &mut state,
+            &[
+                Key::Ctrl(' '),
+                Key::Char('j'),
+                Key::Char('j'),
+                Key::Char('j'),
+            ],
+        );
+        press(&mut state, &[Key::Enter]);
+        state
+    }
+
+    fn name_popup() -> State {
+        let mut state = add_to_playlist_popup();
+        press(&mut state, &[Key::Enter]);
+        for c in "Road trip".chars() {
+            press(&mut state, &[Key::Char(c)]);
+        }
+        state
+    }
+
+    fn roles_popup() -> State {
+        let mut state = all_tracks(false);
+        press(&mut state, &[Key::Char('f')]);
+        state
+    }
+
+    fn draw_terminal(state: &State, width: u16, height: u16) -> Terminal<TestBackend> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(state, frame)).unwrap();
+        terminal
+    }
+
+    #[test]
+    fn ac17_pages_80x24() {
+        // Library loaded: three windows with counts, focus, `♥`.
+        let text = draw(&library(), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Library",
+                "Playlists (22)",
+                "Albums (14)",
+                "Artists (196)",
+                "Running",
+                "♥ Late night",
+                "Collide With The Sky",
+                "Pierce The Veil",
+            ],
+        );
+        assert!(
+            !text.contains("Queue (12)"),
+            "the queue under the library:\n{text}"
+        );
+        insta::assert_snapshot!("ac17_library_loaded", text);
+
+        // Library loading.
+        let mut state = state_of(playing());
+        press(&mut state, &[Key::Char('g'), Key::Char('l')]);
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &["Library", "Loading…"]);
+        assert!(!text.contains("Queue (12)"), "{text}");
+        insta::assert_snapshot!("ac17_library_loading", text);
+
+        // Favorite tracks: a non-streamable row dimmed, `Loading more…` last.
+        let mut state = favorites();
+        press(&mut state, &[Key::Char('j')]);
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Favorite tracks · 362 tracks",
+                "Song 1",
+                "Not Streamable Here",
+                "Loading more…",
+            ],
+        );
+        let y = text
+            .split('\n')
+            .position(|r| r.contains("Not Streamable Here"))
+            .unwrap();
+        let line = text.split('\n').nth(y).unwrap();
+        let x = line[..line.find("Not Streamable Here").unwrap()]
+            .chars()
+            .count();
+        let terminal = draw_terminal(&state, 80, 24);
+        let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+        assert!(cell.modifier.contains(Mod::DIM), "not dimmed: {cell:?}");
+        let song = text.split('\n').position(|r| r.contains("Song 1")).unwrap();
+        let cell = &terminal.backend().buffer()[(x as u16, song as u16)];
+        assert!(!cell.modifier.contains(Mod::DIM), "streamable row dimmed");
+        let last = text
+            .split('\n')
+            .rev()
+            .find(|r| r.contains("Song") || r.contains("Loading more…"))
+            .unwrap();
+        assert!(last.contains("Loading more…"), "last row: {last:?}\n{text}");
+        insta::assert_snapshot!("ac17_favorite_tracks", text);
+
+        // An album page: the title row.
+        let text = draw(&album_page(browse_tracks(9)), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Collide With The Sky · Pierce The Veil · 2012 · 9 tracks · 40:00",
+                "Song 1",
+            ],
+        );
+        insta::assert_snapshot!("ac17_album_page", text);
+
+        // A playlist page.
+        let text = draw(&playlist_page(browse_tracks(3)), 80, 24);
+        assert_contains(&text, &["Running · 3 tracks · 10:00", "Song 3"]);
+        insta::assert_snapshot!("ac17_playlist_page", text);
+
+        // The artist page: both halves, `‹Tab›` titles.
+        let text = draw(&artist_page(true), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Pierce The Veil",
+                "Top tracks (91) ‹Tab› All tracks",
+                "Albums (78) ‹Tab› Appears on",
+                "Song 1",
+                "Hold On Till May",
+                "EP",
+                "Single",
+            ],
+        );
+        insta::assert_snapshot!("ac17_artist_page", text);
+
+        // *All tracks* focused: the hidden count, the roles.
+        let text = draw(&all_tracks(false), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "All tracks (548 · 37 hidden) ‹Tab› Top tracks",
+                "Hell Above",
+                "Albums (78)",
+            ],
+        );
+        insta::assert_snapshot!("ac17_artist_all_tracks", text);
+
+        // The role filter popup.
+        let text = draw(&roles_popup(), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "[x] Performer",
+                "[x] Songwriter",
+                "[x] Producer",
+                "[x] Engineer",
+            ],
+        );
+        insta::assert_snapshot!("ac17_roles_popup", text);
+
+        // A failed page.
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+        fail(&mut state, id, "Could not reach Tidal: timed out");
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &["Could not load the library: Could not reach Tidal: timed out"],
+        );
+        assert!(!text.contains("Loading…"), "{text}");
+        insta::assert_snapshot!("ac17_failed_page", text);
+
+        // Empty favorites.
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('y')]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::FavoriteTracks {
+                tracks: list(vec![], 0, 0),
+            }),
+        );
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &["No favorite tracks yet"]);
+        insta::assert_snapshot!("ac17_empty_favorite_tracks", text);
+
+        // The actions popup (an album), *Add to playlist…*, a `y/n`
+        // question, the name prompt.
+        let text = draw(&actions_popup(), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Collide With The Sky",
+                "Open",
+                "Go to artist: Pierce The Veil",
+                "Add to queue",
+                "Play next",
+                "Add to playlist…",
+            ],
+        );
+        insta::assert_snapshot!("ac17_actions_popup", text);
+
+        let text = draw(&add_to_playlist_popup(), 80, 24);
+        assert_contains(&text, &["New playlist…", "Running", "Gym mix"]);
+        assert!(
+            !text.contains("Late night"),
+            "a followed playlist offered:\n{text}"
+        );
+        insta::assert_snapshot!("ac17_add_to_playlist", text);
+
+        let text = draw(&confirm_popup(), 80, 24);
+        assert_contains(&text, &["Delete Running? (y/n)"]);
+        insta::assert_snapshot!("ac17_confirm", text);
+
+        let text = draw(&name_popup(), 80, 24);
+        assert_contains(&text, &["Playlist name: Road trip"]);
+    }
+
+    /// Each empty-list message, one window at a time (50×20).
+    #[test]
+    fn ac17_empty_messages() {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+        answer(&mut state, id, LibraryResponse::Page(empty_library()));
+        for message in [
+            "No playlists yet",
+            "No favorite albums yet",
+            "No favorite artists yet",
+        ] {
+            let text = draw(&state, 50, 20);
+            assert_contains(&text, &[message]);
+            press(&mut state, &[Key::Tab]);
+        }
+
+        let text = draw(&album_page(vec![]), 50, 20);
+        assert_contains(&text, &["This album has no tracks"]);
+        let text = draw(&playlist_page(vec![]), 50, 20);
+        assert_contains(&text, &["This playlist has no tracks"]);
+
+        let mut state = all_tracks(true);
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &["No credits (37 hidden)"]);
+        // Focus wraps: Top tracks, Albums, Appears on.
+        press(&mut state, &[Key::Tab]);
+        assert_contains(&draw(&state, 50, 20), &["No top tracks"]);
+        press(&mut state, &[Key::Tab]);
+        assert_contains(&draw(&state, 50, 20), &["No albums"]);
+        press(&mut state, &[Key::Tab]);
+        assert_contains(&draw(&state, 50, 20), &["No albums"]);
+    }
+
+    /// 50×20: only the focused window, its title followed by `‹Tab›`.
+    #[test]
+    fn ac17_narrow_50x20() {
+        let mut state = library();
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &["Playlists (22) ‹Tab›", "Running"]);
+        assert!(
+            !text.contains("Albums (14)") && !text.contains("Artists (196)"),
+            "other windows drawn:\n{text}"
+        );
+        insta::assert_snapshot!("ac17_narrow_library", text);
+        press(&mut state, &[Key::Tab]);
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &["Albums (14) ‹Tab›", "Collide With The Sky"]);
+        assert!(!text.contains("Playlists (22)"), "{text}");
+
+        let text = draw(&artist_page(true), 50, 20);
+        assert_contains(&text, &["Top tracks (91) ‹Tab›", "Song 1"]);
+        assert!(!text.contains("Hold On Till May"), "{text}");
+
+        // A page with one window has no `‹Tab›`.
+        let text = draw(&favorites(), 50, 20);
+        assert!(!text.contains("‹Tab›"), "{text}");
+    }
+
+    /// No panic from 0×0 to 120×40 on every page kind and popup.
+    #[test]
+    fn ac17_no_panic_any_size() {
+        let mut login = library();
+        login.login_required = true;
+        let mut loading = state_of(playing());
+        press(&mut loading, &[Key::Char('g'), Key::Char('l')]);
+        let mut failed = state_of(playing());
+        let id = ask(&mut failed, &[Key::Char('g'), Key::Char('l')]);
+        fail(&mut failed, id, "Could not reach Tidal: timed out");
+        let mut more = favorites();
+        press(&mut more, &[Key::Char('j')]);
+        let states = [
+            state_of(playing()),
+            library(),
+            loading,
+            failed,
+            more,
+            album_page(browse_tracks(9)),
+            album_page(vec![]),
+            playlist_page(browse_tracks(3)),
+            artist_page(true),
+            artist_page(false),
+            all_tracks(false),
+            all_tracks(true),
+            actions_popup(),
+            add_to_playlist_popup(),
+            confirm_popup(),
+            name_popup(),
+            roles_popup(),
+            login,
+        ];
+        let sizes = (0..=120)
+            .step_by(7)
+            .flat_map(|w| (0..=40).step_by(3).map(move |h| (w, h)))
+            .chain([
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (50, 20),
+                (59, 24),
+                (60, 24),
+                (62, 24),
+                (80, 24),
+                (120, 40),
+            ]);
+        for (width, height) in sizes {
+            for state in &states {
+                draw(state, width, height);
+            }
+        }
+    }
 }
