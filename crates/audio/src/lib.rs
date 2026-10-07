@@ -3,9 +3,16 @@
 //!
 //! The API is synchronous and the crate does not depend on tokio.
 
+pub mod clock;
+pub mod decode;
+pub mod engine;
 pub mod output;
 pub mod sink;
+pub mod source;
+pub mod testing;
+mod worker;
 
+pub use engine::{Command, Engine, EngineConfig, EngineError, EngineGone, Event};
 #[cfg(feature = "alsa")]
 pub use output::{AlsaBackend, alsa_sink_factory};
 pub use output::{
@@ -13,6 +20,7 @@ pub use output::{
     Reserver, SystemClock,
 };
 pub use sink::{
-    Codec, MemorySink, OutputInfo, OutputKind, SampleFormat, Sink, SinkError, SinkFactory,
-    SourceFormat, WriteOutcome,
+    Codec, MemoryDevices, MemorySink, MemorySinkHandle, OutputInfo, OutputKind, SampleFormat, Sink,
+    SinkCall, SinkError, SinkFactory, SinkScript, SourceFormat, WriteOutcome,
 };
+pub use source::{ReadOutcome, SegmentSpan, SourceError, SourceLayout, TrackSource};
