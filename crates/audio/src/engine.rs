@@ -725,7 +725,7 @@ impl EngineThread {
         let slice = &chunk.samples[track.front..end];
         // The history keeps the samples as decoded: a replay on another
         // device is scaled by the gain then, once.
-        let outcome = match sink.write(&apply_gain(slice, self.gain, &mut self.scratch)) {
+        let outcome = match sink.write(apply_gain(slice, self.gain, &mut self.scratch)) {
             Ok(outcome) => outcome,
             Err(error) => {
                 self.fail(EngineError::Output(error));
