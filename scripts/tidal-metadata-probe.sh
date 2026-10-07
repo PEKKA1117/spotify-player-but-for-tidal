@@ -130,7 +130,12 @@ req "playlist (title and description redacted)" "$API/playlists/$PLAYLIST?countr
 req "playlist items, no paging params" "$API/playlists/$PLAYLIST/items?countryCode=$CC"
 req "playlist items, limit=3 offset=2" "$API/playlists/$PLAYLIST/items?countryCode=$CC&limit=3&offset=2"
 req "playlist items, limit=1000" "$API/playlists/$PLAYLIST/items?countryCode=$CC&limit=1000"
-req "playlist tracks (tidalt's endpoint), limit=3" "$API/playlists/$PLAYLIST/tracks?countryCode=$CC&limit=3"
+req "playlist items, limit=50" "$API/playlists/$PLAYLIST/items?countryCode=$CC&limit=50"
+log "### non-track entries of that page (untrimmed)"
+jq "[.items[] | select(.type != \"track\")] | $redact_json" <<<"$BODY" | tee -a "$OUT"
+log ""
+req "playlist tracks (tidalt's endpoint), limit=50: itemCount 39 = videos left out, 41 = included" \
+  "$API/playlists/$PLAYLIST/tracks?countryCode=$CC&limit=50"
 req "unknown playlist" "$API/playlists/00000000-0000-0000-0000-000000000000/items?countryCode=$CC"
 
 echo
