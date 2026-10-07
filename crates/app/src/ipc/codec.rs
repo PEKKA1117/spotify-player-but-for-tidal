@@ -214,7 +214,10 @@ mod tests {
         Error(&'static str),
     }
 
-    fn check(rows: Vec<(&str, Vec<Vec<u8>>, Vec<Want>)>, limit: usize) {
+    /// A row: its name, the reads, what they decode to.
+    type Row = (&'static str, Vec<Vec<u8>>, Vec<Want>);
+
+    fn check(rows: Vec<Row>, limit: usize) {
         for (name, reads, want) in rows {
             let mut decoder = Decoder::<ClientMessage>::with_limit(limit);
             let got: Vec<_> = reads.iter().flat_map(|r| decoder.feed(r)).collect();
@@ -245,7 +248,7 @@ mod tests {
         assert_eq!(decoder.feed(&line), vec![Ok(message)]);
 
         let both = [subscribe_line(), request_line(7)].concat();
-        let rows: Vec<(&str, Vec<Vec<u8>>, Vec<Want>)> = vec![
+        let rows: Vec<Row> = vec![
             (
                 "one per read",
                 vec![subscribe_line(), request_line(1)],
@@ -365,7 +368,8 @@ mod tests {
                 ours: VERSION.into(),
             })
         };
-        let not_ours = Err(GreetingError::NotOurs(socket.into()));
+        let not_ours_error = GreetingError::NotOurs(socket.into());
+        let not_ours = Err(not_ours_error.clone());
         let ours = format!("{{\"tidal_player\":\"{VERSION}\"}}");
         let rows: Vec<(&str, String, Result<(), GreetingError>)> = vec![
             ("same version", ours.clone(), Ok(())),
@@ -405,7 +409,7 @@ mod tests {
             )
         );
         assert_eq!(
-            not_ours.unwrap_err().to_string(),
+            not_ours_error.to_string(),
             "Not a tidal-player socket: /run/user/1000/tidal-player/player.sock"
         );
     }
