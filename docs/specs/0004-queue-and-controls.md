@@ -88,7 +88,7 @@ When the current track has **30 s or less** left (or as soon as it starts, if it
 
 | What failed | Examples | What the player does |
 |---|---|---|
-| This track only | `NotFound`, `NotAvailable`, `PreviewOnly`, `Unsupported` (resolve); `Decode`, `Unsupported` (engine) | Shows the 0003 message, then moves on as auto-advance would (repeat `track` moves on too). After **5** consecutive failures, or as many as there are entries if fewer, it stops on the failing entry with `Stopped: N tracks in a row could not be played` |
+| This track only | `NotFound`, `NotAvailable`, `PreviewOnly`, `Unsupported` (resolve); `Decode`, `Unsupported` (engine) | Shows the 0003 message, then moves on as auto-advance would (repeat `track` moves on too). After **5** consecutive failures, or as many as there are entries if fewer, it stops on the failing entry with `Stopped: N tracks in a row could not be played` (when N is 1, a queue of one, the failure's own message stays instead) |
 | Something transient | network error after the retries (`SourceError::Network`), `429`, `5xx` | Stops (state `Stopped`) on that entry, at the position reached, with the 0003 message. **Never skips.** Play/pause retries it |
 | The output | `Busy`, `NotFound`, `Lost` | Stops on that entry with the 0003 message. Never skips (the next track would fail the same way) |
 | The session | `LoginRequired` | Stops; the TUI shows the "session expired" status (0002 AC14) |
@@ -383,4 +383,4 @@ Not verified (the probe did not reach it):
 
 ## Bugs
 
-None yet.
+- **A queue of one failing track ends with `Stopped: 1 tracks in a row could not be played` (found at slice D acceptance, 2026-10-07).** Expected: `play <id>` on an unplayable track prints exactly 0003's message (`Track 404 is not available in NO`), as "Commands" requires for the single-track form; the TUI likewise shows why the track failed. Actual: the run limit is `min(5, queue length)` = 1, so the first failure already hits it and the player replaces the failure's message with the run summary, which names no cause (and reads "1 tracks"). Root cause: "Failures" did not say what the summary is for a run of one. Fix: the summary replaces the message only when N > 1; with N = 1 the failure's own message stays (the table row is corrected). AC7 gains the row: a 1-entry queue (repeat `off` and `queue`) stops after 1 failure with that failure's message. Test: `crates/core/src/player/tests.rs` :: `ac7_failure_run_stops` (rows `(1, 0, 1)` and `(1, 1, 1)`; red: the message is the run summary). `play`'s reporter workaround for this case is removed

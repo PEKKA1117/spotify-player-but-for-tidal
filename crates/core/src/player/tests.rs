@@ -1053,7 +1053,14 @@ fn ac7_failure_policy() {
 fn ac7_failure_run_stops() {
     let not_found = |n: u64| failure(FailureKind::TrackOnly, &format!("Track {n} was not found"));
     // (queue length, repeat cycles, failures before the stop)
-    let rows = [(20, 0, 5), (3, 0, 3), (3, 1, 3), (20, 2, 5), (1, 1, 1)];
+    let rows = [
+        (20, 0, 5),
+        (3, 0, 3),
+        (3, 1, 3),
+        (20, 2, 5),
+        (1, 0, 1),
+        (1, 1, 1),
+    ];
     for (len, cycles, limit) in rows {
         let ctx = format!("{len} entries, {cycles} repeat cycles");
         let mut st = player();
@@ -1082,13 +1089,13 @@ fn ac7_failure_run_stops() {
             failed.last().copied(),
             "{ctx}: on the failing entry"
         );
-        assert_eq!(
-            s.message,
-            Some(format!(
-                "Stopped: {limit} tracks in a row could not be played"
-            )),
-            "{ctx}"
-        );
+        // 0004 Bugs: a run of one keeps the failure's own message.
+        let expected = if limit == 1 {
+            format!("Track {} was not found", failed[0])
+        } else {
+            format!("Stopped: {limit} tracks in a row could not be played")
+        };
+        assert_eq!(s.message, Some(expected), "{ctx}");
     }
 
     // A Started resets the count: 4 failures, a success, 4 more: still going.
