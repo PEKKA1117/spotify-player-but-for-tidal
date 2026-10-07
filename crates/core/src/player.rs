@@ -526,10 +526,13 @@ impl PlayerState {
                 let limit = MAX_FAILURE_RUN.min(self.queue.len()).max(1);
                 if self.failures >= limit {
                     self.stop_on(Some(entry), Duration::ZERO, fx);
-                    self.message = Some(format!(
-                        "Stopped: {} tracks in a row could not be played",
-                        self.failures
-                    ));
+                    // A run of one keeps the failure's own message (0004 Bugs).
+                    if self.failures > 1 {
+                        self.message = Some(format!(
+                            "Stopped: {} tracks in a row could not be played",
+                            self.failures
+                        ));
+                    }
                 } else {
                     match self.skip_target(entry) {
                         Some(next) => self.start(next, Duration::ZERO, fx),

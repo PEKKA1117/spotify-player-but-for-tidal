@@ -540,12 +540,6 @@ pub fn play_queue<E: EngineControl, J: Jobs>(
     }
 }
 
-/// The player's message when it stops after a run of `n` track-only
-/// failures (spec 0004 "Failures").
-fn run_limit_message(n: usize) -> String {
-    format!("Stopped: {n} tracks in a row could not be played")
-}
-
 /// Turns what the runtime did into `play`'s output: the "Track" and
 /// "Output" lines at each track start, the progress line on a terminal,
 /// each new message on stderr; and decides the exit code.
@@ -612,12 +606,8 @@ impl QueueReporter {
                     let Some(message) = &snapshot.message else {
                         continue;
                     };
-                    // After a failure shown just now, a "run" of that one
-                    // failure adds nothing (and 0003's `play <id>` prints
-                    // exactly one line).
-                    let redundant = Some(message.as_str()) == shown
-                        || (shown.is_some() && *message == run_limit_message(1));
-                    if !redundant {
+                    // The failure shown just now is not printed twice.
+                    if Some(message.as_str()) != shown {
                         self.end_progress(output.out)?;
                         writeln!(output.err, "{message}")?;
                     }
