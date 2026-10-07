@@ -18,7 +18,10 @@ use tidal_player_core::protocol::{ClientMessage, Command, Event, InsertAt, Serve
 use tidal_player_core::ui::Action;
 
 use crate::ipc::client::{ConnectError, Connection, RecvError};
-use crate::ipc::lock::Probe;
+use crate::ipc::lock::{self, Probe};
+use crate::ipc::paths::{
+    DirMeta, RuntimeDirError, SOCKET_NAME, check_private, current_uid, runtime_dir,
+};
 use crate::ipc::server::{ClientId, ClientInput, OUTBOX, Peer, next_client_id};
 use crate::player_runtime::RuntimeInput;
 
@@ -136,8 +139,14 @@ impl Connector for InProcess {
 
     fn connect(&mut self) -> Result<InProcessLink, ConnectFailure> {
         let client = next_client_id();
-        let (_outbox, messages) = mpsc::sync_channel::<ServerMessage>(OUTBOX);
-        let _ = (Peer::new, ClientInput::Detach);
+        let (outbox, messages) = mpsc::sync_channel::<ServerMessage>(OUTBOX);
+        let attach = ClientInput::Attach {
+            client,
+            peer: Peer::new(outbox, None),
+        };
+        self.inputs
+            .send(RuntimeInput::Client(attach))
+            .map_err(|_| ConnectFailure::Unavailable(STOPPED.to_owned()))?;
         Ok(InProcessLink {
             client,
             inputs: self.inputs.clone(),
@@ -148,21 +157,48 @@ impl Connector for InProcess {
 
 impl Link for InProcessLink {
     fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
-        let _ = (message, &self.inputs, self.client);
-        Ok(())
+        let client = self.client;
+        let input = match message.clone() {
+            ClientMessage::Subscribe => ClientInput::Subscribe(client),
+            ClientMessage::Request { id, command } => ClientInput::Request {
+                client,
+                id,
+                command,
+            },
+        };
+        self.inputs
+            .send(RuntimeInput::Client(input))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, STOPPED))
     }
 
     fn recv(&mut self, timeout: Option<Duration>) -> Result<Option<ServerMessage>, RecvError> {
-        let _ = timeout;
-        match self.messages.try_recv() {
-            Ok(message) => Ok(Some(message)),
-            Err(TryRecvError::Empty) => Ok(None),
-            Err(TryRecvError::Disconnected) => Err(RecvError::Closed),
+        match timeout {
+            None => self
+                .messages
+                .recv()
+                .map(Some)
+                .map_err(|_| RecvError::Closed),
+            Some(t) if t.is_zero() => match self.messages.try_recv() {
+                Ok(message) => Ok(Some(message)),
+                Err(TryRecvError::Empty) => Ok(None),
+                Err(TryRecvError::Disconnected) => Err(RecvError::Closed),
+            },
+            Some(t) => match self.messages.recv_timeout(t) {
+                Ok(message) => Ok(Some(message)),
+                Err(RecvTimeoutError::Timeout) => Ok(None),
+                Err(RecvTimeoutError::Disconnected) => Err(RecvError::Closed),
+            },
         }
     }
 
-    fn close(&mut self) {}
+    fn close(&mut self) {
+        let detach = ClientInput::Detach(self.client);
+        let _ = self.inputs.send(RuntimeInput::Client(detach));
+    }
 }
+
+/// Why an in-process link failed: the player thread has ended.
+const STOPPED: &str = "The player has stopped";
 
 // --- finding the player --------------------------------------------------------------
 
@@ -211,14 +247,20 @@ pub fn retry_connect<L>(
     pid: Option<u32>,
     socket: &Path,
 ) -> Result<L, FindError> {
-    let _ = clock;
-    match connect() {
-        Ok(link) => Ok(link),
-        Err(ConnectFailure::Refused(message)) => Err(FindError::Refused(message)),
-        Err(ConnectFailure::Unavailable(_)) => Err(FindError::NotAnswering {
-            pid,
-            socket: socket.to_owned(),
-        }),
+    let deadline = clock.now() + CONNECT_RETRY;
+    loop {
+        match connect() {
+            Ok(link) => return Ok(link),
+            Err(ConnectFailure::Refused(message)) => return Err(FindError::Refused(message)),
+            Err(ConnectFailure::Unavailable(_)) => {}
+        }
+        if clock.now() >= deadline {
+            return Err(FindError::NotAnswering {
+                pid,
+                socket: socket.to_owned(),
+            });
+        }
+        clock.sleep(RETRY_STEP);
     }
 }
 
@@ -241,6 +283,43 @@ pub fn find_player<L>(
         Ok(Probe::Held { pid }) => retry_connect(connect, clock, pid, socket),
         Err(e) => Err(FindError::Other(e.to_string())),
     }
+}
+
+/// The runtime directory and the socket in it, for a client. An existing
+/// directory must be private (spec 0005 "Transport"), or a client would
+/// talk to whoever made it; a missing one means no player.
+pub fn locate(env: impl Fn(&str) -> Option<String>) -> Result<(PathBuf, PathBuf), FindError> {
+    let uid =
+        current_uid().map_err(|e| FindError::Other(format!("Cannot tell this user's ID: {e}")))?;
+    let dir = runtime_dir(env, uid);
+    match DirMeta::of(&dir) {
+        Ok(meta) => check_private(meta, uid).map_err(|reason| {
+            FindError::Other(
+                RuntimeDirError::NotPrivate {
+                    path: dir.clone(),
+                    reason,
+                }
+                .to_string(),
+            )
+        })?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(FindError::Other(format!("{}: {e}", dir.display()))),
+    }
+    let socket = dir.join(SOCKET_NAME);
+    Ok((dir, socket))
+}
+
+/// Connects to this user's player (one-shot commands): the connection
+/// and the runtime directory.
+pub fn find(env: impl Fn(&str) -> Option<String>) -> Result<(Connection, PathBuf), FindError> {
+    let (dir, socket) = locate(env)?;
+    let connection = find_player(
+        &mut || Connection::connect(&socket).map_err(ConnectFailure::from),
+        &mut || lock::probe(&dir),
+        &mut SystemClock,
+        &socket,
+    )?;
+    Ok((connection, dir))
 }
 
 /// The `Open` a client sends first: the command-line items, at the
@@ -270,33 +349,65 @@ impl<C: Connector> Session<C> {
     /// Joined over `link`: sends `open` first (when given), then
     /// subscribes.
     pub fn new(connector: C, link: C::Link, open: Option<Command>) -> Self {
-        let _ = open;
-        Self {
+        let mut session = Self {
             connector,
             link: Some(link),
             lost: false,
             next_id: 0,
             retry_at: None,
             refused: false,
+        };
+        if let Some(command) = open {
+            session.send(command);
         }
+        session.write(&ClientMessage::Subscribe);
+        session
     }
 
     /// Sends `command` to the player (nothing while disconnected: the UI
     /// model sends none then).
     pub fn send(&mut self, command: Command) {
-        let _ = (command, self.next_id, self.lost);
+        let id = self.next_id;
+        self.next_id += 1;
+        self.write(&ClientMessage::Request { id, command });
+    }
+
+    fn write(&mut self, message: &ClientMessage) {
+        if let Some(link) = self.link.as_mut()
+            && link.send(message).is_err()
+        {
+            self.lost = true;
+        }
+    }
+
+    /// Leaves the player: the next attempt is at `now` + [`RECONNECT`].
+    fn drop_link(&mut self, now: Instant) {
+        if let Some(mut link) = self.link.take() {
+            link.close();
+        }
+        self.lost = false;
+        self.retry_at = Some(now + RECONNECT);
     }
 
     /// What arrived since the last poll, as UI actions; while
     /// disconnected, tries to reconnect when it is time.
     pub fn poll(&mut self, now: Instant) -> Vec<Action> {
-        let _ = (now, self.retry_at, self.refused, &mut self.connector);
         let mut actions = Vec::new();
-        let Some(link) = self.link.as_mut() else {
+        if self.link.is_none() {
+            self.reconnect(now, &mut actions);
             return actions;
-        };
+        }
         for _ in 0..POLL_BATCH {
+            let Some(link) = self.link.as_mut() else {
+                break;
+            };
+            if self.lost {
+                self.drop_link(now);
+                actions.push(Action::Disconnected { shut_down: false });
+                break;
+            }
             match link.recv(Some(Duration::ZERO)) {
+                Ok(None) => break,
                 Ok(Some(ServerMessage::Welcome {
                     snapshot,
                     login_required,
@@ -304,22 +415,38 @@ impl<C: Connector> Session<C> {
                     snapshot,
                     login_required,
                 }),
+                Ok(Some(ServerMessage::Event(Event::ShuttingDown))) => {
+                    self.drop_link(now);
+                    actions.push(Action::Disconnected { shut_down: true });
+                    break;
+                }
                 Ok(Some(ServerMessage::Event(event))) => actions.push(Action::Player(event)),
                 Ok(Some(ServerMessage::Reply { result, .. })) => {
                     actions.push(Action::Reply(result))
                 }
-                Ok(None) | Err(_) => break,
+                Err(_) => self.lost = true,
             }
         }
-        let _ = Event::ShuttingDown;
         actions
     }
-}
 
-// Stub: keeps the imports the real session uses.
-#[allow(dead_code)]
-fn _stub(_: RecvTimeoutError) -> Duration {
-    RETRY_STEP
+    fn reconnect(&mut self, now: Instant, actions: &mut Vec<Action>) {
+        if self.refused || self.retry_at.is_some_and(|at| now < at) {
+            return;
+        }
+        match self.connector.connect() {
+            Ok(link) => {
+                self.link = Some(link);
+                self.retry_at = None;
+                self.write(&ClientMessage::Subscribe);
+            }
+            Err(ConnectFailure::Refused(message)) => {
+                self.refused = true;
+                actions.push(Action::Refused(message));
+            }
+            Err(ConnectFailure::Unavailable(_)) => self.retry_at = Some(now + RECONNECT),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -10,9 +10,10 @@ use tidal_player_core::protocol::{
     ClientMessage, Command, InsertAt, PlaybackState, PlayerSnapshot, RepeatMode, ServerMessage,
 };
 
-use crate::client::{FindError, Link};
-use crate::ipc::client::RecvError;
+use crate::client::{Link, find};
+use crate::ipc::codec::encode;
 use crate::player_runtime::parse_items;
+use crate::ui::clock;
 
 /// How long a one-shot command waits for the player's answer.
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -91,20 +92,137 @@ pub enum UsageError {
 
 /// The message `command` sends.
 pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
-    let _ = (command, InsertAt::End, parse_items);
-    Ok(Plan::Request(Command::TogglePause))
+    let command = match command {
+        PlaybackCommand::PlayPause => Command::TogglePause,
+        PlaybackCommand::Next => Command::Next,
+        PlaybackCommand::Previous => Command::Previous,
+        PlaybackCommand::Seek { position } => seek(position)?,
+        PlaybackCommand::Volume { level } => volume(level)?,
+        PlaybackCommand::Mute => Command::ToggleMute,
+        PlaybackCommand::Shuffle => Command::ToggleShuffle,
+        PlaybackCommand::Repeat => Command::CycleRepeat,
+        PlaybackCommand::Autoplay => Command::ToggleAutoplay,
+        PlaybackCommand::Load { items } => Command::Open {
+            items: items_of(items)?,
+            at: None,
+        },
+        PlaybackCommand::Add { next, items } => Command::Open {
+            items: items_of(items)?,
+            at: Some(if *next { InsertAt::Next } else { InsertAt::End }),
+        },
+        PlaybackCommand::Status { json } => return Ok(Plan::Status { json: *json }),
+    };
+    Ok(Plan::Request(command))
+}
+
+fn items_of(args: &[String]) -> Result<Vec<tidal_player_core::Item>, UsageError> {
+    parse_items(args).map_err(|e| UsageError::Item(e.to_string()))
+}
+
+/// `S` → `SeekTo`, `+S`/`-S` → `SeekBy`, in seconds (fractions allowed).
+fn seek(text: &str) -> Result<Command, UsageError> {
+    let bad = || UsageError::Seek(text.to_owned());
+    let (sign, number) = split_sign(text);
+    let seconds: f64 = number.parse().map_err(|_| bad())?;
+    // Finite, not negative, and small enough for milliseconds in an i64.
+    if !seconds.is_finite() || !(0.0..=1e12).contains(&seconds) {
+        return Err(bad());
+    }
+    let millis = (seconds * 1000.0).round() as i64;
+    Ok(match sign {
+        None => Command::SeekTo(Duration::from_millis(millis as u64)),
+        Some(true) => Command::SeekBy(millis),
+        Some(false) => Command::SeekBy(-millis),
+    })
+}
+
+/// `N` → `SetVolume`, `+N`/`-N` → `ChangeVolume`; `N` 0–100.
+fn volume(text: &str) -> Result<Command, UsageError> {
+    let bad = || UsageError::Volume(text.to_owned());
+    let (sign, number) = split_sign(text);
+    if !number.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let n: u8 = number.parse().map_err(|_| bad())?;
+    if n > 100 {
+        return Err(bad());
+    }
+    let change = i8::try_from(n).map_err(|_| bad())?;
+    Ok(match sign {
+        None => Command::SetVolume(n),
+        Some(true) => Command::ChangeVolume(change),
+        Some(false) => Command::ChangeVolume(-change),
+    })
+}
+
+/// A leading `+` (`Some(true)`) or `-` (`Some(false)`), and the rest.
+fn split_sign(text: &str) -> (Option<bool>, &str) {
+    if let Some(rest) = text.strip_prefix('+') {
+        (Some(true), rest)
+    } else if let Some(rest) = text.strip_prefix('-') {
+        (Some(false), rest)
+    } else {
+        (None, text)
+    }
 }
 
 /// `status`: three lines (`Nothing playing` alone without a current
 /// entry), then the message or the expired session, if any.
 pub fn status_lines(snapshot: &PlayerSnapshot, login_required: bool) -> String {
-    let _ = (
-        snapshot,
-        login_required,
-        PlaybackState::Playing,
-        RepeatMode::Off,
-    );
-    String::new()
+    let mut lines = Vec::new();
+    let current = snapshot
+        .current
+        .and_then(|id| snapshot.queue.iter().position(|e| e.id == id));
+    match current {
+        None => lines.push("Nothing playing".to_owned()),
+        Some(index) => {
+            let track = &snapshot.queue[index].track;
+            let symbol = match snapshot.state {
+                PlaybackState::Playing => "▶",
+                PlaybackState::Paused => "⏸",
+                PlaybackState::Loading | PlaybackState::Buffering => "…",
+                PlaybackState::Stopped => "■",
+            };
+            let mut first = vec![format!("{symbol} {}", track.title)];
+            if !track.artists.is_empty() {
+                first.push(track.artists.join(", "));
+            }
+            if let Some(album) = track.album.as_deref().filter(|a| !a.is_empty()) {
+                first.push(album.to_owned());
+            }
+            lines.push(first.join(" · "));
+
+            let duration = track.duration.map_or_else(|| "?:??".to_owned(), clock);
+            let mut second = vec![format!("{} / {duration}", clock(snapshot.position))];
+            if snapshot.shuffle {
+                second.push("shuffle".to_owned());
+            }
+            match snapshot.repeat {
+                RepeatMode::Off => {}
+                RepeatMode::Queue => second.push("repeat: queue".to_owned()),
+                RepeatMode::Track => second.push("repeat: track".to_owned()),
+            }
+            if snapshot.autoplay {
+                second.push("autoplay".to_owned());
+            }
+            second.push(if snapshot.muted {
+                "muted".to_owned()
+            } else {
+                format!("{}%", snapshot.volume)
+            });
+            if snapshot.now_playing.as_ref().is_some_and(|np| np.released) {
+                second.push("device released".to_owned());
+            }
+            lines.push(second.join(" · "));
+            lines.push(format!("Queue: {} of {}", index + 1, snapshot.queue.len()));
+        }
+    }
+    if login_required {
+        lines.push("Session expired: run \"tidal-player login\"".to_owned());
+    } else if let Some(message) = &snapshot.message {
+        lines.push(message.clone());
+    }
+    lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
 /// Sends `plan` over `link` and prints the answer: the exit code.
@@ -115,23 +233,86 @@ pub fn execute<L: Link>(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let _ = (
-        link,
-        plan,
-        timeout,
-        out,
-        err,
-        Instant::now(),
-        ClientMessage::Subscribe,
-    );
-    let _: Option<(ServerMessage, RecvError)> = None;
-    0
+    let message = match plan {
+        Plan::Request(command) => ClientMessage::Request {
+            id: 0,
+            command: command.clone(),
+        },
+        Plan::Status { .. } => ClientMessage::Subscribe,
+    };
+    if let Err(e) = link.send(&message) {
+        let _ = writeln!(err, "{e}");
+        return 1;
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let answer = match link.recv(Some(left)) {
+            Ok(Some(answer)) => answer,
+            Ok(None) => {
+                let _ = writeln!(err, "{NO_ANSWER}");
+                return 1;
+            }
+            Err(e) => {
+                let _ = writeln!(err, "{e}");
+                return 1;
+            }
+        };
+        match (plan, answer) {
+            (Plan::Request(_), ServerMessage::Reply { id: 0, result }) => {
+                return match result {
+                    Ok(()) => 0,
+                    Err(message) => {
+                        let _ = writeln!(err, "{message}");
+                        1
+                    }
+                };
+            }
+            (Plan::Status { json }, welcome @ ServerMessage::Welcome { .. }) => {
+                let written = if *json {
+                    out.write_all(&encode(&welcome))
+                } else if let ServerMessage::Welcome {
+                    snapshot,
+                    login_required,
+                } = &welcome
+                {
+                    out.write_all(status_lines(snapshot, *login_required).as_bytes())
+                } else {
+                    Ok(())
+                };
+                return u8::from(written.and_then(|()| out.flush()).is_err());
+            }
+            // Anything else (an event before the `Welcome`) is not the answer.
+            _ => {}
+        }
+    }
 }
 
 /// `tidal-player playback <command>`.
 pub fn run(command: &PlaybackCommand) -> ExitCode {
-    let _ = (command, FindError::NoPlayer);
-    ExitCode::SUCCESS
+    let plan = match plan(command) {
+        Ok(plan) => plan,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+    let mut link = match find(|key| std::env::var(key).ok()) {
+        Ok((link, _)) => link,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let code = execute(
+        &mut link,
+        &plan,
+        REPLY_TIMEOUT,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    );
+    Link::close(&mut link);
+    ExitCode::from(code)
 }
 
 #[cfg(test)]
@@ -144,6 +325,7 @@ mod tests {
     use clap::Parser;
 
     use super::*;
+    use crate::ipc::client::RecvError;
     use tidal_player_core::protocol::{NowPlaying, QueueEntry};
     use tidal_player_core::{AudioQuality, EntryId, Item, Track, TrackId};
 

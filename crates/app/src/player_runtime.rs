@@ -34,7 +34,6 @@ use tidal_player_core::player::{
     TrackDetails,
 };
 use tidal_player_core::protocol::{Command, Event, InsertAt, PlaybackState, PlayerSnapshot};
-use tidal_player_core::ui;
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::ipc::server::{ClientId, ClientInput, Hub};
@@ -204,55 +203,6 @@ pub fn metadata_error_message(error: &MetadataError) -> String {
         .next()
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
-}
-
-/// The commands that start the TUI's player: the queue loaded from the
-/// command line, or nothing (an empty queue).
-pub fn startup_commands(tracks: Vec<Track>) -> Vec<Command> {
-    if tracks.is_empty() {
-        Vec::new()
-    } else {
-        vec![Command::LoadQueue { tracks, start: 0 }]
-    }
-}
-
-/// Expands one item from the open prompt (spec 0004 AC28) as the command
-/// line does, into the UI model's answer: the tracks, or the message.
-pub async fn expand_for_queue(meta: &dyn Metadata, item: Item, at: InsertAt) -> ui::Action {
-    let result = expand_items(meta, &[item]).await.map_err(|e| e.to_string());
-    ui::Action::Expanded { at, result }
-}
-
-/// Runs the open prompt's expansions on a tokio runtime, off the UI thread;
-/// each answer comes back on `results` for the UI loop.
-pub struct Expander {
-    runtime: tokio::runtime::Handle,
-    metadata: Arc<dyn Metadata>,
-    results: Sender<ui::Action>,
-}
-
-impl Expander {
-    pub fn new(
-        runtime: tokio::runtime::Handle,
-        metadata: Arc<dyn Metadata>,
-        results: Sender<ui::Action>,
-    ) -> Self {
-        Self {
-            runtime,
-            metadata,
-            results,
-        }
-    }
-
-    /// Expands `item`; the answer is an [`ui::Action::Expanded`].
-    pub fn expand(&self, item: Item, at: InsertAt) {
-        let metadata = Arc::clone(&self.metadata);
-        let results = self.results.clone();
-        self.runtime.spawn(async move {
-            let answer = expand_for_queue(metadata.as_ref(), item, at).await;
-            let _ = results.send(answer);
-        });
-    }
 }
 
 /// A seed for the shuffle PRNG, from the clock.
@@ -1253,6 +1203,7 @@ mod tests {
     use tidal_player_audio::{EngineError, SinkError};
     use tidal_player_core::EntryId;
     use tidal_player_core::protocol::PlaybackState;
+    use tidal_player_core::ui;
 
     fn runtime(
         default: Script,
@@ -1471,9 +1422,10 @@ mod tests {
         let jobs = FakeJobs::new(&log, &tx, true);
         let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
         let handle = spawn_runtime(rt, rx, tx);
-        for command in startup_commands(vec![track(1, Some(200))]) {
-            handle.send(command);
-        }
+        handle.send(Command::LoadQueue {
+            tracks: vec![track(1, Some(200))],
+            start: 0,
+        });
         let playing = loop {
             match handle.events().recv_timeout(Duration::from_secs(5)) {
                 Ok(Event::Player(s)) if s.state == PlaybackState::Playing => break true,
@@ -1496,18 +1448,6 @@ mod tests {
             ),
             "{calls:?}"
         );
-    }
-
-    /// AC19: `tidal-player [ITEM]...` loads the items; without, an empty
-    /// queue.
-    #[test]
-    fn ac19_startup_queue() {
-        let tracks = vec![track(1, Some(200)), track(2, None)];
-        assert_eq!(
-            startup_commands(tracks.clone()),
-            vec![Command::LoadQueue { tracks, start: 0 }]
-        );
-        assert_eq!(startup_commands(Vec::new()), vec![]);
     }
 
     /// Metadata from memory for the open prompt: album 10 is tracks 1 and

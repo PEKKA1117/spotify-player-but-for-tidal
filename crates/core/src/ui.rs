@@ -3,15 +3,20 @@
 //! Spec 0004 "TUI": the client keeps the player's latest snapshot as sent
 //! (it never reorders the queue), a queue cursor addressed by entry ID, key
 //! sequences (`g g`) and the open prompt. Everything it asks of the player
-//! leaves as [`Effect::Send`]; expanding a pasted item is
-//! [`Effect::Expand`], run by the caller off the UI thread, whose result
-//! comes back as [`Action::Expanded`].
+//! leaves as [`Effect::Send`], an opened item included (`Command::Open`:
+//! the player expands it, spec 0005).
+//!
+//! Spec 0005 "The TUI as a client": the model is the same for a standalone
+//! TUI and a client of another process's player. It holds nothing about
+//! playback but what the player sent ([`Action::Welcome`], then events);
+//! while [`Connection::Disconnected`] it keeps the last snapshot and no key
+//! sends anything.
 
 use std::time::Duration;
 
-use crate::item::{Item, parse_item};
+use crate::item::parse_item;
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
-use crate::track::{EntryId, Track};
+use crate::track::EntryId;
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,15 +98,11 @@ pub struct State {
     pub anchor: Option<EntryId>,
     /// The open prompt, if open.
     pub prompt: Option<Prompt>,
-    /// A message of the client's own (an invalid item, a failed fetch, the
-    /// startup expansion); shown instead of the player's while set.
+    /// A message of the client's own (an invalid item, a command's error
+    /// reply); shown instead of the player's while set.
     pub message: Option<String>,
     /// `g` was pressed: a second `g` moves to the top.
     pub pending_g: bool,
-    /// Tracks were added to start the first of them: the entry IDs the
-    /// queue held when `AddToQueue` was sent. The first entry of a later
-    /// snapshot not among them is played.
-    pub start_added: Option<Vec<EntryId>>,
 }
 
 impl State {
@@ -124,12 +125,18 @@ impl State {
         self.queue().iter().find(|e| e.id == id)
     }
 
-    /// The message to show in the playback window: the client's own, else
-    /// the player's.
+    /// The message to show in the playback window: the connection's, else
+    /// the client's own, else the player's.
     pub fn message(&self) -> Option<&str> {
-        self.message
-            .as_deref()
-            .or_else(|| self.player.as_ref()?.message.as_deref())
+        match &self.connection {
+            Connection::Connected => self
+                .message
+                .as_deref()
+                .or_else(|| self.player.as_ref()?.message.as_deref()),
+            Connection::Disconnected { shut_down: false } => Some(DISCONNECTED),
+            Connection::Disconnected { shut_down: true } => Some(SHUT_DOWN),
+            Connection::Refused(message) => Some(message),
+        }
     }
 
     /// Whether the client is trying to reach the player again.
@@ -151,12 +158,6 @@ pub enum Action {
     Paste(String),
     /// An event from the player.
     Player(protocol::Event),
-    /// The result of an [`Effect::Expand`]: the item's tracks, or the
-    /// message saying why there are none.
-    Expanded {
-        at: InsertAt,
-        result: Result<Vec<Track>, String>,
-    },
     /// The player's answer to `Subscribe`: its state and the login status,
     /// replacing everything (spec 0005).
     Welcome {
@@ -178,9 +179,6 @@ pub enum Effect {
     Quit,
     /// Send a command to the player.
     Send(Command),
-    /// Expand `item` into tracks (as on the command line) and answer with
-    /// [`Action::Expanded`].
-    Expand { item: Item, at: InsertAt },
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
@@ -188,10 +186,17 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
-        Action::Key(key) => match state.prompt.as_ref().map(|p| p.at) {
-            Some(at) => prompt_key(state, at, key),
-            None => key_press(state, key),
-        },
+        Action::Key(key) => {
+            let mut effects = match state.prompt.as_ref().map(|p| p.at) {
+                Some(at) => prompt_key(state, at, key),
+                None => key_press(state, key),
+            };
+            // Nothing reaches a player that is not there (spec 0005).
+            if state.connection != Connection::Connected {
+                effects.retain(|e| !matches!(e, Effect::Send(_)));
+            }
+            effects
+        }
         Action::Paste(text) => {
             // Line breaks and other control characters never reach the
             // prompt: a pasted link often ends with a newline.
@@ -200,11 +205,32 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::Expanded { at, result } => expanded(state, at, result),
-        Action::Welcome { .. }
-        | Action::Reply(_)
-        | Action::Disconnected { .. }
-        | Action::Refused(_) => Vec::new(),
+        Action::Welcome {
+            snapshot,
+            login_required,
+        } => {
+            state.connection = Connection::Connected;
+            state.login_required = login_required;
+            state.message = None;
+            apply_snapshot(state, snapshot);
+            Vec::new()
+        }
+        Action::Reply(result) => {
+            if let Err(message) = result {
+                state.message = Some(message);
+            }
+            Vec::new()
+        }
+        Action::Disconnected { shut_down } => {
+            if !matches!(state.connection, Connection::Refused(_)) {
+                state.connection = Connection::Disconnected { shut_down };
+            }
+            Vec::new()
+        }
+        Action::Refused(message) => {
+            state.connection = Connection::Refused(message);
+            Vec::new()
+        }
         Action::Player(event) => match event {
             protocol::Event::LoginRequired => {
                 state.login_required = true;
@@ -215,7 +241,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 Vec::new()
             }
             protocol::Event::ShuttingDown => Vec::new(),
-            protocol::Event::Player(snapshot) => apply_snapshot(state, snapshot),
+            protocol::Event::Player(snapshot) => {
+                apply_snapshot(state, snapshot);
+                Vec::new()
+            }
             protocol::Event::Position { entry, position } => {
                 if state.player.as_ref().and_then(|p| p.current) == Some(entry) {
                     state.position = position;
@@ -244,7 +273,10 @@ fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
                 return Vec::new();
             }
             return match parse_item(&text) {
-                Ok(item) => vec![Effect::Expand { item, at }],
+                Ok(item) => vec![Effect::Send(Command::Open {
+                    items: vec![item],
+                    at: Some(at),
+                })],
                 Err(e) => {
                     state.message = Some(e.to_string());
                     Vec::new()
@@ -334,9 +366,8 @@ fn move_cursor(state: &mut State, to: impl Fn(usize, usize) -> usize) {
 }
 
 /// Takes the snapshot as is; keeps the cursor on its entry (clamped to
-/// the same index when it was removed); starts the first added entry when
-/// one was asked for.
-fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
+/// the same index when it was removed).
+fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
     let old = state.player.take();
     let old_queue = old.as_ref().map_or(&[][..], |p| p.queue.as_slice());
     let ids: Vec<EntryId> = snapshot.queue.iter().map(|e| e.id).collect();
@@ -370,45 +401,16 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
         state.message = None;
     }
 
-    let mut effects = Vec::new();
-    if let Some(known) = &state.start_added
-        && let Some(first) = ids.iter().find(|id| !known.contains(id))
-    {
-        effects.push(Effect::Send(Command::PlayEntry(*first)));
-        state.start_added = None;
-    }
-
     state.position = snapshot.position;
     state.player = Some(snapshot);
-    effects
-}
-
-/// The expansion's answer: add the tracks; start the first added one when
-/// the queue was empty or the player is stopped with nothing current
-/// (spec 0004 AC28).
-fn expanded(state: &mut State, at: InsertAt, result: Result<Vec<Track>, String>) -> Vec<Effect> {
-    let tracks = match result {
-        Ok(tracks) if !tracks.is_empty() => tracks,
-        Ok(_) => return Vec::new(),
-        Err(message) => {
-            state.message = Some(message);
-            return Vec::new();
-        }
-    };
-    let idle = state.player.as_ref().is_none_or(|p| {
-        p.queue.is_empty() || (p.state == PlaybackState::Stopped && p.current.is_none())
-    });
-    if idle {
-        state.start_added = Some(state.queue().iter().map(|e| e.id).collect());
-    }
-    vec![Effect::Send(Command::AddToQueue { tracks, at })]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::item::Item;
     use crate::protocol::RepeatMode;
-    use crate::track::TrackId;
+    use crate::track::{Track, TrackId};
 
     #[test]
     fn ac5_quit_emits_quit() {
