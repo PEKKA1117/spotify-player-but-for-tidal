@@ -88,7 +88,8 @@ Supported codecs: FLAC (`flac`, in a raw FLAC file or in (fragmented) MP4) and A
 | Response | Result |
 |---|---|
 | `401` with `subStatus` `4005` ("Asset is not ready for playback") | `StreamError::NotAvailable`. This is **not** an auth failure: the `Authenticator` must not refresh the token for it (spec 0002, Bugs) |
-| `500` (Tidal answers an unknown track ID with `500`/`subStatus 999`) | `StreamError::Server(500)` |
+| `500` with `subStatus` `999` (Tidal's answer for an unknown track ID, and for a track that cannot be streamed in the country) | `StreamError::NotFound` |
+| other `500` | `StreamError::Server(500)` |
 | other `5xx`, `429`, transport error, timeout | the transient error, unchanged |
 | `LoginRequired` from the `Authenticator` | unchanged |
 
@@ -170,7 +171,7 @@ Stream resolution (`tidal-player-api::stream`, `tidal-player-core`):
 - **AC2** — A BTS manifest maps to `StreamPlan::Single { url, codec }` (table over fixtures: FLAC, AAC-LC). `encryptionType` other than `NONE` → `StreamError::Unsupported(Encrypted)`; an unknown `manifestMimeType` → `Unsupported(Manifest(mime))`
 - **AC3** — A DASH manifest maps to `StreamPlan::Segmented { init_url, segments, codec }`, where `segments` lists every media URL in order, with `$Number$` filled in from `startNumber`, and each segment's start time and duration taken from the `SegmentTimeline` (`t`, `d`, repeats `r`) and `timescale`. The sum of durations equals the timeline's total. Fixture: the MPD shape recorded by the probe (`timescale` 96000, `startNumber` 1, `<S d="380928" r="72"/><S d="129030"/>` without `t`, so the first segment starts at 0) gives 74 segments, numbered 1–74, totalling 27 936 774 ticks = `PT4M51.008S`, the MPD's `mediaPresentationDuration`
 - **AC4** — `assetPresentation` other than `FULL` → `StreamError::PreviewOnly`; `audioMode` other than `STEREO` → `Unsupported(AudioMode)`; codec `mp4a.40.5` or `mp4a.40.29` → `Unsupported(Codec)`; the plan carries the granted quality, and the source's bit depth and sample rate when the response has them
-- **AC5** — Quality: `resolve_stream` sends exactly **one** request per call, at the configured highest quality, whatever the outcome; a `200` with a lower `audioQuality` gives a plan with that granted quality; the failures map as in the table under "Quality" (`401`/`4005` → `NotAvailable` with **no** token refresh request; `500` → `Server(500)`; `503`, `429`, timeout and `LoginRequired` unchanged)
+- **AC5** — Quality: `resolve_stream` sends exactly **one** request per call, at the configured highest quality, whatever the outcome; a `200` with a lower `audioQuality` gives a plan with that granted quality; the failures map as in the table under "Quality" (`401`/`4005` → `NotAvailable` with **no** token refresh request; `500`/`999` → `NotFound`; `503`, `429`, timeout and `LoginRequired` unchanged)
 - **AC6** — `tidal_player_core::AudioQuality` has `Low < High < Lossless < HiResLossless`, serialises as Tidal's names (`LOW`, …, `HI_RES_LOSSLESS`), and parses the CLI names `high`, `lossless`, `hi-res` (`low` is rejected with a message saying LOW streams are HE-AAC, which is not supported)
 
 Decode (`tidal-player-audio`):
@@ -213,7 +214,7 @@ Fetching and CLI (`tidal-player`):
 | Account or track below the asked quality | Tidal grants less (AC5); the "Track" line shows what was granted |
 | Track is preview-only for this account/country | `Track 123 is only available as a preview for this account` (exit 1) |
 | Track not playable for this account or country (`401`/`4005`) | `Track 123 is not available in <country>` (exit 1) |
-| Unknown track ID (Tidal answers `500`) | `Tidal could not play track 123 (server error 500)` (exit 1) |
+| Unknown track ID, or not streamable in the country (Tidal answers `500`/`999`) | `Track 123 was not found, or cannot be streamed in <country>` (exit 1) |
 | Encrypted stream, unsupported codec (HE-AAC), Dolby Atmos / 360 mode | `Track 123 is not playable: <what>` (exit 1). Never a burst of noise |
 | Device busy (another app holds `hw:`), or reservation refused | `Output hw:1,0 is busy (used by <app>): close it, or use --device default` (exit 1). Never a silent downgrade to `plughw:` or shared |
 | Device does not exist (`hw:5,0`, typo) | `No such output device hw:5,0: see "tidal-player devices"` (exit 1) |
@@ -307,6 +308,7 @@ Verified on 2026-10-07 against the **live API** by `scripts/tidal-playback-probe
 - Stream URLs carry only a `token` query parameter: no readable expiry. Two requests 5 s apart gave different manifests (fresh tokens each time). The token lifetime and the status of an expired one are **not** known (AC24 still assumes `403`/`410`)
 - Errors: unknown track ID → `500 {"status":500,"subStatus":999,"userMessage":"Unexpected error occurred."}`; `assetpresentation=PREVIEW` and `urlpostpaywall` at `HI_RES_LOSSLESS` → `401 {"subStatus":4005,"userMessage":"Asset is not ready for playback"}`; bad bearer → `401 {"subStatus":11002,…}`
 - `GET /v1/users/{id}/subscription` works and reports `highestSoundQuality` (not needed by this spec)
+- **Second run** (2026-10-07T00:22Z, hi-res track 35986245, 24/96): identical shapes. `HI_RES_LOSSLESS` → DASH FLAC 24/96 (`<S d="380928" r="72"/><S d="256282"/>`, `PT4M52.333S`); `LOSSLESS` → `HIGH` AAC again; `LOW` → HE-AAC; `urlpostpaywall` at `HI_RES_LOSSLESS` → `401`/`4005` again. The second track ID given as CD-quality got `500`/`999` from `playbackinfopostpaywall` at **every** tier (and `401`/`4005` from `urlpostpaywall`), the same answer as an unknown ID: so `500`/`999` also means "this track cannot be streamed here" (wrong ID, or not licensed in the country), not only a server fault. That run's `PREVIEW` request (on the same ID) also got `500`. The two manifests fetched 5 s apart were identical this time (different in the first run): tokens are sometimes reused, lifetime still unknown
 
 Not verified:
 
