@@ -5,7 +5,7 @@ use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -16,30 +16,40 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tidal_player::{
+    client::{
+        self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
+    },
+    daemon::{forward_signals, notify_ready},
     input::key_to_action,
+    ipc::{
+        self, ClaimError,
+        client::{ConnectError, Connection},
+        lock::{LockError, PlayerLock},
+        paths::current_uid,
+        server,
+    },
     login::{LoginOutcome, run_login},
+    oneshot::PlaybackCommand,
     panic_hook::install_panic_hook,
     play::{
         ASOUND_DIR_VAR, PlayOptions, configured_device, resolve_play_config, resolve_player_config,
         resolve_settings,
     },
-    playback::{HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, play_items, spawn_output},
-    player_runtime::{
-        Expander, PlayerRuntime, RuntimeHandle, TokioJobs, expand_items, parse_items,
-        spawn_runtime, startup_commands, time_seed,
+    playback::{
+        HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
     },
+    player_runtime::{PlayerRuntime, TokioJobs, parse_items, spawn_runtime, time_seed},
     store_setup::StorePlan,
     ui::render,
 };
 use tidal_player_api::auth::{
-    AuthConfig, AuthStatus, Authenticator, SessionStore, StoreError, SystemClock,
+    AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
 };
 use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
-use tidal_player_core::protocol::{Event as PlayerEvent, InsertAt, RepeatMode};
+use tidal_player_core::protocol::{InsertAt, RepeatMode};
 use tidal_player_core::ui::{self as tui_model, Action, Effect, State, update};
-use tokio::sync::watch;
 
 /// Terminal Tidal player.
 #[derive(Debug, Parser)]
@@ -83,13 +93,32 @@ enum Command {
     Login,
     /// Delete the stored session from this machine.
     Logout,
-    /// Run headless (not implemented yet, spec 0005).
-    Daemon,
+    /// Run the player headless, for clients to attach to.
+    Daemon(DaemonArgs),
+    /// Control the running player: one command, then exit.
+    Playback {
+        #[command(subcommand)]
+        command: PlaybackCommand,
+    },
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
     Play(PlayArgs),
     /// List the playback devices; `*` marks the one `play` would use.
     Devices,
+}
+
+#[derive(Debug, clap::Args)]
+struct DaemonArgs {
+    #[command(subcommand)]
+    action: Option<DaemonAction>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum DaemonAction {
+    /// Ask the running player to shut down, and wait until it is gone.
+    Stop,
+    /// Print a systemd user unit for the daemon (see docs/daemon.md).
+    Unit,
 }
 
 #[derive(Debug, clap::Args)]
@@ -146,61 +175,31 @@ fn restore_terminal() {
     let _ = execute!(io::stdout(), LeaveAlternateScreen);
 }
 
-/// Maps the status the authenticator reports to the player event the TUI shows.
-fn status_action(status: AuthStatus) -> Action {
-    Action::Player(match status {
-        AuthStatus::Active => PlayerEvent::LoginRestored,
-        AuthStatus::LoginRequired => PlayerEvent::LoginRequired,
-    })
-}
-
-/// What the TUI loop talks to: the player, and the expansions of the open
-/// prompt (whose answers arrive on `expanded`).
-struct Client<'a> {
-    player: &'a RuntimeHandle,
-    expander: Expander,
-    expanded: std::sync::mpsc::Receiver<Action>,
-}
-
-impl Client<'_> {
-    /// Runs `effects`; `true` when one of them quits.
-    fn execute(&self, effects: Vec<Effect>) -> bool {
-        for effect in effects {
-            match effect {
-                Effect::Quit => return true,
-                Effect::Send(command) => self.player.send(command),
-                Effect::Expand { item, at } => self.expander.expand(item, at),
-            }
-        }
-        false
-    }
-}
-
 /// How long the loop waits for a key before it looks at the player's
-/// events again (and redraws).
+/// messages again (and redraws).
 const FRAME: Duration = Duration::from_millis(100);
 
-fn run(
+/// The TUI, as a client of a player (spec 0005 "The TUI as a client"):
+/// the standalone TUI's own player in-process, or another process's over
+/// the socket. Keys become commands; the screen changes with the player's
+/// messages only.
+fn run<C: Connector>(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    mut auth_status: Option<watch::Receiver<AuthStatus>>,
-    client: &Client<'_>,
+    session: &mut Session<C>,
     mut state: State,
-    startup: Vec<Action>,
 ) -> Result<()> {
-    let mut actions = startup;
+    let mut actions = Vec::new();
     loop {
+        actions.extend(session.poll(Instant::now()));
         for action in actions.drain(..) {
-            if client.execute(update(&mut state, action)) {
-                return Ok(());
+            for effect in update(&mut state, action) {
+                match effect {
+                    Effect::Quit => return Ok(()),
+                    Effect::Send(command) => session.send(command),
+                }
             }
         }
         terminal.draw(|frame| render(&state, frame))?;
-        if let Some(rx) = auth_status.as_mut()
-            && rx.has_changed().unwrap_or(false)
-        {
-            actions.push(status_action(*rx.borrow_and_update()));
-        }
-        actions.extend(player_actions(client));
         if event::poll(FRAME)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -213,19 +212,6 @@ fn run(
             actions.push(Action::Tick);
         }
     }
-}
-
-/// The player's events and the finished expansions, in arrival order per
-/// source.
-fn player_actions(client: &Client<'_>) -> Vec<Action> {
-    let mut actions: Vec<Action> = client
-        .player
-        .events()
-        .try_iter()
-        .map(Action::Player)
-        .collect();
-    actions.extend(client.expanded.try_iter());
-    actions
 }
 
 /// Reports a store failure the way the spec words it; returns exit code 1.
@@ -263,32 +249,46 @@ fn logout(plan: &StorePlan) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn daemon(store: &dyn SessionStore) -> ExitCode {
-    match store.load() {
-        Ok(Some(_)) => {
-            eprintln!("daemon mode is not implemented yet (spec 0005)");
-            ExitCode::SUCCESS
+/// Becomes this user's player (spec 0005 "Transport"): the lock in the
+/// runtime directory. `hint` follows "Another player is running (pid N)".
+fn claim_player(hint: &str) -> Result<PlayerLock, ExitCode> {
+    let uid = current_uid().map_err(|e| {
+        eprintln!("Cannot tell this user's ID: {e}");
+        ExitCode::from(1)
+    })?;
+    ipc::claim(env_var, uid).map_err(|e| {
+        match &e {
+            ClaimError::Lock(ipc::lock::LockError::Held { .. }) => eprintln!("{e}{hint}"),
+            _ => eprintln!("{e}"),
         }
-        Ok(None) => {
-            eprintln!("Not logged in: run \"tidal-player login\"");
-            ExitCode::from(1)
-        }
-        Err(e) => report_store_error(&e),
-    }
+        ExitCode::from(e.exit_code())
+    })
 }
 
-fn standalone(
-    store: Arc<dyn SessionStore>,
-    args: &[String],
-    mode: Option<InsertAt>,
-) -> Result<ExitCode> {
-    // Refused before anything starts (spec 0004 "Filling the queue").
-    let items = match parse_items(args) {
-        Ok(items) => items,
-        Err(e) => {
-            eprintln!("{e}");
-            return Ok(ExitCode::from(e.exit_code()));
+/// Binds the player's socket (after the lock).
+fn bind_player(lock: &PlayerLock) -> Result<(std::os::unix::net::UnixListener, PathBuf), ExitCode> {
+    ipc::bind(lock).map_err(|e| {
+        eprintln!("{e}");
+        ExitCode::from(e.exit_code())
+    })
+}
+
+/// `tidal-player daemon` (spec 0005 "The daemon"): the lock, the session,
+/// the settings, the socket; then the player serves its clients until one
+/// asks it to shut down.
+fn daemon(plan: &StorePlan) -> Result<ExitCode> {
+    let lock = match claim_player("") {
+        Ok(lock) => lock,
+        Err(code) => return Ok(code),
+    };
+    let store = plan.build_store();
+    let session = match store.load() {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            eprintln!("Not logged in: run \"tidal-player login\"");
+            return Ok(ExitCode::from(1));
         }
+        Err(e) => return Ok(report_store_error(&e)),
     };
     let settings = match resolve_settings(None, None, env_var) {
         Ok(settings) => settings,
@@ -298,6 +298,169 @@ fn standalone(
         }
     };
     let player_settings = match resolve_player_config(env_var) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let auth = match Authenticator::new(api_config(), store, session, Arc::new(AuthClock)) {
+        Ok(auth) => Arc::new(auth),
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(1));
+        }
+    };
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return Ok(code),
+    };
+
+    let runtime = runtime()?;
+    let metadata = Arc::new(MetadataClient::new(Arc::clone(&auth)));
+    let (_, country) = runtime.block_on(auth.account());
+    let opener = match HttpOpener::new(Arc::clone(&auth), settings.quality, country.clone()) {
+        Ok(opener) => Arc::new(opener),
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(ExitCode::from(1));
+        }
+    };
+    let (results, inputs) = std::sync::mpsc::channel();
+    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
+    let mut config = player_settings.player;
+    config.country = Some(country);
+    // The engine opens the device only once something plays (0003).
+    let player = spawn_runtime(
+        PlayerRuntime::new(
+            config,
+            time_seed(),
+            spawn_output(&settings.device, player_settings.release_paused),
+            jobs,
+        ),
+        inputs,
+        results,
+    );
+    server::forward_login(auth.status(), player.inputs(), runtime.handle());
+    // Before READY=1: a SIGTERM from then on is a clean shutdown.
+    forward_signals(runtime.handle(), player.inputs()).context("cannot handle signals")?;
+    let server = server::serve(listener, socket, player.inputs());
+    eprintln!("Listening on {}", server.path().display());
+    // The socket was bound before: it accepts connections now.
+    if let Err(e) = notify_ready(env_var) {
+        eprintln!("Cannot tell systemd the daemon is ready: {e}");
+    }
+    // Until a `Shutdown` (a client's, or a signal's): every subscriber was
+    // sent `ShuttingDown` and the engine is stopped and gone.
+    player.wait();
+    // The clients get their last messages, then the socket goes.
+    drop(server);
+    drop(lock);
+    runtime.shutdown_timeout(Duration::from_millis(100));
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Who this TUI is (spec 0005 "Roles"): a client of the running player, or
+/// the player itself (holding the lock).
+enum Role {
+    Client {
+        connection: Connection,
+        socket: PathBuf,
+    },
+    Player(PlayerLock),
+}
+
+/// Finds the running player, or becomes it. The socket is tried first, so
+/// a client never takes (or even probes) the lock; when nothing answers,
+/// this process tries to take the lock; a player that holds it but is
+/// still starting is tried for 2 s.
+fn choose_role() -> Result<Role, ExitCode> {
+    let fail = |e: &dyn std::fmt::Display| {
+        eprintln!("{e}");
+        ExitCode::from(1)
+    };
+    let (_, socket) = client::locate(env_var).map_err(|e| fail(&e))?;
+    match Connection::connect(&socket) {
+        Ok(connection) => return Ok(Role::Client { connection, socket }),
+        Err(ConnectError::Greeting(e)) => return Err(fail(&e)),
+        Err(_) => {}
+    }
+    let uid = current_uid().map_err(|e| fail(&format!("Cannot tell this user's ID: {e}")))?;
+    match ipc::claim(env_var, uid) {
+        Ok(lock) => Ok(Role::Player(lock)),
+        Err(ClaimError::Lock(LockError::Held { pid })) => {
+            let connection = client::retry_connect(
+                &mut || SocketConnector::new(socket.clone()).connect(),
+                &mut SystemClock,
+                pid,
+                &socket,
+            )
+            .map_err(|e: FindError| fail(&e))?;
+            Ok(Role::Client { connection, socket })
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            Err(ExitCode::from(e.exit_code()))
+        }
+    }
+}
+
+/// `tidal-player [ITEM]...`: the TUI, as the player (standalone) or as a
+/// client of the running one.
+fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result<ExitCode> {
+    // Refused before anything starts (spec 0004 "Filling the queue").
+    let items = match parse_items(args) {
+        Ok(items) => items,
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(e.exit_code()));
+        }
+    };
+    let player_settings = match resolve_player_config(env_var) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let state = State::new(tui_model::Steps {
+        volume: player_settings.steps.volume,
+        seek: player_settings.steps.seek,
+    });
+    let open = startup_open(items, mode);
+    match choose_role() {
+        Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
+        Ok(Role::Player(lock)) => {
+            standalone(lock, plan.build_store(), player_settings, open, state)
+        }
+        Err(code) => Ok(code),
+    }
+}
+
+/// A TUI client (spec 0005 "The TUI as a client"): no session, no store,
+/// no engine; only the connection. `open` goes first; quitting detaches.
+fn attached(
+    connection: Connection,
+    socket: PathBuf,
+    open: Option<tidal_player_core::protocol::Command>,
+    state: State,
+) -> Result<ExitCode> {
+    let mut session = Session::new(SocketConnector::new(socket), connection, open);
+    let result = tui(&mut session, state);
+    restore_terminal();
+    result.map(|()| ExitCode::SUCCESS)
+}
+
+/// The standalone player with its TUI (0004), holding `lock`: the TUI is
+/// a client of it in-process, with the same messages as over the socket.
+fn standalone(
+    lock: PlayerLock,
+    store: Arc<dyn SessionStore>,
+    player_settings: tidal_player::play::PlayerSettings,
+    open: Option<tidal_player_core::protocol::Command>,
+    state: State,
+) -> Result<ExitCode> {
+    let settings = match resolve_settings(None, None, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -316,7 +479,7 @@ fn standalone(
         Err(e) => return Ok(report_store_error(&e)),
     }
     let auth =
-        match Authenticator::from_store(api_config(), Arc::clone(&store), Arc::new(SystemClock)) {
+        match Authenticator::from_store(api_config(), Arc::clone(&store), Arc::new(AuthClock)) {
             Ok(Some(auth)) => Arc::new(auth),
             Ok(None) => {
                 eprintln!("Not logged in: run \"tidal-player login\"");
@@ -330,16 +493,7 @@ fn standalone(
 
     let runtime = runtime()?;
     let metadata = Arc::new(MetadataClient::new(Arc::clone(&auth)));
-    let (country, expanded) = runtime.block_on(async {
-        let (_, country) = auth.account().await;
-        (country, expand_items(metadata.as_ref(), &items).await)
-    });
-    // A failed expansion leaves the queue empty and shows why in the
-    // playback window (spec 0004 "Edge cases").
-    let (tracks, startup_message) = match expanded {
-        Ok(tracks) => (tracks, None),
-        Err(e) => (Vec::new(), Some(e.to_string())),
-    };
+    let (_, country) = runtime.block_on(auth.account());
     let opener = match HttpOpener::new(Arc::clone(&auth), settings.quality, country.clone()) {
         Ok(opener) => Arc::new(opener),
         Err(message) => {
@@ -348,68 +502,54 @@ fn standalone(
         }
     };
     let (results, inputs) = std::sync::mpsc::channel();
-    let (expanded_tx, expanded) = std::sync::mpsc::channel();
-    let expander = Expander::new(
-        runtime.handle().clone(),
-        Arc::clone(&metadata) as _,
-        expanded_tx,
-    );
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return Ok(code),
+    };
     let player = spawn_runtime(
-        PlayerRuntime::new(config, time_seed(), spawn_output(&settings.device), jobs),
+        PlayerRuntime::new(
+            config,
+            time_seed(),
+            spawn_output(&settings.device, player_settings.release_paused),
+            jobs,
+        ),
         inputs,
         results,
     );
-    // The plain form replaces the queue; `--add-to-queue`/`--play-next`
-    // add to it the way the open prompt does, which starts the first added
-    // track on the (until 0005, always empty) startup queue.
-    let startup = match mode {
-        None => {
-            for command in startup_commands(tracks) {
-                player.send(command);
-            }
-            Vec::new()
-        }
-        Some(_) if tracks.is_empty() => Vec::new(),
-        Some(at) => vec![Action::Expanded {
-            at,
-            result: Ok(tracks),
-        }],
-    };
-    let mut state = State::new(tui_model::Steps {
-        volume: player_settings.steps.volume,
-        seek: player_settings.steps.seek,
-    });
-    state.message = startup_message;
-    let client = Client {
-        player: &player,
-        expander,
-        expanded,
-    };
+    // The login status reaches the TUI as it reaches any client (0002
+    // AC14): in the `Welcome`, then as events.
+    server::forward_login(auth.status(), player.inputs(), runtime.handle());
+    let server = server::serve(listener, socket, player.inputs());
+    // The startup items go to the player as an `Open`, like the prompt's;
+    // a failed expansion is the reply's message in the playback window.
+    let mut connector = InProcess::new(player.inputs());
+    let link = connector
+        .connect()
+        .map_err(|e| anyhow::anyhow!("cannot join the player: {e}"))?;
+    let mut session = Session::new(connector, link, open);
 
-    let result = tui(&client, auth.status(), state, startup);
-    // Quit: the player stops and releases the device first.
+    let result = tui(&mut session, state);
+    // Quit: the player stops and releases the device first; its other
+    // clients are told it shut down.
     player.shutdown();
+    drop(server);
+    drop(lock);
     restore_terminal();
     result.map(|()| ExitCode::SUCCESS)
 }
 
 /// Runs the TUI until the user quits; the terminal is left for the caller
 /// to restore.
-fn tui(
-    client: &Client<'_>,
-    auth_status: watch::Receiver<AuthStatus>,
-    state: State,
-    startup: Vec<Action>,
-) -> Result<()> {
+fn tui<C: Connector>(session: &mut Session<C>, state: State) -> Result<()> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
     execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
         .context("cannot enter the alternate screen")?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    run(&mut terminal, Some(auth_status), client, state, startup)
+    run(&mut terminal, session, state)
 }
 
 fn env_var(key: &str) -> Option<String> {
@@ -456,7 +596,7 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         }
     };
     let player = match resolve_play_config(args.autoplay, env_var) {
-        Ok(settings) => settings.player,
+        Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(2);
@@ -466,6 +606,10 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         eprintln!("{NO_ALSA}");
         return ExitCode::from(1);
     }
+    let lock = match claim_player(": use \"tidal-player playback load\"") {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -475,19 +619,29 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         }
         Err(e) => return report_store_error(&e),
     };
-    let auth = match Authenticator::new(api_config(), store, session, Arc::new(SystemClock)) {
+    let auth = match Authenticator::new(api_config(), store, session, Arc::new(AuthClock)) {
         Ok(auth) => Arc::new(auth),
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(1);
         }
     };
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return code,
+    };
     play_items(
         auth,
+        PlayerSocket {
+            lock,
+            listener,
+            path: socket,
+        },
         PlayRequest {
             items,
             settings,
-            player,
+            player: player.player,
+            release_paused: player.release_paused,
             options: PlayOptions {
                 shuffle: args.shuffle,
                 repeat: args.repeat.into(),
@@ -517,14 +671,25 @@ fn main() -> Result<ExitCode> {
     let plan = StorePlan::from_env();
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
-        Some(Command::Daemon) => Ok(daemon(plan.build_store().as_ref())),
+        Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan),
+        Some(Command::Daemon(DaemonArgs {
+            action: Some(DaemonAction::Stop),
+        })) => Ok(tidal_player::daemon::stop()),
+        Some(Command::Daemon(DaemonArgs {
+            action: Some(DaemonAction::Unit),
+        })) => {
+            let exe = std::env::current_exe().context("cannot tell where this program is")?;
+            print!("{}", tidal_player::daemon::unit(&exe));
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Playback { command }) => Ok(tidal_player::oneshot::run(&command)),
         Some(Command::Login) => {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
         }
         Some(Command::Play(args)) => Ok(play(&plan, &args)),
         Some(Command::Devices) => Ok(devices()),
-        None => standalone(plan.build_store(), &items, mode),
+        None => tui_main(&plan, &items, mode),
     }
 }
 

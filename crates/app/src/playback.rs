@@ -32,7 +32,18 @@ pub struct PlayRequest {
     /// From the environment and `--autoplay`; the country is filled in from
     /// the session.
     pub player: PlayerConfig,
+    /// The engine's release delay (spec 0005); `None`: never.
+    pub release_paused: Option<Duration>,
     pub options: PlayOptions,
+}
+
+/// The player's claim and socket (spec 0005 "Roles": `play` serves the
+/// socket too).
+#[derive(Debug)]
+pub struct PlayerSocket {
+    pub lock: crate::ipc::lock::PlayerLock,
+    pub listener: std::os::unix::net::UnixListener,
+    pub path: std::path::PathBuf,
 }
 
 /// The message of a build without the `alsa` feature.
@@ -113,23 +124,37 @@ fn duration(resolved: &ResolvedStream) -> Option<Duration> {
     }
 }
 
-/// The output engine on `device`: ALSA, or, in a build without it, an
-/// engine whose every track fails with [`NO_ALSA`].
+/// The output engine on `device`, releasing it after `release_paused`
+/// paused (spec 0005): ALSA, or, in a build without it, an engine whose
+/// every track fails with [`NO_ALSA`].
 #[cfg(feature = "alsa")]
-pub fn spawn_output(device: &str) -> Box<dyn EngineControl + Send> {
+pub fn spawn_output(
+    device: &str,
+    release_paused: Option<Duration>,
+) -> Box<dyn EngineControl + Send> {
     use crate::reserve::ZbusReserver;
-    use tidal_player_audio::{Engine, EngineConfig, Reserver, alsa_sink_factory};
-    let factory = alsa_sink_factory(|| Box::new(ZbusReserver::new()) as Box<dyn Reserver>);
+    use tidal_player_audio::{Engine, EngineConfig, ReleaseRequests, Reserver, alsa_sink_factory};
+    // The reservation object each sink exports asks this engine.
+    let requests = ReleaseRequests::new();
+    let for_sinks = requests.clone();
+    let factory = alsa_sink_factory(move || {
+        Box::new(ZbusReserver::new(for_sinks.clone())) as Box<dyn Reserver>
+    });
     Box::new(Engine::spawn(
         Box::new(factory),
-        EngineConfig::new(device.to_owned()),
+        EngineConfig::new(device.to_owned())
+            .with_release_paused(release_paused)
+            .with_release_requests(requests),
     ))
 }
 
 /// The output engine of a build without ALSA: every track fails.
 #[cfg(not(feature = "alsa"))]
-pub fn spawn_output(device: &str) -> Box<dyn EngineControl + Send> {
-    let _ = device;
+pub fn spawn_output(
+    device: &str,
+    release_paused: Option<Duration>,
+) -> Box<dyn EngineControl + Send> {
+    let _ = (device, release_paused);
     Box::new(NoOutput::default())
 }
 
@@ -162,14 +187,22 @@ impl EngineControl for NoOutput {
 /// played to its end, 130 on Ctrl-C (after the device is closed and
 /// released), 1 on errors with the message on stderr.
 #[cfg(feature = "alsa")]
-pub fn play_items(auth: Arc<Authenticator>, request: PlayRequest) -> ExitCode {
-    alsa_play::play_items(auth, request)
+pub fn play_items(
+    auth: Arc<Authenticator>,
+    socket: PlayerSocket,
+    request: PlayRequest,
+) -> ExitCode {
+    alsa_play::play_items(auth, socket, request)
 }
 
 /// Without ALSA there is no output to play to.
 #[cfg(not(feature = "alsa"))]
-pub fn play_items(auth: Arc<Authenticator>, request: PlayRequest) -> ExitCode {
-    let _ = (auth, request);
+pub fn play_items(
+    auth: Arc<Authenticator>,
+    socket: PlayerSocket,
+    request: PlayRequest,
+) -> ExitCode {
+    let _ = (auth, socket, request);
     eprintln!("{NO_ALSA}");
     ExitCode::from(1)
 }
@@ -185,11 +218,21 @@ mod alsa_play {
     use tidal_player_api::metadata::MetadataClient;
     use tokio::sync::watch;
 
-    use super::{EXIT_INTERRUPTED, HttpOpener, PlayRequest, spawn_output};
+    use super::{EXIT_INTERRUPTED, HttpOpener, PlayRequest, PlayerSocket, spawn_output};
+    use crate::ipc::server;
     use crate::play::{PlayOutput, play_queue, play_tracks};
     use crate::player_runtime::{POLL, PlayerRuntime, TokioJobs, time_seed};
 
-    pub(super) fn play_items(auth: Arc<Authenticator>, request: PlayRequest) -> ExitCode {
+    pub(super) fn play_items(
+        auth: Arc<Authenticator>,
+        socket: PlayerSocket,
+        request: PlayRequest,
+    ) -> ExitCode {
+        let PlayerSocket {
+            lock,
+            listener,
+            path,
+        } = socket;
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(runtime) => runtime,
             Err(e) => {
@@ -225,6 +268,7 @@ mod alsa_play {
             }
             Some((country, Ok(tracks))) => (country, tracks),
         };
+        let status = auth.status();
         let opener = match HttpOpener::new(auth, request.settings.quality, country.clone()) {
             Ok(opener) => Arc::new(opener),
             Err(message) => {
@@ -234,10 +278,14 @@ mod alsa_play {
         };
 
         let (results, inputs) = mpsc::channel();
+        // Clients reach this player through its input channel, handled by
+        // `play_queue` with everything else.
+        server::forward_login(status, results.clone(), runtime.handle());
+        let server = server::serve(listener, path, results.clone());
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);
-        let engine = spawn_output(&request.settings.device);
+        let engine = spawn_output(&request.settings.device, request.release_paused);
         let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs);
         let stdout = io::stdout();
         let tty = stdout.is_terminal();
@@ -259,6 +307,8 @@ mod alsa_play {
         // Dropping the player drops the engine, which closes and releases
         // the device before the process exits.
         drop(player);
+        drop(server);
+        drop(lock);
         runtime.shutdown_timeout(Duration::from_millis(100));
         ExitCode::from(code)
     }

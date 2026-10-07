@@ -1,6 +1,6 @@
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface: the player and the screen run in one process. Quitting stops playback and releases the audio device. Design: [spec 0004](specs/0004-queue-and-controls.md).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md) and [spec 0005](specs/0005-daemon-and-clients.md).
 
 ## The screen
 
@@ -28,7 +28,7 @@ One frame titled `tidal-player`, with the **playback window** (4 rows) at the to
    - `▶` playing, `⏸` paused, `…` loading or buffering, `■` stopped; `Nothing playing` when the queue is empty
    - `shuffle` when shuffle is on, `repeat: queue` or `repeat: track` when repeat is on, `autoplay` when autoplay is on, then the volume (`80%`), or `muted`
 2. The album
-3. How it plays: the quality Tidal granted, the format, the output device, and `bit-perfect` or why it is not (as the "Track" and "Output" lines of [`play`](playback.md#output-kinds-and-bit-perfect)). When something went wrong, the message takes this row instead (see [Failures](#failures))
+3. How it plays: the quality Tidal granted, the format, the output device, and `bit-perfect` or why it is not (as the "Track" and "Output" lines of [`play`](playback.md#output-kinds-and-bit-perfect)), then ` · device released` while paused with the device [released](daemon.md#releasing-the-device-while-paused). When something went wrong, the message takes this row instead (see [Failures](#failures)); so does `Disconnected from the player: reconnecting…` while an attached TUI has lost its player
 4. The progress bar, the position and the length. When Tidal does not give the length, there is no bar: `1:23 / ?:??`
 
 ### Queue
@@ -55,7 +55,7 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 | `j` or `↓`, `k` or `↑` | move the cursor down, up |
 | `g g`, `G` | move the cursor to the top, to the bottom |
 | `Enter` | play the track under the cursor |
-| `q`, `Esc` | quit |
+| `q`, `Esc` | quit (an attached TUI detaches; the player keeps playing) |
 
 `g g` is two presses of `g`; a `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something; the modes and the volume then apply to what you add next.
 
@@ -65,7 +65,7 @@ The steps come from the environment: `TIDAL_PLAYER_VOLUME_STEP` (1–25 %, defau
 
 `o` opens a prompt over the top of the queue, `Add to queue: `; `O` opens `Play next: `. Type or paste (the terminal's paste, `Ctrl-Shift-v` in most terminals) a track ID or a Tidal track, album or playlist link, as on the [command line](playback.md#items), then:
 
-- `Enter` fetches the tracks and adds them at the end of the queue (`o`) or right after the playing track (`O`). If nothing is playing (an empty queue, or a stopped player with no current track), the first added track starts
+- `Enter` sends the item to the player, which fetches the tracks and adds them at the end of the queue (`o`) or right after the playing track (`O`). If nothing is playing (an empty queue, or a stopped player with no current track), the first added track starts. The queue shows them once the player has added them
 - `Backspace` deletes the last character; `Esc` closes the prompt without adding anything
 
 While the prompt is open every key types into it: `Space`, `q` and the other keys do not reach the player. An invalid item (`Not a Tidal track, album or playlist: …`) or a failed fetch (`Album 123 was not found`) closes the prompt and shows the message in the playback window; the queue is unchanged.

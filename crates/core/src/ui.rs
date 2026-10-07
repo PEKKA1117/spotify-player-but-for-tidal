@@ -3,15 +3,20 @@
 //! Spec 0004 "TUI": the client keeps the player's latest snapshot as sent
 //! (it never reorders the queue), a queue cursor addressed by entry ID, key
 //! sequences (`g g`) and the open prompt. Everything it asks of the player
-//! leaves as [`Effect::Send`]; expanding a pasted item is
-//! [`Effect::Expand`], run by the caller off the UI thread, whose result
-//! comes back as [`Action::Expanded`].
+//! leaves as [`Effect::Send`], an opened item included (`Command::Open`:
+//! the player expands it, spec 0005).
+//!
+//! Spec 0005 "The TUI as a client": the model is the same for a standalone
+//! TUI and a client of another process's player. It holds nothing about
+//! playback but what the player sent ([`Action::Welcome`], then events);
+//! while [`Connection::Disconnected`] it keeps the last snapshot and no key
+//! sends anything.
 
 use std::time::Duration;
 
-use crate::item::{Item, parse_item};
+use crate::item::parse_item;
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
-use crate::track::{EntryId, Track};
+use crate::track::EntryId;
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,9 +58,31 @@ pub struct Prompt {
     pub text: String,
 }
 
+/// The client's connection to the player (spec 0005 "The TUI as a
+/// client").
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Connection {
+    /// Joined: keys send commands.
+    #[default]
+    Connected,
+    /// The connection closed or failed (`shut_down`: after the player said
+    /// `ShuttingDown`); the last snapshot stays, reconnecting.
+    Disconnected { shut_down: bool },
+    /// The player refused this client (a version mismatch): the message;
+    /// never retried.
+    Refused(String),
+}
+
+/// The message row while disconnected.
+pub const DISCONNECTED: &str = "Disconnected from the player: reconnecting…";
+/// The message row after the player shut down.
+pub const SHUT_DOWN: &str = "The player shut down: waiting for it to come back…";
+
 /// The whole UI state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
+    /// Whether the player is reachable (spec 0005).
+    pub connection: Connection,
     /// Whether the session has expired and login is required.
     pub login_required: bool,
     /// The volume and seek steps the keys send.
@@ -71,15 +98,11 @@ pub struct State {
     pub anchor: Option<EntryId>,
     /// The open prompt, if open.
     pub prompt: Option<Prompt>,
-    /// A message of the client's own (an invalid item, a failed fetch, the
-    /// startup expansion); shown instead of the player's while set.
+    /// A message of the client's own (an invalid item, a command's error
+    /// reply); shown instead of the player's while set.
     pub message: Option<String>,
     /// `g` was pressed: a second `g` moves to the top.
     pub pending_g: bool,
-    /// Tracks were added to start the first of them: the entry IDs the
-    /// queue held when `AddToQueue` was sent. The first entry of a later
-    /// snapshot not among them is played.
-    pub start_added: Option<Vec<EntryId>>,
 }
 
 impl State {
@@ -102,12 +125,23 @@ impl State {
         self.queue().iter().find(|e| e.id == id)
     }
 
-    /// The message to show in the playback window: the client's own, else
-    /// the player's.
+    /// The message to show in the playback window: the connection's, else
+    /// the client's own, else the player's.
     pub fn message(&self) -> Option<&str> {
-        self.message
-            .as_deref()
-            .or_else(|| self.player.as_ref()?.message.as_deref())
+        match &self.connection {
+            Connection::Connected => self
+                .message
+                .as_deref()
+                .or_else(|| self.player.as_ref()?.message.as_deref()),
+            Connection::Disconnected { shut_down: false } => Some(DISCONNECTED),
+            Connection::Disconnected { shut_down: true } => Some(SHUT_DOWN),
+            Connection::Refused(message) => Some(message),
+        }
+    }
+
+    /// Whether the client is trying to reach the player again.
+    pub fn reconnecting(&self) -> bool {
+        matches!(self.connection, Connection::Disconnected { .. })
     }
 }
 
@@ -124,12 +158,18 @@ pub enum Action {
     Paste(String),
     /// An event from the player.
     Player(protocol::Event),
-    /// The result of an [`Effect::Expand`]: the item's tracks, or the
-    /// message saying why there are none.
-    Expanded {
-        at: InsertAt,
-        result: Result<Vec<Track>, String>,
+    /// The player's answer to `Subscribe`: its state and the login status,
+    /// replacing everything (spec 0005).
+    Welcome {
+        snapshot: PlayerSnapshot,
+        login_required: bool,
     },
+    /// The player's answer to a command: applied, or why not.
+    Reply(Result<(), String>),
+    /// The connection to the player is gone (`shut_down`: it said so).
+    Disconnected { shut_down: bool },
+    /// The player refused this client: the message.
+    Refused(String),
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -139,9 +179,6 @@ pub enum Effect {
     Quit,
     /// Send a command to the player.
     Send(Command),
-    /// Expand `item` into tracks (as on the command line) and answer with
-    /// [`Action::Expanded`].
-    Expand { item: Item, at: InsertAt },
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
@@ -149,10 +186,17 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
-        Action::Key(key) => match state.prompt.as_ref().map(|p| p.at) {
-            Some(at) => prompt_key(state, at, key),
-            None => key_press(state, key),
-        },
+        Action::Key(key) => {
+            let mut effects = match state.prompt.as_ref().map(|p| p.at) {
+                Some(at) => prompt_key(state, at, key),
+                None => key_press(state, key),
+            };
+            // Nothing reaches a player that is not there (spec 0005).
+            if state.connection != Connection::Connected {
+                effects.retain(|e| !matches!(e, Effect::Send(_)));
+            }
+            effects
+        }
         Action::Paste(text) => {
             // Line breaks and other control characters never reach the
             // prompt: a pasted link often ends with a newline.
@@ -161,7 +205,32 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::Expanded { at, result } => expanded(state, at, result),
+        Action::Welcome {
+            snapshot,
+            login_required,
+        } => {
+            state.connection = Connection::Connected;
+            state.login_required = login_required;
+            state.message = None;
+            apply_snapshot(state, snapshot);
+            Vec::new()
+        }
+        Action::Reply(result) => {
+            if let Err(message) = result {
+                state.message = Some(message);
+            }
+            Vec::new()
+        }
+        Action::Disconnected { shut_down } => {
+            if !matches!(state.connection, Connection::Refused(_)) {
+                state.connection = Connection::Disconnected { shut_down };
+            }
+            Vec::new()
+        }
+        Action::Refused(message) => {
+            state.connection = Connection::Refused(message);
+            Vec::new()
+        }
         Action::Player(event) => match event {
             protocol::Event::LoginRequired => {
                 state.login_required = true;
@@ -172,7 +241,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 Vec::new()
             }
             protocol::Event::ShuttingDown => Vec::new(),
-            protocol::Event::Player(snapshot) => apply_snapshot(state, snapshot),
+            protocol::Event::Player(snapshot) => {
+                apply_snapshot(state, snapshot);
+                Vec::new()
+            }
             protocol::Event::Position { entry, position } => {
                 if state.player.as_ref().and_then(|p| p.current) == Some(entry) {
                     state.position = position;
@@ -201,7 +273,10 @@ fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
                 return Vec::new();
             }
             return match parse_item(&text) {
-                Ok(item) => vec![Effect::Expand { item, at }],
+                Ok(item) => vec![Effect::Send(Command::Open {
+                    items: vec![item],
+                    at: Some(at),
+                })],
                 Err(e) => {
                     state.message = Some(e.to_string());
                     Vec::new()
@@ -291,9 +366,8 @@ fn move_cursor(state: &mut State, to: impl Fn(usize, usize) -> usize) {
 }
 
 /// Takes the snapshot as is; keeps the cursor on its entry (clamped to
-/// the same index when it was removed); starts the first added entry when
-/// one was asked for.
-fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
+/// the same index when it was removed).
+fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
     let old = state.player.take();
     let old_queue = old.as_ref().map_or(&[][..], |p| p.queue.as_slice());
     let ids: Vec<EntryId> = snapshot.queue.iter().map(|e| e.id).collect();
@@ -327,45 +401,16 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
         state.message = None;
     }
 
-    let mut effects = Vec::new();
-    if let Some(known) = &state.start_added
-        && let Some(first) = ids.iter().find(|id| !known.contains(id))
-    {
-        effects.push(Effect::Send(Command::PlayEntry(*first)));
-        state.start_added = None;
-    }
-
     state.position = snapshot.position;
     state.player = Some(snapshot);
-    effects
-}
-
-/// The expansion's answer: add the tracks; start the first added one when
-/// the queue was empty or the player is stopped with nothing current
-/// (spec 0004 AC28).
-fn expanded(state: &mut State, at: InsertAt, result: Result<Vec<Track>, String>) -> Vec<Effect> {
-    let tracks = match result {
-        Ok(tracks) if !tracks.is_empty() => tracks,
-        Ok(_) => return Vec::new(),
-        Err(message) => {
-            state.message = Some(message);
-            return Vec::new();
-        }
-    };
-    let idle = state.player.as_ref().is_none_or(|p| {
-        p.queue.is_empty() || (p.state == PlaybackState::Stopped && p.current.is_none())
-    });
-    if idle {
-        state.start_added = Some(state.queue().iter().map(|e| e.id).collect());
-    }
-    vec![Effect::Send(Command::AddToQueue { tracks, at })]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::item::Item;
     use crate::protocol::RepeatMode;
-    use crate::track::TrackId;
+    use crate::track::{Track, TrackId};
 
     #[test]
     fn ac5_quit_emits_quit() {
@@ -717,9 +762,10 @@ mod tests {
         }
     }
 
-    /// AC28: the open prompt (state, mode, editing, effects), then the
-    /// expansion's answer: `AddToQueue`, and `PlayEntry` of the first added
-    /// entry when nothing was current or the queue was empty.
+    /// AC28: the open prompt (state, mode, editing, effects); `Enter` sends
+    /// `Open` (spec 0005 "Opening items in the player": the player expands
+    /// the item and starts it when idle, 0005 AC7); the reply's error is
+    /// the message, and nothing changes locally.
     #[test]
     fn ac28_open_prompt() {
         use Key::{Backspace, Char, Ctrl, Enter, Esc};
@@ -777,19 +823,19 @@ mod tests {
             (
                 cat(vec![vec![k(Char('o'))], keys("123"), vec![k(Enter)]]),
                 None,
-                vec![Effect::Expand {
-                    item: Item::Track(TrackId(123)),
-                    at: InsertAt::End,
-                }],
+                send(Command::Open {
+                    items: vec![Item::Track(TrackId(123))],
+                    at: Some(InsertAt::End),
+                }),
                 None,
             ),
             (
                 vec![k(Char('O')), Action::Paste(album.into()), k(Enter)],
                 None,
-                vec![Effect::Expand {
-                    item: Item::Album(10),
-                    at: InsertAt::Next,
-                }],
+                send(Command::Open {
+                    items: vec![Item::Album(10)],
+                    at: Some(InsertAt::Next),
+                }),
                 None,
             ),
             (
@@ -812,104 +858,22 @@ mod tests {
             assert_eq!(state.cursor, before, "{actions:?}: cursor moved");
         }
 
-        // The expansion's answer.
-        let tracks = vec![track(500), track(501)];
-        let expanded = |at, result| Action::Expanded { at, result };
-        let add = |at| {
-            send(Command::AddToQueue {
-                tracks: tracks.clone(),
-                at,
-            })
-        };
         let snap = |state: &mut State, s: PlayerSnapshot| {
             update(state, Action::Player(protocol::Event::Player(s)))
         };
-        // (queue before, current, state, at, queue after, plays)
-        type Row<'a> = (
-            &'a [u64],
-            Option<u64>,
-            PlaybackState,
-            InsertAt,
-            &'a [u64],
-            Option<u64>,
-        );
-        let rows: Vec<Row> = vec![
-            // Empty queue: the first added entry plays.
-            (
-                &[],
-                None,
-                PlaybackState::Stopped,
-                InsertAt::End,
-                &[20, 21],
-                Some(20),
-            ),
-            (
-                &[],
-                None,
-                PlaybackState::Stopped,
-                InsertAt::Next,
-                &[20, 21],
-                Some(20),
-            ),
-            // Stopped with nothing current.
-            (
-                &[1],
-                None,
-                PlaybackState::Stopped,
-                InsertAt::End,
-                &[1, 20, 21],
-                Some(20),
-            ),
-            // Something current: added only.
-            (
-                &[1, 2],
-                Some(1),
-                PlaybackState::Playing,
-                InsertAt::End,
-                &[1, 2, 20, 21],
-                None,
-            ),
-            (
-                &[1, 2],
-                Some(1),
-                PlaybackState::Playing,
-                InsertAt::Next,
-                &[1, 20, 21, 2],
-                None,
-            ),
-            (
-                &[1, 2],
-                Some(2),
-                PlaybackState::Stopped,
-                InsertAt::End,
-                &[1, 2, 20, 21],
-                None,
-            ),
-        ];
-        for (before, current, playback, at, after, plays) in rows {
-            let mut state = with(snapshot(before, current, playback));
-            let got = update(&mut state, expanded(at, Ok(tracks.clone())));
-            assert_eq!(got, add(at), "{before:?} {at:?}");
-            // An unrelated snapshot (no new entry) starts nothing.
-            assert_eq!(
-                snap(&mut state, snapshot(before, current, playback)),
-                vec![]
-            );
-            let got = snap(&mut state, snapshot(after, current, playback));
-            let want = plays.map_or_else(Vec::new, |id| send(Command::PlayEntry(EntryId(id))));
-            assert_eq!(got, want, "{before:?} {at:?}");
-            // Once only.
-            assert_eq!(snap(&mut state, snapshot(after, current, playback)), vec![]);
-        }
-
-        // A failed expansion sets the message and sends nothing.
+        // The player's answer: an error is the message; the queue is the
+        // player's, untouched until its snapshot says otherwise.
         let mut state = with(snapshot(&[1], Some(1), PlaybackState::Playing));
+        let before = state.clone();
+        assert_eq!(update(&mut state, Action::Reply(Ok(()))), vec![]);
+        assert_eq!(state, before, "an Ok reply changes nothing");
         let got = update(
             &mut state,
-            expanded(InsertAt::End, Err("Album 1 was not found".into())),
+            Action::Reply(Err("Album 1 was not found".into())),
         );
         assert_eq!(got, vec![]);
         assert_eq!(state.message(), Some("Album 1 was not found"));
+        assert_eq!(state.player, before.player, "the queue changed locally");
         // A new track start clears the client's message.
         let mut playing = snapshot(&[1, 2], Some(2), PlaybackState::Playing);
         snap(&mut state, playing.clone());
@@ -918,5 +882,110 @@ mod tests {
         playing.message = Some("Track 102 is not available in NO".into());
         snap(&mut state, playing);
         assert_eq!(state.message(), Some("Track 102 is not available in NO"));
+    }
+
+    // --- spec 0005 ---------------------------------------------------------------
+
+    /// AC12: `Welcome` replaces the snapshot and the login status;
+    /// `Disconnected` keeps the snapshot and sets its message; while
+    /// disconnected no key sends, cursor keys and `q` work; `q` never sends
+    /// `Shutdown`; a refusal (version mismatch) sets its message and stops
+    /// reconnecting.
+    #[test]
+    fn ac12_client_connection_states() {
+        use Key::{Char, Ctrl, Down, Enter, Esc, Up};
+        let ids = |state: &State| state.queue().iter().map(|e| e.id.0).collect::<Vec<_>>();
+        let welcome = |ids: &[u64], current: u64, login_required| Action::Welcome {
+            snapshot: snapshot(ids, Some(current), PlaybackState::Playing),
+            login_required,
+        };
+
+        // `Welcome` replaces everything: queue, current, login status and
+        // the client's own message.
+        for login_required in [true, false] {
+            let mut state = with(snapshot(&[1, 2], Some(1), PlaybackState::Playing));
+            state.login_required = !login_required;
+            state.message = Some("Album 1 was not found".into());
+            assert_eq!(
+                update(&mut state, welcome(&[7, 8, 9], 8, login_required)),
+                vec![]
+            );
+            assert_eq!(ids(&state), vec![7, 8, 9]);
+            assert_eq!(state.current().map(|e| e.id), Some(EntryId(8)));
+            assert_eq!(state.login_required, login_required);
+            assert_eq!(state.message(), None);
+            assert_eq!(state.connection, Connection::Connected);
+        }
+
+        // Every key that sends a command while connected.
+        let command_keys = [
+            Char(' '),
+            Char('n'),
+            Char('p'),
+            Char('>'),
+            Char('<'),
+            Char('^'),
+            Ctrl('s'),
+            Ctrl('r'),
+            Char('A'),
+            Char('+'),
+            Char('-'),
+            Char('_'),
+            Enter,
+        ];
+        for key in command_keys {
+            let mut state = with(snapshot(&[1, 2, 3], Some(2), PlaybackState::Playing));
+            assert_ne!(press(&mut state, &[key]), vec![], "{key:?} sends nothing");
+        }
+
+        for (shut_down, message) in [(false, DISCONNECTED), (true, SHUT_DOWN)] {
+            let mut state = with(snapshot(&[1, 2, 3], Some(2), PlaybackState::Playing));
+            let before = state.player.clone();
+            let got = update(&mut state, Action::Disconnected { shut_down });
+            assert_eq!(got, vec![]);
+            assert_eq!(state.player, before, "{message}: the snapshot went");
+            assert_eq!(state.message(), Some(message));
+            assert!(state.reconnecting(), "{message}");
+            for key in command_keys {
+                assert_eq!(press(&mut state, &[key]), vec![], "{message}: {key:?}");
+            }
+            // The open prompt sends nothing either.
+            assert_eq!(press(&mut state, &[Char('o'), Char('1'), Enter]), vec![]);
+            // Cursor keys work.
+            for (keys, cursor) in [
+                (vec![Char('j')], 3),
+                (vec![Char('k')], 2),
+                (vec![Down], 3),
+                (vec![Up], 2),
+                (vec![Char('G')], 3),
+                (vec![Char('g'), Char('g')], 1),
+            ] {
+                assert_eq!(press(&mut state, &keys), vec![], "{keys:?}");
+                assert_eq!(state.cursor, Some(EntryId(cursor)), "{message}: {keys:?}");
+            }
+            assert_eq!(state.player, before);
+            // `q` and `Esc` quit, without a `Shutdown`.
+            assert_eq!(press(&mut state.clone(), &[Char('q')]), vec![Effect::Quit]);
+            assert_eq!(press(&mut state.clone(), &[Esc]), vec![Effect::Quit]);
+            // Back: the next `Welcome` replaces everything and keys send.
+            update(&mut state, welcome(&[4], 4, false));
+            assert_eq!(ids(&state), vec![4]);
+            assert_eq!(state.message(), None);
+            assert!(!state.reconnecting());
+            assert_eq!(press(&mut state, &[Char(' ')]), send(Command::TogglePause));
+        }
+
+        // Connected, `q` quits and sends nothing (a client detaches).
+        let mut state = with(snapshot(&[1], Some(1), PlaybackState::Playing));
+        assert_eq!(press(&mut state, &[Char('q')]), vec![Effect::Quit]);
+
+        // A version mismatch: its message, no reconnecting, no commands.
+        let mismatch = "The running player is tidal-player 0.0.1, this is 0.1.0: restart it";
+        let mut state = with(snapshot(&[1], Some(1), PlaybackState::Playing));
+        assert_eq!(update(&mut state, Action::Refused(mismatch.into())), vec![]);
+        assert_eq!(state.message(), Some(mismatch));
+        assert!(!state.reconnecting());
+        assert_eq!(press(&mut state, &[Char(' ')]), vec![]);
+        assert_eq!(state.connection, Connection::Refused(mismatch.into()));
     }
 }

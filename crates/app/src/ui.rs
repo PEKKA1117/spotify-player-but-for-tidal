@@ -174,8 +174,9 @@ fn split_row(left: &str, right: &str, width: usize) -> Option<String> {
 
 /// `LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: <reason>`:
 /// the output by its device (0003's Output line has the rest), and the
-/// usual stereo left unsaid. A short row keeps the verdict: the format is
-/// cut first, then left out.
+/// usual stereo left unsaid, then ` · device released` while the engine
+/// released the output (spec 0005). A short row keeps the verdict: the
+/// format is cut first, then left out.
 fn details(np: &NowPlaying, width: usize) -> String {
     let source = np.source.strip_suffix(" stereo").unwrap_or(&np.source);
     let device = np.output.split_whitespace().next().unwrap_or_default();
@@ -184,6 +185,11 @@ fn details(np: &NowPlaying, width: usize) -> String {
         (true, _) => "bit-perfect".to_owned(),
         (false, Some(reason)) => format!("not bit-perfect: {reason}"),
         (false, None) => "not bit-perfect".to_owned(),
+    };
+    let verdict = if np.released {
+        format!("{verdict} · device released")
+    } else {
+        verdict
     };
     let full = format!("  {left} · {verdict}");
     let vw = text_width(&verdict);
@@ -222,7 +228,7 @@ fn progress(position: Duration, duration: Option<Duration>, width: usize) -> Str
 }
 
 /// `m:ss`, or `h:mm:ss` from an hour.
-fn clock(d: Duration) -> String {
+pub(crate) fn clock(d: Duration) -> String {
     let secs = d.as_secs();
     let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
     if h > 0 {
@@ -624,6 +630,7 @@ mod tests {
             output: "hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
             bit_perfect: reason.is_none(),
             bit_perfect_reason: reason.map(Into::into),
+            released: false,
         }
     }
 
@@ -723,6 +730,36 @@ mod tests {
         assert!(!row(&text, 1).contains("80%"), "volume shown when muted");
         assert_contains(row(&text, 3), &["not bit-perfect: muted"]);
         insta::assert_snapshot!(text);
+    }
+
+    /// 0005 AC22: paused with the device released, the third row ends
+    /// with ` · device released`.
+    #[test]
+    fn ac22_released_row() {
+        let snapshot = PlayerSnapshot {
+            state: PlaybackState::Paused,
+            volume: 100,
+            now_playing: Some(NowPlaying {
+                released: true,
+                ..now_playing(None)
+            }),
+            ..playing()
+        };
+        let text = draw(&state_of(snapshot.clone()), 80, 24);
+        let third = row(&text, 3).trim_end_matches('│').trim_end();
+        assert!(
+            third.ends_with("· bit-perfect · device released"),
+            "third row: {third:?}\n{text}"
+        );
+        insta::assert_snapshot!(text);
+
+        // Not released: no note.
+        let snapshot = PlayerSnapshot {
+            now_playing: Some(now_playing(None)),
+            ..snapshot
+        };
+        let text = draw(&state_of(snapshot), 80, 24);
+        assert!(!row(&text, 3).contains("released"), "{text}");
     }
 
     #[test]

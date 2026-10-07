@@ -47,6 +47,8 @@ impl Prompt for NoPrompt {
 fn bin_in(state: &Path) -> Command {
     let mut cmd = bin();
     cmd.env("TIDAL_PLAYER_STATE_DIR", state)
+        // Each test its own player lock (spec 0005 "Transport").
+        .env("TIDAL_PLAYER_RUNTIME_DIR", state.join("run"))
         .env("TIDAL_PLAYER_NO_KEYRING", "1")
         .env_remove("TIDAL_PLAYER_PASSPHRASE_FILE")
         .env_remove("CREDENTIALS_DIRECTORY")

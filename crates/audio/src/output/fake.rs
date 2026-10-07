@@ -43,6 +43,8 @@ pub enum Call {
     Drain,
     Recover(PcmError),
     Close,
+    /// Pushed by a test, to place its own step among the calls.
+    Mark(&'static str),
 }
 
 /// The shared call log.
