@@ -2,6 +2,7 @@
 //! library (see docs/specs/0001-architecture.md).
 
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,12 +19,14 @@ use tidal_player::{
     input::key_to_action,
     login::{LoginOutcome, run_login},
     panic_hook::install_panic_hook,
+    play::{ASOUND_DIR_VAR, configured_device, resolve_settings},
     store_setup::StorePlan,
     ui::render,
 };
 use tidal_player_api::auth::{
     AuthConfig, AuthStatus, Authenticator, SessionStore, StoreError, SystemClock,
 };
+use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::protocol::Event as PlayerEvent;
 use tidal_player_core::ui::{Action, Effect, State, update};
 use tokio::sync::watch;
@@ -199,11 +202,42 @@ fn standalone(store: Arc<dyn SessionStore>) -> Result<ExitCode> {
     result.map(|()| ExitCode::SUCCESS)
 }
 
-fn play(_plan: &StorePlan, _args: &PlayArgs) -> ExitCode {
-    ExitCode::SUCCESS
+fn env_var(key: &str) -> Option<String> {
+    std::env::var(key).ok()
 }
 
+fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
+    let settings = match resolve_settings(args.quality.as_deref(), args.device.as_deref(), env_var)
+    {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+    let store = plan.build_store();
+    let _session = match store.load() {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            eprintln!("Not logged in: run \"tidal-player login\"");
+            return ExitCode::from(1);
+        }
+        Err(e) => return report_store_error(&e),
+    };
+    let _ = settings;
+    eprintln!("playback is not wired yet");
+    ExitCode::from(1)
+}
+
+/// `tidal-player devices`: `/proc/asound` (or `TIDAL_PLAYER_ASOUND_DIR`).
 fn devices() -> ExitCode {
+    let dir = env_var(ASOUND_DIR_VAR)
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| PathBuf::from("/proc/asound"), PathBuf::from);
+    // A missing file means no card (no ALSA, or a container): `default` only.
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+    let listing = parse_devices(&read("cards"), &read("pcm"));
+    print!("{}", format_devices(&listing, &configured_device(env_var)));
     ExitCode::SUCCESS
 }
 

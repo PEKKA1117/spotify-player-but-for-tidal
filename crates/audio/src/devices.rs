@@ -17,18 +17,79 @@ pub const DEFAULT_DESCRIPTION: &str = "shared, through the system mixer";
 /// `default` first, then every `hw:C,D` that has a playback stream, in card
 /// and device order, described by the card's name and the PCM's name.
 pub fn parse_devices(cards: &str, pcm: &str) -> Vec<PlaybackDevice> {
-    let _ = (cards, pcm);
-    vec![PlaybackDevice {
+    let card_names: Vec<(u32, &str)> = cards.lines().filter_map(parse_card_line).collect();
+    let mut playback: Vec<(u32, u32, &str)> = pcm.lines().filter_map(parse_pcm_line).collect();
+    playback.sort_by_key(|&(card, device, _)| (card, device));
+    let mut devices = vec![PlaybackDevice {
         name: "default".into(),
         description: DEFAULT_DESCRIPTION.into(),
-    }]
+    }];
+    devices.extend(playback.into_iter().map(|(card, device, pcm_name)| {
+        let card_name = card_names
+            .iter()
+            .find(|(n, _)| *n == card)
+            .map(|(_, name)| *name);
+        PlaybackDevice {
+            name: format!("hw:{card},{device}"),
+            description: match card_name {
+                Some(card_name) => format!("{card_name}: {pcm_name}"),
+                None => pcm_name.to_owned(),
+            },
+        }
+    }));
+    devices
+}
+
+/// ` 1 [DAC            ]: USB-Audio - E30 II` → `(1, "E30 II")`. The
+/// second line of each card (its long name) does not start with a number.
+fn parse_card_line(line: &str) -> Option<(u32, &str)> {
+    let (number, rest) = line.trim_start().split_once(' ')?;
+    let number = number.parse().ok()?;
+    let (_, after_id) = rest.split_once("]: ")?;
+    let name = after_id
+        .split_once(" - ")
+        .map_or(after_id, |(_, name)| name)
+        .trim();
+    Some((number, name))
+}
+
+/// `01-00: USB Audio : USB Audio : playback 1` → `(1, 0, "USB Audio")`;
+/// `None` for a device without a playback stream.
+fn parse_pcm_line(line: &str) -> Option<(u32, u32, &str)> {
+    let (address, rest) = line.split_once(": ")?;
+    let (card, device) = address.split_once('-')?;
+    let fields: Vec<&str> = rest.split(" : ").map(str::trim).collect();
+    if !fields.iter().any(|f| f.starts_with("playback")) {
+        return None;
+    }
+    let name = fields
+        .get(1)
+        .or(fields.first())
+        .copied()
+        .unwrap_or_default();
+    Some((card.parse().ok()?, device.parse().ok()?, name))
 }
 
 /// The listing as printed: one device per line, names aligned, the
 /// `configured` device (the one `play` would use) marked with `*`.
 pub fn format_devices(devices: &[PlaybackDevice], configured: &str) -> String {
-    let _ = (devices, configured);
-    String::new()
+    let configured = normalise(configured);
+    let width = devices.iter().map(|d| d.name.len()).max().unwrap_or(0);
+    devices
+        .iter()
+        .map(|d| {
+            let mark = if d.name == configured { '*' } else { ' ' };
+            format!("{mark} {:<width$}  {}\n", d.name, d.description)
+        })
+        .collect()
+}
+
+/// `hw:C` names the card's first device, `hw:C,0`.
+fn normalise(device: &str) -> String {
+    match device.strip_prefix("hw:") {
+        Some(card) if !card.contains(',') => format!("hw:{card},0"),
+        _ => device.to_owned(),
+    }
 }
 
 #[cfg(test)]

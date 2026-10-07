@@ -7,8 +7,11 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use tidal_player_api::stream::StreamError;
-use tidal_player_audio::{EngineError, Event, OutputInfo, SourceFormat};
-use tidal_player_core::AudioQuality;
+use tidal_player_audio::{
+    Codec, EngineError, Event, OutputInfo, OutputKind, SampleFormat, SinkError, SourceError,
+    SourceFormat,
+};
+use tidal_player_core::{AudioQuality, ParseQualityError};
 
 /// Highest quality to ask for (spec 0003 "Settings").
 pub const QUALITY_VAR: &str = "TIDAL_PLAYER_QUALITY";
@@ -44,47 +47,159 @@ pub fn resolve_settings(
     device_flag: Option<&str>,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<Settings, SettingsError> {
-    let _ = (quality_flag, device_flag, env);
-    Ok(Settings {
-        quality: DEFAULT_QUALITY,
-        device: DEFAULT_DEVICE.into(),
+    let quality = match quality_flag {
+        Some(flag) => parse_quality(flag, "--quality")?,
+        None => match non_empty(env(QUALITY_VAR)) {
+            Some(value) => parse_quality(&value, QUALITY_VAR)?,
+            None => DEFAULT_QUALITY,
+        },
+    };
+    let device = match device_flag {
+        Some(flag) => flag.to_owned(),
+        None => configured_device(env),
+    };
+    Ok(Settings { quality, device })
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.is_empty())
+}
+
+fn parse_quality(value: &str, setting: &str) -> Result<AudioQuality, SettingsError> {
+    value.parse().map_err(|e: ParseQualityError| SettingsError {
+        setting: setting.to_owned(),
+        message: e.to_string(),
     })
 }
 
-/// The device `play` would use, for the `*` of `devices`.
+/// The device `play` would use without `--device`, for the `*` of
+/// `devices`.
 pub fn configured_device(env: impl Fn(&str) -> Option<String>) -> String {
-    let _ = env;
-    DEFAULT_DEVICE.into()
+    non_empty(env(DEVICE_VAR)).unwrap_or_else(|| DEFAULT_DEVICE.into())
 }
 
 /// `Track 77640617: HI_RES_LOSSLESS, FLAC 24-bit 96 kHz stereo`.
 pub fn track_line(track_id: u64, granted: AudioQuality, source: &SourceFormat) -> String {
-    let _ = (track_id, granted, source);
-    String::new()
+    let codec = match source.codec {
+        Codec::Flac => "FLAC",
+        Codec::AacLc => "AAC",
+    };
+    let bits = source
+        .bits_per_sample
+        .map(|b| format!(" {b}-bit"))
+        .unwrap_or_default();
+    let channels = match source.channels {
+        1 => "mono".to_owned(),
+        2 => "stereo".to_owned(),
+        n => format!("{n} ch"),
+    };
+    format!(
+        "Track {track_id}: {granted}, {codec}{bits} {} {channels}",
+        khz(source.sample_rate)
+    )
 }
 
 /// `Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect`.
 pub fn output_line(output: &OutputInfo) -> String {
-    let _ = output;
-    String::new()
+    let kind = match output.kind {
+        OutputKind::Exclusive => "exclusive",
+        OutputKind::Fallback => "fallback",
+        OutputKind::Shared => "shared",
+    };
+    let format = match output.sample_format {
+        SampleFormat::S16Le => "S16_LE",
+        SampleFormat::S24Le => "S24_LE",
+        SampleFormat::S24_3Le => "S24_3LE",
+        SampleFormat::S32Le => "S32_LE",
+    };
+    let quality = match (&output.not_bit_perfect_reason, output.bit_perfect) {
+        (_, true) => "bit-perfect",
+        (Some(reason), false) => reason.as_str(),
+        (None, false) => "not bit-perfect",
+    };
+    format!(
+        "Output: {} ({kind}) {format} {} {} ch, {quality}",
+        output.device,
+        khz(output.sample_rate),
+        output.channels
+    )
+}
+
+/// `96 kHz`, `44.1 kHz`, `22.05 kHz`.
+fn khz(rate: u32) -> String {
+    let whole = rate / 1000;
+    let fraction = format!("{:03}", rate % 1000);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        format!("{whole} kHz")
+    } else {
+        format!("{whole}.{fraction} kHz")
+    }
 }
 
 /// `  1:23 / 4:56`; the duration is `?:??` when the stream does not say.
 pub fn progress_line(position: Duration, duration: Option<Duration>) -> String {
-    let _ = (position, duration);
-    String::new()
+    let duration = duration.map_or_else(|| "?:??".to_owned(), clock_time);
+    format!("  {} / {duration}", clock_time(position))
 }
 
-/// The one stderr line for a resolution failure.
+/// `m:ss`, or `h:mm:ss` from an hour on (whole seconds, rounded down).
+fn clock_time(t: Duration) -> String {
+    let s = t.as_secs();
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
+/// The one stderr line for a resolution failure (spec 0003 "Edge cases &
+/// errors"); `country` is the session's.
 pub fn stream_error_message(track_id: u64, country: &str, error: &StreamError) -> String {
-    let _ = (track_id, country, error);
-    String::new()
+    match error {
+        StreamError::PreviewOnly => {
+            format!("Track {track_id} is only available as a preview for this account")
+        }
+        StreamError::NotAvailable => format!("Track {track_id} is not available in {country}"),
+        StreamError::NotFound => {
+            format!("Track {track_id} was not found, or cannot be streamed in {country}")
+        }
+        StreamError::Unsupported(what) => format!("Track {track_id} is not playable: {what}"),
+        other => capitalise(&other.to_string()),
+    }
 }
 
 /// The one stderr line for a failed track.
 pub fn engine_error_message(track_id: u64, error: &EngineError) -> String {
-    let _ = (track_id, error);
-    String::new()
+    match error {
+        EngineError::Output(SinkError::Busy { device, holder }) => {
+            let holder = holder
+                .as_deref()
+                .map(|h| format!(" (used by {h})"))
+                .unwrap_or_default();
+            format!("Output {device} is busy{holder}: close it, or use --device default")
+        }
+        EngineError::Output(SinkError::NotFound(device)) => {
+            format!("No such output device {device}: see \"tidal-player devices\"")
+        }
+        EngineError::Output(SinkError::Lost(device)) => format!("Output {device} was lost"),
+        EngineError::Output(other) => format!("Output error: {other}"),
+        EngineError::Source(SourceError::Network(_)) => {
+            format!("Network error while streaming track {track_id}")
+        }
+        EngineError::Source(other) => format!("Error while streaming track {track_id}: {other}"),
+        EngineError::Decode(what) => format!("Track {track_id} could not be decoded: {what}"),
+        EngineError::Unsupported(what) => format!("Track {track_id} is not playable: {what}"),
+    }
+}
+
+fn capitalise(message: &str) -> String {
+    let mut chars = message.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 /// How a played track ended.
@@ -125,21 +240,42 @@ impl Reporter {
 
     /// Prints what `event` shows; `Some` once the track is over.
     pub fn on_event(&mut self, event: &Event, out: &mut dyn Write) -> io::Result<Option<Outcome>> {
-        let _ = (
-            event,
-            out,
-            self.track_id,
-            self.granted,
-            self.duration,
-            self.tty,
-        );
+        match event {
+            Event::Started { source, output } | Event::Transitioned { source, output } => {
+                self.finish(out)?;
+                writeln!(out, "{}", track_line(self.track_id, self.granted, source))?;
+                writeln!(out, "{}", output_line(output))?;
+                self.progress(Duration::ZERO, out)?;
+            }
+            Event::Position(position) => self.progress(*position, out)?,
+            Event::TrackEnded => return Ok(Some(Outcome::Ended)),
+            Event::Error(error) => {
+                return Ok(Some(Outcome::Failed(engine_error_message(
+                    self.track_id,
+                    error,
+                ))));
+            }
+            _ => {}
+        }
+        out.flush()?;
         Ok(None)
+    }
+
+    /// Redraws the progress line, on a terminal only.
+    fn progress(&mut self, position: Duration, out: &mut dyn Write) -> io::Result<()> {
+        if self.tty {
+            write!(out, "\r\x1b[K{}", progress_line(position, self.duration))?;
+            self.progress_shown = true;
+        }
+        Ok(())
     }
 
     /// Ends the progress line, if one was drawn.
     pub fn finish(&mut self, out: &mut dyn Write) -> io::Result<()> {
-        let _ = (out, self.progress_shown);
-        Ok(())
+        if std::mem::take(&mut self.progress_shown) {
+            writeln!(out)?;
+        }
+        out.flush()
     }
 }
 
@@ -148,7 +284,6 @@ mod tests {
     use super::*;
     use tidal_player_api::auth::AuthError;
     use tidal_player_api::stream::Unsupported;
-    use tidal_player_audio::{Codec, OutputKind, SampleFormat, SinkError, SourceError};
 
     #[test]
     fn ac26_settings_precedence() {
