@@ -102,7 +102,7 @@ pub enum ListRef {
     /// Albums, then EPs and singles.
     ArtistAlbums(u64),
     ArtistAppearsOn(u64),
-    /// The artist's *All tracks* ("Credits for <artist>").
+    /// The artist's *All tracks* (`Credits for <artist>`).
     Credits(u64),
 }
 
@@ -158,7 +158,7 @@ pub enum FavoriteKind {
 
 /// A client's request about the library (spec 0006 "Talking to the
 /// player"), sent as [`crate::protocol::ClientMessage::Library`].
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LibraryRequest {
     /// → [`LibraryResponse::Page`].
     Page(PageRequest),
@@ -196,26 +196,13 @@ pub enum LibraryRequest {
 
 /// The player's answer to a [`LibraryRequest`], sent as
 /// [`crate::protocol::ServerMessage::LibraryReply`].
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LibraryResponse {
     Page(PageData),
     Items(ListItems),
     Favorite(bool),
     Created(PlaylistSummary),
     Done,
-}
-
-// Red stubs (0006 AC1): replaced by derives.
-impl Serialize for LibraryRequest {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_unit()
-    }
-}
-
-impl Serialize for LibraryResponse {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_unit()
-    }
 }
 
 /// The default hidden-version words of *All tracks* (spec 0006 "The
@@ -240,9 +227,53 @@ pub const DEFAULT_HIDDEN_VERSIONS: &[&str] = &[
 ];
 
 /// Whether `track` is an alternate version to leave out of *All tracks*
-/// (spec 0006 AC3).
-pub fn hidden_version(_track: &Track, _words: &[String]) -> bool {
-    false
+/// (spec 0006 AC3): its `version`, a bracketed part (`(…)`, `[…]`) of its
+/// title or a ` - …` suffix of its title equals or starts with one of
+/// `words`, both normalised (lower-cased, without spaces, hyphens,
+/// underscores, dots and `+`). An empty list hides nothing; a
+/// word that normalises to nothing matches nothing.
+pub fn hidden_version(track: &Track, words: &[String]) -> bool {
+    let words: Vec<String> = words
+        .iter()
+        .map(|w| normalise(w))
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.is_empty() {
+        return false;
+    }
+    version_parts(track)
+        .map(normalise)
+        .filter(|part| !part.is_empty())
+        .any(|part| words.iter().any(|w| part.starts_with(w.as_str())))
+}
+
+/// Lower-cased, without whitespace, hyphens, underscores, dots and `+`.
+fn normalise(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '-' | '_' | '.' | '+'))
+        .collect()
+}
+
+/// The parts of a track that may name its version: `version`, each
+/// bracketed part of the title, and what follows each ` - ` in the title.
+fn version_parts(track: &Track) -> impl Iterator<Item = &str> {
+    let title = track.title.as_str();
+    let brackets = [('(', ')'), ('[', ']')]
+        .into_iter()
+        .flat_map(move |(open, close)| {
+            title
+                .split(open)
+                .skip(1)
+                .filter_map(move |rest| rest.split_once(close).map(|(inside, _)| inside))
+        });
+    let suffixes = title.split(" - ").skip(1);
+    track
+        .version
+        .as_deref()
+        .into_iter()
+        .chain(brackets)
+        .chain(suffixes)
 }
 
 #[cfg(test)]

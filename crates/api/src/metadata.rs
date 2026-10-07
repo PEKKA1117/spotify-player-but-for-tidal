@@ -174,18 +174,20 @@ struct PlaylistEntry {
 
 #[derive(Deserialize)]
 struct ArtistDto {
+    id: u64,
     name: String,
 }
 
 #[derive(Deserialize)]
 struct AlbumDto {
+    id: u64,
     title: String,
 }
 
 impl From<ArtistDto> for ArtistRef {
     fn from(dto: ArtistDto) -> Self {
         ArtistRef {
-            id: 0,
+            id: dto.id,
             name: dto.name,
         }
     }
@@ -196,6 +198,8 @@ impl From<ArtistDto> for ArtistRef {
 struct TrackDto {
     id: u64,
     title: String,
+    /// `Instrumental`, `Live`, ...; `null` for most tracks.
+    version: Option<String>,
     /// Whole seconds.
     duration: Option<u64>,
     #[serde(default, rename = "allowStreaming")]
@@ -218,10 +222,10 @@ impl From<TrackDto> for Track {
         Track {
             id: TrackId(dto.id),
             title: dto.title,
-            version: None,
+            version: dto.version,
             artists,
             album: dto.album.map(|a| AlbumRef {
-                id: 0,
+                id: a.id,
                 title: a.title,
             }),
             duration: dto.duration.map(Duration::from_secs),
