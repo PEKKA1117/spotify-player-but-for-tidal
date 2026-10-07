@@ -13,14 +13,14 @@ This spec makes the player produce sound: resolve a Tidal track to a stream, dec
 
 Read from `internal/tidal/api.go` and `internal/player/{mpv.go,alsa.c,avcodec.c,shared.go}`, and the history of its `fix(player)` commits:
 
-- **Resolution**: `GET /v1/tracks/{id}/urlpostpaywall?audioquality=Q&urlusagemode=STREAM&assetpresentation=FULL`, trying `HI_RES_LOSSLESS → LOSSLESS → HIGH → LOW` and taking the first `200`. It played whatever single URL came back and guessed the format from its file extension
+- **Resolution**: `GET /v1/tracks/{id}/urlpostpaywall?audioquality=Q&urlusagemode=STREAM&assetpresentation=FULL`, trying `HI_RES_LOSSLESS → LOSSLESS → HIGH → LOW` and taking the first `200`. It played whatever single URL came back and guessed the format from its file extension. Per the probe, that endpoint refuses `HI_RES_LOSSLESS` for this client, so tidalt got AAC 320 for every track
 - **Decode**: FFmpeg via CGO (libavformat/libavcodec/libswresample), fed from the HTTP body through a custom AVIO callback, always converted to S32LE. This was the build and packaging burden that spec 0001 removed
 - **Output**: ALSA `hw:` opened directly, format negotiated per device (16-bit sources: `S32_LE → S16_LE → S24_3LE → S24_LE`; 24-bit sources: `S24_3LE → S24_LE → S32_LE`), the card claimed from PipeWire with `org.freedesktop.ReserveDevice1`, a `plughw:` fallback only when format negotiation is refused (never on a busy device), memoised per device. A "shared" mode (`default` PCM) skipped the reservation and used a bigger buffer. Buffer: 1024-frame periods, 4 periods on `hw:`, 8 when shared
 - **Timing budgets**: `RequestRelease` call 500 ms, settle 200 ms, `EBUSY` open retries 800 ms at 100 ms intervals, shutdown wait 3 s
 
 ### What went wrong there, and the criterion that covers it here
 
-1. **The quality ladder treated every error as "this quality is unavailable".** A timeout or a `5xx` on `HI_RES_LOSSLESS` silently played the track in `LOW` → AC5
+1. **The quality ladder treated every error as "this quality is unavailable".** A timeout or a `5xx` on `HI_RES_LOSSLESS` silently played the track in `LOW`. And `urlpostpaywall` never grants `HI_RES_LOSSLESS` to this client (`401`/`4005`, probe), so tidalt could never play hi-res at all → AC1, AC5
 2. **An aborted playback looked like a finished track.** Before fix #8 an error mid-track closed the "done" channel, so the UI auto-advanced into the same broken state, track after track → AC16
 3. **Two playback loops could run at once** when the old one did not stop within its timeout, fighting over the device and the reservation (fix #8), and a pause → skip path dereferenced a closed PCM handle (SIGSEGV) → the engine is one thread that alone owns the device and handles commands one at a time (AC15, AC22)
 4. **A click at every auto-advance** because the PCM was not drained at end of track (fix #13). And the fix drained between tracks of the same format, so playback was "silent-gap" rather than gapless → AC17
@@ -57,7 +57,7 @@ Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect
 
 | Setting | Flag | Environment | Default |
 |---|---|---|---|
-| Highest quality to ask for | `--quality` (`hi-res`, `lossless`, `high`, `low`) | `TIDAL_PLAYER_QUALITY` | `hi-res` |
+| Highest quality to ask for | `--quality` (`hi-res`, `lossless`, `high`) | `TIDAL_PLAYER_QUALITY` | `hi-res` |
 | Output device | `--device` (any ALSA PCM name) | `TIDAL_PLAYER_DEVICE` | see decision 2 (proposed: `default`) |
 
 Flag beats environment beats default. 0008 moves both into `app.toml` and keeps the variables working.
@@ -83,7 +83,16 @@ Flag beats environment beats default. 0008 moves both into `app.toml` and keeps 
 
 Supported codecs: FLAC (`flac`, in a raw FLAC file or in (fragmented) MP4) and AAC-LC (`mp4a.40.2`, in MP4). HE-AAC (`mp4a.40.5`, `mp4a.40.29`) is **not** supported (symphonia rejects SBR, see "Facts").
 
-**Quality ladder**: ask for the configured highest quality. If Tidal answers `200` with a lower `audioQuality`, take it: Tidal has already downgraded. Step down one tier and ask again **only** when the response says that quality is not available to this account or track (the exact status/`subStatus` is recorded by the probe). Every other failure (transport error, timeout, `5xx`, `429`, `LoginRequired`, track not found, not streamable in the country) is returned as is, with no further request. All tiers unavailable → `StreamError::NotAvailable`.
+**Quality**: one request, at the configured highest quality. Tidal downgrades by itself: asked for `HI_RES_LOSSLESS` on a CD-quality track it answers `200` with `audioQuality: HIGH` (probe, 2026-10-07), so there is no client-side ladder to walk. The granted quality is taken as is and shown to the user. Failures are returned as is, with no second request:
+
+| Response | Result |
+|---|---|
+| `401` with `subStatus` `4005` ("Asset is not ready for playback") | `StreamError::NotAvailable`. This is **not** an auth failure: the `Authenticator` must not refresh the token for it (spec 0002, Bugs) |
+| `500` (Tidal answers an unknown track ID with `500`/`subStatus 999`) | `StreamError::Server(500)` |
+| other `5xx`, `429`, transport error, timeout | the transient error, unchanged |
+| `LoginRequired` from the `Authenticator` | unchanged |
+
+`LOW` is HE-AAC (`mp4a.40.5`, probe), which symphonia cannot decode, so `low` is not accepted as a setting (decision 4).
 
 ### Fetching
 
@@ -159,10 +168,10 @@ Stream resolution (`tidal-player-api::stream`, `tidal-player-core`):
 
 - **AC1** — `resolve_stream(track_id, max_quality)` sends `GET {api_base}/tracks/{id}/playbackinfopostpaywall` with exactly the query parameters `audioquality`, `playbackmode=STREAM`, `assetpresentation=FULL` and `countryCode` from the session, through the `Authenticator` (bearer header)
 - **AC2** — A BTS manifest maps to `StreamPlan::Single { url, codec }` (table over fixtures: FLAC, AAC-LC). `encryptionType` other than `NONE` → `StreamError::Unsupported(Encrypted)`; an unknown `manifestMimeType` → `Unsupported(Manifest(mime))`
-- **AC3** — A DASH manifest maps to `StreamPlan::Segmented { init_url, segments, codec }`, where `segments` lists every media URL in order, with `$Number$` filled in from `startNumber`, and each segment's start time and duration taken from the `SegmentTimeline` (`t`, `d`, repeats `r`) and `timescale`. The sum of durations equals the timeline's total. Fixture: the recorded MPD from the probe
+- **AC3** — A DASH manifest maps to `StreamPlan::Segmented { init_url, segments, codec }`, where `segments` lists every media URL in order, with `$Number$` filled in from `startNumber`, and each segment's start time and duration taken from the `SegmentTimeline` (`t`, `d`, repeats `r`) and `timescale`. The sum of durations equals the timeline's total. Fixture: the MPD shape recorded by the probe (`timescale` 96000, `startNumber` 1, `<S d="380928" r="72"/><S d="129030"/>` without `t`, so the first segment starts at 0) gives 74 segments, numbered 1–74, totalling 27 936 774 ticks = `PT4M51.008S`, the MPD's `mediaPresentationDuration`
 - **AC4** — `assetPresentation` other than `FULL` → `StreamError::PreviewOnly`; `audioMode` other than `STEREO` → `Unsupported(AudioMode)`; codec `mp4a.40.5` or `mp4a.40.29` → `Unsupported(Codec)`; the plan carries the granted quality, and the source's bit depth and sample rate when the response has them
-- **AC5** — The ladder: the first request asks for the configured highest quality; a `200` with a lower `audioQuality` is accepted with **no** further request; a response classified "quality unavailable" leads to exactly one request at the next lower tier; transport errors, timeouts, `5xx`, `429`, `LoginRequired` and "track not found" are returned after **one** request, without stepping down; every tier unavailable → `NotAvailable` after four requests
-- **AC6** — `tidal_player_core::AudioQuality` has `Low < High < Lossless < HiResLossless`, serialises as Tidal's names (`LOW`, …, `HI_RES_LOSSLESS`), parses the CLI names (`low`, `high`, `lossless`, `hi-res`), and `next_lower()` walks the ladder down to `None` after `Low`
+- **AC5** — Quality: `resolve_stream` sends exactly **one** request per call, at the configured highest quality, whatever the outcome; a `200` with a lower `audioQuality` gives a plan with that granted quality; the failures map as in the table under "Quality" (`401`/`4005` → `NotAvailable` with **no** token refresh request; `500` → `Server(500)`; `503`, `429`, timeout and `LoginRequired` unchanged)
+- **AC6** — `tidal_player_core::AudioQuality` has `Low < High < Lossless < HiResLossless`, serialises as Tidal's names (`LOW`, …, `HI_RES_LOSSLESS`), and parses the CLI names `high`, `lossless`, `hi-res` (`low` is rejected with a message saying LOW streams are HE-AAC, which is not supported)
 
 Decode (`tidal-player-audio`):
 
@@ -201,9 +210,10 @@ Fetching and CLI (`tidal-player`):
 
 | Situation | What the user sees (from `play`; 0004 shows the same messages in the TUI) |
 |---|---|
-| Free or limited account asking for more than it may stream | The ladder steps down (AC5); the "Track" line shows what was granted |
+| Account or track below the asked quality | Tidal grants less (AC5); the "Track" line shows what was granted |
 | Track is preview-only for this account/country | `Track 123 is only available as a preview for this account` (exit 1) |
-| Track does not exist / not streamable in the country | `Track 123 is not available in <country>` (exit 1) |
+| Track not playable for this account or country (`401`/`4005`) | `Track 123 is not available in <country>` (exit 1) |
+| Unknown track ID (Tidal answers `500`) | `Tidal could not play track 123 (server error 500)` (exit 1) |
 | Encrypted stream, unsupported codec (HE-AAC), Dolby Atmos / 360 mode | `Track 123 is not playable: <what>` (exit 1). Never a burst of noise |
 | Device busy (another app holds `hw:`), or reservation refused | `Output hw:1,0 is busy (used by <app>): close it, or use --device default` (exit 1). Never a silent downgrade to `plughw:` or shared |
 | Device does not exist (`hw:5,0`, typo) | `No such output device hw:5,0: see "tidal-player devices"` (exit 1) |
@@ -228,8 +238,8 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC2 | `crates/api/src/stream.rs` :: `ac2_bts_manifest` (table over fixtures) | plan or error per row | stub parser returns `Unsupported(Manifest)` for everything |
 | AC3 | `crates/api/src/stream.rs` :: `ac3_dash_manifest` | segment count, first/last URL, start times, total duration of the recorded MPD; a hand-written MPD with `r` repeats | stub returns an empty segment list |
 | AC4 | `crates/api/src/stream.rs` :: `ac4_validate_playbackinfo` (table) | each invalid field → its error; granted quality, bits and rate carried | stub accepts everything |
-| AC5 | `crates/api/tests/stream.rs` :: `ac5_ladder` (table: lower grant, unavailable once, unavailable ×4, 503, 429, timeout, 401 → `LoginRequired`, 404) | sequence of `audioquality` values the mock saw, and the result | stub tries every tier on any error (tidalt's behaviour), so the 503 row sees 4 requests |
-| AC6 | `crates/core/src/quality.rs` :: `ac6_audio_quality` | ordering, serde names, CLI names, `next_lower` | stub `next_lower` returns `None` |
+| AC5 | `crates/api/tests/stream.rs` :: `ac5_one_request` (table: grant equal, grant lower, `401`/`4005`, `500`/`999`, 503, 429, timeout, `LoginRequired`) | the mock saw exactly one `playbackinfopostpaywall` request and no `/token` request; the result per row | stub walks tidalt's ladder on any error, so the 503 row sees 4 requests |
+| AC6 | `crates/core/src/quality.rs` :: `ac6_audio_quality` | ordering, serde names, CLI names, `low` rejected | stub parser accepts nothing |
 | AC7 | `crates/audio/tests/decode.rs` :: `ac7_flac_raw_and_fmp4` | samples equal the plain-FLAC reference; source format; left-justification | stub decoder yields no samples |
 | AC8 | `crates/audio/tests/decode.rs` :: `ac8_aac_lc_and_he_aac` | LC decodes with `bits: None`; HE-AAC → `Unsupported`, fake sink never opened | stub reports `bits: Some(16)` and opens the sink first |
 | AC9 | `crates/audio/tests/decode.rs` :: `ac9_mono_to_stereo` | L == R == source | stub outputs one channel |
@@ -264,7 +274,7 @@ Not covered by automated tests, on purpose, and checked by hand at acceptance wi
 ## Crate placement
 
 - `tidal-player-core`: `AudioQuality` (AC6). No I/O
-- `tidal-player-api::stream`: `resolve_stream`, `StreamPlan`, `StreamError`, the BTS and MPD parsers, the ladder. MPD parsing needs an XML parser: `quick-xml` (new workspace dependency, pure Rust)
+- `tidal-player-api::stream`: `resolve_stream`, `StreamPlan`, `StreamError`, the BTS and MPD parsers, the response/error mapping. MPD parsing needs an XML parser: `quick-xml` (new workspace dependency, pure Rust)
 - `tidal-player-audio`: the engine thread, the `ByteSource`/`TrackSource` traits that the engine reads from, decode (symphonia, newly used: features `flac`, `isomp4`, `aac`), format choice and packing, `PcmBackend` + the decision logic + the ALSA implementation (feature `alsa`), the device-list parser, the `Reserver` trait for ReserveDevice1 (the D-Bus implementation lives in the binary, so the audio crate gains no D-Bus dependency). Still no `tokio`, no `core`, no `api` (0001's layering)
 - `tidal-player` (binary): `play` and `devices` subcommands, `HttpSource` (reqwest on its own fetch thread), the `Reserver` implementation with `zbus` (blocking API; new workspace dependency, already planned for MPRIS), wiring `resolve_stream` into the source's re-resolve callback
 - `xtask layering`: no change (the audio crate's new dependencies are allowed; `core` still gets none of them)
@@ -273,21 +283,35 @@ Not covered by automated tests, on purpose, and checked by hand at acceptance wi
 
 Verified on 2026-10-06 in the dev container (scratch crate against `symphonia` 0.6.1 with ffmpeg-generated files; not against Tidal's real streams):
 
-- symphonia 0.6.1 decodes FLAC 16-bit/44.1 kHz and 24-bit/96 kHz both as raw FLAC and inside **fragmented MP4** (`frag_keyframe+empty_moov+default_base_moof`), bit-exact against ffmpeg's decode, including from a non-seekable reader (`ReadOnlySource`). This answers spec 0001's open assumption for the container/codec pair, pending the probe's confirmation that Tidal's hi-res DASH segments are that shape
+- symphonia 0.6.1 decodes FLAC 16-bit/44.1 kHz and 24-bit/96 kHz both as raw FLAC and inside **fragmented MP4** (`frag_keyframe+empty_moov+default_base_moof`), bit-exact against ffmpeg's decode, including from a non-seekable reader (`ReadOnlySource`). This answers spec 0001's open assumption: the probe (below) confirmed that Tidal's hi-res DASH segments are this shape
 - symphonia's `SeekMode::Accurate` on those files lands on a frame boundary at or before the target (`actual_ts` ≤ `required_ts`); the caller discards frames up to `required_ts`
 - symphonia decodes AAC-LC in MP4, but rejects HE-AAC (explicit SBR: "aac too complex"), and plays implicit-SBR streams as their LC core only. It does not trim AAC encoder delay (a 441 000-frame source decoded to 444 416 frames)
 - A **non-fragmented** MP4 with `moov` at the end cannot be probed from a non-seekable reader ("missing moov atom"): single-file MP4 streams need a seekable (HTTP `Range`) source, which `HttpSource` provides
 - tidalt's ALSA preference lists, buffer sizes and timing budgets are as quoted under "Context" (read from its source)
 
-To verify with `scripts/tidal-playback-probe.sh HIRES_ID LOSSLESS_ID` (run by the user with a real account, like the 0002 probe; the output is redacted and goes into this section and the fixtures):
+Verified on 2026-10-07 against the **live API** by `scripts/tidal-playback-probe.sh`, run by the user (account: `PREMIUM`, `highestSoundQuality: HI_RES`, country `NG`, client "Android Automotive HiRes"), with a hi-res track (33695188) and a CD-quality one (3079103). URLs and tokens redacted:
 
-1. The `playbackinfopostpaywall` response shape (field names above) for this client (`clientName` "Android Automotive HiRes"), and whether it grants `HI_RES_LOSSLESS` at all
-2. Which manifest type and codec each tier returns: assumed BTS + raw FLAC for `LOSSLESS`, DASH + FLAC in fragmented MP4 for `HI_RES_LOSSLESS`, BTS + MP4/AAC for `HIGH` and `LOW`. Whether `LOW` is HE-AAC (unsupported here, so `LOW` would only work as a fallback that fails)
-3. What Tidal answers when asked for `HI_RES_LOSSLESS` on a CD-quality track: a `200` with `audioQuality: LOSSLESS` (assumed), or an error. And the status/`subStatus` of "quality not available" for AC5's classification
-4. Whether stream URLs carry an expiry, and how long it is; what an expired one returns (assumed `403`)
-5. Whether single-file stream hosts honour `Range` (`Accept-Ranges: bytes`, `206`)
-6. `encryptionType` is `NONE` for this client (if not, this spec needs rework: encrypted streams are out of scope)
-7. tidalt's `urlpostpaywall`, as a fallback if `playbackinfopostpaywall` misbehaves for this client
+| Asked | Hi-res track | CD-quality track |
+|---|---|---|
+| `HI_RES_LOSSLESS` | `200`, granted `HI_RES_LOSSLESS`, `bitDepth` 24, `sampleRate` 96000, DASH, `codecs="flac"` | `200`, granted **`HIGH`**, BTS, `mp4a.40.2` |
+| `LOSSLESS` | `200`, granted **`HIGH`**, BTS, `mp4a.40.2` | `200`, granted **`HIGH`**, BTS, `mp4a.40.2` |
+| `HIGH` | `HIGH`, `mp4a.40.2` (AAC-LC 44.1 kHz) | same |
+| `LOW` | `LOW`, **`mp4a.40.5`** (HE-AAC) | same |
+
+- **This client never gets 16-bit FLAC.** Asking `LOSSLESS` gives AAC `HIGH`, on both tracks. Only hi-res masters come as FLAC (DASH). See decision 6
+- `playbackinfopostpaywall` response keys: `trackId, assetPresentation, audioMode, audioQuality, manifestMimeType, manifestHash, manifest, albumReplayGain, albumPeakAmplitude, trackReplayGain, trackPeakAmplitude`, plus `bitDepth` and `sampleRate` only on the hi-res grant
+- BTS manifest: `{"mimeType":"audio/mp4","codecs":"mp4a.40.2","encryptionType":"NONE","urls":["https://amz-pr-fa.audio.tidal.com/<id>.mp4?token=…"]}`, one URL. `encryptionType` was `NONE` everywhere
+- DASH manifest: `type="static"`, `profiles="urn:mpeg:dash:profile:isoff-main:2011"`, one `Period`/`AdaptationSet`/`Representation id="FLAC_HIRES,96000,24" codecs="flac" audioSamplingRate="96000"`, `AudioChannelConfiguration value="2"`, `SegmentTemplate timescale="96000" initialization="…/0.mp4?token=…" media="…/$Number$.mp4?token=…" startNumber="1"`, `SegmentTimeline` `<S d="380928" r="72"/><S d="129030"/>` (3.968 s segments, no `t`). Init segment 619 bytes, media segment ~1.38 MB. init + first segment joined is FLAC 24-bit 96 kHz stereo in MP4 (ffprobe), the shape decoded bit-exact under "Facts" above
+- Stream hosts (`sp-ad-fa.audio.tidal.com` for DASH, `amz-pr-fa.audio.tidal.com` for BTS) honour `Range`: `206` with `Content-Range`, `Accept-Ranges: bytes`, and `416` past the end. `Cache-Control: max-age=31536000`
+- The first 256 KiB of a `HIGH` MP4 was enough for ffprobe, so `moov` comes first (faststart); `HttpSource` still uses `Range` for seeking
+- Stream URLs carry only a `token` query parameter: no readable expiry. Two requests 5 s apart gave different manifests (fresh tokens each time). The token lifetime and the status of an expired one are **not** known (AC24 still assumes `403`/`410`)
+- Errors: unknown track ID → `500 {"status":500,"subStatus":999,"userMessage":"Unexpected error occurred."}`; `assetpresentation=PREVIEW` and `urlpostpaywall` at `HI_RES_LOSSLESS` → `401 {"subStatus":4005,"userMessage":"Asset is not ready for playback"}`; bad bearer → `401 {"subStatus":11002,…}`
+- `GET /v1/users/{id}/subscription` works and reports `highestSoundQuality` (not needed by this spec)
+
+Not verified:
+
+- What Tidal answers for a free account, or a track not licensed in the country (assumed `401`/`4005`, the shape seen above)
+- Whether a hi-res track at 44.1 kHz or 192 kHz uses the same DASH shape (assumed; the parser takes `timescale` and rates from the MPD)
 
 Assumed, checked at manual acceptance:
 
@@ -297,11 +321,12 @@ Assumed, checked at manual acceptance:
 
 ## Decisions (for the user, before approval)
 
-1. **Endpoint**: use `playbackinfopostpaywall` (manifest, granted quality, bit depth and rate, replay gain for later) instead of tidalt's `urlpostpaywall`, unless the probe shows it fails for this client. *Proposed: yes*
+1. **Endpoint**: use `playbackinfopostpaywall` instead of tidalt's `urlpostpaywall`. *Settled by the probe*: `urlpostpaywall` refuses hi-res for this client
 2. **Default output device** when none is configured. *Proposed: `default` (shared)*, so a first run never takes the sound card away from other apps; bit-perfect is opt-in with `--device hw:C,D` / `TIDAL_PLAYER_DEVICE`, and `devices` shows the names. The alternative is tidalt's: auto-pick the first USB DAC exclusively (its hard-coded DAC name list was fragile; this would pick the first USB card instead)
 3. **Interim `play` / `devices` commands**: add them now for acceptance on real hardware, and keep them afterwards as one-shot CLI commands (0005 may rename them under `playback …`). *Proposed: yes*
-4. **Unsupported `LOW`**: if the probe shows `LOW` is HE-AAC, drop it from the ladder (the floor becomes `HIGH`) rather than adding an AAC decoder with SBR (none in pure Rust today; FFmpeg is what 0001 removed). *Proposed: drop it*
+4. **`LOW` is HE-AAC** (probe): reject `low` as a setting rather than adding an AAC decoder with SBR (none in pure Rust today; FFmpeg is what 0001 removed). *Proposed: reject it*
 5. **Any tidalt playback bug not listed under "Context"** that you remember (crackles, specific DACs, specific tracks)? Each becomes a criterion
+6. **CD-quality tracks come as AAC 320, not FLAC, for this client** (probe). Options: (a) accept it for now: hi-res masters play bit-perfect, everything else is lossy and labelled so, and look for a FLAC path in a later spec; (b) probe further before approving (other `playbackmode`/endpoint variants, or Tidal's newer v2 track-manifest API) and extend this spec if one works; (c) switch client credentials (the official app's other public IDs), which also touches spec 0002. *Proposed: (a) now, with (b) as a follow-up probe that does not block this spec*
 
 ## Out of scope
 
