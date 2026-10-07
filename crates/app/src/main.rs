@@ -44,6 +44,27 @@ enum Command {
     Logout,
     /// Run headless (not implemented yet, spec 0005).
     Daemon,
+    /// Play one track in the foreground, headless, and exit when it ends.
+    Play(PlayArgs),
+    /// List the playback devices; `*` marks the one `play` would use.
+    Devices,
+}
+
+#[derive(Debug, clap::Args)]
+struct PlayArgs {
+    /// The Tidal track ID.
+    track_id: u64,
+    /// Highest quality to ask for: hi-res, lossless or high
+    /// [env: TIDAL_PLAYER_QUALITY] [default: hi-res].
+    #[arg(long)]
+    quality: Option<String>,
+    /// Output device: any ALSA PCM name, see "tidal-player devices"
+    /// [env: TIDAL_PLAYER_DEVICE] [default: default].
+    #[arg(long)]
+    device: Option<String>,
+    /// Start this many seconds into the track.
+    #[arg(long, value_name = "SECONDS")]
+    start: Option<f64>,
 }
 
 /// Leaves the alternate screen and raw mode; errors are ignored because this
@@ -178,6 +199,14 @@ fn standalone(store: Arc<dyn SessionStore>) -> Result<ExitCode> {
     result.map(|()| ExitCode::SUCCESS)
 }
 
+fn play(_plan: &StorePlan, _args: &PlayArgs) -> ExitCode {
+    ExitCode::SUCCESS
+}
+
+fn devices() -> ExitCode {
+    ExitCode::SUCCESS
+}
+
 fn main() -> Result<ExitCode> {
     let Cli { command } = Cli::parse();
     let plan = StorePlan::from_env();
@@ -188,6 +217,8 @@ fn main() -> Result<ExitCode> {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
         }
+        Some(Command::Play(args)) => Ok(play(&plan, &args)),
+        Some(Command::Devices) => Ok(devices()),
         None => standalone(plan.build_store()),
     }
 }

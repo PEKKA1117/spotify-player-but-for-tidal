@@ -131,3 +131,80 @@ fn ac12_daemon_needs_passphrase() {
         .code(1)
         .stderr(predicate::str::contains("TIDAL_PLAYER_PASSPHRASE_FILE"));
 }
+
+// Spec 0003 AC25, AC26: `devices` and `play`.
+
+/// A fixture directory of `/proc/asound` contents (crates/audio/tests/fixtures/asound).
+fn asound_fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../audio/tests/fixtures/asound")
+        .join(name)
+}
+
+#[test]
+fn ac25_devices_marks_configured() {
+    let listing = |configured: &str| {
+        let mark = |name: &str| if name == configured { "*" } else { " " };
+        format!(
+            "{} default  shared, through the system mixer\n\
+             {} hw:0,0   HDA Intel PCH: ALC892 Analog\n\
+             {} hw:0,1   HDA Intel PCH: ALC892 Digital\n\
+             {} hw:1,0   E30 II: USB Audio\n",
+            mark("default"),
+            mark("hw:0,0"),
+            mark("hw:0,1"),
+            mark("hw:1,0"),
+        )
+    };
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env_remove("TIDAL_PLAYER_DEVICE")
+        .assert()
+        .success()
+        .stdout(listing("default"));
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env("TIDAL_PLAYER_DEVICE", "hw:1,0")
+        .assert()
+        .success()
+        .stdout(listing("hw:1,0"));
+    bin()
+        .arg("devices")
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("no_cards"))
+        .env_remove("TIDAL_PLAYER_DEVICE")
+        .assert()
+        .success()
+        .stdout("* default  shared, through the system mixer\n");
+}
+
+#[test]
+fn ac26_bad_quality() {
+    let state = tempfile::tempdir().unwrap();
+    write_session_file(state.path());
+    bin_in(state.path())
+        .args(["play", "123", "--quality", "low"])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--quality").and(predicate::str::contains("HE-AAC")));
+    bin_in(state.path())
+        .args(["play", "123"])
+        .env("TIDAL_PLAYER_QUALITY", "ultra")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("TIDAL_PLAYER_QUALITY"));
+}
+
+#[test]
+fn ac26_play_needs_login() {
+    let state = tempfile::tempdir().unwrap();
+    bin_in(state.path())
+        .args(["play", "123"])
+        .env_remove("TIDAL_PLAYER_QUALITY")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("Not logged in: run \"tidal-player login\"\n");
+}

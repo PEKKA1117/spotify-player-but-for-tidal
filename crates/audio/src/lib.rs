@@ -5,6 +5,7 @@
 
 pub mod clock;
 pub mod decode;
+pub mod devices;
 pub mod engine;
 pub mod output;
 pub mod sink;
