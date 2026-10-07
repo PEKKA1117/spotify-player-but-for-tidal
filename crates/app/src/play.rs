@@ -359,16 +359,6 @@ fn resolve_with(
     autoplay_flag: bool,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<PlayerSettings, SettingsError> {
-    let settings = PlayerSettings::default();
-    let _ = (autoplay_flag, env);
-    Ok(settings)
-}
-
-#[allow(dead_code)]
-fn resolve_full(
-    autoplay_flag: bool,
-    env: impl Fn(&str) -> Option<String>,
-) -> Result<PlayerSettings, SettingsError> {
     let mut settings = PlayerSettings::default();
     let get = |var: &str| non_empty(env(var));
     if let Some(value) = get(VOLUME_STEP_VAR) {

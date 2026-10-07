@@ -177,7 +177,7 @@ pub fn parse_items(args: &[String]) -> Result<Vec<Item>, ExpandError> {
 /// or playlist): the queue of `play` and of `tidal-player [ITEM]...`.
 pub async fn expand_items(meta: &dyn Metadata, items: &[Item]) -> Result<Vec<Track>, ExpandError> {
     let mut tracks = Vec::new();
-    for item in items.iter().take(1) {
+    for item in items {
         let found = match item {
             Item::Track(id) => meta.track(*id).await.map(|t| vec![t]),
             Item::Album(id) => meta.album(*id).await,
@@ -205,8 +205,11 @@ pub fn metadata_error_message(error: &MetadataError) -> String {
 /// The commands that start the TUI's player: the queue loaded from the
 /// command line, or nothing (an empty queue).
 pub fn startup_commands(tracks: Vec<Track>) -> Vec<Command> {
-    let _ = tracks;
-    Vec::new()
+    if tracks.is_empty() {
+        Vec::new()
+    } else {
+        vec![Command::LoadQueue { tracks, start: 0 }]
+    }
 }
 
 /// A seed for the shuffle PRNG, from the clock.
@@ -346,6 +349,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         let mut notice = Notice::None;
         let input = match input {
             RuntimeInput::Command(Command::Shutdown) => {
+                self.engine.send(audio::Command::Stop);
                 self.engine.send(audio::Command::Shutdown);
                 self.ready.clear();
                 handled.events.push(Event::ShuttingDown);
@@ -402,14 +406,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             }
         }
         if let Some(tag) = resolved_tag
-            && let Some(prepared) = self.ready.remove(&tag)
+            && !self.is_live(tag)
         {
-            self.sent.insert(tag, sent_of(&prepared));
-            self.engine.send(audio::Command::Play {
-                tag,
-                source: prepared.source,
-                start_at: Duration::ZERO,
-            });
+            // Superseded while it resolved: close it now.
+            self.ready.remove(&tag);
         }
         handled
     }
