@@ -1,6 +1,6 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
-- **Status**: draft (2026-10-07; waiting on the library probe and the decisions below)
+- **Status**: draft (2026-10-07; the library probe is recorded; waiting on the decisions below)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys (AC17)
@@ -41,6 +41,7 @@ Read from tidalt's `internal/tidal/{api,library}.go`, `internal/ui/{keys,model}.
 9. **A result landing on the wrong page**: the user moved on while a fetch was in flight → every fetch carries an ID, and a result is applied only to the page that asked for it (AC8)
 10. **A client that needs its own login**, as tidalt's did (0005 "What went wrong" 9) → pages come through the player (AC7, AC16)
 11. **An album opened from an artist plays at once** (tidalt `3b6d6ea`) → `Enter` on an album opens its page; only `Enter` on a track plays (AC10)
+12. **A short page taken for overlap or the end** (the probe: 358 favorite tracks on a 1000-item page for a total of 362) → `offset` advances by the page size, the walk ends on the total, duplicates are dropped (AC3, AC4)
 
 ## Behaviour
 
@@ -130,17 +131,19 @@ The client side ([client model](#client-model)) tags each fetch with a fresh ID;
 
 ### What the player fetches
 
-All requests go through the `Authenticator` with `countryCode` from the session (0004), `{user}` being the session's `user_id`. Lists are walked page by page (0004 "Filling the queue": `offset` advanced by the items received, until `totalNumberOfItems` or an empty page), with the largest page size each endpoint accepts (the probe records it; 100 where it does not say), up to the 10 000-item cap. **To be confirmed by the probe** (see "Facts vs. assumptions"); the endpoints below are those python-tidal (`tidalapi`) uses:
+All requests go through the `Authenticator` with `countryCode` from the session (0004), `{user}` being the session's `user_id`. Endpoints, envelopes, page sizes and orders are the library probe's ("Facts vs. assumptions").
+
+**Walking a list** (the endpoints of this spec; 0004's album and playlist walks are unchanged): pages of the endpoint's page size *P* (table), `offset` advanced by ***P*, not by the items received**, until `offset ≥ totalNumberOfItems` or the 10 000-item cap; items already seen (same ID or UUID) are dropped. The probe found a page shorter than asked without being the end: favorite tracks with `limit=1000` returned 358 items for a `totalNumberOfItems` of 362 (the server leaves out what it will not serve, after paging), so advancing by the items received would ask for overlapping pages. The counts shown are the items kept, not `totalNumberOfItems`; the cap's title uses `totalNumberOfItems`.
 
 | Request | API calls | Kept |
 |---|---|---|
-| `Library` | `GET /users/{user}/playlistsAndFavoritePlaylists` (own and favorite playlists in one list), `GET /users/{user}/favorites/albums`, `GET /users/{user}/favorites/artists`, every page of each; the three in parallel | playlists (UUID, title, number of tracks, duration, own or favorite), albums (ID, title, artists, release year), artists (ID, name); each list in the API's order with the sort the probe shows the Tidal apps use (newest first) |
-| `FavoriteTracks` | `GET /users/{user}/favorites/tracks?order=DATE&orderDirection=DESC`, every page | tracks (`item` of each entry), newest first |
-| `Album(id)` | `GET /albums/{id}` and `GET /albums/{id}/tracks` (0004), in parallel | album header (title, artists, year, number of tracks, duration) and every track |
-| `Playlist(uuid)` | `GET /playlists/{uuid}` and `GET /playlists/{uuid}/items` (0004, `type == "track"` only), in parallel | playlist header (title, number of tracks, duration) and every track |
-| `Artist(id)` | `GET /artists/{id}`, `GET /artists/{id}/toptracks?limit=…`, `GET /artists/{id}/albums` and `GET /artists/{id}/albums?filter=EPSANDSINGLES`, in parallel | name, top tracks (one page, as many as the probe shows the endpoint gives, at most 100), albums then EPs and singles (each in the API's order) |
+| `Library` | `GET /users/{user}/playlistsAndFavoritePlaylists?order=DATE&orderDirection=DESC` (*P* = 50), `GET /users/{user}/favorites/albums?order=DATE&orderDirection=DESC` (*P* = 1000), `GET /users/{user}/favorites/artists?order=DATE&orderDirection=DESC` (*P* = 1000); the three in parallel | playlists from `items[].playlist` (UUID, title, `numberOfTracks`, `duration`; **own** when the entry's `type` is `USER_CREATED`, favorite when `USER_FAVORITE`), albums from `items[].item` (ID, title, artists, year from `releaseDate`, `numberOfTracks`, `duration`), artists from `items[].item` (ID, name); each newest first (by the entry's `created`, the date it was added) |
+| `FavoriteTracks` | `GET /users/{user}/favorites/tracks?order=DATE&orderDirection=DESC` (*P* = 1000) | tracks from `items[].item` (0004's mapping), newest first |
+| `Album(id)` | `GET /albums/{id}` and `GET /albums/{id}/tracks` (0004), in parallel | header (title, artists, year from `releaseDate`, `numberOfTracks`, `duration`) and every track |
+| `Playlist(uuid)` | `GET /playlists/{uuid}` and `GET /playlists/{uuid}/items` (0004, `type == "track"` only), in parallel | header (title, `numberOfTracks`, `duration`) and every track |
+| `Artist(id)` | `GET /artists/{id}`, `GET /artists/{id}/toptracks?limit=100` (one request), `GET /artists/{id}/albums` and `GET /artists/{id}/albums?filter=EPSANDSINGLES` (*P* = 1000 each), in parallel | name; top tracks (bare tracks, in the API's order, at most 100); albums (the plain call gives only `type: ALBUM`), then EPs and singles (`EP`/`SINGLE`), each in the API's order |
 
-A `404`/`2001` on the item's own resource is `NotFound`; any failing call fails the whole fetch with that call's error (no half pages).
+A `404`/`2001` on the item's own resource (`/albums/{id}`, `/playlists/{uuid}`, `/artists/{id}`) is `NotFound`; an unknown artist's `/albums` is a `200` with no items, so only `/artists/{id}` says it does not exist. Any failing call fails the whole fetch with that call's error (no half pages). Without `order`/`orderDirection` the favorites lists come in no date order (the probe's default page mixed 2024 and 2025 entries), so the parameters are always sent.
 
 ### Types (`tidal_player_core`)
 
@@ -186,10 +189,10 @@ Protocol and types (`tidal_player_core`, pure):
 
 API (`tidal-player-api::library`, wiremock fixtures written from the probe):
 
-- **AC3** — `get_library()`: the three lists' requests (paths with the session's user ID, `countryCode`, the probe's paging and order parameters, `expect(n)` per page), each walked to its end; mapped summaries in the API's order; `own` set from the entry type; the 10 000 cap with `total` kept (a fixture of 10 050 items over pages: 10 000 kept, no request past the cap)
-- **AC4** — `get_favorite_tracks()`: newest first per the order parameters, every page, `item` unwrapped, non-track items dropped, the cap
+- **AC3** — `get_library()`: the three lists' requests (paths with the session's user ID, `countryCode`, `order=DATE&orderDirection=DESC`, `limit` = *P*, `expect(n)` per page), each walked to its end with `offset` advanced by *P* (a 120-playlist fixture: 3 requests at offsets 0, 50, 100); a page shorter than *P* before the total does not end the walk; duplicates across pages dropped; mapped summaries in the API's order; `own` from `USER_CREATED`/`USER_FAVORITE`; the 10 000 cap with `total` kept (10 050 favorite albums: 10 000 kept, no request at offset 10 000)
+- **AC4** — `get_favorite_tracks()`: the order parameters and *P* = 1000 sent, every page (2 500 tracks: 3 requests), `item` unwrapped and mapped as 0004's tracks, a 1000-item page that returns 996 items followed by the next page at offset 1000 (the probe's 358-of-362 case), the cap
 - **AC5** — `get_album(id)` and `get_playlist(uuid)`: header and tracks; the tracks are 0004's walks (playlist videos dropped); `404`/`2001` on the header → `NotFound`; a failing tracks call fails the whole fetch
-- **AC6** — `get_artist(id)`: name, top tracks (one request, the probe's limit), albums then EPs and singles; `404`/`2001` → `MetadataError::NotFound(Artist)` with the message `Artist 1 was not found`; `LoginRequired` and transient errors returned unchanged by every call (table over the AC3–AC6 calls)
+- **AC6** — `get_artist(id)`: name, top tracks (exactly one request, `limit=100`), albums then EPs and singles (`filter=EPSANDSINGLES`); an unknown artist whose `/albums` answers `200` with no items still gives `NotFound` from `/artists/{id}`; `404`/`2001` → `MetadataError::NotFound(Artist)` with the message `Artist 1 was not found`; `LoginRequired` and transient errors returned unchanged by every call (table over the AC3–AC6 calls)
 
 Player (`tidal-player`, fake library source, 0005's server tests):
 
@@ -278,12 +281,25 @@ Verified (2026-10-07, from code and docs):
 - The player runtime already runs fetches as jobs beside its input loop (`RuntimeInput::Expanded`, `RuntimeInput::Suggestions` in `crates/app/src/player_runtime.rs`), and the server can send a message to one client (`Hub::reply`)
 - spotify-player's default keys (its `README.md` "Commands" table, read 2026-10-07): `g l` library, `g y` liked tracks, `z` queue, `Backspace`/`C-q` previous page, `Tab` next window, `g a`/`C-Space` actions on the selected item, `a` actions on the current track, `Z`/`C-z` add the selected item to the queue, `Esc` closes a popup, `q`/`C-c` quit; its library page has Playlists, Albums and Artists windows, in that order, at 40/40/20 % (`spotify_player/src/ui/page.rs` `render_library_page`, `docs/config.md` `library.*_percent`); its artist page has top tracks, albums and related artists
 
-To verify with the **library probe** (`scripts/tidal-library-probe.sh`, to be run by the user with a real account before approval; fixtures and the open table cells above are filled in from its output):
+Verified on 2026-10-07 against the **live API** by `scripts/tidal-library-probe.sh`, run by the user (same account and client as 0004's probes: 22 playlists, 362 favorite tracks, 14 albums, 196 artists). Fixtures under `crates/api/tests/fixtures/library/` are written from these shapes with IDs and names replaced:
 
-- The endpoints and envelopes of the table under "What the player fetches": `playlistsAndFavoritePlaylists` (vs. `/users/{user}/playlists` plus `/favorites/playlists`), `favorites/{tracks,albums,artists}` entry shapes (`{created, item}` assumed), `albums/{id}`, `playlists/{uuid}`, `artists/{id}`, `toptracks`, `albums?filter=EPSANDSINGLES`
-- The largest accepted page size of each list endpoint, their default page sizes, and whether `order=DATE&orderDirection=DESC` gives newest first (and what the Tidal app's order is)
-- Whether favorites can contain videos or other non-track items, and how they are marked
-- The `404` shapes for an unknown artist, and whether `/users/{other user}` is refused
+- `GET /v1/users/{user}/playlistsAndFavoritePlaylists` → `{limit, offset, totalNumberOfItems, items: [{type, created, playlist}]}`, `type` `USER_CREATED` (own, 10) or `USER_FAVORITE` (12, matching `/favorites/playlists`' total); `playlist` has `uuid`, `title`, `numberOfTracks`, `numberOfVideos`, `duration` (seconds), `type` (`USER`, `EDITORIAL`), `created`, `lastUpdated`, `creator`, `description` and image fields. Default page 10; **`limit=1000` → `400`/`1001` `Too big page, max page size is [50]`**; `limit=3&offset=2` pages as expected. With `order=DATE&orderDirection=DESC` the entries' `created` (the date added, for favorites) is strictly newest first. `/users/{user}/playlists` (tidalt's) lists only the 10 own playlists, bare; `/favorites/playlists` only the 12 favorites, as `{created, item}`
+- `GET /v1/users/{user}/favorites/tracks` → `{limit, offset, totalNumberOfItems, items: [{created, item: track}]}`, `item` the full track of 0004's fixtures (with `artists[].id`, `album.id`, `album: {id, title, cover, …}`); no `type` field and no video entries (every item a track). Default page 10 and **not in date order**; `order=DATE&orderDirection=DESC` newest first, `ASC` oldest first. `limit=1000` and `limit=10000` are accepted and returned **358 items for `totalNumberOfItems: 362`**
+- `GET /v1/users/{user}/favorites/albums` → `{created, item: album}` entries; albums have `id`, `title`, `artists[]`, `releaseDate` (`YYYY-MM-DD`), `numberOfTracks`, `numberOfVolumes`, `duration`, `type` (`ALBUM`, `SINGLE` seen), `allowStreaming`/`streamReady`. Default page 10; `limit=1000` accepted; DESC order newest first
+- `GET /v1/users/{user}/favorites/artists` → `{created, item: {id, name, picture, artistTypes, mixes, …}}`. Default page 10; `limit=1000` returned all 196; DESC newest first (many entries share one `created`, from a bulk import; their order among themselves is the API's)
+- `GET /v1/users/1/favorites/tracks` (another user's ID) answered `200` with **this account's** 362 favorites: the path's user ID is not checked against the token. The session's `user_id` is still the one sent
+- `GET /v1/albums/{id}` → the album object above; unknown → `404 {"subStatus":2001,"userMessage":"Album [1] not found"}`. `GET /v1/playlists/{uuid}` → the playlist object above; unknown → `404`/`2001` `Playlist not found`
+- `GET /v1/artists/{id}` → `{id, name, picture, artistTypes, artistRoles, mixes, …}`; unknown → `404`/`2001` `Artist [1] not found`. `GET /v1/artists/1/albums` (unknown artist) → `200` with `totalNumberOfItems: 0`
+- `GET /v1/artists/{id}/toptracks` → bare tracks; default page 10, `totalNumberOfItems: 91`; `limit=100` returned all 91; `limit=1000` accepted
+- `GET /v1/artists/{id}/albums` → bare albums, default page 10, `limit=1000` accepted; without `filter` only `type: ALBUM` (12). `filter=EPSANDSINGLES` → `EP` and `SINGLE` (66). `filter=COMPILATIONS` → the "appears on" albums (30, mostly by `Various Artists`, of every type). The same title can appear twice with different IDs (two `DISASTERPIECE` releases differing in `mediaMetadata.tags`); both are kept, as Tidal lists them
+- `GET /v1/artists/{id}/similar` → `{limit, offset, totalNumberOfItems, items: [artist + relationType: "SIMILAR_ARTIST"], source: "TiVo"}` (4 for this artist)
+
+Not verified:
+
+- Whether the short page (358 of 362) is the server dropping tracks unavailable in the country, and whether it happens on pages other than the last (the walk handles both, AC4)
+- Page sizes above 1000 on the favorites albums/artists and artist-albums endpoints (not needed: the walk uses 1000)
+- The order the Tidal apps themselves show the library in
+- Whether 0004's album and playlist walks (`offset` advanced by the items received) meet the same short pages on `/albums/{id}/tracks` or `/playlists/{uuid}/items`. If they do, they would request overlapping pages and queue a track twice; this spec leaves them as they are, and a 0004 "Bugs" entry follows if it is seen
 
 Verified from tidalt's code and history (2026-10-07): the list under "What tidalt did". Not verified: whether tidalt's single-request lists were actually cut short on a real account (inferred from the `limit` values; no issue reports one)
 
@@ -292,9 +308,9 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 1. **Where pages are fetched**: *proposed*: in the player, through `Fetch`/`Fetched` (clients keep needing no login, 0005 AC14). Alternative: clients fetch with their own session (every attached TUI then needs the session store, the keyring or the passphrase, which 0005 removed)
 2. **`Esc`**: *proposed*: spotify-player's: `Esc` only closes the popup or the prompt; `q`/`C-c` quit (changes 0004, where `Esc` quit). Alternative: keep `Esc` quitting on the queue page and going back elsewhere
 3. **`Z` on a track with nothing playing**: *proposed*: the first added track starts, as for `Open` (0005), by sending the track as `Open { items: [Item::Track(id)], at: Some(End) }` instead of `AddToQueue`, so the player decides and the client keeps no rule of its own. Cost: the player fetches the track's metadata again (one request). Alternative: `AddToQueue`, and nothing starts
-4. **Favoriting and playlists editing** (spotify-player's *AddToLiked*/*DeleteFromLiked*/*AddToPlaylist*): *proposed*: not in this spec (read-only library); a follow-up spec adds them with the actions popup in place. Alternative: add *Add to favorites*/*Remove from favorites* for tracks, albums and artists here (`POST`/`DELETE /users/{user}/favorites/…`, needs the probe to cover them)
-5. **The 10 000-item cap**: *proposed* as above. Alternative: no cap (a line can reach 16 MiB at about 50 000 tracks, and the walk takes about 100 requests for 10 000)
-6. **Artist page contents**: *proposed*: top tracks, albums, EPs and singles. Alternatives: add compilations ("appears on") and similar artists (`/artists/{id}/similar`) as a third window
+4. **Favoriting and playlists editing** (spotify-player's *AddToLiked*/*DeleteFromLiked*/*AddToPlaylist*): *proposed*: not in this spec (read-only library); a follow-up spec adds them with the actions popup in place. Alternative: add *Add to favorites*/*Remove from favorites* for tracks, albums and artists here (`POST`/`DELETE /users/{user}/favorites/…`; the probe did not cover them, so a second, writing probe would be needed)
+5. **The 10 000-item cap**: *proposed* as above (at most 10 requests per list at *P* = 1000). Alternative: no cap (a line can reach 16 MiB at about 50 000 tracks)
+6. **Artist page contents**: *proposed*: top tracks, albums, EPs and singles. Alternatives: add compilations ("appears on", `filter=COMPILATIONS`) and similar artists (`/artists/{id}/similar`) as more windows; the probe shows both work
 
 ## Out of scope
 
