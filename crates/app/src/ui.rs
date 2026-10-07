@@ -174,8 +174,9 @@ fn split_row(left: &str, right: &str, width: usize) -> Option<String> {
 
 /// `LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: <reason>`:
 /// the output by its device (0003's Output line has the rest), and the
-/// usual stereo left unsaid. A short row keeps the verdict: the format is
-/// cut first, then left out.
+/// usual stereo left unsaid, then ` · device released` while the engine
+/// released the output (spec 0005). A short row keeps the verdict: the
+/// format is cut first, then left out.
 fn details(np: &NowPlaying, width: usize) -> String {
     let source = np.source.strip_suffix(" stereo").unwrap_or(&np.source);
     let device = np.output.split_whitespace().next().unwrap_or_default();
@@ -184,6 +185,11 @@ fn details(np: &NowPlaying, width: usize) -> String {
         (true, _) => "bit-perfect".to_owned(),
         (false, Some(reason)) => format!("not bit-perfect: {reason}"),
         (false, None) => "not bit-perfect".to_owned(),
+    };
+    let verdict = if np.released {
+        format!("{verdict} · device released")
+    } else {
+        verdict
     };
     let full = format!("  {left} · {verdict}");
     let vw = text_width(&verdict);

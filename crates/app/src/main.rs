@@ -358,7 +358,12 @@ fn standalone(
     let mut config = player_settings.player;
     config.country = Some(country);
     let player = spawn_runtime(
-        PlayerRuntime::new(config, time_seed(), spawn_output(&settings.device), jobs),
+        PlayerRuntime::new(
+            config,
+            time_seed(),
+            spawn_output(&settings.device, player_settings.release_paused),
+            jobs,
+        ),
         inputs,
         results,
     );
@@ -456,7 +461,7 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         }
     };
     let player = match resolve_play_config(args.autoplay, env_var) {
-        Ok(settings) => settings.player,
+        Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(2);
@@ -487,7 +492,8 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         PlayRequest {
             items,
             settings,
-            player,
+            player: player.player,
+            release_paused: player.release_paused,
             options: PlayOptions {
                 shuffle: args.shuffle,
                 repeat: args.repeat.into(),

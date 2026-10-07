@@ -386,6 +386,17 @@ fn resolve_with(
         settings.player.previous_restart =
             Duration::from_secs(int_in(&value, PREVIOUS_RESTART_VAR, 0, 60)?);
     }
+    if let Some(value) = get(RELEASE_PAUSED_VAR) {
+        settings.release_paused = if value == "never" {
+            None
+        } else {
+            let secs = int_in(&value, RELEASE_PAUSED_VAR, 0, 3600).map_err(|mut e| {
+                e.message = format!("expected an integer from 0 to 3600 or never, got \"{value}\"");
+                e
+            })?;
+            Some(Duration::from_secs(secs))
+        };
+    }
     settings.player.autoplay = if autoplay_flag {
         true
     } else {
@@ -1543,7 +1554,9 @@ mod tests {
         }
 
         // 0005 AC23: the release delay, 0–3600 s or `never`.
-        let release: &[(&str, Option<&str>, Result<Option<u64>, ()>)] = &[
+        // Ok(None): never; Err: refused.
+        type ReleaseWant = Result<Option<u64>, ()>;
+        let release: &[(&str, Option<&str>, ReleaseWant)] = &[
             ("unset", None, Ok(Some(10))),
             ("empty counts as unset", Some(""), Ok(Some(10))),
             ("at once", Some("0"), Ok(Some(0))),

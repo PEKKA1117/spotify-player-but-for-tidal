@@ -27,6 +27,9 @@
 //!   with no current entry; `Previous` wraps only with repeat `queue`
 //! - If the last track ends while a suggestions request is pending, the
 //!   player stops on it and, when the suggestions arrive, plays the first one
+//! - A failed reacquire's message (spec 0005) is cleared by the engine's
+//!   next `Resumed`; `released` is cleared by `Resumed` and by any track
+//!   start or stop
 
 mod queue;
 #[cfg(test)]
@@ -230,6 +233,11 @@ pub struct PlayerState {
     suggestions: Suggestions,
     /// The engine holds a track (sent `Play`, no `TrackEnded`/`Error`/`Stop`).
     engine_busy: bool,
+    /// Paused, the engine released the output (spec 0005); cleared by its
+    /// `Resumed` and whenever another track starts or the player stops.
+    released: bool,
+    /// The message shown is a failed reacquire's (cleared on `Resumed`).
+    resume_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -320,6 +328,8 @@ impl PlayerState {
             failures: 0,
             suggestions: Suggestions::Idle,
             engine_busy: false,
+            released: false,
+            resume_failed: false,
         }
     }
 
@@ -360,7 +370,7 @@ impl PlayerState {
                     output: s.details.output.clone(),
                     bit_perfect: s.details.bit_perfect && !self.muted && self.volume == 100,
                     bit_perfect_reason: reason,
-                    released: false,
+                    released: self.released,
                 }
             }),
             message: self.message.clone(),
@@ -474,6 +484,8 @@ impl PlayerState {
         self.queue.current = Some(entry);
         self.armed = false;
         self.now_playing = None;
+        self.released = false;
+        self.resume_failed = false;
         self.position = start_at;
         if self.engine_busy {
             fx.push(PlayerEffect::EngineStop);
@@ -534,6 +546,8 @@ impl PlayerState {
         self.preload = None;
         self.armed = false;
         self.now_playing = None;
+        self.released = false;
+        self.resume_failed = false;
     }
 
     /// Handles a failure of `entry` per the "Failures" table.
@@ -978,22 +992,29 @@ impl PlayerState {
                     p.stage = PreloadStage::Failed(failure);
                 }
             }
-            EngineEvent::Paused | EngineEvent::Resumed | EngineEvent::Stopped => {}
-            EngineEvent::Released => {}
-            EngineEvent::ResumeFailed { failure } => {
-                // Stub (red): taken for a track failure.
-                if let Some(current) = self.queue.current {
-                    self.engine_busy = false;
-                    self.fail(
-                        current,
-                        Failure {
-                            kind: FailureKind::TrackOnly,
-                            ..failure
-                        },
-                        fx,
-                    );
+            EngineEvent::Released => {
+                if matches!(self.phase, Phase::Playing { .. } | Phase::Paused { .. }) {
+                    self.released = true;
                 }
             }
+            EngineEvent::Resumed => {
+                self.released = false;
+                if std::mem::take(&mut self.resume_failed) {
+                    // The failed reacquire's message is over.
+                    self.message = None;
+                }
+            }
+            EngineEvent::ResumeFailed { failure } => {
+                // Not a track failure (spec 0005): still paused on the same
+                // track and position, never skipped; the next toggle sends
+                // `EngineResume` again.
+                if let Phase::Playing { tag, .. } | Phase::Paused { tag } = self.phase {
+                    self.phase = Phase::Paused { tag };
+                    self.message = Some(failure.message);
+                    self.resume_failed = true;
+                }
+            }
+            EngineEvent::Paused | EngineEvent::Stopped => {}
         }
     }
 
