@@ -2,11 +2,13 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use reqwest::{Response, StatusCode};
+use reqwest::{StatusCode, Url};
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, watch};
+
+use crate::{ApiResponse, SUB_STATUS_NOT_AVAILABLE};
 
 use super::{
     AuthConfig, AuthError, Clock, LOST_RECHECK, RefreshFailure, SCOPE, Session, SessionStore,
@@ -103,36 +105,75 @@ impl Authenticator {
 
     /// `GET {api_base}{path}` with the bearer token, decoded as JSON.
     ///
-    /// Refreshes first when the token expires within 60 s, and once more on
-    /// a `401` before retrying once (AC5). Fails fast with
-    /// [`AuthError::LoginRequired`] while the session is lost (AC7, AC9).
+    /// As [`Self::get`], then any non-2xx status is an
+    /// [`AuthError::Http`].
     pub async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, AuthError> {
-        let token = self.valid_token().await?;
-        let mut response = self.send_get(path, &token).await?;
-        if response.status() == StatusCode::UNAUTHORIZED {
-            let token = self.token_after_401(&token).await?;
-            response = self.send_get(path, &token).await?;
-            if response.status() == StatusCode::UNAUTHORIZED {
-                return Err(AuthError::Unauthorized);
-            }
-        }
-        let status = response.status();
-        if !status.is_success() {
+        let response = self.get(path, &[], None).await?;
+        if !response.status().is_success() {
             return Err(AuthError::Http {
-                status: status.as_u16(),
+                status: response.status().as_u16(),
                 code: None,
             });
         }
-        response.json().await.map_err(|_| AuthError::Decode("API"))
+        response.json().map_err(|_| AuthError::Decode("API"))
     }
 
-    async fn send_get(&self, path: &str, token: &str) -> Result<Response, AuthError> {
-        self.http
-            .get(self.config.api_url(path))
-            .bearer_auth(token)
-            .send()
+    /// `GET {api_base}{path}?{query}` with the bearer token; the response
+    /// is returned whatever its status, with its body read.
+    ///
+    /// Refreshes first when the token expires within 60 s, and once more on
+    /// a `401` before retrying once (AC5); a second `401` is
+    /// [`AuthError::Unauthorized`]. A `401` with `subStatus`
+    /// [`SUB_STATUS_NOT_AVAILABLE`] is not about the token: it is returned
+    /// as is, with no refresh and no retry (AC18). Fails fast with
+    /// [`AuthError::LoginRequired`] while the session is lost (AC7, AC9).
+    /// `timeout` bounds each HTTP request (none by default).
+    pub async fn get(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        timeout: Option<Duration>,
+    ) -> Result<ApiResponse, AuthError> {
+        let url = self.api_url_with_query(path, query)?;
+        let token = self.valid_token().await?;
+        let mut response = self.send_get(&url, &token, timeout).await?;
+        if is_token_rejection(&response) {
+            let token = self.token_after_401(&token).await?;
+            response = self.send_get(&url, &token, timeout).await?;
+            if is_token_rejection(&response) {
+                return Err(AuthError::Unauthorized);
+            }
+        }
+        Ok(response)
+    }
+
+    fn api_url_with_query(&self, path: &str, query: &[(&str, &str)]) -> Result<Url, AuthError> {
+        let mut url = Url::parse(&self.config.api_url(path))
+            .map_err(|e| AuthError::Transport(format!("invalid API URL: {e}")))?;
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query);
+        }
+        Ok(url)
+    }
+
+    async fn send_get(
+        &self,
+        url: &Url,
+        token: &str,
+        timeout: Option<Duration>,
+    ) -> Result<ApiResponse, AuthError> {
+        let mut request = self.http.get(url.clone()).bearer_auth(token);
+        if let Some(timeout) = timeout {
+            request = request.timeout(timeout);
+        }
+        let response = request.send().await.map_err(|e| AuthError::transport(&e))?;
+        let status = response.status();
+        let body = response
+            .bytes()
             .await
-            .map_err(|e| AuthError::transport(&e))
+            .map_err(|e| AuthError::transport(&e))?
+            .to_vec();
+        Ok(ApiResponse::new(status, body))
     }
 
     /// The access token to send, refreshed first if it is about to expire.
@@ -275,6 +316,13 @@ impl Authenticator {
             changed
         });
     }
+}
+
+/// Whether `response` rejects the access token: a `401`, unless its
+/// `subStatus` is [`SUB_STATUS_NOT_AVAILABLE`].
+fn is_token_rejection(response: &ApiResponse) -> bool {
+    response.status() == StatusCode::UNAUTHORIZED
+        && response.sub_status() != Some(SUB_STATUS_NOT_AVAILABLE)
 }
 
 /// Why a refresh is attempted.

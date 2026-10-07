@@ -555,3 +555,33 @@ async fn ac9_recover_after_login() {
     assert_eq!(*status.borrow(), AuthStatus::Active);
     s.server.verify().await;
 }
+
+/// Spec 0002 AC18: a `401` with `subStatus` 4005 ("Asset is not ready for
+/// playback") is not about the token: no refresh, no retry, and the caller
+/// gets the response as sent.
+#[tokio::test]
+async fn ac18_401_4005_is_not_auth() {
+    let not_available = include_str!("fixtures/stream/error_not_available_4005.json");
+    let s = Setup::new(fresh(), Some(fresh())).await;
+    api_mock("FAKE-ACCESS")
+        .respond_with(status_json(401, not_available))
+        .mount(&s.server)
+        .await;
+    refresh_mock("FAKE-REFRESH")
+        .respond_with(status_json(200, REFRESHED))
+        .mount(&s.server)
+        .await;
+    api_mock("FAKE-ACCESS-2")
+        .respond_with(ok_json())
+        .mount(&s.server)
+        .await;
+
+    let result = s.auth.get("/thing", &[], None).await;
+
+    assert_eq!(s.requests().await, [get_req()], "no refresh, no retry");
+    let response = result.expect("the 401 response");
+    assert_eq!(response.status().as_u16(), 401);
+    assert_eq!(response.body(), not_available.as_bytes());
+    assert_eq!(response.sub_status(), Some(4005));
+    assert_eq!(*s.auth.status().borrow(), AuthStatus::Active);
+}
