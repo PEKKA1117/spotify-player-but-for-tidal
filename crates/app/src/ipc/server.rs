@@ -15,10 +15,11 @@ use std::io::{Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
 use tidal_player_core::protocol::{ClientMessage, Command, Event, PlayerSnapshot, ServerMessage};
@@ -204,13 +205,23 @@ pub fn attach_stream(
     stream: UnixStream,
     inputs: &Sender<RuntimeInput>,
 ) -> std::io::Result<ClientId> {
+    attach(stream, inputs).map(|(client, _)| client)
+}
+
+/// [`attach_stream`], with the client's writer thread: it ends once the
+/// outbox is closed (the client detached, or the player is gone) and
+/// everything in it was written.
+fn attach(
+    stream: UnixStream,
+    inputs: &Sender<RuntimeInput>,
+) -> std::io::Result<(ClientId, JoinHandle<()>)> {
     let client = next_client_id();
     let (outbox, messages) = mpsc::sync_channel::<ServerMessage>(OUTBOX);
     let mut writer = stream.try_clone()?;
     let mut reader = stream.try_clone()?;
     let peer = Peer::new(outbox, Some(stream));
 
-    std::thread::Builder::new()
+    let writing = std::thread::Builder::new()
         .name(format!("client-{}-out", client.0))
         .spawn(move || {
             if writer.write_all(&greeting()).is_err() {
@@ -259,22 +270,30 @@ pub fn attach_stream(
             }
             let _ = inputs.send(RuntimeInput::Client(ClientInput::Detach(client)));
         })?;
-    Ok(client)
+    Ok((client, writing))
 }
 
+/// How long a stopping server waits for its clients' last messages (the
+/// `ShuttingDown`) to be written.
+pub const FLUSH: Duration = Duration::from_secs(1);
+
 /// Accepts clients on the player's socket until dropped; then the socket
-/// file is removed.
+/// file is removed. Drop it after the player: it waits (at most
+/// [`FLUSH`]) until each client got what the player sent it last.
 #[derive(Debug)]
 pub struct Server {
     path: PathBuf,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    writers: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Serves `listener` (bound at `path`) for the player reading `inputs`.
 pub fn serve(listener: UnixListener, path: PathBuf, inputs: Sender<RuntimeInput>) -> Server {
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = Arc::clone(&stop);
+    let writers: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::default();
+    let serving = Arc::clone(&writers);
     let thread = std::thread::Builder::new()
         .name("socket".into())
         .spawn(move || {
@@ -283,11 +302,14 @@ pub fn serve(listener: UnixListener, path: PathBuf, inputs: Sender<RuntimeInput>
                     break;
                 }
                 match stream {
-                    Ok(stream) => {
-                        if let Err(e) = attach_stream(stream, &inputs) {
-                            tracing::warn!("cannot serve a client: {e}");
+                    Ok(stream) => match attach(stream, &inputs) {
+                        Ok((_, writer)) => {
+                            let mut writers = serving.lock().unwrap_or_else(|e| e.into_inner());
+                            writers.retain(|w| !w.is_finished());
+                            writers.push(writer);
                         }
-                    }
+                        Err(e) => tracing::warn!("cannot serve a client: {e}"),
+                    },
                     Err(e) => tracing::warn!("accept failed: {e}"),
                 }
             }
@@ -297,6 +319,7 @@ pub fn serve(listener: UnixListener, path: PathBuf, inputs: Sender<RuntimeInput>
         path,
         stop,
         thread: Some(thread),
+        writers,
     }
 }
 
@@ -314,6 +337,14 @@ impl Drop for Server {
         let _ = UnixStream::connect(&self.path);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+        let writers = std::mem::take(&mut *self.writers.lock().unwrap_or_else(|e| e.into_inner()));
+        let deadline = Instant::now() + FLUSH;
+        while Instant::now() < deadline && !writers.iter().all(JoinHandle::is_finished) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        for writer in writers.into_iter().filter(JoinHandle::is_finished) {
+            let _ = writer.join();
         }
         let _ = std::fs::remove_file(&self.path);
     }

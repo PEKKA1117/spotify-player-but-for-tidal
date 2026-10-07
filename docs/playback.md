@@ -2,7 +2,7 @@
 
 `tidal-player` decodes Tidal's streams itself (FLAC and AAC, in pure Rust) and writes them to an ALSA device: through the system mixer by default, or straight to your DAC, bit-perfect, when you ask for it. Design: [spec 0003](specs/0003-playback-engine.md) (the engine) and [spec 0004](specs/0004-queue-and-controls.md) (the queue and the controls).
 
-Two ways to play: the TUI (`tidal-player [ITEM]...`, see [The TUI](tui.md)), or headless from the command line (`tidal-player play <ITEM>...`, below). Both play a **queue** filled from [items](#items).
+Three ways to play: the TUI (`tidal-player [ITEM]...`, see [The TUI](tui.md)), headless from the command line (`tidal-player play <ITEM>...`, below), or the daemon (`tidal-player daemon`, controlled with `tidal-player playback …` and attached TUIs, see [The daemon and clients](daemon.md)). All play a **queue** filled from [items](#items).
 
 ## Items
 
@@ -23,13 +23,13 @@ A track Tidal does not offer for streaming is still queued and shown, but skippe
 
 ### `tidal-player [--add-to-queue | --play-next] [ITEM]...`
 
-Starts the TUI. With items, the queue is loaded with them and the first one plays; without, the queue starts empty (add to it with `o`, see [The TUI](tui.md#adding-tracks)). If an item cannot be fetched (`Album 123 was not found`, a network error) or has no tracks, the TUI starts with an empty queue and shows the message in the playback window.
+Starts the TUI. With items, the queue is loaded with them and the first one plays; without, the queue starts empty (add to it with `o`, see [The TUI](tui.md#adding-tracks)). If an item cannot be fetched (`Album 123 was not found`, a network error) or has no tracks, the queue is left as it was and the message shows in the playback window.
 
-`--add-to-queue` adds the items at the end of the queue and `--play-next` right after the current track, instead of replacing the queue. Until a running player can be reached from a second invocation (spec 0005), the queue is always empty at start, so both behave like the plain form (the first added track starts). They cannot be combined, and both need at least one item (exit 2).
+`--add-to-queue` adds the items at the end of the queue and `--play-next` right after the current track, instead of replacing the queue; when nothing was playing, the first added track starts. With a player already running (a daemon, or another TUI), the TUI attaches to it and the items go to that player's queue: see [Attaching a TUI](daemon.md#attaching-a-tui). They cannot be combined, and both need at least one item (exit 2).
 
 ### `tidal-player play <ITEM>... [--shuffle] [--repeat off|queue|track] [--autoplay] [--quality Q] [--device PCM] [--start SECONDS]`
 
-Plays the items as one queue in the foreground, without the TUI, and exits when the queue ends. It needs a stored session (see [Logging in](login.md)); without one it exits 1 with `Not logged in: run "tidal-player login"`.
+Plays the items as one queue in the foreground, without the TUI, and exits when the queue ends. While it plays, [`tidal-player playback …`](daemon.md#one-shot-commands) controls it. With another player running it exits 3 (`Another player is running (pid N): use "tidal-player playback load"`). It needs a stored session (see [Logging in](login.md)); without one it exits 1 with `Not logged in: run "tidal-player login"`.
 
 ```
 $ tidal-player play 77640617 --device hw:1,0
@@ -70,11 +70,11 @@ It reads `/proc/asound/cards` and `/proc/asound/pcm`; capture-only devices (micr
 |---|---|---|---|
 | Highest quality to ask for | `--quality` (`hi-res`, `lossless`, `high`) | `TIDAL_PLAYER_QUALITY` | `hi-res` |
 | Output device | `--device` (any ALSA PCM name) | `TIDAL_PLAYER_DEVICE` | `default` |
-
 | Volume step of `+`/`-` in the TUI (%) | | `TIDAL_PLAYER_VOLUME_STEP` (1–25) | `5` |
 | Seek step of `>`/`<` in the TUI (s) | | `TIDAL_PLAYER_SEEK_STEP` (1–600) | `5` |
 | Previous restarts the track after (s); `0`: previous always goes back | | `TIDAL_PLAYER_PREVIOUS_RESTART` (0–60) | `3` |
 | Autoplay at start | `--autoplay` (`play` only) | `TIDAL_PLAYER_AUTOPLAY` (`on`, `off`) | `off` |
+| Release the device after pausing for (s); see [Releasing the device](daemon.md#releasing-the-device-while-paused) | | `TIDAL_PLAYER_RELEASE_PAUSED` (0–3600, or `never`) | `10` |
 
 A flag beats the environment, which beats the default. An empty variable counts as unset. An invalid value exits 2 before anything starts, naming the variable and what it accepts (`invalid TIDAL_PLAYER_SEEK_STEP: expected an integer from 1 to 600, got "0"`). An unknown quality exits 2. `low` is refused too: Tidal's `LOW` streams are HE-AAC, which the player cannot decode; `high` (AAC 320 kbit/s) is the lowest setting.
 

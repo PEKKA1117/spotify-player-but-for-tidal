@@ -34,7 +34,6 @@ use tidal_player_core::player::{
     TrackDetails,
 };
 use tidal_player_core::protocol::{Command, Event, InsertAt, PlaybackState, PlayerSnapshot};
-use tidal_player_core::ui;
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::ipc::server::{ClientId, ClientInput, Hub};
@@ -204,55 +203,6 @@ pub fn metadata_error_message(error: &MetadataError) -> String {
         .next()
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
-}
-
-/// The commands that start the TUI's player: the queue loaded from the
-/// command line, or nothing (an empty queue).
-pub fn startup_commands(tracks: Vec<Track>) -> Vec<Command> {
-    if tracks.is_empty() {
-        Vec::new()
-    } else {
-        vec![Command::LoadQueue { tracks, start: 0 }]
-    }
-}
-
-/// Expands one item from the open prompt (spec 0004 AC28) as the command
-/// line does, into the UI model's answer: the tracks, or the message.
-pub async fn expand_for_queue(meta: &dyn Metadata, item: Item, at: InsertAt) -> ui::Action {
-    let result = expand_items(meta, &[item]).await.map_err(|e| e.to_string());
-    ui::Action::Expanded { at, result }
-}
-
-/// Runs the open prompt's expansions on a tokio runtime, off the UI thread;
-/// each answer comes back on `results` for the UI loop.
-pub struct Expander {
-    runtime: tokio::runtime::Handle,
-    metadata: Arc<dyn Metadata>,
-    results: Sender<ui::Action>,
-}
-
-impl Expander {
-    pub fn new(
-        runtime: tokio::runtime::Handle,
-        metadata: Arc<dyn Metadata>,
-        results: Sender<ui::Action>,
-    ) -> Self {
-        Self {
-            runtime,
-            metadata,
-            results,
-        }
-    }
-
-    /// Expands `item`; the answer is an [`ui::Action::Expanded`].
-    pub fn expand(&self, item: Item, at: InsertAt) {
-        let metadata = Arc::clone(&self.metadata);
-        let results = self.results.clone();
-        self.runtime.spawn(async move {
-            let answer = expand_for_queue(metadata.as_ref(), item, at).await;
-            let _ = results.send(answer);
-        });
-    }
 }
 
 /// A seed for the shuffle PRNG, from the clock.
@@ -1253,6 +1203,7 @@ mod tests {
     use tidal_player_audio::{EngineError, SinkError};
     use tidal_player_core::EntryId;
     use tidal_player_core::protocol::PlaybackState;
+    use tidal_player_core::ui;
 
     fn runtime(
         default: Script,
@@ -1471,9 +1422,10 @@ mod tests {
         let jobs = FakeJobs::new(&log, &tx, true);
         let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
         let handle = spawn_runtime(rt, rx, tx);
-        for command in startup_commands(vec![track(1, Some(200))]) {
-            handle.send(command);
-        }
+        handle.send(Command::LoadQueue {
+            tracks: vec![track(1, Some(200))],
+            start: 0,
+        });
         let playing = loop {
             match handle.events().recv_timeout(Duration::from_secs(5)) {
                 Ok(Event::Player(s)) if s.state == PlaybackState::Playing => break true,
@@ -1496,18 +1448,6 @@ mod tests {
             ),
             "{calls:?}"
         );
-    }
-
-    /// AC19: `tidal-player [ITEM]...` loads the items; without, an empty
-    /// queue.
-    #[test]
-    fn ac19_startup_queue() {
-        let tracks = vec![track(1, Some(200)), track(2, None)];
-        assert_eq!(
-            startup_commands(tracks.clone()),
-            vec![Command::LoadQueue { tracks, start: 0 }]
-        );
-        assert_eq!(startup_commands(Vec::new()), vec![]);
     }
 
     /// Metadata from memory for the open prompt: album 10 is tracks 1 and
@@ -1540,53 +1480,62 @@ mod tests {
         }
     }
 
-    /// A client (the UI model) wired to a runtime with fakes, as `main`
-    /// wires them: effects are executed, expansions run on a tokio runtime
-    /// and the player's events come back as actions.
+    /// A TUI client (the UI model) joined in-process to a runtime with
+    /// fakes, as `main` wires the standalone TUI (spec 0005 "Roles": its
+    /// screen is a client too): the player expands `Open`s (fake metadata)
+    /// and its messages come back as actions.
     struct Client {
         ui: ui::State,
         rt: PlayerRuntime<FakeEngine, FakeJobs>,
         inputs: Receiver<RuntimeInput>,
-        tokio: tokio::runtime::Runtime,
+        session: crate::client::Session<crate::client::InProcess>,
         /// Every command the client sent, in order.
         sent: Vec<Command>,
     }
 
     impl Client {
         fn new() -> (Self, Log) {
-            let (rt, log, inputs) = runtime(Script::Plays, true);
-            let tokio = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
-            let client = Self {
+            use crate::client::{Connector, InProcess, Session};
+            let log: Log = Arc::default();
+            let (tx, inputs) = mpsc::channel();
+            let engine = FakeEngine::new(&log, Script::Plays);
+            let mut jobs = FakeJobs::new(&log, &tx, true);
+            jobs.metadata = Some(Arc::new(PromptMeta));
+            let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+            let mut connector = InProcess::new(tx);
+            let link = connector.connect().expect("an in-process link");
+            let session = Session::new(connector, link, None);
+            let mut client = Self {
                 ui: ui::State::default(),
                 rt,
                 inputs,
-                tokio,
+                session,
                 sent: Vec::new(),
             };
+            client.act(Vec::new());
             (client, log)
         }
 
+        /// Applies `actions`, sends their commands, runs the player until
+        /// it is idle and hands what it sent back to the model, until
+        /// nothing is left.
         fn act(&mut self, actions: Vec<ui::Action>) {
-            let mut pending: std::collections::VecDeque<ui::Action> = actions.into();
-            while let Some(action) = pending.pop_front() {
-                for effect in ui::update(&mut self.ui, action) {
-                    match effect {
-                        ui::Effect::Send(command) => {
+            let mut pending: VecDeque<ui::Action> = actions.into();
+            loop {
+                while let Some(action) = pending.pop_front() {
+                    for effect in ui::update(&mut self.ui, action) {
+                        if let ui::Effect::Send(command) = effect {
                             self.sent.push(command.clone());
-                            let mut input = Some(RuntimeInput::Command(command));
-                            while let Some(next) = input {
-                                let handled = self.rt.handle(next);
-                                pending.extend(handled.events.into_iter().map(ui::Action::Player));
-                                input = self.rt.next_input(&self.inputs, Duration::ZERO);
-                            }
+                            self.session.send(command);
                         }
-                        ui::Effect::Expand { item, at } => pending.push_back(
-                            self.tokio.block_on(expand_for_queue(&PromptMeta, item, at)),
-                        ),
-                        ui::Effect::Quit => {}
                     }
+                }
+                while let Some(input) = self.rt.next_input(&self.inputs, Duration::ZERO) {
+                    self.rt.handle(input);
+                }
+                pending.extend(self.session.poll(std::time::Instant::now()));
+                if pending.is_empty() {
+                    break;
                 }
             }
         }
@@ -1608,6 +1557,11 @@ mod tests {
                 .collect()
         }
 
+        /// The queue as the client shows it.
+        fn shown(&self) -> Vec<u64> {
+            self.ui.queue().iter().map(|e| e.track.id.0).collect()
+        }
+
         fn entry_of(&self, track: u64) -> EntryId {
             let snapshot = self.rt.snapshot();
             snapshot
@@ -1619,30 +1573,30 @@ mod tests {
         }
     }
 
-    /// AC28: the prompt's item is expanded (fake metadata) and sent as
-    /// `AddToQueue { at }`; with nothing playing, `PlayEntry` of the first
-    /// added entry follows and it plays; a fetch error only sets the
-    /// message.
+    /// AC28, as spec 0005 changes it ("Opening items in the player"): the
+    /// prompt's item goes to the player as `Open { at }`, which expands it
+    /// (fake metadata) and, with nothing playing, starts the first added
+    /// entry; the client shows the player's queue; a fetch error is the
+    /// reply's message in the playback window.
     #[test]
     fn ac28_open_adds_and_starts() {
         // `o` on an empty player: added at the end, the first one starts.
         let (mut client, log) = Client::new();
         client.open('o', "https://tidal.com/browse/album/10");
-        assert_eq!(client.queue(), vec![1, 2]);
-        let first = client.entry_of(1);
         assert_eq!(
             client.sent,
-            vec![
-                Command::AddToQueue {
-                    tracks: vec![track(1, Some(200)), track(2, Some(200))],
-                    at: InsertAt::End,
-                },
-                Command::PlayEntry(first),
-            ]
+            vec![Command::Open {
+                items: vec![Item::Album(10)],
+                at: Some(InsertAt::End),
+            }]
         );
+        assert_eq!(client.queue(), vec![1, 2]);
+        assert_eq!(client.shown(), vec![1, 2]);
+        let first = client.entry_of(1);
         let snapshot = client.rt.snapshot();
         assert_eq!(snapshot.current, Some(first));
         assert_eq!(snapshot.state, PlaybackState::Playing);
+        assert_eq!(client.ui.current().map(|e| e.id), Some(first));
         let calls = take(&log);
         assert!(
             calls
@@ -1652,17 +1606,17 @@ mod tests {
         );
 
         // `O` while playing: added after the current entry, nothing restarts.
-        take(&log);
         client.sent.clear();
         client.open('O', "3");
         assert_eq!(
             client.sent,
-            vec![Command::AddToQueue {
-                tracks: vec![track(3, Some(200))],
-                at: InsertAt::Next,
+            vec![Command::Open {
+                items: vec![Item::Track(TrackId(3))],
+                at: Some(InsertAt::Next),
             }]
         );
         assert_eq!(client.queue(), vec![1, 3, 2]);
+        assert_eq!(client.shown(), vec![1, 3, 2]);
         assert_eq!(client.rt.snapshot().current, Some(first));
         let calls = take(&log);
         assert!(
@@ -1677,15 +1631,80 @@ mod tests {
         client.open('O', "https://tidal.com/browse/album/10");
         assert_eq!(client.queue(), vec![1, 2]);
         let first = client.entry_of(1);
-        assert_eq!(client.sent.last(), Some(&Command::PlayEntry(first)));
+        assert_eq!(client.rt.snapshot().current, Some(first));
         assert_eq!(client.rt.snapshot().state, PlaybackState::Playing);
 
-        // A fetch error: nothing sent, the message in the playback window.
+        // A fetch error: the message in the playback window, nothing else.
         let (mut client, log) = Client::new();
         client.open('o', "https://tidal.com/browse/album/404");
-        assert_eq!(client.sent, vec![]);
         assert_eq!(client.ui.message(), Some("Album 404 was not found"));
-        assert_eq!(take(&log), vec![]);
+        assert_eq!(client.queue(), Vec::<u64>::new());
+        let calls = take(&log);
+        assert!(
+            calls.iter().all(|c| matches!(c, Call::Expand { .. })),
+            "{calls:?}"
+        );
+    }
+
+    /// 0005 AC21/AC22 (slice A's mapping): the engine's `Released`,
+    /// `Resumed` and `ResumeFailed` reach the player: the snapshot's
+    /// `released` is set and cleared; a failed resume keeps it paused at
+    /// the same position with 0003's message, resolves and skips nothing,
+    /// and the next play/pause asks the engine to resume again.
+    #[test]
+    fn ac21_runtime_maps_release_events() {
+        let (mut rt, log, rx) = runtime(Script::Plays, true);
+        let pump = |rt: &mut PlayerRuntime<FakeEngine, FakeJobs>| {
+            while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
+                rt.handle(input);
+            }
+        };
+        rt.handle(load(&[1, 2]));
+        pump(&mut rt);
+        rt.handle(RuntimeInput::Engine(audio::Event::Position(
+            Duration::from_secs(42),
+        )));
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        assert_eq!(rt.snapshot().state, PlaybackState::Paused);
+        let released = |s: &PlayerSnapshot| s.now_playing.as_ref().map(|np| np.released);
+        assert_eq!(released(&rt.snapshot()), Some(false));
+
+        let h = rt.handle(RuntimeInput::Engine(audio::Event::Released));
+        assert_eq!(released(&last_snapshot(&h)), Some(true));
+        take(&log);
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        assert_eq!(take(&log), vec![Call::Resume]);
+        let h = rt.handle(RuntimeInput::Engine(audio::Event::Resumed));
+        let snapshot = last_snapshot(&h);
+        assert_eq!(released(&snapshot), Some(false));
+        assert_eq!(snapshot.state, PlaybackState::Playing);
+
+        // Released again; the resume fails: still paused, same entry and
+        // position, the output's message, no skip.
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        rt.handle(RuntimeInput::Engine(audio::Event::Released));
+        let before = rt.snapshot();
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        take(&log);
+        let h = rt.handle(RuntimeInput::Engine(audio::Event::ResumeFailed(
+            SinkError::Busy {
+                device: "hw:1,0".into(),
+                holder: Some("PipeWire".into()),
+            },
+        )));
+        let snapshot = last_snapshot(&h);
+        assert_eq!(snapshot.state, PlaybackState::Paused);
+        assert_eq!(snapshot.current, before.current);
+        assert_eq!(snapshot.position, before.position);
+        assert_eq!(
+            snapshot.message.as_deref(),
+            Some("Output hw:1,0 is busy (used by PipeWire): close it, or use --device default")
+        );
+        assert_eq!(h.failures.len(), 1);
+        assert!(!h.ended && h.started.is_none(), "{h:?}");
+        assert_eq!(take(&log), vec![], "resolved or played something");
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        assert_eq!(take(&log), vec![Call::Resume]);
     }
 
     /// A runtime whose `Open`s are expanded by `PromptMeta` (or left for

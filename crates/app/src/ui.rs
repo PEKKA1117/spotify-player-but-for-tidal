@@ -228,7 +228,7 @@ fn progress(position: Duration, duration: Option<Duration>, width: usize) -> Str
 }
 
 /// `m:ss`, or `h:mm:ss` from an hour.
-fn clock(d: Duration) -> String {
+pub(crate) fn clock(d: Duration) -> String {
     let secs = d.as_secs();
     let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
     if h > 0 {
