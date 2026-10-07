@@ -20,6 +20,7 @@ use tidal_player::{
     login::{LoginOutcome, run_login},
     panic_hook::install_panic_hook,
     play::{ASOUND_DIR_VAR, configured_device, resolve_settings},
+    playback::{HAS_ALSA, NO_ALSA, PlayRequest, play_track},
     store_setup::StorePlan,
     ui::render,
 };
@@ -206,6 +207,21 @@ fn env_var(key: &str) -> Option<String> {
     std::env::var(key).ok()
 }
 
+/// Test-only: in debug builds, the API base URL comes from this variable
+/// when set, so CLI tests reach a mock server. Release builds ignore it
+/// (it would send the bearer token elsewhere).
+const API_BASE_VAR: &str = "TIDAL_PLAYER_API_BASE";
+
+fn api_config() -> AuthConfig {
+    let mut config = AuthConfig::production();
+    if cfg!(debug_assertions)
+        && let Some(base) = env_var(API_BASE_VAR).filter(|b| !b.is_empty())
+    {
+        config.api_base = base;
+    }
+    config
+}
+
 fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
     let settings = match resolve_settings(args.quality.as_deref(), args.device.as_deref(), env_var)
     {
@@ -215,8 +231,20 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let start_at = match args.start.map(Duration::try_from_secs_f64) {
+        None => Duration::ZERO,
+        Some(Ok(start)) => start,
+        Some(Err(_)) => {
+            eprintln!("invalid --start: expected a number of seconds, 0 or more");
+            return ExitCode::from(2);
+        }
+    };
+    if !HAS_ALSA {
+        eprintln!("{NO_ALSA}");
+        return ExitCode::from(1);
+    }
     let store = plan.build_store();
-    let _session = match store.load() {
+    let session = match store.load() {
         Ok(Some(session)) => session,
         Ok(None) => {
             eprintln!("Not logged in: run \"tidal-player login\"");
@@ -224,9 +252,21 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
         }
         Err(e) => return report_store_error(&e),
     };
-    let _ = settings;
-    eprintln!("playback is not wired yet");
-    ExitCode::from(1)
+    let auth = match Authenticator::new(api_config(), store, session, Arc::new(SystemClock)) {
+        Ok(auth) => Arc::new(auth),
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    play_track(
+        auth,
+        PlayRequest {
+            track_id: args.track_id,
+            settings,
+            start_at,
+        },
+    )
 }
 
 /// `tidal-player devices`: `/proc/asound` (or `TIDAL_PLAYER_ASOUND_DIR`).

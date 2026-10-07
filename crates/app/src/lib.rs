@@ -7,6 +7,7 @@ pub mod login;
 pub mod panic_hook;
 pub mod passphrase;
 pub mod play;
+pub mod playback;
 pub mod reserve;
 pub mod session_store;
 pub mod store_setup;
