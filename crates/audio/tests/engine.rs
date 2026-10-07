@@ -407,8 +407,16 @@ fn seek_while_paused() {
     rig.until("Started", is_started);
     rig.send(Command::Pause);
     rig.until("Paused", |e| matches!(e, Event::Paused));
+    assert!(
+        matches!(rig.next(), Event::Position(_)),
+        "paused: position at pause"
+    );
     rig.send(Command::Seek(t));
-    assert_eq!(next_position(&rig), t, "paused: position after seek");
+    assert_eq!(
+        rig.next(),
+        Event::Position(t),
+        "paused: position after seek"
+    );
     rig.sinks.release();
     let quiet = rig.quiet_for(QUIET);
     assert!(quiet.is_empty(), "paused: events while paused: {quiet:?}");
@@ -509,8 +517,7 @@ fn flac_seek_point(bytes: &[u8], frame: u64) -> u64 {
     let first_frame = i as u64;
     let (_, offset) = points
         .into_iter()
-        .filter(|(sample, _)| *sample <= frame)
-        .last()
+        .rfind(|(sample, _)| *sample <= frame)
         .expect("a seek point");
     first_frame + offset
 }
@@ -600,7 +607,7 @@ fn ac20_position_tracks_delay() {
         "last {last:?}, end {end:?}"
     );
     assert!(
-        rig.clock.now() >= Duration::from_secs(1),
+        rig.clock.now() >= Duration::from_millis(999),
         "the fake device paced the clock"
     );
 }

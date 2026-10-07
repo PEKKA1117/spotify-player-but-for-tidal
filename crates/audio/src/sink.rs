@@ -298,21 +298,21 @@ impl Sink for MemorySink {
         }
         let mut frames = samples.len() / 2;
         let mut shared = lock(&self.shared);
-        if let Some(limit) = self.script.hold_after_frames {
-            if !shared.released {
-                if self.written >= limit {
-                    shared = self
-                        .shared
-                        .1
-                        .wait_timeout(shared, HOLD_WAIT)
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .0;
-                    if !shared.released {
-                        return Ok(WriteOutcome::default());
-                    }
-                } else {
-                    frames = frames.min((limit - self.written) as usize);
+        if let Some(limit) = self.script.hold_after_frames
+            && !shared.released
+        {
+            if self.written >= limit {
+                shared = self
+                    .shared
+                    .1
+                    .wait_timeout(shared, HOLD_WAIT)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
+                if !shared.released {
+                    return Ok(WriteOutcome::default());
                 }
+            } else {
+                frames = frames.min((limit - self.written) as usize);
             }
         }
         let underrun = self.script.underrun_on_write == Some(self.write_calls);

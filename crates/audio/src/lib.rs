@@ -9,6 +9,7 @@ pub mod engine;
 pub mod sink;
 pub mod source;
 pub mod testing;
+mod worker;
 
 pub use engine::{Command, Engine, EngineConfig, EngineError, EngineGone, Event};
 pub use sink::{
