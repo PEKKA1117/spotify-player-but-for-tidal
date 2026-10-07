@@ -45,6 +45,7 @@ use tidal_player::{
 use tidal_player_api::auth::{
     AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
 };
+use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
@@ -330,7 +331,7 @@ fn daemon(plan: &StorePlan) -> Result<ExitCode> {
     };
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
-        .with_library(player_library(), player_settings.library.clone());
+        .with_library(player_library(&auth), player_settings.library.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
     // The engine opens the device only once something plays (0003).
@@ -408,18 +409,14 @@ fn choose_role() -> Result<Role, ExitCode> {
     }
 }
 
-/// `tidal-player [ITEM]...`: the TUI, as the player (standalone) or as a
-/// client of the running one.
-/// The library the player answers clients' requests with.
-///
-/// INTEGRATION (0006): construct the real `Library` here (an adapter over
-/// `tidal_player_api::library::LibraryClient` sharing the player's
-/// `Authenticator`); until then every request fails with "library not
-/// available".
-fn player_library() -> Arc<dyn tidal_player::player_runtime::Library> {
-    Arc::new(tidal_player::player_runtime::NoLibrary)
+/// The library the player answers clients' requests with (spec 0006),
+/// sharing the player's `Authenticator`.
+fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_runtime::Library> {
+    Arc::new(LibraryClient::new(Arc::clone(auth)))
 }
 
+/// `tidal-player [ITEM]...`: the TUI, as the player (standalone) or as a
+/// client of the running one.
 fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result<ExitCode> {
     // Refused before anything starts (spec 0004 "Filling the queue").
     let items = match parse_items(args) {
@@ -516,7 +513,7 @@ fn standalone(
     };
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
-        .with_library(player_library(), player_settings.library.clone());
+        .with_library(player_library(&auth), player_settings.library.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
     let (listener, socket) = match bind_player(&lock) {

@@ -26,6 +26,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tidal_player_api::auth::BoxFuture;
+use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
 use tidal_player_core::item::parse_item;
@@ -138,6 +139,21 @@ impl Default for LibrarySettings {
                 .map(|w| (*w).to_owned())
                 .collect(),
         }
+    }
+}
+
+impl Library for LibraryClient {
+    fn request(
+        &self,
+        request: LibraryRequest,
+        page_size: u32,
+        hidden_words: Vec<String>,
+    ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+        Box::pin(async move {
+            LibraryClient::request(self, request, page_size, &hidden_words)
+                .await
+                .map_err(|e| e.to_string())
+        })
     }
 }
 
