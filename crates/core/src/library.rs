@@ -126,19 +126,12 @@ pub enum PageRequest {
 
 /// Tidal's top hit of a search (spec 0007 decision 6): one item of any
 /// kind.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TopHit {
     Track(Track),
     Album(AlbumSummary),
     Artist(ArtistRef),
     Playlist(PlaylistSummary),
-}
-
-// Red stub (spec 0007 AC1): writes nothing useful.
-impl Serialize for TopHit {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
 }
 
 /// A page's header and the first page of each of its lists (*All tracks*
@@ -172,7 +165,8 @@ pub enum PageData {
     },
     /// A search's top hit and the first page of each result list.
     Search {
-        top_hit: Option<TopHit>,
+        /// Boxed: a track is large, and most pages carry none.
+        top_hit: Option<Box<TopHit>>,
         tracks: ListPage<Track>,
         albums: ListPage<AlbumSummary>,
         artists: ListPage<ArtistRef>,

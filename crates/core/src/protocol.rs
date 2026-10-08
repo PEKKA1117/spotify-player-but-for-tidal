@@ -425,7 +425,7 @@ mod tests {
             },
         ];
         // 0007 AC1: a search page with each kind of top hit, and none.
-        let search = |top_hit: Option<TopHit>| PageData::Search {
+        let search = |top_hit: Option<Box<TopHit>>| PageData::Search {
             top_hit,
             tracks: list(vec![track(8)], 0, 223),
             albums: list(vec![album(6, AlbumKind::Album)], 0, 55),
@@ -435,10 +435,13 @@ mod tests {
         let pages: Vec<PageData> = pages
             .into_iter()
             .chain([
-                search(Some(TopHit::Track(track(8)))),
-                search(Some(TopHit::Album(album(6, AlbumKind::Album)))),
-                search(Some(TopHit::Artist(artist(11, "Pierce The Veil")))),
-                search(Some(TopHit::Playlist(playlist(false)))),
+                search(Some(Box::new(TopHit::Track(track(8))))),
+                search(Some(Box::new(TopHit::Album(album(6, AlbumKind::Album))))),
+                search(Some(Box::new(TopHit::Artist(artist(
+                    11,
+                    "Pierce The Veil",
+                ))))),
+                search(Some(Box::new(TopHit::Playlist(playlist(false))))),
                 search(None),
             ])
             .collect();

@@ -412,6 +412,9 @@ fn resolve_with(
     if let Some(value) = get(PAGE_SIZE_VAR) {
         settings.library.page_size = int_in(&value, PAGE_SIZE_VAR, 1, 10_000)? as u32;
     }
+    if let Some(value) = get(SEARCH_PAGE_SIZE_VAR) {
+        settings.library.search_page_size = int_in(&value, SEARCH_PAGE_SIZE_VAR, 1, 1000)? as u32;
+    }
     // Unlike the others, an empty value is a choice: hide nothing.
     if let Some(value) = env(HIDE_VERSIONS_VAR) {
         settings.library.hidden_words = value
