@@ -2229,7 +2229,6 @@ mod tests {
     /// The player's state at start, as the standalone TUI and the daemon
     /// make it from what `playback.json` gave.
     fn started_from(loaded: crate::persist::Loaded) -> State {
-        use tidal_player_core::PlayerState;
         let settings = crate::play::PlayerSettings::default();
         let player =
             crate::player_runtime::starting_state(settings.player.clone(), 7, &settings, loaded);

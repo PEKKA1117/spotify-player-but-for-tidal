@@ -411,7 +411,11 @@ pub fn update(state: &mut PlayerState, input: PlayerInput) -> Vec<PlayerEffect> 
         PlayerInput::Engine(event) => state.on_engine(event, &mut fx),
         PlayerInput::Resolved { tag, result } => state.on_resolved(tag, result, &mut fx),
         PlayerInput::Suggestions { tag, result } => state.on_suggestions(tag, result, &mut fx),
-        PlayerInput::Notice(_) => {}
+        PlayerInput::Notice(message) => {
+            state.message = Some(message);
+            // No longer a failed reacquire's: `Resumed` leaves it.
+            state.resume_failed = false;
+        }
     }
     let after = state.snapshot();
     if after != before {

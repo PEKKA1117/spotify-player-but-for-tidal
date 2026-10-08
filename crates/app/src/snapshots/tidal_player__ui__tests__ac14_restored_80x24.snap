@@ -1,0 +1,28 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│■ Hell Above · Pierce The Veil                              repeat: queue  70%│
+│  Collide With The Sky                                                        │
+│                                                                              │
+│  ━━━━━━━━━━━━━━━━━━─────────────────────────────────────────────  1:23 / 4:56│
+│┌Queue (3)───────────────────────────────────────────────────────────────────┐│
+││  1  May These Noises Startl…  Pierce The Veil     Collide With The…    4:01││
+││▶ 2  Hell Above                Pierce The Veil     Collide With The…    4:56││
+││  3  A Match Into Water        Pierce The Veil     Collide With The…    4:22││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

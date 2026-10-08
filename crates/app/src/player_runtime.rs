@@ -418,8 +418,19 @@ pub fn starting_state(
     settings: &PlayerSettings,
     loaded: Loaded,
 ) -> PlayerState {
-    let _ = (settings, loaded);
-    PlayerState::new(config, seed)
+    let Loaded { saved, message } = loaded;
+    let mut state = match saved {
+        Some(mut saved) => {
+            saved.autoplay = start_autoplay(settings, Some(saved.autoplay));
+            PlayerState::restore(config, seed, saved)
+        }
+        None => PlayerState::new(config, seed),
+    };
+    if let Some(message) = message {
+        // No client yet: the `Welcome` carries it.
+        player::update(&mut state, PlayerInput::Notice(message));
+    }
+    state
 }
 
 /// One client's library requests.
@@ -446,16 +457,87 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         engine: E,
         jobs: J,
     ) -> Self {
-        let _ = (settings, persister);
-        Self::new(config, seed, engine, jobs)
+        let state = starting_state(config, seed, settings, persister.load());
+        let schedule = SaveSchedule::new(state.saved(), Instant::now());
+        let mut runtime = Self::with_state(state, engine, jobs);
+        runtime.persistence = Some(Persistence {
+            persister,
+            schedule,
+        });
+        runtime
     }
 
     /// Writes what the save schedule has due at `now` (spec 0009
     /// "Saving"); the events are the player's message after a failed
     /// write, already sent to the subscribers.
     pub fn tick(&mut self, now: Instant) -> Vec<Event> {
-        let _ = now;
-        Vec::new()
+        let due = self
+            .persistence
+            .as_mut()
+            .and_then(|p| p.schedule.on_tick(now));
+        due.map(|saved| self.write(&saved)).unwrap_or_default()
+    }
+
+    /// After an input: hands the new state to the save schedule, and
+    /// writes it when due (spec 0009 "Saving"). `urgent`: a pause, a stop,
+    /// a seek or a track change saves at once.
+    fn track_change(&mut self, before: &PlayerSnapshot, seek: bool, handled: &mut Handled) {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return;
+        };
+        let after = self.state.snapshot();
+        let stopped_or_paused = before.state != after.state
+            && matches!(after.state, PlaybackState::Paused | PlaybackState::Stopped);
+        let urgent = seek
+            || stopped_or_paused
+            || before.current != after.current
+            || handled.started.is_some();
+        let playing = matches!(
+            after.state,
+            PlaybackState::Playing | PlaybackState::Buffering | PlaybackState::Loading
+        );
+        let due =
+            persistence
+                .schedule
+                .on_change(Instant::now(), self.state.saved(), playing, urgent);
+        if let Some(saved) = due {
+            let events = self.write(&saved);
+            handled.events.extend(events);
+        }
+    }
+
+    /// At `Shutdown`: the last write (nothing is written after it).
+    fn save_at_exit(&mut self) {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return;
+        };
+        if let Some(saved) = persistence
+            .schedule
+            .on_exit(Instant::now(), self.state.saved())
+        {
+            self.write(&saved);
+        }
+    }
+
+    /// Writes `saved`; a failure's message (the first since the last
+    /// success) becomes the player's message, broadcast.
+    fn write(&mut self, saved: &tidal_player_core::SavedPlayback) -> Vec<Event> {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return Vec::new();
+        };
+        let SaveResult::Failed { message } = persistence.persister.save(saved) else {
+            return Vec::new();
+        };
+        persistence.schedule.write_failed();
+        let Some(message) = message else {
+            return Vec::new();
+        };
+        let mut handled = Handled::default();
+        for effect in player::update(&mut self.state, PlayerInput::Notice(message)) {
+            self.execute(effect, &mut handled);
+        }
+        self.hub.broadcast(&handled.events);
+        handled.events
     }
 
     fn with_state(state: PlayerState, engine: E, jobs: J) -> Self {
@@ -508,6 +590,25 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     /// subscribers; the returned events are the same, for an in-process
     /// client (spec 0005 "Sync").
     pub fn handle(&mut self, input: RuntimeInput) -> Handled {
+        let before = self.persistence.is_some().then(|| self.snapshot());
+        let seek = matches!(
+            &input,
+            RuntimeInput::Command(Command::SeekBy(_) | Command::SeekTo(_))
+                | RuntimeInput::Client(ClientInput::Request {
+                    command: Command::SeekBy(_) | Command::SeekTo(_),
+                    ..
+                })
+        );
+        let mut handled = self.handle_input(input);
+        if handled.shutdown {
+            self.save_at_exit();
+        } else if let Some(before) = before {
+            self.track_change(&before, seek, &mut handled);
+        }
+        handled
+    }
+
+    fn handle_input(&mut self, input: RuntimeInput) -> Handled {
         match input {
             RuntimeInput::Client(input) => self.client_input(input),
             RuntimeInput::Expanded { tag, result } => self.expanded(tag, result),
@@ -968,15 +1069,18 @@ where
         .name("player".into())
         .spawn(move || {
             loop {
-                let Some(input) = runtime.next_input(&inputs, POLL) else {
-                    continue;
-                };
-                let handled = runtime.handle(input);
-                for event in handled.events {
-                    let _ = events_tx.send(event);
+                if let Some(input) = runtime.next_input(&inputs, POLL) {
+                    let handled = runtime.handle(input);
+                    for event in handled.events {
+                        let _ = events_tx.send(event);
+                    }
+                    if handled.shutdown {
+                        break;
+                    }
                 }
-                if handled.shutdown {
-                    break;
+                // Saves due (spec 0009): at most `POLL` late.
+                for event in runtime.tick(Instant::now()) {
+                    let _ = events_tx.send(event);
                 }
             }
             // Dropping the runtime drops the engine, which joins its thread:
