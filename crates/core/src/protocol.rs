@@ -214,7 +214,7 @@ mod tests {
     use super::*;
     use crate::library::{
         AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, ListItems, ListPage, ListRef,
-        PageData, PageRequest, PlaylistSummary, RoleCategory,
+        PageData, PageRequest, PlaylistSummary, RoleCategory, TopHit,
     };
     use crate::track::{AlbumRef, ArtistRef, TrackId};
     use serde::de::DeserializeOwned;
@@ -299,6 +299,10 @@ mod tests {
             ListRef::ArtistAlbums(3),
             ListRef::ArtistAppearsOn(4),
             ListRef::Credits(5),
+            ListRef::SearchTracks("pierce the veil".into()),
+            ListRef::SearchAlbums("AC/DC".into()),
+            ListRef::SearchArtists("Sigur Rós".into()),
+            ListRef::SearchPlaylists("米津玄師".into()),
         ]
     }
 
@@ -311,6 +315,7 @@ mod tests {
             PageRequest::Album(1),
             PageRequest::Playlist(UUID.into()),
             PageRequest::Artist(2),
+            PageRequest::Search("pierce the veil".into()),
         ]
         .into_iter()
         .map(LibraryRequest::Page)
@@ -419,6 +424,24 @@ mod tests {
                 appears_on: list(vec![album(4, AlbumKind::Album)], 0, 30),
             },
         ];
+        // 0007 AC1: a search page with each kind of top hit, and none.
+        let search = |top_hit: Option<TopHit>| PageData::Search {
+            top_hit,
+            tracks: list(vec![track(8)], 0, 223),
+            albums: list(vec![album(6, AlbumKind::Album)], 0, 55),
+            artists: list(vec![artist(11, "Pierce The Veil")], 0, 7),
+            playlists: list(vec![playlist(false)], 0, 3),
+        };
+        let pages: Vec<PageData> = pages
+            .into_iter()
+            .chain([
+                search(Some(TopHit::Track(track(8)))),
+                search(Some(TopHit::Album(album(6, AlbumKind::Album)))),
+                search(Some(TopHit::Artist(artist(11, "Pierce The Veil")))),
+                search(Some(TopHit::Playlist(playlist(false)))),
+                search(None),
+            ])
+            .collect();
         let mut responses: Vec<LibraryResponse> =
             pages.into_iter().map(LibraryResponse::Page).collect();
         responses.extend(

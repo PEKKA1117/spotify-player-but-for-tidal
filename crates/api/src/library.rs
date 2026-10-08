@@ -242,6 +242,8 @@ impl LibraryClient {
                     appears_on,
                 })
             }
+            // Spec 0007, slice A.
+            PageRequest::Search(_) => Err(LibraryError::Malformed("search")),
         }
     }
 
@@ -324,6 +326,11 @@ impl LibraryClient {
             ListRef::Credits(id) => {
                 ListItems::Credits(self.credits(*id, offset, limit, hidden_words).await?)
             }
+            // Spec 0007, slice A.
+            ListRef::SearchTracks(_)
+            | ListRef::SearchAlbums(_)
+            | ListRef::SearchArtists(_)
+            | ListRef::SearchPlaylists(_) => return Err(LibraryError::Malformed("search")),
         })
     }
 

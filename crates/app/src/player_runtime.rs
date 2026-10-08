@@ -127,6 +127,9 @@ impl Library for NoLibrary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibrarySettings {
     pub page_size: u32,
+    /// Items per page of a search's lists (spec 0007 "Lists load as you
+    /// scroll").
+    pub search_page_size: u32,
     pub hidden_words: Vec<String>,
 }
 
@@ -134,6 +137,7 @@ impl Default for LibrarySettings {
     fn default() -> Self {
         Self {
             page_size: 100,
+            search_page_size: 20,
             hidden_words: DEFAULT_HIDDEN_VERSIONS
                 .iter()
                 .map(|w| (*w).to_owned())
@@ -1003,6 +1007,7 @@ impl Jobs for TokioJobs {
         let LibrarySettings {
             page_size,
             hidden_words,
+            ..
         } = self.library_settings.clone();
         let results = self.results.clone();
         self.runtime.spawn(async move {

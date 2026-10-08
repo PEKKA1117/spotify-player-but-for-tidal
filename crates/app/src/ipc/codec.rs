@@ -360,6 +360,18 @@ mod tests {
                     })],
                 ),
                 (
+                    "a search request (0007 AC1)",
+                    vec![
+                        "{\"Library\":{\"id\":4,\"request\":{\"Page\":{\"Search\":\"Sigur Rós\"}}}}\n"
+                            .as_bytes()
+                            .to_vec(),
+                    ],
+                    vec![Want::Message(ClientMessage::Library {
+                        id: 4,
+                        request: LibraryRequest::Page(PageRequest::Search("Sigur Rós".into())),
+                    })],
+                ),
+                (
                     "an encoded library request, split",
                     encode(&library).chunks(5).map(<[u8]>::to_vec).collect(),
                     vec![Want::Message(library)],

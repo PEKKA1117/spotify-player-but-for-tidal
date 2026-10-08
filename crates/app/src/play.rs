@@ -336,6 +336,8 @@ impl Default for Steps {
 
 /// Items per page of a library list (spec 0006), 1 to 10000.
 pub const PAGE_SIZE_VAR: &str = "TIDAL_PLAYER_PAGE_SIZE";
+/// Items per page of a search's lists (spec 0007), 1 to 1000.
+pub const SEARCH_PAGE_SIZE_VAR: &str = "TIDAL_PLAYER_SEARCH_PAGE_SIZE";
 /// Comma-separated words hiding alternate versions from an artist's *All
 /// tracks* (spec 0006); empty hides nothing.
 pub const HIDE_VERSIONS_VAR: &str = "TIDAL_PLAYER_HIDE_VERSIONS";
@@ -1653,6 +1655,41 @@ mod tests {
                     let text = err.to_string();
                     assert!(
                         text.contains(PAGE_SIZE_VAR) && text.contains("1 to 10000"),
+                        "{name}: {text}"
+                    );
+                }
+            }
+        }
+        // 0007 AC1: the search page size (empty = unset).
+        let search_pages: &[(&str, Option<&str>, PageWant)] = &[
+            ("unset", None, Ok(20)),
+            ("empty counts as unset", Some(""), Ok(20)),
+            ("lowest", Some("1"), Ok(1)),
+            ("highest", Some("1000"), Ok(1000)),
+            ("zero", Some("0"), Err(())),
+            ("over", Some("1001"), Err(())),
+            ("text", Some("x"), Err(())),
+        ];
+        for (name, value, want) in search_pages {
+            let got = resolve_player_config(|key: &str| {
+                (key == SEARCH_PAGE_SIZE_VAR)
+                    .then_some(*value)
+                    .flatten()
+                    .map(Into::into)
+            });
+            match want {
+                Ok(n) => assert_eq!(
+                    got.map(|s| s.library.search_page_size)
+                        .map_err(|e| e.to_string()),
+                    Ok(*n),
+                    "search page size: {name}"
+                ),
+                Err(()) => {
+                    let err = got.expect_err(name);
+                    assert_eq!(err.setting, SEARCH_PAGE_SIZE_VAR, "{name}");
+                    let text = err.to_string();
+                    assert!(
+                        text.contains(SEARCH_PAGE_SIZE_VAR) && text.contains("1 to 1000"),
                         "{name}: {text}"
                     );
                 }
