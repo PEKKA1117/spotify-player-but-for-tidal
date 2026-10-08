@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use tidal_player_api::auth::{
     AuthConfig, AuthError, Authenticator, ManualClock, MemoryStore, Session, SessionStore,
 };
-use tidal_player_api::stream::{ResolvedStream, StreamError, StreamResolver};
+use tidal_player_api::stream::{RESOLVE_TIMEOUT, ResolvedStream, StreamError, StreamResolver};
 use tidal_player_core::AudioQuality;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -127,6 +127,13 @@ async fn ac1_playbackinfo_request() {
     s.server.verify().await;
 }
 
+/// The `timeout` row's request timeout: far above the time a loaded
+/// machine needs to get a request to the local mock server.
+const SHORT_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long the `timeout` row's response is held: far beyond
+/// [`SHORT_TIMEOUT`], so the request always times out.
+const HELD: Duration = Duration::from_secs(60);
+
 /// What a row expects back.
 enum Expect {
     Granted(AudioQuality),
@@ -138,14 +145,25 @@ enum Expect {
 async fn ac5_one_request() {
     use AudioQuality::*;
 
-    // (name, asked, response to the playbackinfo request, refresh answer,
-    //  expected, expected /token requests). Error rows first: a ladder
-    //  (tidalt) shows up there as extra requests.
-    let rows: Vec<(&str, AudioQuality, ResponseTemplate, &str, Expect, usize)> = vec![
+    // (name, asked, response to the playbackinfo request, request timeout,
+    //  refresh answer, expected, expected /token requests). Error rows
+    //  first: a ladder (tidalt) shows up there as extra requests. Rows not
+    //  about timing use the production timeout, so a loaded machine can't
+    //  turn them into timeouts (spec 0003, Bugs).
+    let rows: Vec<(
+        &str,
+        AudioQuality,
+        ResponseTemplate,
+        Duration,
+        &str,
+        Expect,
+        usize,
+    )> = vec![
         (
             "503",
             HiResLossless,
             ResponseTemplate::new(503),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Error(StreamError::Auth(AuthError::Http {
                 status: 503,
@@ -157,6 +175,7 @@ async fn ac5_one_request() {
             "grant equal",
             HiResLossless,
             json(200, HIRES),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Granted(HiResLossless),
             0,
@@ -165,6 +184,7 @@ async fn ac5_one_request() {
             "grant lower",
             HiResLossless,
             json(200, HIGH),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Granted(High),
             0,
@@ -173,6 +193,7 @@ async fn ac5_one_request() {
             "401/4005",
             HiResLossless,
             json(401, NOT_AVAILABLE),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Error(StreamError::NotAvailable),
             0,
@@ -181,6 +202,7 @@ async fn ac5_one_request() {
             "500/999",
             Lossless,
             json(500, NOT_FOUND),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Error(StreamError::NotFound),
             0,
@@ -189,6 +211,7 @@ async fn ac5_one_request() {
             "other 500",
             Lossless,
             json(500, SERVER_500),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Error(StreamError::Server(500)),
             0,
@@ -197,6 +220,7 @@ async fn ac5_one_request() {
             "429",
             HiResLossless,
             ResponseTemplate::new(429),
+            RESOLVE_TIMEOUT,
             REFRESHED,
             Expect::Error(StreamError::Auth(AuthError::Http {
                 status: 429,
@@ -207,7 +231,8 @@ async fn ac5_one_request() {
         (
             "timeout",
             HiResLossless,
-            json(200, HIRES).set_delay(Duration::from_secs(5)),
+            json(200, HIRES).set_delay(HELD),
+            SHORT_TIMEOUT,
             REFRESHED,
             Expect::Transport,
             0,
@@ -216,15 +241,16 @@ async fn ac5_one_request() {
             "LoginRequired",
             HiResLossless,
             json(401, TOKEN_401),
+            RESOLVE_TIMEOUT,
             INVALID_GRANT,
             Expect::Error(StreamError::Auth(AuthError::LoginRequired)),
             1,
         ),
     ];
 
-    for (name, asked, response, refresh, expected, token_requests) in rows {
+    for (name, asked, response, timeout, refresh, expected, token_requests) in rows {
         let s = Setup::new().await;
-        let resolver = s.resolver.clone().with_timeout(Duration::from_millis(200));
+        let resolver = s.resolver.clone().with_timeout(timeout);
         Mock::given(method("GET"))
             .and(path(INFO_PATH))
             .respond_with(response)
