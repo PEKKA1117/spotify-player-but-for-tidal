@@ -239,3 +239,10 @@ Not verified:
 - Videos, mixes and radio among results (0011)
 - One-shot search from the command line (`tidal-player playback search …`)
 - Search suggestions / autocomplete as you type
+
+## Implementation notes (choices made where the spec was silent, 2026-10-08)
+
+- **Types**: `PageData::Search` holds `top_hit: Option<Box<TopHit>>` (boxed: a track is large and clippy's `large_enum_variant` flags the unboxed enum)
+- **API**: a `400` with a non-empty `userMessage` on `/search` or `/search/{type}` is `LibraryError::SearchRefused` (`Tidal refused the search: …`); without one it reads as any other status (`Tidal answered 400`). A top hit whose `value` cannot be read is no top hit (the lists still show); a body missing a list is malformed. Dropped Atmos-only tracks are not counted in `ListPage::hidden` (the title shows Tidal's total). All search code lives in `tidal-player-api::library` beside the helpers it shares
+- **Player**: `LibrarySettings::page_size_for(&LibraryRequest)` gives `search_page_size` for `Page(Search(_))` and `page_size` otherwise; `More` carries its own `limit`
+- **Client model**: `PageKind::Search(String)` holds the last sent query (empty before the first search); `Page::search: Option<Search { input, top_hit, focus: Input | TopHit | Windows }>`. The input keeps the text as typed; only the sent query is trimmed. While a search loads the focus stays on the input; a new search on the same page rebuilds it (results cleared, cursors at 0). `Tab` from the top hit goes to *Tracks*, `BackTab` from *Tracks* to the top hit when there is one. `Enter` while disconnected fails the page with the plain disconnected message (so 0006's re-send on `Welcome` matches it); a failure from the player shows `Could not search: <message>`. A paste goes into a focused search input (control characters dropped, capped at 200). The client treats search playlists as never own, whatever the data says
