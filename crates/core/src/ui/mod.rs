@@ -24,20 +24,25 @@
 //! Spec 0007: the search page is one more page of the history
 //! ([`PageKind::Search`]), its input, top hit and focus in
 //! [`Page::search`]; its keys live in [`search`].
+//!
+//! Spec 0008: keys are looked up in [`State::keymap`] ([`keymap`]); which
+//! command acts where is decided in `dispatch`.
 
 mod browse;
+mod dispatch;
+pub mod keymap;
 pub mod page;
 pub mod popup;
 pub mod search;
 
 use std::time::Duration;
 
-use crate::item::parse_item;
 use crate::library::{LibraryRequest, LibraryResponse};
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use keymap::{BaseKey, Keymap};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
     Row, Rows, Window, WindowKind, clock, group, largest_page,
@@ -64,7 +69,7 @@ impl Default for Steps {
 }
 
 /// A decoded key press (the terminal mapping lives in the binary).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     /// A printable character, upper case included (`G`, `O`, `A`).
     Char(char),
@@ -82,6 +87,19 @@ pub enum Key {
     BackTab,
     PageUp,
     PageDown,
+    Left,
+    Right,
+    Home,
+    End,
+    Insert,
+    Delete,
+    /// `f1`–`f12`.
+    F(u8),
+    /// Alt + a key (`M-a` is `Alt(BaseKey::Char('a'))`, `M-enter`).
+    Alt(BaseKey),
+    /// Control + a named key (`C-enter`); Control + a character is
+    /// [`Key::Ctrl`].
+    CtrlKey(BaseKey),
 }
 
 /// The open prompt (`o` / `O`): what has been typed and where it adds.
@@ -135,9 +153,14 @@ pub struct State {
     /// A message of the client's own (an invalid item, a command's error
     /// reply); shown instead of the player's while set.
     pub message: Option<String>,
-    /// `g` was pressed: a second `g` moves to the top, `l`, `y`, `a` and
-    /// `s` open the library, the favorite tracks, the actions popup and the
-    /// search page (spec 0007).
+    /// The bindings keys are looked up in (spec 0008); the defaults until
+    /// [`apply_keymap`].
+    pub keymap: Keymap,
+    /// The keys of a sequence being collected (spec 0008 "Sequences":
+    /// they start a binding and are none yet).
+    pub pending: Vec<Key>,
+    /// Whether a sequence is being collected (with the defaults: `g` was
+    /// pressed); always `!pending.is_empty()` (0004 AC21 reads it).
     pub pending_g: bool,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
@@ -176,6 +199,8 @@ impl Default for State {
             anchor: None,
             prompt: None,
             message: None,
+            keymap: Keymap::default(),
+            pending: Vec::new(),
             pending_g: false,
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
@@ -293,21 +318,23 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Puts `keymap` in force; its notice of skipped spotify-player names
+/// (spec 0008 decision 3), if any, becomes the message.
+pub fn apply_keymap(state: &mut State, keymap: Keymap) {
+    if let Some(notice) = keymap.notice() {
+        state.message = Some(notice);
+    }
+    state.keymap = keymap;
+    dispatch::set_pending(state, Vec::new());
+}
+
 /// Applies `action` to `state` and returns the effects the caller must run.
 pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
         Action::Key(key) => {
-            let mut effects = if state.popup.is_some() {
-                browse::popup_key(state, key)
-            } else if let Some(at) = state.prompt.as_ref().map(|p| p.at) {
-                prompt_key(state, at, key)
-            } else if state.whole_list.is_some() {
-                browse::whole_list_key(state, key)
-            } else {
-                key_press(state, key)
-            };
+            let mut effects = dispatch::key(state, key);
             // Nothing reaches a player that is not there (spec 0005).
             if state.connection != Connection::Connected {
                 effects.retain(|e| !matches!(e, Effect::Send(_) | Effect::Library { .. }));
@@ -382,186 +409,6 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             }
         },
     }
-}
-
-/// A key while the prompt is open: it edits the prompt, nothing else.
-fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
-    let Some(prompt) = state.prompt.as_mut() else {
-        return Vec::new();
-    };
-    match key {
-        Key::Char(c) => prompt.text.push(c),
-        Key::Backspace => {
-            prompt.text.pop();
-        }
-        Key::Esc => state.prompt = None,
-        Key::Enter => {
-            let text = std::mem::take(&mut prompt.text);
-            state.prompt = None;
-            if text.trim().is_empty() {
-                return Vec::new();
-            }
-            return match parse_item(&text) {
-                Ok(item) => vec![Effect::Send(Command::Open {
-                    items: vec![item],
-                    at: Some(at),
-                })],
-                Err(e) => {
-                    state.message = Some(e.to_string());
-                    Vec::new()
-                }
-            };
-        }
-        Key::Ctrl(_)
-        | Key::Up
-        | Key::Down
-        | Key::Tab
-        | Key::BackTab
-        | Key::PageUp
-        | Key::PageDown => {}
-    }
-    Vec::new()
-}
-
-/// A key with the prompt and popups closed (spec 0004 "Keys", spec 0006
-/// "Pages", "Playing and queueing from a page").
-fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
-    // The search input takes every key (spec 0007 "Input keys").
-    if search::input_focused(state) {
-        state.pending_g = false;
-        return search::input_key(state, key);
-    }
-    if std::mem::take(&mut state.pending_g) {
-        match key {
-            Key::Char('g') => {
-                if state.page().kind == PageKind::Queue {
-                    move_cursor(state, |_, _| 0);
-                    return Vec::new();
-                }
-                return browse::move_window_cursor(state, |_, _| 0);
-            }
-            Key::Char('l') => return browse::open(state, PageKind::Library),
-            Key::Char('y') => return browse::open(state, PageKind::FavoriteTracks),
-            Key::Char('a') => return browse::actions_on_selected(state),
-            Key::Char('s') => return search::open(state),
-            _ => {}
-        }
-    }
-    if let Some(effects) = search::window_key(state, key) {
-        return effects;
-    }
-    let volume = i8::try_from(state.steps.volume).unwrap_or(i8::MAX);
-    let seek = i64::try_from(state.steps.seek.as_millis()).unwrap_or(i64::MAX);
-    // Pages, focus and popups first; then the page's own keys; then
-    // volume and modes (they apply to the next load too) and playback keys
-    // (they need a queue).
-    let command = match key {
-        Key::Char('q') | Key::Ctrl('c') => return vec![Effect::Quit],
-        Key::Esc => return Vec::new(),
-        Key::Char('z') => return browse::open(state, PageKind::Queue),
-        Key::Backspace | Key::Ctrl('q') => return browse::back(state),
-        Key::Ctrl(' ') => return browse::actions_on_selected(state),
-        Key::Char('a') => return browse::actions_on_playing(state),
-        Key::Tab => return browse::cycle_focus(state, true),
-        Key::BackTab => return browse::cycle_focus(state, false),
-        Key::Char('[') => return browse::cycle_tab(state, false),
-        Key::Char(']') => return browse::cycle_tab(state, true),
-        Key::Ctrl('s') => Command::ToggleShuffle,
-        Key::Ctrl('r') => Command::CycleRepeat,
-        Key::Char('A') => Command::ToggleAutoplay,
-        Key::Char('+') => Command::ChangeVolume(volume),
-        Key::Char('-') => Command::ChangeVolume(-volume),
-        Key::Char('_') => Command::ToggleMute,
-        Key::Char('o') | Key::Char('O') => {
-            state.prompt = Some(Prompt {
-                at: if key == Key::Char('o') {
-                    InsertAt::End
-                } else {
-                    InsertAt::Next
-                },
-                text: String::new(),
-            });
-            return Vec::new();
-        }
-        Key::Char('g') => {
-            state.pending_g = true;
-            return Vec::new();
-        }
-        _ if state.page().kind != PageKind::Queue => {
-            if let Some(effects) = browse::browse_key(state, key) {
-                return effects;
-            }
-            match playback_command(key, seek) {
-                Some(command) if !state.queue().is_empty() => command,
-                _ => return Vec::new(),
-            }
-        }
-        _ if state.queue().is_empty() => return Vec::new(),
-        Key::Char('j') | Key::Down => {
-            move_cursor(state, |i, len| (i + 1).min(len - 1));
-            return Vec::new();
-        }
-        Key::Char('k') | Key::Up => {
-            move_cursor(state, |i, _| i.saturating_sub(1));
-            return Vec::new();
-        }
-        Key::Ctrl('f') | Key::PageDown => {
-            let height = state.list_height;
-            move_cursor(state, |i, len| (i + height).min(len - 1));
-            return Vec::new();
-        }
-        Key::Ctrl('b') | Key::PageUp => {
-            let height = state.list_height;
-            move_cursor(state, |i, _| i.saturating_sub(height));
-            return Vec::new();
-        }
-        Key::Char('G') => {
-            move_cursor(state, |_, len| len - 1);
-            return Vec::new();
-        }
-        Key::Enter => match state.cursor {
-            Some(entry) => Command::PlayEntry(entry),
-            None => return Vec::new(),
-        },
-        Key::Char('d') => match state.cursor {
-            Some(entry) => Command::RemoveFromQueue(entry),
-            None => return Vec::new(),
-        },
-        _ => match playback_command(key, seek) {
-            Some(command) => command,
-            None => return Vec::new(),
-        },
-    };
-    vec![Effect::Send(command)]
-}
-
-/// The playback keys of spec 0004 (they need a queue).
-fn playback_command(key: Key, seek: i64) -> Option<Command> {
-    Some(match key {
-        Key::Char(' ') => Command::TogglePause,
-        Key::Char('n') => Command::Next,
-        Key::Char('p') => Command::Previous,
-        Key::Char('>') => Command::SeekBy(seek),
-        Key::Char('<') => Command::SeekBy(-seek),
-        Key::Char('^') => Command::SeekTo(Duration::ZERO),
-        _ => return None,
-    })
-}
-
-/// Moves the cursor to `to(index, len)` (a non-empty queue), and keeps it
-/// in view.
-fn move_cursor(state: &mut State, to: impl Fn(usize, usize) -> usize) {
-    let queue = state.queue();
-    if queue.is_empty() {
-        return;
-    }
-    let index = state
-        .cursor
-        .and_then(|id| queue.iter().position(|e| e.id == id))
-        .unwrap_or(0);
-    let id = queue[to(index, queue.len()).min(queue.len() - 1)].id;
-    state.cursor = Some(id);
-    state.anchor = Some(id);
 }
 
 /// Takes the snapshot as is; keeps the cursor on its entry (clamped to

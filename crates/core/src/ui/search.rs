@@ -94,8 +94,8 @@ pub(super) fn input_key(state: &mut State, key: Key) -> Vec<Effect> {
         Key::Ctrl('c') => return vec![Effect::Quit],
         Key::Ctrl('q') => return browse::back(state),
         Key::Enter => return send(state),
-        Key::Tab => cycle(state, true),
-        Key::BackTab => cycle(state, false),
+        Key::Tab => return cycle(state, true),
+        Key::BackTab => return cycle(state, false),
         Key::Esc => {
             let page = state
                 .history
@@ -110,29 +110,13 @@ pub(super) fn input_key(state: &mut State, key: Key) -> Vec<Effect> {
     Vec::new()
 }
 
-/// A key on a search page while a window or the top hit has the focus:
-/// `/`, `Tab`/`BackTab` and `Enter` act here; `None` for the keys 0006's
-/// pages handle.
-pub(super) fn window_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
-    state.page().search.as_ref()?;
-    Some(match key {
-        Key::Char('/') => {
-            if let Some(search) = search_mut(state) {
-                search.focus = SearchFocus::Input;
-            }
-            Vec::new()
-        }
-        Key::Tab => {
-            cycle(state, true);
-            Vec::new()
-        }
-        Key::BackTab => {
-            cycle(state, false);
-            Vec::new()
-        }
-        Key::Enter => enter(state),
-        _ => return None,
-    })
+/// `Search` (`/`) on a search page: back to its input; elsewhere nothing
+/// (spec 0008: the in-page search of other pages is out of scope).
+pub(super) fn focus_input(state: &mut State) -> Vec<Effect> {
+    if let Some(search) = search_mut(state) {
+        search.focus = SearchFocus::Input;
+    }
+    Vec::new()
 }
 
 /// `Enter` on the input: the trimmed query, sent with a fresh ID; the page
@@ -161,13 +145,13 @@ fn send(state: &mut State) -> Vec<Effect> {
 
 /// `Tab`/`BackTab`: input → top hit (when shown) → each window → input,
 /// wrapping.
-fn cycle(state: &mut State, forward: bool) {
+pub(super) fn cycle(state: &mut State, forward: bool) -> Vec<Effect> {
     let page = state
         .history
         .last_mut()
         .expect("the queue page is never popped");
     let Some(search) = page.search.as_ref() else {
-        return;
+        return Vec::new();
     };
     let mut stops = vec![(SearchFocus::Input, page.focus)];
     if search.top_hit.is_some() {
@@ -188,13 +172,14 @@ fn cycle(state: &mut State, forward: bool) {
     };
     let (focus, window) = stops[next];
     page.focus_on(focus, window);
+    Vec::new()
 }
 
 /// `Enter` on a row or the top hit: an album, playlist or artist opens its
 /// page; a track replaces the queue with the loaded rows of *Tracks*,
 /// nothing fetched (spec 0007 decision 4), the top hit first when it is
 /// not among them.
-fn enter(state: &mut State) -> Vec<Effect> {
+pub(super) fn enter(state: &mut State) -> Vec<Effect> {
     let page = state.page();
     let Some(row) = page.selected() else {
         return Vec::new();
