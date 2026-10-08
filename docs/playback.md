@@ -1,3 +1,5 @@
+English | [繁體中文](zh-TW/playback.md)
+
 # Playing tracks
 
 `tidal-player` decodes Tidal's streams itself (FLAC and AAC, in pure Rust) and writes them to an ALSA device: through the system mixer by default, or straight to your DAC, bit-perfect, when you ask for it. Design: [spec 0003](specs/0003-playback-engine.md) (the engine) and [spec 0004](specs/0004-queue-and-controls.md) (the queue and the controls).
