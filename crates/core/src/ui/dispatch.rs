@@ -9,10 +9,13 @@ use crate::item::parse_item;
 use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, UiCommand};
-use super::{Effect, Key, PageKind, Prompt, State, browse, search};
+use super::{Effect, Key, PageKind, Prompt, State, browse, help, search};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
+    if state.help.is_some() {
+        return help::key(state, key);
+    }
     if let Some(effects) = fixed_key(state, key) {
         set_pending(state, Vec::new());
         return effects;
@@ -48,7 +51,7 @@ pub(super) fn set_pending(state: &mut State, pending: Vec<Key>) {
 /// Adds `key` to the collected keys: the binding they now name, if any.
 /// Keys that start no binding restart with `key` alone; there is no
 /// timeout (spotify-player's rule).
-fn resolve(state: &mut State, key: Key) -> Option<Binding> {
+pub(super) fn resolve(state: &mut State, key: Key) -> Option<Binding> {
     let mut keys = std::mem::take(&mut state.pending);
     keys.push(key);
     let keymap = &state.keymap;
@@ -82,6 +85,12 @@ fn run_binding(state: &mut State, binding: Binding) -> Vec<Effect> {
 /// Runs `command` where the UI is: in the open popup, prompt or whole-list
 /// load if there is one, else on the page; nothing where it does not act.
 pub(crate) fn run_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
+    // The help opens over a page or a popup; a prompt and a load keep
+    // their keys.
+    if command == UiCommand::OpenCommandHelp && state.prompt.is_none() && state.whole_list.is_none()
+    {
+        return help::open(state);
+    }
     if state.popup.is_some() {
         return browse::popup_command(state, command);
     }
