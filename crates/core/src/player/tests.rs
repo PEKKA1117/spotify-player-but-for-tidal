@@ -2086,3 +2086,42 @@ fn ac22_released_flag() {
 
 // Spec 0009 AC1–AC3: saving and restoring the playback state.
 mod persistence;
+
+/// Spec 0009 (AC6, AC7 through the runtime): a `Notice` becomes the
+/// player's message with one snapshot, changes nothing else, and is
+/// cleared like any message when the next track starts.
+#[test]
+fn notice_sets_message() {
+    let mut st = player();
+    let before = st.snapshot();
+    let fx = step(&mut st, PlayerInput::Notice("Could not save".into()));
+    assert_eq!(fx.len(), 1, "{fx:?}");
+    assert_eq!(st.snapshot().message.as_deref(), Some("Could not save"));
+    assert_eq!(
+        st.snapshot(),
+        crate::protocol::PlayerSnapshot {
+            message: Some("Could not save".into()),
+            ..before
+        }
+    );
+    // The same notice again changes nothing (no snapshot: `step` checks).
+    assert!(step(&mut st, PlayerInput::Notice("Could not save".into())).is_empty());
+
+    let fx = cmd(
+        &mut st,
+        C::LoadQueue {
+            tracks: tracks(&[1]),
+            start: 0,
+        },
+    );
+    let tag = fx
+        .iter()
+        .find_map(|e| match e {
+            PlayerEffect::Resolve { tag, .. } => Some(*tag),
+            _ => None,
+        })
+        .expect("a resolution");
+    resolved(&mut st, tag);
+    started(&mut st, tag);
+    assert_eq!(st.snapshot().message, None);
+}

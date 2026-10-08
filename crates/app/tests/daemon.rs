@@ -947,3 +947,232 @@ fn ac16_keymap_is_per_client() {
         vec![Effect::Send(PlayerCommand::ChangeVolume(-10))]
     );
 }
+
+// --- spec 0009: the remembered playback state ----------------------------------
+
+fn track(id: u64) -> tidal_player_core::Track {
+    use tidal_player_core::{AlbumRef, ArtistRef, Track, TrackId};
+    Track {
+        id: TrackId(id),
+        title: format!("Title {id}"),
+        version: None,
+        artists: vec![ArtistRef {
+            id: 1,
+            name: "Artist".into(),
+        }],
+        album: Some(AlbumRef {
+            id: 2,
+            title: "Album".into(),
+        }),
+        duration: Some(Duration::from_secs(296)),
+        streamable: true,
+    }
+}
+
+/// Connects and subscribes (retrying while the player starts): the
+/// `Welcome`'s snapshot.
+fn subscribe(socket: &Path) -> (Connection, PlayerSnapshot) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut conn = loop {
+        match Connection::connect(socket) {
+            Ok(conn) => break conn,
+            Err(e) => {
+                assert!(Instant::now() < deadline, "cannot connect: {e}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    };
+    conn.send(&ClientMessage::Subscribe).unwrap();
+    match conn.recv(Some(Duration::from_secs(5))) {
+        Ok(Some(ServerMessage::Welcome { snapshot, .. })) => (conn, snapshot),
+        other => panic!("expected a Welcome, got {other:?}"),
+    }
+}
+
+/// Sends `command` and waits for its reply: the last snapshot it caused.
+fn request(conn: &mut Connection, id: u64, command: PlayerCommand) -> Option<PlayerSnapshot> {
+    conn.send(&ClientMessage::Request { id, command }).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last = None;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match conn.recv(Some(left)) {
+            Ok(Some(ServerMessage::Event(Event::Player(s)))) => last = Some(s),
+            Ok(Some(ServerMessage::Reply { id: got, result })) if got == id => {
+                assert_eq!(result, Ok(()));
+                return last;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("no reply to request {id} within 10 s"),
+            Err(e) => panic!("waiting for the reply to {id}: {e}"),
+        }
+    }
+}
+
+fn is_stream_request(request: &wiremock::Request) -> bool {
+    request.url.path().ends_with("/playbackinfopostpaywall")
+}
+
+/// AC8: load a queue, shuffle on, repeat `queue`, volume 70, seek to 1:23,
+/// `daemon stop`; a new daemon's first `Welcome` is that state, stopped,
+/// and nothing reaches the API before the client's `TogglePause`, which
+/// resolves the current track. (`Play` at the saved position: the daemon
+/// has no device here; `player_runtime.rs` :: `ac8_play_at_saved_position`
+/// proves it with the fake engine.)
+#[test]
+fn ac8_daemon_resumes() {
+    use wiremock::matchers::{method, path_regex};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let machine = Machine::new();
+    // Streams never resolve in time: the first daemon stays loading, so
+    // the seek sets the position it starts at, without a device.
+    machine._tokio.block_on(
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/tracks/\d+/playbackinfopostpaywall$"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
+            .mount(&machine.server),
+    );
+    let mut daemon = machine.spawn(&["daemon"]);
+    let (mut conn, welcome) = subscribe(&machine.socket());
+    assert!(welcome.queue.is_empty(), "{welcome:?}");
+    let mut last = None;
+    for (id, command) in [
+        PlayerCommand::LoadQueue {
+            tracks: vec![track(11), track(12), track(13)],
+            start: 1,
+        },
+        PlayerCommand::ToggleShuffle,
+        PlayerCommand::CycleRepeat,
+        PlayerCommand::SetVolume(70),
+        PlayerCommand::SeekTo(Duration::from_secs(83)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        last = request(&mut conn, id as u64 + 1, command).or(last);
+    }
+    let saved = last.expect("snapshots");
+    assert_eq!(
+        (
+            saved.shuffle,
+            saved.repeat,
+            saved.volume,
+            saved.position,
+            saved.queue.len()
+        ),
+        (
+            true,
+            tidal_player_core::protocol::RepeatMode::Queue,
+            70,
+            Duration::from_secs(83),
+            3
+        ),
+        "{saved:?}"
+    );
+    assert_eq!(
+        machine.run_client(&["daemon", "stop"]),
+        (Some(0), String::new(), String::new())
+    );
+    assert_eq!(daemon.finish(Duration::from_secs(5)).0, Some(0));
+
+    let before = machine.requests().len();
+    let _daemon = machine.spawn(&["daemon"]);
+    let (mut conn, welcome) = subscribe(&machine.socket());
+    assert_eq!(
+        welcome,
+        PlayerSnapshot {
+            state: tidal_player_core::protocol::PlaybackState::Stopped,
+            ..saved.clone()
+        }
+    );
+    // Restoring fetches nothing.
+    std::thread::sleep(Duration::from_millis(300));
+    let urls = |from: usize| {
+        machine.requests()[from..]
+            .iter()
+            .map(|r| r.url.path().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(urls(before), Vec::<String>::new(), "requests before play");
+
+    request(&mut conn, 100, PlayerCommand::TogglePause);
+    let current = saved
+        .queue
+        .iter()
+        .find(|e| Some(e.id) == saved.current)
+        .map(|e| e.track.id.0)
+        .expect("a current entry");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let streams: Vec<String> = machine.requests()[before..]
+            .iter()
+            .filter(|r| is_stream_request(r))
+            .map(|r| r.url.path().to_owned())
+            .collect();
+        if !streams.is_empty() {
+            assert_eq!(
+                streams[0],
+                format!("/tracks/{current}/playbackinfopostpaywall")
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no stream request after play: {:?}",
+            urls(before)
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// AC10: only the player touches `playback.json`: clients sharing the
+/// player's state dir (as on one machine) leave it byte-for-byte as it
+/// was, and so does the player when nothing it remembers changed.
+#[test]
+fn ac10_client_leaves_playback_file() {
+    use tidal_player_core::protocol::QueueEntry;
+    use tidal_player_core::{EntryId, SavedPlayback};
+
+    let machine = Machine::new();
+    let saved = SavedPlayback {
+        entries: vec![QueueEntry {
+            id: EntryId(4),
+            track: track(11),
+            suggested: false,
+        }],
+        play_order: vec![EntryId(4)],
+        current: Some(EntryId(4)),
+        position_ms: 83_000,
+        volume: 70,
+        ..SavedPlayback::default()
+    };
+    let file = machine.state.path().join("playback.json");
+    std::fs::write(&file, serde_json::to_vec_pretty(&saved).unwrap()).unwrap();
+    let bytes = std::fs::read(&file).unwrap();
+
+    let mut daemon = machine.spawn(&["daemon"]);
+    let (_conn, welcome) = subscribe(&machine.socket());
+    assert_eq!(
+        (welcome.current, welcome.position, welcome.volume),
+        (Some(EntryId(4)), Duration::from_secs(83), 70),
+        "the player did not restore the file"
+    );
+    let shared = |args: &[&str]| {
+        let mut cmd = machine.client(args);
+        cmd.env("TIDAL_PLAYER_STATE_DIR", machine.state.path());
+        Running(cmd.spawn().unwrap()).output(Duration::from_secs(20))
+    };
+    let (code, _, stderr) = shared(&["playback", "status"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, _, stderr) = shared(&[]);
+    assert!(stderr.contains("terminal"), "{code:?}: {stderr}");
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "a client wrote it");
+
+    assert_eq!(
+        machine.run_client(&["daemon", "stop"]),
+        (Some(0), String::new(), String::new())
+    );
+    assert_eq!(daemon.finish(Duration::from_secs(5)).0, Some(0));
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "nothing changed");
+}

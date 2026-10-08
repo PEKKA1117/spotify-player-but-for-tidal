@@ -165,6 +165,10 @@ pub enum PlayerInput {
         tag: u64,
         result: Result<Vec<Track>, String>,
     },
+    /// A message from outside the player (spec 0009: restoring or saving
+    /// the playback state failed): shown as the player's message, like a
+    /// failure's, until the next track starts.
+    Notice(String),
 }
 
 /// Why a stream is resolved.
@@ -407,6 +411,7 @@ pub fn update(state: &mut PlayerState, input: PlayerInput) -> Vec<PlayerEffect> 
         PlayerInput::Engine(event) => state.on_engine(event, &mut fx),
         PlayerInput::Resolved { tag, result } => state.on_resolved(tag, result, &mut fx),
         PlayerInput::Suggestions { tag, result } => state.on_suggestions(tag, result, &mut fx),
+        PlayerInput::Notice(_) => {}
     }
     let after = state.snapshot();
     if after != before {

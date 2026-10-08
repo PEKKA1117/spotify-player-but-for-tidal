@@ -396,3 +396,55 @@ fn ac28_queue_flags() {
         run(&[flag, artist]).stderr(format!("Not a Tidal track, album or playlist: {artist}\n"));
     }
 }
+
+/// Spec 0009 AC9: `tidal-player play ITEM` neither reads nor writes the
+/// remembered state: an existing `playback.json` is left byte-for-byte as
+/// it was, and an empty state dir gets none.
+#[test]
+fn ac9_play_leaves_state_alone() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(MockServer::start());
+    rt.block_on(
+        Mock::given(method("GET"))
+            .and(path("/tracks/404/playbackinfopostpaywall"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "status": 401, "subStatus": 4005, "userMessage": "Asset is not ready for playback"
+            })))
+            .mount(&server),
+    );
+    let remembered = serde_json::to_vec(&tidal_player_core::SavedPlayback {
+        volume: 40,
+        shuffle: true,
+        ..tidal_player_core::SavedPlayback::default()
+    })
+    .unwrap();
+    for existing in [Some(remembered), None] {
+        let state = tempfile::tempdir().unwrap();
+        write_session_file(state.path());
+        let file = state.path().join("playback.json");
+        if let Some(bytes) = &existing {
+            std::fs::write(&file, bytes).unwrap();
+        }
+        let pass_file = state.path().join("pass");
+        std::fs::write(&pass_file, "test-passphrase\n").unwrap();
+        bin_in(state.path())
+            .args(["play", "404"])
+            .env("TIDAL_PLAYER_PASSPHRASE_FILE", &pass_file)
+            .env("TIDAL_PLAYER_API_BASE", server.uri())
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
+            .env_remove("TIDAL_PLAYER_QUALITY")
+            .env_remove("TIDAL_PLAYER_DEVICE")
+            .env_remove("TIDAL_PLAYER_REMEMBER_PLAYBACK")
+            .timeout(Duration::from_secs(30))
+            .assert()
+            .code(1)
+            .stderr("Track 404 is not available in NO\n");
+        match &existing {
+            Some(bytes) => assert_eq!(&std::fs::read(&file).unwrap(), bytes),
+            None => assert!(!file.exists(), "play created playback.json"),
+        }
+    }
+}
