@@ -30,7 +30,9 @@ use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
 use tidal_player_core::item::parse_item;
-use tidal_player_core::library::{DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse};
+use tidal_player_core::library::{
+    DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageRequest,
+};
 use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
@@ -147,9 +149,14 @@ impl Default for LibrarySettings {
 }
 
 impl LibrarySettings {
-    /// The page size [`Library::request`] gets for `request`.
-    pub fn page_size_for(&self, _request: &LibraryRequest) -> u32 {
-        self.page_size
+    /// The page size [`Library::request`] gets for `request`: the search
+    /// page size for a search page, else the library's (a `More` carries
+    /// its own `limit`).
+    pub fn page_size_for(&self, request: &LibraryRequest) -> u32 {
+        match request {
+            LibraryRequest::Page(PageRequest::Search(_)) => self.search_page_size,
+            _ => self.page_size,
+        }
     }
 }
 
