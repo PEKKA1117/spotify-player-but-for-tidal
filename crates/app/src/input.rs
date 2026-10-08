@@ -3,32 +3,47 @@
 //! `tidal_player_core::ui`; this only decodes crossterm's events.
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use tidal_player_core::ui::{Action, Key};
+use tidal_player_core::ui::{Action, BaseKey, Key};
 
-/// Maps a key press to the `Action` it triggers, if any: characters as
-/// typed (Shift already gives the upper-case one), Control + a letter, and
-/// the keys the TUI uses. Alt combinations and other keys are dropped.
+/// Maps a key press to the `Action` it triggers, if any (spec 0008 "Key
+/// sequences"): characters as typed (Shift already gives the upper-case
+/// one), Control + a character (lower case) or a named key, Alt + any key,
+/// and the named keys. Control + Alt together, `f13` and up, and other
+/// keys are dropped.
 pub fn key_to_action(key: KeyEvent) -> Option<Action> {
-    if key.modifiers.contains(KeyModifiers::ALT) {
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    if alt && ctrl {
         return None;
     }
-    let decoded = match key.code {
-        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Key::Ctrl(c.to_ascii_lowercase())
-        }
-        KeyCode::Char(c) => Key::Char(c),
-        KeyCode::Enter => Key::Enter,
-        KeyCode::Esc => Key::Esc,
-        KeyCode::Backspace => Key::Backspace,
-        KeyCode::Up => Key::Up,
-        KeyCode::Down => Key::Down,
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Key::BackTab,
-        KeyCode::Tab => Key::Tab,
+    let base = match key.code {
+        KeyCode::Char(c) => BaseKey::Char(c),
+        KeyCode::Enter => BaseKey::Enter,
+        KeyCode::Esc => BaseKey::Esc,
+        KeyCode::Backspace => BaseKey::Backspace,
+        KeyCode::Up => BaseKey::Up,
+        KeyCode::Down => BaseKey::Down,
+        KeyCode::Left => BaseKey::Left,
+        KeyCode::Right => BaseKey::Right,
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => BaseKey::BackTab,
+        KeyCode::Tab => BaseKey::Tab,
         // Shift-Tab: crossterm reports `BackTab` (with or without Shift).
-        KeyCode::BackTab => Key::BackTab,
-        KeyCode::PageUp => Key::PageUp,
-        KeyCode::PageDown => Key::PageDown,
+        KeyCode::BackTab => BaseKey::BackTab,
+        KeyCode::PageUp => BaseKey::PageUp,
+        KeyCode::PageDown => BaseKey::PageDown,
+        KeyCode::Home => BaseKey::Home,
+        KeyCode::End => BaseKey::End,
+        KeyCode::Insert => BaseKey::Insert,
+        KeyCode::Delete => BaseKey::Delete,
+        KeyCode::F(n @ 1..=12) => BaseKey::F(n),
         _ => return None,
+    };
+    let decoded = if alt {
+        Key::Alt(base)
+    } else if ctrl {
+        Key::ctrl(base)
+    } else {
+        base.key()
     };
     Some(Action::Key(decoded))
 }
@@ -76,11 +91,13 @@ mod tests {
         assert!(effects.as_ref().is_none_or(Vec::is_empty), "{effects:?}");
     }
 
-    /// 0004 AC20 and 0006 AC18: crossterm key events decode into the
-    /// core's keys: characters as typed (Shift gives the upper-case
-    /// character), Control + letter, and the named keys (`Tab`, `BackTab`
-    /// as crossterm reports Shift-Tab or as Shift + `Tab`, `Backspace`,
-    /// `PageUp`, `PageDown`); anything else is dropped.
+    /// 0004 AC20, 0006 AC18 and 0008 AC13: crossterm key events decode
+    /// into the core's keys: characters as typed (Shift gives the
+    /// upper-case character), Control + letter or named key, Alt + any
+    /// key, and the named keys (`Tab`, `BackTab` as crossterm reports
+    /// Shift-Tab or as Shift + `Tab`, `Backspace`, `PageUp`, `PageDown`,
+    /// `Left`, `Right`, `Home`, `End`, `Insert`, `Delete`, `F1`-`F12`);
+    /// anything else is dropped.
     #[test]
     fn ac18_key_events() {
         let none = KeyModifiers::NONE;
