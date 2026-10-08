@@ -11,7 +11,7 @@ use crate::library::{
 };
 use crate::track::{ArtistRef, Track};
 
-use super::search::Search;
+use super::search::{Search, SearchFocus};
 
 /// The history keeps at most this many pages above the queue (the queue at
 /// the bottom is never dropped).
@@ -205,6 +205,16 @@ pub enum Row<'a> {
 }
 
 impl<'a> Row<'a> {
+    /// The row a search's top hit acts as (spec 0007 decision 6).
+    pub fn top_hit(hit: &'a TopHit) -> Self {
+        match hit {
+            TopHit::Track(t) => Self::Track(t),
+            TopHit::Album(a) => Self::Album(a),
+            TopHit::Artist(a) => Self::Artist(a),
+            TopHit::Playlist(p) => Self::Playlist(p),
+        }
+    }
+
     /// The track of a track or credit row.
     pub fn track(self) -> Option<&'a Track> {
         match self {
@@ -505,6 +515,17 @@ pub fn largest_page(list: &ListRef) -> u32 {
     }
 }
 
+/// Whether `list` is one of a search's (sized by the search page size).
+pub fn is_search_list(list: &ListRef) -> bool {
+    matches!(
+        list,
+        ListRef::SearchTracks(_)
+            | ListRef::SearchAlbums(_)
+            | ListRef::SearchArtists(_)
+            | ListRef::SearchPlaylists(_)
+    )
+}
+
 /// One page of the history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
@@ -635,9 +656,57 @@ impl Page {
         self.focus = self.panes[at][self.tabs[at]];
     }
 
-    /// The focused window; `None` on the queue.
+    /// The focused window; `None` on the queue, and on a search page
+    /// while its input or top hit has the focus.
     pub fn focused(&self) -> Option<&Window> {
+        if !self.windows_focused() {
+            return None;
+        }
         self.windows.get(self.focus)
+    }
+
+    /// Whether a window has the focus (always, but on a search page).
+    pub fn windows_focused(&self) -> bool {
+        self.search
+            .as_ref()
+            .is_none_or(|s| s.focus == SearchFocus::Windows)
+    }
+
+    /// The row under the focus on a loaded page: the focused window's row
+    /// under its cursor, or a search's top hit.
+    pub fn selected(&self) -> Option<Row<'_>> {
+        if self.load != Load::Idle {
+            return None;
+        }
+        if let Some(search) = &self.search
+            && search.focus == SearchFocus::TopHit
+        {
+            return search.top_hit.as_ref().map(Row::top_hit);
+        }
+        self.focused()?.selected()
+    }
+
+    /// What a search's reply focuses (spec 0007 "Sending"): the top hit,
+    /// else the first non-empty window; `None` when there is no result
+    /// (or the page is loading or failed).
+    pub fn result_focus(&self) -> Option<(SearchFocus, usize)> {
+        let search = self.search.as_ref()?;
+        if self.load != Load::Idle {
+            return None;
+        }
+        if search.top_hit.is_some() {
+            return Some((SearchFocus::TopHit, self.focus));
+        }
+        let window = self.windows.iter().position(|w| !w.rows.is_empty())?;
+        Some((SearchFocus::Windows, window))
+    }
+
+    /// Gives the focus to `focus` (`window` when it is a window).
+    pub(super) fn focus_on(&mut self, focus: SearchFocus, window: usize) {
+        if let Some(search) = self.search.as_mut() {
+            search.focus = focus;
+        }
+        self.focus = window;
     }
 
     /// The window of `kind`, if the page has one.
@@ -750,6 +819,26 @@ impl Page {
                     ListItems::Albums(appears_on),
                 ]
             }
+            (
+                PageKind::Search(_),
+                PageData::Search {
+                    top_hit,
+                    tracks,
+                    albums,
+                    artists,
+                    playlists,
+                },
+            ) => {
+                if let Some(search) = self.search.as_mut() {
+                    search.top_hit = top_hit.map(|hit| *hit);
+                }
+                vec![
+                    ListItems::Tracks(tracks),
+                    ListItems::Albums(albums),
+                    ListItems::Artists(artists),
+                    ListItems::Playlists(playlists),
+                ]
+            }
             _ => return,
         };
         self.load = Load::Idle;
@@ -759,6 +848,13 @@ impl Page {
         for (window, items) in self.windows.iter_mut().zip(lists) {
             let limit = page_size.min(largest_page(&window.list));
             window.append(items, limit);
+        }
+        // A search focuses its result, else its input (spec 0007).
+        if self.search.is_some() {
+            let (focus, window) = self
+                .result_focus()
+                .unwrap_or((SearchFocus::Input, self.focus));
+            self.focus_on(focus, window);
         }
     }
 }

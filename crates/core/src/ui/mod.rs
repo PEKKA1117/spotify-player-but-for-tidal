@@ -20,6 +20,10 @@
 //! [`Action::LibraryReply`] and is applied to whatever asked with that ID.
 //! The list window's height (how near the end a cursor must come to load
 //! the next page) is [`State::list_height`], set by [`Action::Resize`].
+//!
+//! Spec 0007: the search page is one more page of the history
+//! ([`PageKind::Search`]), its input, top hit and focus in
+//! [`Page::search`]; its keys live in [`search`].
 
 mod browse;
 pub mod page;
@@ -131,8 +135,9 @@ pub struct State {
     /// A message of the client's own (an invalid item, a command's error
     /// reply); shown instead of the player's while set.
     pub message: Option<String>,
-    /// `g` was pressed: a second `g` moves to the top, `l`, `y` and `a`
-    /// open the library, the favorite tracks and the actions popup.
+    /// `g` was pressed: a second `g` moves to the top, `l`, `y`, `a` and
+    /// `s` open the library, the favorite tracks, the actions popup and the
+    /// search page (spec 0007).
     pub pending_g: bool,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
@@ -317,6 +322,8 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 prompt.text.extend(text);
             } else if let Some(Popup::NewPlaylist { name, .. }) = state.popup.as_mut() {
                 name.extend(text);
+            } else if state.popup.is_none() {
+                search::paste(state, &text.collect::<String>());
             }
             Vec::new()
         }
@@ -419,6 +426,11 @@ fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
 /// A key with the prompt and popups closed (spec 0004 "Keys", spec 0006
 /// "Pages", "Playing and queueing from a page").
 fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
+    // The search input takes every key (spec 0007 "Input keys").
+    if search::input_focused(state) {
+        state.pending_g = false;
+        return search::input_key(state, key);
+    }
     if std::mem::take(&mut state.pending_g) {
         match key {
             Key::Char('g') => {
@@ -431,8 +443,12 @@ fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
             Key::Char('l') => return browse::open(state, PageKind::Library),
             Key::Char('y') => return browse::open(state, PageKind::FavoriteTracks),
             Key::Char('a') => return browse::actions_on_selected(state),
+            Key::Char('s') => return search::open(state),
             _ => {}
         }
+    }
+    if let Some(effects) = search::window_key(state, key) {
+        return effects;
     }
     let volume = i8::try_from(state.steps.volume).unwrap_or(i8::MAX);
     let seek = i64::try_from(state.steps.seek.as_millis()).unwrap_or(i64::MAX);
