@@ -456,6 +456,8 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
         seek: player_settings.steps.seek,
     });
     state.page_size = player_settings.library.page_size;
+    // Spec 0006 "Pages": the TUI starts on the library.
+    tui_model::start_on_library(&mut state);
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),

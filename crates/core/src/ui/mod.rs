@@ -150,6 +150,8 @@ pub struct State {
     pub list_height: usize,
     /// The ID of the next library request (unique for the client's run).
     pub next_request: u64,
+    /// The start page waits for the first `Welcome` to be fetched.
+    pub start_pending: bool,
 }
 
 impl Default for State {
@@ -172,6 +174,7 @@ impl Default for State {
             page_size: DEFAULT_PAGE_SIZE,
             list_height: 20,
             next_request: 1,
+            start_pending: false,
         }
     }
 }
@@ -271,7 +274,11 @@ pub enum Effect {
 /// Puts the library over the queue as the start page (spec 0006 "Pages"),
 /// fetched on the first `Welcome`.
 pub fn start_on_library(state: &mut State) -> Vec<Effect> {
-    let _ = state;
+    let mut library = Page::new(PageKind::Library);
+    // ID 0 is never given to a request, so no reply lands here early.
+    library.load = Load::Loading { id: 0 };
+    state.history.push(library);
+    state.start_pending = true;
     Vec::new()
 }
 

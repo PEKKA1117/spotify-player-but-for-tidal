@@ -1066,7 +1066,9 @@ pub(super) fn disconnected(state: &mut State) {
 /// the player was gone.
 pub(super) fn reconnected(state: &mut State) -> Vec<Effect> {
     let mut effects = Vec::new();
-    if matches!(&state.page().load, Load::Failed(m) if m == DISCONNECTED || m == SHUT_DOWN) {
+    let start = std::mem::take(&mut state.start_pending);
+    if start || matches!(&state.page().load, Load::Failed(m) if m == DISCONNECTED || m == SHUT_DOWN)
+    {
         fetch_page(state, top(state), &mut effects);
     }
     effects
