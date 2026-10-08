@@ -1,6 +1,6 @@
 # 0009 — Persistence: resume where you left off
 
-- **Status**: approved (2026-10-08: every decision as proposed; the user asked for a library page cache, then dropped it: decision 3)
+- **Status**: implemented (2026-10-08; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the state directory, `logout`), 0004 (implemented: the player state), 0005 (implemented: one player per user, clients own nothing on disk), 0008 (implemented: `app.toml` and its precedence)
 - **User docs**: [`docs/playback.md`](../playback.md) gains "Resuming the last session"; [`docs/daemon.md`](../daemon.md) (a restarted daemon resumes), [`docs/config.md`](../config.md) (`remember_playback`), [`docs/login.md`](../login.md) (`logout` also forgets it) and their zh-TW copies (AC14)
@@ -162,9 +162,9 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 
 | AC | Test (file :: name) | What it asserts | Expected red |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/player/tests.rs` :: `ac1_saved_fields` (table), `ac1_saved_round_trip` | captured fields; JSON round-trip | stub `saved()` returns an empty `SavedPlayback` |
-| AC2 | `crates/core/src/player/tests.rs` :: `ac2_restore` (table), `ac2_restore_saved_identity` | restored snapshot, IDs, repairs, clamps; restore∘saved identity | stub `restore` returns `PlayerState::new` |
-| AC3 | `crates/core/src/player/tests.rs` :: `ac3_play_restored`, `ac3_restored_equals_reached` (table) | `EnginePlay` at the position, no seek; same effects as a reached state | stub restore drops the position, so `start_at` is 0 |
+| AC1 | `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_fields` (table), `ac1_saved_round_trip` | captured fields; JSON round-trip | stub `saved()` returns an empty `SavedPlayback` |
+| AC2 | `crates/core/src/player/tests/persistence.rs` :: `ac2_restore` (table), `ac2_restore_saved_identity` | restored snapshot, IDs, repairs, clamps; restore∘saved identity | stub `restore` returns `PlayerState::new` |
+| AC3 | `crates/core/src/player/tests/persistence.rs` :: `ac3_play_restored`, `ac3_restored_equals_reached` (table) | `EnginePlay` at the position, no seek; same effects as a reached state | stub restore drops the position, so `start_at` is 0 |
 | AC4 | `crates/app/src/persist.rs` :: `ac4_save_schedule` (table, fake clock) | write times per input sequence | stub scheduler writes on every change |
 | AC5 | `crates/app/src/persist.rs` :: `ac5_write_file`, `ac5_write_is_atomic` | path, modes, temp + rename, old file intact on a failed rename | stub writes `playback.json` in place |
 | AC6 | `crates/app/src/persist.rs` :: `ac6_load` (table) | result, `.bad` rename, messages | stub returns empty and renames nothing |
@@ -215,3 +215,13 @@ Assumptions, checked at acceptance: `rename(2)` within the state directory is at
 - A recently-played history (tidalt had one; it would be its own spec, with its page)
 - Migrating anything from tidalt's `tidal-cache.db`
 - MPRIS (0010), mixes and radio (0011), filter and sort (0012)
+
+## Implementation notes (choices made where the spec was silent, 2026-10-08)
+
+- **Restore**: a repeated entry ID keeps its first entry, then the play order must be a permutation (same length, no repeats, known IDs); a position with no known duration is kept; no current entry means `0:00`; a non-original play order with shuffle off is restored as saved. `restore` takes the saved autoplay; the binary applies `start_autoplay` (flag/environment over remembered) first. The next entry ID is the highest restored one plus one
+- **Schedule**: an urgent change (pause, stop, `SeekBy`/`SeekTo`, a changed current entry, a started track) and exit write nothing when the state equals the last write; a position-only change while not playing is coalesced (2 s); position writes while playing come at most every 30 s after the last write, with the newest position. The runtime derives *playing* as `Playing`, `Buffering` or `Loading`, and checks the schedule every loop iteration (`POLL`, 10 ms)
+- **Files**: the corrupt reason is `unsupported version N` or serde's message; a failed `.bad` rename is only logged. The save-failure message has no path; failures are logged with `tracing::warn!`. `logout` deletes the playback files before the session; if that fails it prints `Could not forget the playback state: …` on stderr and keeps its output and exit code
+- **Messages**: core gained `PlayerInput::Notice(String)`, which sets the player's message and broadcasts; the restore message is applied before any client exists, so the first `Welcome` carries it
+- **Wiring**: `PlayerRuntime::restored(…)` (daemon and standalone, built before the socket is bound) loads and saves; `PlayerRuntime::new` remembers nothing (`play` and the older tests)
+- **Tests**: AC8's "`Play` at the saved position" is proven with the fake engine in `player_runtime.rs :: ac8_play_at_saved_position` (the daemon under test has no audio device); `ac8_daemon_resumes` checks the `Welcome`, no mock request before play and the stream request after it. `ac9_play_leaves_state_alone` is a guard that passed in red (`play` never persisted; making it red would have needed contrived code). AC14's snapshots are `ac14_restored_80x24` and `ac14_restore_message_80x24`; `runtime_saves_on_schedule` checks the wiring of the schedule and of a failed write
+- **Cost**: each handled input (engine positions included) clones the queue for `saved()`; fine at normal sizes, a candidate for trimming if a 10 000-entry queue shows up in profiles

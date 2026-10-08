@@ -155,7 +155,7 @@ Numbers are provisional; each is drafted and approved on its own.
 - 0006 — Library: favorite tracks/albums/artists, playlists, artist and album pages
 - 0007 — Search
 - 0008 — Keymap & config: spotify-player-compatible key sequences and `app.toml`/`keymap.toml`
-- 0009 — Persistence: last session, volume, device, metadata cache
+- 0009 — Persistence: last session, volume, device, metadata cache (implemented as the playback state only; the device and caches were left out, see 0009 "Decisions")
 - 0010 — MPRIS2 / media keys
 - 0011 — Mixes & radio
 

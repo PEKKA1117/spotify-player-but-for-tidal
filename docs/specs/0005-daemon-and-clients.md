@@ -148,7 +148,7 @@ Queue: 2 of 12
 - It never opens the audio device before something plays (0003's engine opens it on `Play`)
 - `SIGTERM` or `SIGINT`, or a client's `Shutdown`: `Event::ShuttingDown` to every subscriber, the engine stops (device closed, reservation released), the socket is removed, exit 0
 - Login: the daemon's `Authenticator` status is broadcast as `Event::LoginRequired` / `LoginRestored` (0002 AC14); `Welcome` carries it. After `tidal-player login` in any terminal, the daemon picks the new session up (0002 AC9)
-- The queue starts empty; remembering it across restarts is 0009
+- The queue starts empty; since 0009 it is restored, stopped, from the last run
 
 **systemd user service.** `tidal-player daemon unit` prints a unit to stdout, with `ExecStart` set to the running binary's absolute path. The user installs it (`docs/daemon.md`):
 
@@ -256,7 +256,7 @@ Docs:
 | A TUI is open (standalone) and `systemctl --user start tidal-player` runs | The daemon exits 3; the unit does not restart it (tidalt #8). The daemon can start once the TUI quits |
 | The daemon runs, the user starts `tidal-player` | TUI client; quitting it leaves the music playing |
 | The standalone TUI quits while other TUI clients are attached | They show `The player shut down: waiting for it to come back…` and attach to the next player that starts |
-| `systemctl --user restart tidal-player` with clients attached | `ShuttingDown`, then the clients reconnect to the new daemon (empty queue until 0009) |
+| `systemctl --user restart tidal-player` with clients attached | `ShuttingDown`, then the clients reconnect to the new daemon (the queue restored, stopped, since 0009) |
 | The player crashes (panic, `SIGKILL`) | Clients see the connection drop and reconnect; the lock is gone with the process; the next player removes the stale socket |
 | A binary upgrade while the old daemon runs | New clients refuse it with the version message; nothing crashes on an unknown message |
 | Two `tidal-player --add-to-queue …` from a browser handler in quick succession | Both `Open`s are applied in the order received (AC7) |
@@ -345,7 +345,7 @@ Assumptions to check during implementation or at acceptance:
 ## Out of scope
 
 - MPRIS2, media keys, `playerctl` (0010)
-- Remembering the queue, position and volume across daemon restarts (0009)
+- Remembering the queue, position and volume across daemon restarts (done in 0009)
 - Socket activation, a system-wide (multi-user) daemon, remote clients over TCP
 - A `tidal://` URL handler and `.desktop` file (tidalt's `setup`)
 - Browsing (library, search) in a client: 0006/0007 decide whether it fetches through the player or with its own session

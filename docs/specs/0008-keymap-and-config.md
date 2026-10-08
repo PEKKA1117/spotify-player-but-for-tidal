@@ -317,7 +317,7 @@ Assumptions, checked at acceptance by hand: which `C-`/`M-` keys the user's term
 - The playback window's position and height (spotify-player's `[layout]` rest), the artist page's split
 - spotify-player's count prefix (`5j`) and mouse support
 - Configurable client credentials (decision 8)
-- Remembering anything across runs (0009), MPRIS (0010)
+- Remembering anything across runs (0009: the player's `remember_playback` key), MPRIS (0010)
 
 ## Implementation notes (choices made where the spec was silent, 2026-10-08)
 
