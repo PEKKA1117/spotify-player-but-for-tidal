@@ -611,7 +611,8 @@ fn ac8_help_filter() {
     let seek = vec!["SeekForward", "SeekBackward", "SeekStart"];
     let slash = || vec![Key::Char('/')];
     // (name, keys after `?`, rows still shown ("*all": every row), filter, typing)
-    let cases: Vec<(&str, Vec<Key>, Vec<&str>, &str, bool)> = vec![
+    type Case<'a> = (&'a str, Vec<Key>, Vec<&'a str>, &'a str, bool);
+    let cases: Vec<Case> = vec![
         (
             "by name",
             [slash(), typed("seek")].concat(),
@@ -825,7 +826,7 @@ fn ac8_help_no_other_key_acts() {
         Key::BackTab,
         Key::Backspace,
         Key::Ctrl('s'),
-        Key::Ctrl('c'),
+        Key::Ctrl('x'),
     ];
     for key in keys {
         let mut state = with_queue();

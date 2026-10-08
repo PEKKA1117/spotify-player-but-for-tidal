@@ -43,7 +43,7 @@ use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, Qu
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
-pub use help::{Help, HelpRow, HelpSection, help};
+pub use help::{Help, HelpRow, HelpSection, help, locate, no_match, visible};
 pub use keymap::{BaseKey, Keymap};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
@@ -348,6 +348,14 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             effects
         }
         Action::Paste(text) => {
+            // The help takes pasted text into its filter, and nothing else.
+            if let Some(open) = state.help.as_mut() {
+                if open.typing {
+                    open.filter.extend(text.chars().filter(|c| !c.is_control()));
+                    open.cursor = 0;
+                }
+                return Vec::new();
+            }
             // Line breaks and other control characters never reach the
             // prompt: a pasted link often ends with a newline.
             let text = text.chars().filter(|c| !c.is_control());
