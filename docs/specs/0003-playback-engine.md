@@ -1,6 +1,6 @@
 # 0003 — Playback engine: stream resolution, decode, ALSA output
 
-- **Status**: approved (2026-10-07)
+- **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented), 0002 (implemented; AC18 and AC19 are added by this work, see 0002 "Bugs")
 - **User docs**: [`docs/playback.md`](../playback.md) (written by this spec's implementation, AC27)
