@@ -2,7 +2,7 @@
 //! what (and key sequences such as `g g`) is decided by
 //! `tidal_player_core::ui`; this only decodes crossterm's events.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tidal_player_core::ui::{Action, Key};
 
 /// Maps a key press to the `Action` it triggers, if any: characters as
@@ -31,6 +31,18 @@ pub fn key_to_action(key: KeyEvent) -> Option<Action> {
         _ => return None,
     };
     Some(Action::Key(decoded))
+}
+
+/// Maps a terminal event to the `Action` it triggers, if any: a key press
+/// as [`key_to_action`] decodes it, and pasted text (bracketed paste) as
+/// one `Action::Paste` (spec 0007 AC11). Key releases, resizes and the
+/// rest are dropped.
+pub fn event_to_action(event: Event) -> Option<Action> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => key_to_action(key),
+        Event::Paste(text) => Some(Action::Paste(text)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -106,6 +118,8 @@ mod tests {
             (KeyCode::Char('q'), ctrl, Some(Key::Ctrl('q'))),
             (KeyCode::Char('z'), ctrl, Some(Key::Ctrl('z'))),
             (KeyCode::Char('c'), ctrl, Some(Key::Ctrl('c'))),
+            // 0007 AC11: `C-u` clears the search input.
+            (KeyCode::Char('u'), ctrl, Some(Key::Ctrl('u'))),
             (KeyCode::Home, none, None),
             (KeyCode::Char('x'), KeyModifiers::ALT, None),
         ];
@@ -116,5 +130,46 @@ mod tests {
                 "{code:?} {modifiers:?}"
             );
         }
+    }
+
+    /// 0007 AC11: pasted text (bracketed paste) becomes one
+    /// `Action::Paste` and reaches a focused search input as characters;
+    /// a key press decodes as before, a key release and a resize do
+    /// nothing.
+    #[test]
+    fn ac11_paste_reaches_the_search_input() {
+        use crossterm::event::KeyEventState;
+        let paste = Event::Paste("pierce the veil".into());
+        assert_eq!(
+            event_to_action(paste.clone()),
+            Some(Action::Paste("pierce the veil".into()))
+        );
+        let press = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(event_to_action(press), Some(Action::Key(Key::Char('q'))));
+        let release = Event::Key(KeyEvent {
+            code: KeyCode::Char('q'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Release,
+            state: KeyEventState::NONE,
+        });
+        assert_eq!(event_to_action(release), None);
+        assert_eq!(event_to_action(Event::Resize(80, 24)), None);
+
+        // Through the model: `g s`, then the paste, then `C-u`.
+        let mut state = State::default();
+        for key in [Key::Char('g'), Key::Char('s')] {
+            update(&mut state, Action::Key(key));
+        }
+        let effects: Vec<Effect> = event_to_action(paste)
+            .into_iter()
+            .flat_map(|action| update(&mut state, action))
+            .collect();
+        assert!(effects.is_empty(), "{effects:?}");
+        let input = |state: &State| state.page().search.as_ref().map(|s| s.input.clone());
+        assert_eq!(input(&state).as_deref(), Some("pierce the veil"));
+        let ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
+        let action = key_to_action(ctrl_u).expect("C-u decodes");
+        update(&mut state, action);
+        assert_eq!(input(&state).as_deref(), Some(""));
     }
 }
