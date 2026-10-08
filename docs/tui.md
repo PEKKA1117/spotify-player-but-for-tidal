@@ -1,6 +1,6 @@
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search).
 
 ## The screen
 
@@ -61,6 +61,7 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 | `z` | open the queue page |
 | `g l` | open the library |
 | `g y` | open your favorite tracks |
+| `g s` | open the [search](#search) page (on a search page: back to its input) |
 | `Backspace` or `Ctrl-q` | back to the previous page |
 | `Tab`, `Shift-Tab` | focus the next, previous pane of a page (on the artist page, the left or right half) |
 | `[`, `]` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
@@ -70,7 +71,7 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 | `Esc` | close a popup or the open prompt, or cancel a list that is loading; does nothing otherwise |
 | `q`, `Ctrl-c` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; `g l`, `g y` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y`, `g s` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
 While a popup is open, only its own keys act (see [Actions](#actions)); `Space`, `n`, `q` and the others do not reach the player.
 
@@ -85,6 +86,7 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Queue | `z`; `Backspace` from the library at start | the queue |
 | Library | `g l`; the page at start | Playlists, Albums, Artists |
 | Favorite tracks | `g y` | the tracks |
+| Search | `g s` | the input, the top hit, Tracks, Albums, Artists, Playlists (see [Search](#search)) |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
 | Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
@@ -133,6 +135,34 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 #### The role filter
 
 `f` in *All tracks* opens a popup with the four role categories (Performer, Songwriter, Producer, Engineer) as check boxes, all checked at first. `j`/`k` move, `Space` toggles one, `Enter` applies, `Esc` cancels. Only tracks where the artist has a checked role are shown, and the title says which are (`All tracks (548 · Performer, Songwriter · 37 hidden)`). More rows load as usual while you scroll. The filter lasts as long as the page is in the history.
+
+## Search
+
+`g s` opens the search page: a one-row input (`Search: `) with the cursor in it, a **top hit** row, and four windows, *Tracks* and *Albums* over *Artists* and *Playlists*.
+
+```
+│Search · "pierce the veil"                                                    │
+│Search: pierce the veil                                                       │
+│Top hit: Pierce The Veil · artist                                             │
+│┌Tracks (223)──────────────────────┐┌Albums (55)──────────────────────────────┐│
+││King For A Day    Pierce The Veil ││Collide With The Sky  Pierce The Veil 2012││
+││Hell Above        Pierce The Veil ││The Jaws Of Life      Pierce The Veil 2023││
+│┌Artists (7)───────────────────────┐┌Playlists (3)────────────────────────────┐│
+││Pierce The Veil                   ││Pierce The Veil Essentials          15   ││
+│…                                                                             │
+```
+
+**Typing.** While the input has the cursor every key types into it, so `q`, `n`, `Space` and `g` do not reach the player; paste works too. `Backspace` deletes the last character (on an empty input it does nothing), `Ctrl-u` clears the input, and a query stops at 200 characters. `Ctrl-c` still quits and `Ctrl-q` still goes back.
+
+**Searching.** `Enter` searches (an empty input does nothing). The windows say `Loading…`, then show Tidal's results with their totals, and the cursor moves to the top hit (else the first window with results). A new search on the same page replaces the results. Tidal's **top hit** is its best match, of any kind: `Pierce The Veil · artist`, `Collide With The Sky · album`, a track or a playlist; there is no top-hit row when Tidal names none.
+
+**Moving around.** `Tab` and `Shift-Tab` go input → top hit → Tracks → Albums → Artists → Playlists → input. On a window every key works as on any page (cursor keys, `Enter`, `Z`, `g a`, `Backspace`, …); `/` goes back to the input, and so does `g s`. `Esc` in the input moves to the results. Going back to a search page through the history shows its query and results as you left them; `g s` from another page opens a new, empty search page.
+
+**Results load as you scroll**, 20 at a time (`TIDAL_PLAYER_SEARCH_PAGE_SIZE`, 1–1000; see [Settings](playback.md#settings)), until the window holds all of Tidal's results (Tidal has a few hundred at most for a query). Tracks that exist only in Dolby Atmos are left out, as the player cannot play them, so a title's total can be a little higher than its rows.
+
+**Playing.** `Enter` on a result track plays it with the tracks **already loaded** in *Tracks* queued around it, in result order: right after a search that is 20 tracks; scroll further first to queue more. Nothing more is fetched for that queue. `Enter` on the top hit does the same for a track (a top-hit track that is not among the loaded rows plays first, the loaded rows after it) and opens the page of an album, artist or playlist. Albums, artists and playlists open their pages; `Z` and the [actions](#actions) work as on other pages (search playlists are never your own).
+
+Nothing matches: `No tracks found`, `No albums found`, `No artists found`, `No playlists found`. A failed search shows `Could not search: <reason>` in the page.
 
 ## Playing and queueing from a page
 
