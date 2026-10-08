@@ -62,7 +62,8 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 | `g l` | open the library |
 | `g y` | open your favorite tracks |
 | `Backspace` or `Ctrl-q` | back to the previous page |
-| `Tab`, `Shift-Tab` | focus the next, previous window of a page |
+| `Tab`, `Shift-Tab` | focus the next, previous pane of a page (on the artist page, the left or right half) |
+| `[`, `]` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
 | `g a` or `Ctrl-Space` | the [actions](#actions) on the selected row |
 | `a` | the actions on the playing track |
 | `f` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
@@ -79,14 +80,14 @@ The steps come from the environment: `TIDAL_PLAYER_VOLUME_STEP` (1–25 %, defau
 
 The area below the playback window shows one page at a time. Opening a page puts it on top of a **history**; `Backspace` (or `Ctrl-q`) goes back to the page under it, exactly as you left it (its rows, cursors and focus), without fetching again. Opening a page always fetches it fresh. The queue is always at the bottom of the history and cannot be closed; opening the page that is already on top does nothing, and the history keeps the last 50 pages.
 
-| Page | Opened with | Windows (`Tab` moves between them) |
+| Page | Opened with | Windows (`Tab` moves between panes) |
 |---|---|---|
 | Queue | `z`; the page at start | the queue |
 | Library | `g l` | Playlists, Albums, Artists |
 | Favorite tracks | `g y` | the tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
-| Artist | `Enter` on an artist; *Go to artist* | Top tracks, Albums, Appears on, All tracks |
+| Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
 
 Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
 
@@ -109,9 +110,9 @@ Each page has a title row above its windows: `Library`, `Favorite tracks · 362 
 A page with several windows draws them side by side when the frame is at least 60 columns wide inside:
 
 - **Library**: Playlists 40 %, Albums 40 %, Artists 20 %
-- **Artist**: *Top tracks* and *All tracks* share the left 60 % (the focused one of the two is shown, and its title names the other: `Top tracks (91) ‹Tab› All tracks`); *Albums* (albums, then EPs and singles) and *Appears on* share the right 40 % the same way
+- **Artist**: the left pane (60 %) has the tabs *Top tracks* and *All tracks*, the right pane (40 %) *Albums* (albums, then EPs and singles) and *Appears on*; a pane shows its active tab and its title lists the pane's tabs with the active one highlighted, then `[ ]`: `Top tracks (91) │ All tracks  [ ]` (a title too narrow for the other tab's name drops it)
 
-Below 60 columns only the focused window is drawn, its title followed by `‹Tab›`. `Tab` focuses the next window and `Shift-Tab` the previous, wrapping. Every window keeps its own cursor; the focused window's is highlighted and the others' are dimmed. Playlist rows show the number of tracks and a `♥` for playlists you follow; album rows the artists and the year (and `EP` or `Single`, when the window has room); tracks that Tidal does not stream in your country are dimmed, as the player will skip them.
+Below 60 columns only the focused window is drawn, its title followed by `‹Tab›` (on the artist page the tab list and `[ ]` come first, then `‹Tab›` for the other pane). `Tab` focuses the next pane and `Shift-Tab` the previous, wrapping, each on the tab it last showed; `[` and `]` switch the focused pane's tab (*All tracks* is fetched the first time it shows); they do nothing on pages whose panes have one tab. Every window keeps its own cursor; the focused window's is highlighted and the others' are dimmed. Playlist rows show the number of tracks and a `♥` for playlists you follow; album rows the artists and the year (and `EP` or `Single`, when the window has room); tracks that Tidal does not stream in your country are dimmed, as the player will skip them.
 
 ### Lists load as you scroll
 

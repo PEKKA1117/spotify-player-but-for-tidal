@@ -1271,7 +1271,7 @@ mod tests {
     /// The artist page with *All tracks* focused and its first page in.
     fn all_tracks(empty: bool) -> State {
         let mut state = artist_page(!empty);
-        let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Tab]);
+        let id = ask(&mut state, &[Key::Char(']')]);
         let page = if empty {
             list(vec![], 0, 37)
         } else {
@@ -1459,8 +1459,8 @@ mod tests {
             &text,
             &[
                 "Pierce The Veil",
-                "Top tracks (91) ‹Tab› All tracks",
-                "Albums (78) ‹Tab› Appears on",
+                "Top tracks (91) │ All tracks  [ ]",
+                "Albums (78) │ Appears on  [ ]",
                 "Song 1",
                 "Hold On Till",
                 "2010",
@@ -1476,14 +1476,14 @@ mod tests {
         assert_contains(
             &text,
             &[
-                "All tracks (548 · 37 hidden) ‹Tab›",
+                "All tracks (548 · 37 hidden)  [ ]",
                 "Hell Above",
                 "Albums (78)",
             ],
         );
-        // The other window's name when the half has room for it.
+        // The other tab's name when the pane has room for it.
         let wide = draw(&all_tracks(false), 120, 24);
-        assert_contains(&wide, &["All tracks (548 · 37 hidden) ‹Tab› Top tracks"]);
+        assert_contains(&wide, &["Top tracks │ All tracks (548 · 37 hidden)  [ ]"]);
         insta::assert_snapshot!("ac17_artist_all_tracks", text);
 
         // The role filter popup.
@@ -1583,13 +1583,13 @@ mod tests {
         let mut state = all_tracks(true);
         let text = draw(&state, 50, 20);
         assert_contains(&text, &["No credits (37 hidden)"]);
-        // Focus wraps: Top tracks, Albums, Appears on.
+        // `Tab` cycles the panes, `[`/`]` the tabs of the focused one.
         press(&mut state, &[Key::Tab]);
+        assert_contains(&draw(&state, 50, 20), &["No albums"]);
+        press(&mut state, &[Key::Tab]);
+        assert_contains(&draw(&state, 50, 20), &["No credits (37 hidden)"]);
+        press(&mut state, &[Key::Char('[')]);
         assert_contains(&draw(&state, 50, 20), &["No top tracks"]);
-        press(&mut state, &[Key::Tab]);
-        assert_contains(&draw(&state, 50, 20), &["No albums"]);
-        press(&mut state, &[Key::Tab]);
-        assert_contains(&draw(&state, 50, 20), &["No albums"]);
     }
 
     /// 50×20: only the focused window, its title followed by `‹Tab›`.
@@ -1609,7 +1609,10 @@ mod tests {
         assert!(!text.contains("Playlists (22)"), "{text}");
 
         let text = draw(&artist_page(true), 50, 20);
-        assert_contains(&text, &["Top tracks (91) ‹Tab›", "Song 1"]);
+        assert_contains(
+            &text,
+            &["Top tracks (91) │ All tracks  [ ] ‹Tab›", "Song 1"],
+        );
         assert!(!text.contains("Hold On Till May"), "{text}");
 
         // A page with one window has no `‹Tab›`.

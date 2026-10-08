@@ -501,6 +501,11 @@ pub struct Page {
     pub windows: Vec<Window>,
     /// The focused window's index.
     pub focus: usize,
+    /// The panes, in `Tab` order: the window indices of each pane's tabs.
+    /// Every page but the artist's has one pane per window.
+    pub panes: Vec<Vec<usize>>,
+    /// Each pane's active tab (an index into its `panes` entry).
+    pub tabs: Vec<usize>,
 }
 
 impl Page {
@@ -532,13 +537,61 @@ impl Page {
                 Window::new(WindowKind::AllTracks, ListRef::Credits(*id)),
             ],
         };
+        // The artist page: Top tracks | All tracks, Albums | Appears on.
+        let panes: Vec<Vec<usize>> = match &kind {
+            PageKind::Artist(_) => vec![vec![0, 3], vec![1, 2]],
+            _ => (0..windows.len()).map(|i| vec![i]).collect(),
+        };
+        let tabs = vec![0; panes.len()];
         Self {
             kind,
             header: None,
             load: Load::Idle,
-            windows,
             focus: 0,
+            panes,
+            tabs,
+            windows,
         }
+    }
+
+    /// The focused pane.
+    pub fn focused_pane(&self) -> usize {
+        self.panes
+            .iter()
+            .position(|pane| pane.contains(&self.focus))
+            .unwrap_or(0)
+    }
+
+    /// Focuses the next or previous pane, on its active tab, wrapping.
+    pub fn cycle_pane(&mut self, forward: bool) {
+        let count = self.panes.len();
+        if count < 2 {
+            return;
+        }
+        let at = self.focused_pane();
+        let next = if forward {
+            (at + 1) % count
+        } else {
+            (at + count - 1) % count
+        };
+        self.focus = self.panes[next][self.tabs[next]];
+    }
+
+    /// Shows the next or previous tab of the focused pane, wrapping.
+    pub fn cycle_tab(&mut self, forward: bool) {
+        let Some(at) = self.panes.iter().position(|p| p.contains(&self.focus)) else {
+            return;
+        };
+        let count = self.panes[at].len();
+        if count < 2 {
+            return;
+        }
+        self.tabs[at] = if forward {
+            (self.tabs[at] + 1) % count
+        } else {
+            (self.tabs[at] + count - 1) % count
+        };
+        self.focus = self.panes[at][self.tabs[at]];
     }
 
     /// The focused window; `None` on the queue.

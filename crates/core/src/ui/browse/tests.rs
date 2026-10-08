@@ -658,7 +658,7 @@ fn ac10_scroll_loads() {
     let effects = open(&mut state, &[Enter], artist_data(20));
     assert_eq!(effects, vec![], "credits asked with the page");
     assert_eq!(press(&mut state, &[Tab, Tab]), vec![]);
-    let (id, request) = one_request(&press(&mut state, &[Tab]));
+    let (id, request) = one_request(&press(&mut state, &[Char(']')]));
     assert_eq!(request, more(ListRef::Credits(20), 0, 50));
     // Rows: even IDs performer, odd songwriter, 7 producer.
     let credits: Vec<CreditedTrack> = (0..50)
@@ -682,7 +682,7 @@ fn ac10_scroll_loads() {
         id,
         LibraryResponse::Items(ListItems::Credits(page)),
     );
-    assert_eq!(press(&mut state, &[Tab, Tab, Tab, Tab]), vec![]);
+    assert_eq!(state.page().focus, 3);
     assert_eq!(window(&state, 3).title(), "All tracks (548 · 37 hidden)");
     // `f` opens the filter, all checked; `Esc` cancels it.
     assert_eq!(press(&mut state, &[Char('f')]), vec![]);
@@ -720,7 +720,7 @@ fn ac10_scroll_loads() {
     let (_, request) = one_request(&effects);
     assert_eq!(request, more(ListRef::Credits(20), 50, 50));
     // `f` is the filter's key in *All tracks* only.
-    assert_eq!(press(&mut state, &[Tab, Char('f')]), vec![]);
+    assert_eq!(press(&mut state, &[Char('['), Char('f')]), vec![]);
     assert_eq!(state.popup, None);
 }
 

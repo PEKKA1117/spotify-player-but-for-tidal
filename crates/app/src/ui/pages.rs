@@ -7,13 +7,12 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
 use tidal_player_core::library::AlbumKind;
 use tidal_player_core::ui::{
     Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, State, Window,
-    WindowKind,
 };
 
 use super::{Columns, draw_prompt, fit, pad, text_width};
@@ -38,14 +37,16 @@ pub(super) fn list_height(page: Rect) -> usize {
 }
 
 /// What a window's title says about the others.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Hint {
     /// The only window of its page.
     None,
     /// One of several, alone on the screen: `‹Tab›`.
     Tab,
-    /// Shares its half with another: `‹Tab› <other's name>`.
-    Other(WindowKind),
+    /// A pane of tabs (the window indices, in order; the slot's window is
+    /// the active one): `A (n) │ B  [ ]`, and `‹Tab›` when `tab` (only the
+    /// focused pane is on screen, other panes exist).
+    Tabs { tabs: Vec<usize>, tab: bool },
 }
 
 struct Slot {
@@ -87,15 +88,16 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     }
     let loading = matches!(page.load, Load::Loading { .. });
     for slot in slots(page, body) {
-        let Some(window) = page.windows.get(slot.window) else {
+        if slot.window >= page.windows.len() {
             continue;
-        };
+        }
         render_window(
             frame,
             slot.rect,
-            window,
+            slot.window,
+            &page.windows,
             slot.window == page.focus,
-            slot.hint,
+            &slot.hint,
             loading,
         );
     }
@@ -118,7 +120,7 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
         return vec![Slot {
             rect: body,
             window: focus,
-            hint: Hint::Tab,
+            hint: pane_hint(page, page.focused_pane(), true),
         }];
     }
     let split = |at: u16| {
@@ -130,7 +132,6 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
         };
         (left, right)
     };
-    let index = |kind| page.windows.iter().position(|w| w.kind == kind);
     match page.kind {
         PageKind::Library => {
             let w = body.width * 40 / 100;
@@ -153,25 +154,15 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
         }
         PageKind::Artist(_) => {
             let (left, right) = split(body.width * 60 / 100);
-            let focused = page.windows[focus].kind;
-            // The focused window of each half is the one shown; with the
-            // focus on the other half, the half keeps its first window.
-            let pick = |first, second| {
-                if focused == second {
-                    (second, first)
-                } else {
-                    (first, second)
-                }
-            };
-            let (l, l_other) = pick(WindowKind::TopTracks, WindowKind::AllTracks);
-            let (r, r_other) = pick(WindowKind::ArtistAlbums, WindowKind::AppearsOn);
-            [(left, l, l_other), (right, r, r_other)]
+            // Each pane shows its active tab.
+            [left, right]
                 .into_iter()
-                .filter_map(|(rect, kind, other)| {
+                .enumerate()
+                .filter_map(|(pane, rect)| {
                     Some(Slot {
                         rect,
-                        window: index(kind)?,
-                        hint: Hint::Other(other),
+                        window: *page.panes.get(pane)?.get(*page.tabs.get(pane)?)?,
+                        hint: pane_hint(page, pane, false),
                     })
                 })
                 .collect()
@@ -184,40 +175,83 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
     }
 }
 
+/// The hint of `pane`'s window: its tabs when it has several, else `‹Tab›`
+/// when alone on the screen.
+fn pane_hint(page: &Page, pane: usize, alone: bool) -> Hint {
+    let tabs = page.panes[pane].clone();
+    if tabs.len() > 1 {
+        Hint::Tabs {
+            tabs,
+            tab: alone && page.panes.len() > 1,
+        }
+    } else if alone {
+        Hint::Tab
+    } else {
+        Hint::None
+    }
+}
+
 fn render_window(
     frame: &mut Frame,
     area: Rect,
-    window: &Window,
+    active: usize,
+    windows: &[Window],
     focused: bool,
-    hint: Hint,
+    hint: &Hint,
     page_loading: bool,
 ) {
+    let window = &windows[active];
     let room = usize::from(area.width).saturating_sub(2);
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    let base = if focused { bold } else { dim };
     let title = match hint {
-        Hint::None => window.title(),
-        Hint::Tab => format!("{} {TAB}", window.title()),
-        Hint::Other(other) => {
-            let named = format!("{} {TAB} {}", window.title(), other.name());
-            // The other window's name is the first thing a narrow title
-            // gives up.
-            if text_width(&named) <= room {
-                named
+        Hint::None => Line::styled(fit(&window.title(), room), base),
+        Hint::Tab => Line::styled(fit(&format!("{} {TAB}", window.title()), room), base),
+        Hint::Tabs { tabs, tab } => {
+            let suffix = if *tab {
+                format!("  [ ] {TAB}")
             } else {
-                format!("{} {TAB}", window.title())
+                "  [ ]".to_owned()
+            };
+            // The active tab is highlighted; the others are named only.
+            let mut spans = Vec::new();
+            let mut text = String::new();
+            for (n, &at) in tabs.iter().enumerate() {
+                if n > 0 {
+                    spans.push(Span::styled(" │ ", base));
+                    text += " │ ";
+                }
+                let name = if at == active {
+                    let title = window.title();
+                    spans.push(Span::styled(
+                        title.clone(),
+                        base.add_modifier(Modifier::REVERSED),
+                    ));
+                    title
+                } else {
+                    let name = windows
+                        .get(at)
+                        .map_or(String::new(), |w| w.kind.name().to_owned());
+                    spans.push(Span::styled(name.clone(), base));
+                    name
+                };
+                text += &name;
+            }
+            spans.push(Span::styled(suffix.clone(), base));
+            text += &suffix;
+            if text_width(&text) <= room {
+                Line::from(spans)
+            } else {
+                // The other tabs' names are the first thing a narrow title
+                // gives up.
+                Line::styled(fit(&format!("{}{suffix}", window.title()), room), base)
             }
         }
     };
-    let dim = Style::new().add_modifier(Modifier::DIM);
     let block = Block::bordered()
         .border_style(if focused { Style::new() } else { dim })
-        .title(Line::styled(
-            fit(&title, usize::from(area.width).saturating_sub(2)),
-            if focused {
-                Style::new().add_modifier(Modifier::BOLD)
-            } else {
-                dim
-            },
-        ));
+        .title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.width == 0 || inner.height == 0 {

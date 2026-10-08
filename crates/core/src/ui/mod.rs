@@ -428,6 +428,8 @@ fn key_press(state: &mut State, key: Key) -> Vec<Effect> {
         Key::Char('a') => return browse::actions_on_playing(state),
         Key::Tab => return browse::cycle_focus(state, true),
         Key::BackTab => return browse::cycle_focus(state, false),
+        Key::Char('[') => return browse::cycle_tab(state, false),
+        Key::Char(']') => return browse::cycle_tab(state, true),
         Key::Ctrl('s') => Command::ToggleShuffle,
         Key::Ctrl('r') => Command::CycleRepeat,
         Key::Char('A') => Command::ToggleAutoplay,

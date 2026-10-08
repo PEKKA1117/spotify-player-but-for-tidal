@@ -160,19 +160,19 @@ pub(super) fn back(state: &mut State) -> Vec<Effect> {
     Vec::new()
 }
 
-/// `Tab`/`BackTab`: the next or previous window, wrapping.
+/// `Tab`/`BackTab`: the next or previous pane, wrapping.
 pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
     let index = top(state);
-    let page = &mut state.history[index];
-    let count = page.windows.len();
-    if count < 2 {
-        return Vec::new();
-    }
-    page.focus = if forward {
-        (page.focus + 1) % count
-    } else {
-        (page.focus + count - 1) % count
-    };
+    state.history[index].cycle_pane(forward);
+    let mut effects = Vec::new();
+    first_credits(state, index, &mut effects);
+    effects
+}
+
+/// `[`/`]`: the previous or next tab of the focused pane, wrapping.
+pub(super) fn cycle_tab(state: &mut State, forward: bool) -> Vec<Effect> {
+    let index = top(state);
+    state.history[index].cycle_tab(forward);
     let mut effects = Vec::new();
     first_credits(state, index, &mut effects);
     effects
