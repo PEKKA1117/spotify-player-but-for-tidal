@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use tidal_player_core::SavedPlayback;
+use tidal_player_core::player::SAVED_PLAYBACK_VERSION;
 
 /// The file's name in the state directory.
 pub const PLAYBACK_FILE: &str = "playback.json";
@@ -116,20 +117,74 @@ pub struct Loaded {
 /// Reads `<dir>/playback.json` (spec 0009 AC6). Never fails: a missing
 /// file is an empty start; an unreadable one says so; a corrupt one is
 /// renamed to `playback.json.bad` and says why.
-pub fn load(_fs: &dyn Fs, _dir: &Path) -> Loaded {
-    Loaded::default()
+pub fn load(fs: &dyn Fs, dir: &Path) -> Loaded {
+    let path = playback_path(dir);
+    let bytes = match fs.read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Loaded::default(),
+        Err(e) => {
+            tracing::warn!("cannot read {}: {e}", path.display());
+            return Loaded {
+                saved: None,
+                message: Some(format!(
+                    "Could not restore the playback state: {}: {e}",
+                    path.display()
+                )),
+            };
+        }
+    };
+    match parse(&bytes) {
+        Ok(saved) => Loaded {
+            saved: Some(saved),
+            message: None,
+        },
+        Err(reason) => {
+            tracing::warn!("corrupt {}: {reason}", path.display());
+            if let Err(e) = fs.rename(&path, &bad_path(dir)) {
+                tracing::warn!("cannot keep {} as {PLAYBACK_BAD}: {e}", path.display());
+            }
+            Loaded {
+                saved: None,
+                message: Some(format!(
+                    "Could not restore the playback state (kept as {PLAYBACK_BAD}): {reason}"
+                )),
+            }
+        }
+    }
+}
+
+/// The file's contents, or why they cannot be used: not JSON, a
+/// `version` other than [`SAVED_PLAYBACK_VERSION`], or a missing or
+/// wrong field.
+fn parse(bytes: &[u8]) -> Result<SavedPlayback, String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    if let Some(version) = value.get("version").and_then(serde_json::Value::as_u64)
+        && version != u64::from(SAVED_PLAYBACK_VERSION)
+    {
+        return Err(format!("unsupported version {version}"));
+    }
+    serde_json::from_slice(bytes).map_err(|e| e.to_string())
 }
 
 /// Writes `saved` to `<dir>/playback.json` through `playback.json.tmp`
 /// and a rename, creating the directory `0700` (spec 0009 AC5).
 pub fn save(fs: &dyn Fs, dir: &Path, saved: &SavedPlayback) -> io::Result<()> {
     let bytes = serde_json::to_vec(saved).map_err(io::Error::other)?;
-    fs.write_private(&playback_path(dir), &bytes)
+    fs.create_private_dir(dir)?;
+    let tmp = tmp_path(dir);
+    fs.write_private(&tmp, &bytes)?;
+    fs.rename(&tmp, &playback_path(dir))
 }
 
 /// Deletes `playback.json` and `playback.json.bad` (`logout`, spec 0009
 /// AC13); a missing file is fine.
-pub fn forget(_fs: &dyn Fs, _dir: &Path) -> io::Result<()> {
+pub fn forget(fs: &dyn Fs, dir: &Path) -> io::Result<()> {
+    for path in [playback_path(dir), bad_path(dir)] {
+        match fs.remove_file(&path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
     Ok(())
 }
 
@@ -184,35 +239,75 @@ impl<F: Fs> Persister<F> {
 
     /// [`load`], or nothing (no read) when off.
     pub fn load(&self) -> Loaded {
+        if !self.enabled {
+            return Loaded::default();
+        }
         load(&self.fs, &self.dir)
     }
 
     /// [`save`] (nothing when off), then [`Self::on_write_result`].
     pub fn save(&mut self, saved: &SavedPlayback) -> SaveResult {
-        let _ = save(&self.fs, &self.dir, saved);
-        SaveResult::Written
+        if !self.enabled {
+            return SaveResult::Disabled;
+        }
+        let result = save(&self.fs, &self.dir, saved);
+        let ok = result.is_ok();
+        let message = self.on_write_result(result);
+        if ok {
+            SaveResult::Written
+        } else {
+            SaveResult::Failed { message }
+        }
     }
 
     /// Records a write's result: the player's message on the first failure
     /// since the last success, `None` otherwise.
-    pub fn on_write_result(&mut self, _result: io::Result<()>) -> Option<String> {
-        None
+    pub fn on_write_result(&mut self, result: io::Result<()>) -> Option<String> {
+        match result {
+            Ok(()) => {
+                self.failing = false;
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "cannot save the playback state in {}: {e}",
+                    self.dir.display()
+                );
+                let first = !std::mem::replace(&mut self.failing, true);
+                first.then(|| format!("Could not save the playback state: {e}"))
+            }
+        }
     }
 }
 
 /// When to save (spec 0009 "Saving", AC4): a pure schedule over a
-/// monotonic clock the caller passes in.
+/// monotonic clock the caller passes in. A change other than the position
+/// is written [`COALESCE`] after the first unsaved change; the position
+/// alone, while playing, at most every [`POSITION_INTERVAL`] since the last
+/// write; an urgent change at once; nothing when nothing differs from the
+/// last write.
 #[derive(Debug, Clone)]
 pub struct SaveSchedule {
-    _last: Option<SavedPlayback>,
+    /// What the file holds; `None` after a failed write (unknown).
+    last: Option<SavedPlayback>,
+    /// When the file was last written (or the schedule made).
+    last_at: Instant,
+    /// The newest state not yet written.
+    pending: Option<SavedPlayback>,
+    deadline: Option<Instant>,
+    closed: bool,
 }
 
 impl SaveSchedule {
     /// `baseline` is what the file already holds (the restored state, or
     /// the empty state); nothing is written until something differs.
-    pub fn new(baseline: SavedPlayback, _now: Instant) -> Self {
+    pub fn new(baseline: SavedPlayback, now: Instant) -> Self {
         Self {
-            _last: Some(baseline),
+            last: Some(baseline),
+            last_at: now,
+            pending: None,
+            deadline: None,
+            closed: false,
         }
     }
 
@@ -220,32 +315,77 @@ impl SaveSchedule {
     /// stop, seek or track change.
     pub fn on_change(
         &mut self,
-        _now: Instant,
+        now: Instant,
         saved: SavedPlayback,
-        _playing: bool,
-        _urgent: bool,
+        playing: bool,
+        urgent: bool,
     ) -> Option<SavedPlayback> {
-        Some(saved)
+        if self.closed {
+            return None;
+        }
+        if self.last.as_ref() == Some(&saved) {
+            self.pending = None;
+            self.deadline = None;
+            return None;
+        }
+        if urgent {
+            return Some(self.written(now, saved));
+        }
+        let position_only = self.last.as_ref().is_some_and(|last| {
+            SavedPlayback {
+                position_ms: saved.position_ms,
+                ..last.clone()
+            } == saved
+        });
+        let due = if position_only && playing {
+            self.last_at + POSITION_INTERVAL
+        } else {
+            now + COALESCE
+        };
+        self.deadline = Some(self.deadline.map_or(due, |d| d.min(due)));
+        self.pending = Some(saved);
+        self.on_tick(now)
     }
 
     /// At (or after) [`Self::next_deadline`]: the state to write, if due.
-    pub fn on_tick(&mut self, _now: Instant) -> Option<SavedPlayback> {
-        None
+    pub fn on_tick(&mut self, now: Instant) -> Option<SavedPlayback> {
+        if self.closed || self.deadline.is_none_or(|d| d > now) {
+            return None;
+        }
+        let saved = self.pending.take()?;
+        Some(self.written(now, saved))
     }
 
     /// When [`Self::on_tick`] should next be called.
     pub fn next_deadline(&self) -> Option<Instant> {
-        None
+        self.deadline.filter(|_| !self.closed)
     }
 
     /// At exit: the state to write now (when it differs from the last
     /// write); nothing is written after this.
-    pub fn on_exit(&mut self, _now: Instant, saved: SavedPlayback) -> Option<SavedPlayback> {
-        Some(saved)
+    pub fn on_exit(&mut self, now: Instant, saved: SavedPlayback) -> Option<SavedPlayback> {
+        if self.closed {
+            return None;
+        }
+        let write = (self.last.as_ref() != Some(&saved)).then(|| self.written(now, saved));
+        self.closed = true;
+        self.pending = None;
+        self.deadline = None;
+        write
     }
 
     /// The last write failed: the next change writes again.
-    pub fn write_failed(&mut self) {}
+    pub fn write_failed(&mut self) {
+        self.last = None;
+    }
+
+    fn written(&mut self, now: Instant, saved: SavedPlayback) -> SavedPlayback {
+        self.last = Some(saved.clone());
+        self.last_at = now;
+        self.pending = None;
+        self.deadline = None;
+        saved
+    }
 }
 
 #[cfg(test)]
@@ -254,7 +394,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::os::unix::fs::PermissionsExt;
 
-    use tidal_player_core::player::{PlayerEffect, PlayerInput, SAVED_PLAYBACK_VERSION, update};
+    use tidal_player_core::player::{PlayerEffect, PlayerInput, update};
     use tidal_player_core::protocol::{Command, InsertAt, QueueEntry, RepeatMode};
     use tidal_player_core::{
         AlbumRef, ArtistRef, EntryId, PlayerConfig, PlayerState, Track, TrackId,
@@ -475,7 +615,8 @@ mod tests {
         exit_after_changes.sort_by_key(|(at, _)| *at);
 
         let base = sample().position_ms;
-        let rows: Vec<(&str, Vec<(u64, Step)>, Vec<(u64, u64)>)> = vec![
+        type Row = (&'static str, Vec<(u64, Step)>, Vec<(u64, u64)>);
+        let rows: Vec<Row> = vec![
             (
                 "a volume change: one write at +2 s",
                 vec![(0, Change(volume_down, false, false))],
@@ -666,7 +807,8 @@ mod tests {
                 File::Dir => std::fs::create_dir(&path).unwrap(),
                 File::Mode000 => {
                     std::fs::write(&path, "{}").unwrap();
-                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0)).unwrap();
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))
+                        .unwrap();
                     failures.push((Op::Read, io::Error::from_raw_os_error(13)));
                 }
                 File::Text(text) => std::fs::write(&path, text).unwrap(),

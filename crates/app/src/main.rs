@@ -252,6 +252,11 @@ fn login(store: &dyn SessionStore) -> Result<LoginOutcome> {
 fn logout(plan: &StorePlan) -> ExitCode {
     // Decided without a passphrase; `delete` never needs one either.
     let had_session = plan.has_stored_session();
+    // Spec 0009: the next account does not inherit this one's queue. A
+    // failure is reported but does not change the outcome.
+    if let Err(e) = tidal_player::persist::forget(&tidal_player::persist::RealFs, &plan.state_dir) {
+        eprintln!("Could not forget the playback state: {e}");
+    }
     if let Err(e) = plan.build_store().delete() {
         return report_store_error(&e);
     }

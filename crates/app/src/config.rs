@@ -155,6 +155,15 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
+            "remember_playback" => match value.as_bool() {
+                Some(on) => config.remember_playback = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
             "release_paused_secs" => {
                 config.release_paused = Some(if value.as_str() == Some("never") {
                     None

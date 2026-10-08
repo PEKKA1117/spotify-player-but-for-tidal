@@ -42,6 +42,7 @@ cp examples/app.toml examples/keymap.toml ~/.config/tidal-player/
 | `previous_restart_secs` | 整數 0–60 | `3` | `TIDAL_PLAYER_PREVIOUS_RESTART` | 播放器 |
 | `autoplay` | `true`、`false` | `false` | `--autoplay`、`TIDAL_PLAYER_AUTOPLAY` | 播放器 |
 | `release_paused_secs` | 整數 0–3600，或 `"never"` | `10` | `TIDAL_PLAYER_RELEASE_PAUSED` | 播放器 |
+| `remember_playback` | `true`、`false` | `true` | `TIDAL_PLAYER_REMEMBER_PLAYBACK`（`on`、`off`） | 播放器 |
 | `page_size` | 整數 1–10 000 | `100` | `TIDAL_PLAYER_PAGE_SIZE` | 播放器、TUI |
 | `search_page_size` | 整數 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | 播放器、TUI |
 | `hide_versions` | 字串陣列（`[]` 表示不隱藏任何東西） | [設定](playback.md#settings)中列出的十六個詞 | `TIDAL_PLAYER_HIDE_VERSIONS` | 播放器 |

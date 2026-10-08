@@ -398,8 +398,11 @@ impl Default for PlayerSettings {
 /// The autoplay a player starts with (spec 0009 "Precedence of autoplay"):
 /// flag > environment > remembered > `app.toml` > default. `remembered` is
 /// the saved state's autoplay, when a state was restored.
-pub fn start_autoplay(settings: &PlayerSettings, _remembered: Option<bool>) -> bool {
-    settings.player.autoplay
+pub fn start_autoplay(settings: &PlayerSettings, remembered: Option<bool>) -> bool {
+    match remembered {
+        Some(remembered) if !settings.autoplay_explicit => remembered,
+        _ => settings.player.autoplay,
+    }
 }
 
 /// The player settings from the environment (an empty variable counts as
@@ -481,22 +484,30 @@ fn resolve_with(
             .map(str::to_owned)
             .collect();
     }
-    settings.player.autoplay = if autoplay_flag {
-        true
-    } else {
-        match get(AUTOPLAY_VAR).as_deref() {
-            None => settings.player.autoplay,
-            Some(value) if value.eq_ignore_ascii_case("on") => true,
-            Some(value) if value.eq_ignore_ascii_case("off") => false,
-            Some(value) => {
-                return Err(SettingsError {
-                    setting: AUTOPLAY_VAR.into(),
-                    message: format!("expected on or off, got \"{value}\""),
-                });
-            }
-        }
-    };
+    if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
+        settings.remember_playback = on;
+    }
+    if autoplay_flag {
+        settings.player.autoplay = true;
+        settings.autoplay_explicit = true;
+    } else if let Some(on) = on_off(get(AUTOPLAY_VAR), AUTOPLAY_VAR)? {
+        settings.player.autoplay = on;
+        settings.autoplay_explicit = true;
+    }
     Ok(settings)
+}
+
+/// `on` or `off`, in any case; `None` when unset.
+fn on_off(value: Option<String>, var: &str) -> Result<Option<bool>, SettingsError> {
+    match value.as_deref() {
+        None => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("on") => Ok(Some(true)),
+        Some(value) if value.eq_ignore_ascii_case("off") => Ok(Some(false)),
+        Some(value) => Err(SettingsError {
+            setting: var.into(),
+            message: format!("expected on or off, got \"{value}\""),
+        }),
+    }
 }
 
 /// `app.toml` is the layer under the environment: its values replace the
@@ -513,6 +524,9 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(autoplay) = file.autoplay {
         settings.player.autoplay = autoplay;
+    }
+    if let Some(remember) = file.remember_playback {
+        settings.remember_playback = remember;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;
@@ -1887,7 +1901,8 @@ mod tests {
     fn ac12_autoplay_precedence() {
         type Env = &'static [(&'static str, &'static str)];
         // name, app.toml, environment, --autoplay, remembered, want
-        let rows: &[(&str, &str, Env, bool, Option<bool>, bool)] = &[
+        type Row = (&'static str, &'static str, Env, bool, Option<bool>, bool);
+        let rows: &[Row] = &[
             ("default", "", &[], false, None, false),
             ("app.toml", "autoplay = true", &[], false, None, true),
             (

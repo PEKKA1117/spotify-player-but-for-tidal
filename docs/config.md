@@ -39,6 +39,7 @@ Flat keys, every one optional.
 | `previous_restart_secs` | integer 0–60 | `3` | `TIDAL_PLAYER_PREVIOUS_RESTART` | player |
 | `autoplay` | `true`, `false` | `false` | `--autoplay`, `TIDAL_PLAYER_AUTOPLAY` | player |
 | `release_paused_secs` | integer 0–3600, or `"never"` | `10` | `TIDAL_PLAYER_RELEASE_PAUSED` | player |
+| `remember_playback` | `true`, `false` | `true` | `TIDAL_PLAYER_REMEMBER_PLAYBACK` (`on`, `off`) | player |
 | `page_size` | integer 1–10 000 | `100` | `TIDAL_PLAYER_PAGE_SIZE` | player, TUI |
 | `search_page_size` | integer 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | player, TUI |
 | `hide_versions` | array of strings (`[]` hides nothing) | the sixteen words of [Settings](playback.md#settings) | `TIDAL_PLAYER_HIDE_VERSIONS` | player |
