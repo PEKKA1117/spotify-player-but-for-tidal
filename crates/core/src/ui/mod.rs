@@ -351,10 +351,12 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
 }
 
 /// Puts `keymap` in force; its notice of skipped spotify-player names
-/// (spec 0008 decision 3), if any, becomes the message.
+/// (spec 0008 decision 3), if any, becomes the message, and stays it
+/// through the player's first `Welcome`.
 pub fn apply_keymap(state: &mut State, keymap: Keymap) {
     if let Some(notice) = keymap.notice() {
-        state.message = Some(notice);
+        state.message = Some(notice.clone());
+        state.notice = Some(notice);
     }
     state.keymap = keymap;
     dispatch::set_pending(state, Vec::new());
@@ -402,6 +404,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             state.login_required = login_required;
             state.message = None;
             apply_snapshot(state, snapshot);
+            // The keymap's notice outlives the first `Welcome` only.
+            if let Some(notice) = state.notice.take() {
+                state.message = Some(notice);
+            }
             browse::reconnected(state)
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),
