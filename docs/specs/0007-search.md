@@ -1,13 +1,13 @@
 # 0007 — Search
 
-- **Status**: draft (2026-10-08). Open decisions are under "Decisions (open)"; the API shapes under "Not verified" wait on a live-API probe
+- **Status**: draft (2026-10-08). decisions answered by the user (see "Decisions"); waits on `scripts/tidal-search-probe.sh` for the API shapes under "Not verified", then approval
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key (AC14)
 
 ## Context
 
-0006 lets the user browse what is already theirs. To play anything else they still paste a link or an ID (0004 `o`/`O`). This spec adds spotify-player's **search page**: type a query, get Tidal's matching tracks, albums, artists and playlists in four windows, and use them exactly as rows of any other page (play, queue, open, actions popup).
+0006 lets the user browse what is already theirs. To play anything else they still paste a link or an ID (0004 `o`/`O`). This spec adds spotify-player's **search page**: type a query, get Tidal's top hit and its matching tracks, albums, artists and playlists in four windows, and use them exactly as rows of any other page (play, queue, open, actions popup).
 
 It adds no new mechanism where 0006 has one: the search page is one more page in the history, fetched through the player (`PageRequest::Search`), its four lists load as you scroll (`ListRef::Search*`), and its rows are 0006's track, album, artist and playlist rows with 0006's keys and actions.
 
@@ -37,19 +37,20 @@ Read from tidalt's `internal/tidal/library.go` (`SearchAll`), `internal/tidal/ap
 
 ### The search page
 
-`g s` opens the **search page** (spotify-player's `SearchPage`), pushed on the history like any 0006 page; if the page on top is already a search page, `g s` gives its input the focus instead. The page has a one-row **input** above four windows:
+`g s` opens the **search page** (spotify-player's `SearchPage`), pushed on the history like any 0006 page; if the page on top is already a search page, `g s` gives its input the focus instead. The page has a one-row **input**, a one-row **Top hit** and four windows below them:
 
 | Window | Rows (0006's) | Title |
 |---|---|---|
+| **Top hit** | one row of any kind, with its kind (`Pierce The Veil · artist`); absent when Tidal names none (decision 6) | — |
 | **Tracks** | track rows | `Tracks (1 234)` |
 | **Albums** | album rows | `Albums (87)` |
 | **Artists** | artist rows | `Artists (12)` |
 | **Playlists** | playlist rows | `Playlists (300)` |
 
 - The page opens with an empty input that has the **focus**, and the windows show nothing. The title row reads `Search`; after a search, `Search · "<query>"`
-- **Input keys** (while the input has the focus): printable characters (`Space` included) and pasted text are appended; `Backspace` deletes the last character; `C-u` clears the input; `Enter` sends the search; `Tab`/`BackTab` move the focus to the windows; `Esc` gives the focus to *Tracks* if there are results, else does nothing. Every other key is ignored, so `q`, `n`, `Space`, `g …` and `Backspace` on an empty input do not act (`C-c` still quits, `C-q` still goes back)
-- **Sending**: `Enter` with an input that is empty after trimming spaces does nothing. Otherwise the trimmed query (at most 200 characters, longer input is not accepted: typing stops at 200) is sent as `Library { Page(Search(query)) }`; all four windows show `Loading…`, then the first page of each list, and the focus moves to *Tracks* (or to the first non-empty window). A new search on the same page replaces the results; cursors return to the top
-- **Windows**: `Tab`/`BackTab` cycle the focus over input → *Tracks* → *Albums* → *Artists* → *Playlists* → input, wrapping (spotify-player's order). With the focus on a window, every 0006 key works as on any page: cursor keys, `Enter`, `Z`, `g a`/`C-Space`, `a`, `Backspace` (back), `g l`, `z`, … `/` gives the input the focus again (spotify-player uses `/` for its in-page search popup, 0008; on this page it means "search again")
+- **Input keys** (while the input has the focus): printable characters (`Space` included) and pasted text are appended; `Backspace` deletes the last character; `C-u` clears the input; `Enter` sends the search; `Tab`/`BackTab` move the focus to the windows; `Esc` gives the focus to the window a search would focus (below) if there are results, else does nothing. Every other key is ignored, so `q`, `n`, `Space`, `g …` and `Backspace` on an empty input do not act (`C-c` still quits, `C-q` still goes back)
+- **Sending**: `Enter` with an input that is empty after trimming spaces does nothing. Otherwise the trimmed query (at most 200 characters, longer input is not accepted: typing stops at 200) is sent as `Library { Page(Search(query)) }`; all four windows show `Loading…`, then the first page of each list, and the focus moves to the *Top hit* when there is one, else to the first non-empty window of *Tracks*, *Albums*, *Artists*, *Playlists*, else stays on the input. A new search on the same page replaces the results; cursors return to the top
+- **Windows**: `Tab`/`BackTab` cycle the focus over input → *Top hit* (when shown) → *Tracks* → *Albums* → *Artists* → *Playlists* → input, wrapping (spotify-player's order, with the top hit first as in the Tidal apps). With the focus on a window, every 0006 key works as on any page: cursor keys, `Enter`, `Z`, `g a`/`C-Space`, `a`, `Backspace` (back), `g l`, `z`, … `/` gives the input the focus again (spotify-player uses `/` for its in-page search popup, 0008; on this page it means "search again")
 - **History**: going back to a search page shows its query, results, cursors and focus as they were, without searching again. `g s` from another page pushes a new, empty search page (the earlier one stays in the history below)
 - **Empty results**: a window with no results says `No tracks found`, `No albums found`, `No artists found`, `No playlists found`; a failed search shows its message in the page (`Could not search: <reason>`), as a failed 0006 page does
 
@@ -59,12 +60,13 @@ Each window is a 0006 list: the first page comes with the search (page size `TID
 
 ### Playing and queueing from results
 
-0006's table holds, with one difference for `Enter` on a track (decision 4):
+0006's table holds, with one difference for `Enter` on a track (decision 4), and the top hit acts as a row of its kind:
 
 | Key | On | Does |
 |---|---|---|
 | `Enter` | a track | Replaces the queue with the **loaded** rows of *Tracks*, in result order, and plays the chosen one: `LoadQueue { tracks, start: index }`. Nothing more is fetched first (a search for "love" can match thousands of tracks) |
-| `Enter` | an album, playlist or artist | Opens its page (0006) |
+| `Enter` | the top hit, a track | As `Enter` on that track in *Tracks* when it is among the loaded rows; otherwise `LoadQueue { [top hit] + the loaded rows of Tracks, start: 0 }` |
+| `Enter` | an album, playlist or artist (top hit or row) | Opens its page (0006) |
 | `Z`, `C-z` | a track, album or playlist | Adds it at the end of the queue (0006) |
 | `g a`, `C-Space` | any row | 0006's actions popup for that kind of row (a search playlist is never *own*: no *Delete playlist*, and *Add to favorites*/*Remove from favorites* are both shown) |
 
@@ -72,7 +74,8 @@ Each window is a 0006 list: the first page comes with the search (page size `TID
 
 0006's `Library` request, two additions:
 
-- `PageRequest::Search(String)` → `PageData::Search { tracks: ListPage<Track>, albums: ListPage<AlbumSummary>, artists: ListPage<ArtistRef>, playlists: ListPage<PlaylistSummary> }`
+- `PageRequest::Search(String)` → `PageData::Search { top_hit: Option<TopHit>, tracks: ListPage<Track>, albums: ListPage<AlbumSummary>, artists: ListPage<ArtistRef>, playlists: ListPage<PlaylistSummary> }`
+- `TopHit` = `Track(Track) | Album(AlbumSummary) | Artist(ArtistRef) | Playlist(PlaylistSummary)`
 - `ListRef::SearchTracks(String)`, `SearchAlbums(String)`, `SearchArtists(String)`, `SearchPlaylists(String)` for `More`
 
 Errors are 0006's (`Could not reach Tidal: …`, `Tidal answered 429: try again in a moment`, the session-expired message); a request Tidal refuses as invalid (`400`) shows `Tidal refused the search: <userMessage>`.
@@ -83,14 +86,14 @@ To be confirmed by the probe (see "Not verified"); proposed from tidalt's workin
 
 | Request | API call | Kept |
 |---|---|---|
-| `Page(Search(q))` | `GET /search?query={q}&types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit={n}&offset=0` | `tracks`, `albums`, `artists`, `playlists`: each `{limit, offset, totalNumberOfItems, items}`; `topHit` and `videos` ignored |
+| `Page(Search(q))` | `GET /search?query={q}&types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit={n}&offset=0` | `tracks`, `albums`, `artists`, `playlists`: each `{limit, offset, totalNumberOfItems, items}`; `topHit` `{type, value}` mapped by `type` (`TRACKS`, `ALBUMS`, `ARTISTS`, `PLAYLISTS`; any other type, e.g. `VIDEOS`, or no `topHit` → `None`); `videos` ignored |
 | `More { SearchTracks(q) … }` | `GET /search/{tracks,albums,artists,playlists}?query={q}&limit=…&offset=…` | `{limit, offset, totalNumberOfItems, items}` with bare items |
 
 Items map with 0006's mappings (tracks: 0004's, albums and artists: 0006's summaries, playlists: `own: false`). The query is URL-encoded by the HTTP client (spaces, `&`, `/`, non-ASCII). `countryCode` as everywhere.
 
 ### Rendering
 
-Below the title row: the input row (`Search: <query>▏` with a cursor block while it has the focus, dim without), then the four windows in a 2 × 2 grid when the inner width is at least 60 columns: *Tracks* | *Albums* over *Artists* | *Playlists*, each half the width and half the height (spotify-player's horizontal layout without its Shows/Episodes row). Below 60 columns only the focused window is drawn under the input, with `‹Tab›` as in 0006. Nothing panics at any size.
+Below the title row: the input row (`Search: <query>▏` with a cursor block while it has the focus, dim without), the top-hit row (`Top hit: <row as in its window> · <kind>`, highlighted when focused; no row when there is none), then the four windows in a 2 × 2 grid when the inner width is at least 60 columns: *Tracks* | *Albums* over *Artists* | *Playlists*, each half the width and half the height (spotify-player's horizontal layout without its Shows/Episodes row). Below 60 columns only the focused window is drawn under the input and the top hit, with `‹Tab›` as in 0006. Nothing panics at any size.
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -100,6 +103,7 @@ Below the title row: the input row (`Search: <query>▏` with a cursor block whi
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────  1:23 / 3:32│
 │Search · "pierce the veil"                                                    │
 │Search: pierce the veil                                                       │
+│Top hit: Pierce The Veil · artist                                             │
 │┌Tracks (300)──────────────────────┐┌Albums (41)──────────────────────────────┐│
 ││Hell Above        Pierce The Veil ││Collide With The Sky  Pierce The Veil 2012││
 ││King for a Day    Pierce The Veil ││Misadventures         Pierce The Veil 2016││
@@ -112,11 +116,11 @@ Below the title row: the input row (`Search: <query>▏` with a cursor block whi
 
 Protocol and types (`tidal_player_core`, pure):
 
-- **AC1** — `PageRequest::Search`, `PageData::Search` and the four `ListRef::Search*` variants survive a JSON round trip and 0005's codec (0006 AC1's tests, new rows)
+- **AC1** — `PageRequest::Search`, `PageData::Search`, every `TopHit` variant and the four `ListRef::Search*` variants survive a JSON round trip and 0005's codec (0006 AC1's tests, new rows)
 
 API (`tidal-player-api::library`, wiremock fixtures from the probe):
 
-- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit = min(page size, largest page)`, `offset=0`; returns the four lists with their totals; a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
+- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit = min(page size, largest page)`, `offset=0`; returns the four lists with their totals and the top hit (one row per `type`, an unknown `type` and a missing `topHit` → `None`); a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
 - **AC3** — `More` on each `ListRef::Search*` sends `GET /search/{type}` with `query`, `limit` clamped, `offset`; unwraps bare items; drops non-track items from tracks; a page beyond the deepest offset Tidal answers returns no items and `total` = rows so far (table over the four lists)
 
 Player (`tidal-player`):
@@ -127,15 +131,15 @@ Client model (`tidal_player_core::ui`, pure):
 
 - **AC5** — `g s` pushes an empty search page with the input focused and emits nothing; `g s` on a search page on top focuses its input and pushes nothing; back and forth through the history keeps query, results, cursors and focus with no request
 - **AC6** — Input editing (table): printable keys, `Space`, `q`, `n`, `g` append; `Backspace` deletes one character and on an empty input does nothing (no page pop); `C-u` clears; the 201st character is not appended; `C-c` quits; `C-q` goes back; no key but `Enter` emits a request, and none emits a player command
-- **AC7** — Sending: `Enter` on an empty or all-space input emits nothing; otherwise one `Library { Page(Search(trimmed)) }` with a fresh ID, windows `Loading…`; the reply fills the four windows and focuses *Tracks* (the first non-empty window; the input if all are empty); a second `Enter` before the first reply makes the first reply be dropped; a reply for an earlier search on a page lower in the history still lands on that page
-- **AC8** — Windows: `Tab`/`BackTab` cycle input → Tracks → Albums → Artists → Playlists → input; `/` on a window focuses the input; `Esc` on the input focuses *Tracks* when there are results; scrolling a window emits `More { SearchTracks(q) … }` (and the other three) per 0006 AC10's rules
-- **AC9** — Rows act as on 0006 pages (table): `Enter` on track *i* sends `LoadQueue { the loaded track rows, start: i }` with no `More` first; `Enter` on an album, playlist, artist pushes its page; `Z` sends 0006's `Open`; the actions popup lists 0006's actions, a search playlist as not own
+- **AC7** — Sending: `Enter` on an empty or all-space input emits nothing; otherwise one `Library { Page(Search(trimmed)) }` with a fresh ID, windows `Loading…`; the reply fills the top hit and the four windows and focuses the top hit, else the first non-empty window, else the input; a second `Enter` before the first reply makes the first reply be dropped; a reply for an earlier search on a page lower in the history still lands on that page
+- **AC8** — Windows: `Tab`/`BackTab` cycle input → Top hit (skipped when absent) → Tracks → Albums → Artists → Playlists → input; `/` on a window focuses the input; `Esc` on the input focuses what a reply would focus when there are results; scrolling a window emits `More { SearchTracks(q) … }` (and the other three) per 0006 AC10's rules
+- **AC9** — Rows act as on 0006 pages (table): `Enter` on track *i* sends `LoadQueue { the loaded track rows, start: i }` with no `More` first, and after the reply no `More` is sent for it; `Enter` on a top-hit track among the loaded rows does the same, one not among them sends `LoadQueue { [top hit] + loaded rows, start: 0 }`; `Enter` on a top-hit album, playlist or artist pushes its page; `Enter` on an album, playlist, artist pushes its page; `Z` sends 0006's `Open`; the actions popup lists 0006's actions, a search playlist as not own
 - **AC10** — Disconnected and session expired: `Enter` while disconnected fails the page with the disconnected message and sends nothing; the next `Welcome` re-sends the search if the page on top failed that way (0006 AC16's rules)
 
 TUI rendering and runtime (`tidal-player`):
 
 - **AC11** — Key decoding: `C-u` decodes; pasted text (bracketed paste) reaches the input as characters (`crates/app/src/input.rs`, table)
-- **AC12** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): empty search page with focused input; loading; results in four windows with totals; each `No … found`; a failed search; 50×20: input plus the focused window with `‹Tab›`. No panic from 0×0 to 120×40
+- **AC12** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): empty search page with focused input; loading; results with a top hit and four windows with totals; results without a top hit; each `No … found`; a failed search; 50×20: input plus the focused window with `‹Tab›`. No panic from 0×0 to 120×40
 - **AC13** — Wiring: an attached client's search is answered from the test player's wiremock API and opens no session store (0006 AC19's test, a `g s`, typed query, `Enter`)
 
 Docs:
@@ -146,13 +150,14 @@ Docs:
 
 | Situation | Behaviour |
 |---|---|
+| No top hit, or one of a kind not listed (a video) | No *Top hit* row; `Tab` skips it |
 | A query that matches nothing | Each window says `No … found`; the input keeps the focus |
 | A query with `&`, `/`, `#`, `?`, quotes, emoji or CJK | Sent URL-encoded; results as Tidal returns them (AC2) |
 | A pasted Tidal link as the query | Searched as text (opening links stays with `o`/`O`; see "Out of scope") |
 | `Enter` pressed repeatedly | Each sends a search; only the latest result is applied (AC7); the player runs a client's requests one at a time (0006 AC8) |
 | `429` | The page shows `Tidal answered 429: try again in a moment`; nothing retries |
 | Tidal reports a total it does not page to | The list stops where Tidal stops answering (AC3) |
-| Thousands of track results, `Enter` on one | Only the loaded rows are queued (decision 4) |
+| Thousands of track results, `Enter` on one | Only the loaded rows are queued, and nothing more is fetched for that queue later (decision 4) |
 | A result track not streamable | Dimmed, queued, skipped by the player (0004 AC7) |
 | Narrow terminal | Input plus one window (AC12); below 6 inner rows only the playback window (0004) |
 | Disconnected while searching | The page fails with the disconnected message; re-sent on reconnect if on top (AC10) |
@@ -195,31 +200,29 @@ Verified (2026-10-08, from code and docs):
 - tidalt's search (above) called `GET /v1/search` with `query`, `limit=20`, `countryCode`, `types=TRACKS,ARTISTS,ALBUMS,PLAYLISTS` and decoded `tracks.items`, `artists.items`, `albums.items`, `playlists.items`; it worked against the live API for tidalt's users, with the same client ID as ours
 - 0006's machinery covers the rest: `Library` requests run as jobs in the player, `ListPage` paging, request IDs, the actions popup
 
-Not verified (to be answered by a live-API search probe, run by the user, before approval):
+Not verified (to be answered by `scripts/tidal-search-probe.sh`, run by the user, before approval):
 
-- The exact `/v1/search` envelope (the `topHit`, `videos` keys; whether each list carries `totalNumberOfItems`); whether `types` limits the response to those lists
+- The exact `/v1/search` envelope (the `topHit` shape and its `type` values for each kind, the `videos` key; whether each list carries `totalNumberOfItems`); whether `types` limits the response to those lists
 - The largest `limit` per list on `/v1/search` and on `/v1/search/{type}`, and whether the per-type endpoints exist under that path
 - How deep `offset` goes: whether Tidal caps search results (e.g. at 300) whatever `totalNumberOfItems` says
 - Whether track results ever contain videos or non-track items
 - What an empty query, a one-letter query and a 200-character query answer
 - Whether playlist results carry `creator.id` (to mark the user's own playlists, decision 5)
 
-## Decisions (open)
+## Decisions (answered by the user, 2026-10-08; folded into the body above)
 
-Each has a recommendation; the body above follows it until the user answers.
-
-1. **Key to open search**: `g s` (spotify-player's `SearchPage`; recommended) — or `/` everywhere. Recommended `g s`, keeping `/` for 0008's in-page filter (spotify-player's `Search`)
-2. **When to search**: on `Enter` (spotify-player; recommended: one request per search, no rate-limit risk) — or as you type, after a 300 ms pause
-3. **Layout**: 2 × 2 grid Tracks | Albums over Artists | Playlists (recommended, spotify-player's horizontal layout) — or four windows side by side as the library's three
-4. **`Enter` on a result track**: queue the **loaded** track results after it (recommended: a search is not a list the user chose; thousands of matches would otherwise load first) — or 0006's rule (fetch every result first, then queue) — or play the track alone and let autoplay continue
-5. **Own playlists in results**: never marked own (recommended for now) — or compare `creator.id` with the user ID if the probe shows it, enabling *Delete playlist* on them
-6. **Tidal's top hit** (`topHit`): not shown (recommended; one more window for one row) — or as the first row of its window, highlighted
+1. **Key to open search**: *`g s`*, as proposed; `/` stays for 0008's in-page filter
+2. **When to search**: *on `Enter`*, as proposed
+3. **Layout**: *2 × 2 grid*, Tracks | Albums over Artists | Playlists
+4. **`Enter` on a result track**: *queue the current results only* ("just add current search results, do not fetch more after enqueuing"): the loaded rows of *Tracks*, nothing fetched before or after
+5. **Own playlists in results**: not answered; the body keeps the proposal (never marked own) until the probe shows whether results carry `creator.id`
+6. **Tidal's top hit**: *shown*: a one-row *Top hit* between the input and the windows, first in the `Tab` cycle and focused after a search, acting as a row of its kind
 
 ## Out of scope
 
 - An in-page filter (`/` on other pages, spotify-player's `Search` popup) and configurable keys (0008)
 - Search history and remembering the last query across runs (0009)
 - Opening a pasted Tidal link from the search input (stays with `o`/`O`)
-- Videos, mixes and radio among results (0011); Tidal's top hit (decision 6)
+- Videos, mixes and radio among results (0011)
 - One-shot search from the command line (`tidal-player playback search …`)
 - Search suggestions / autocomplete as you type
