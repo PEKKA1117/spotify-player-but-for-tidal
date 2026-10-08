@@ -70,6 +70,24 @@ impl Default for Steps {
     }
 }
 
+/// The library page's window widths in percent (spec 0008 "The library
+/// layout", `app.toml`'s `[layout] library`): *Playlists* and *Albums*;
+/// *Artists* takes the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryLayout {
+    pub playlist_percent: u16,
+    pub album_percent: u16,
+}
+
+impl Default for LibraryLayout {
+    fn default() -> Self {
+        Self {
+            playlist_percent: 40,
+            album_percent: 40,
+        }
+    }
+}
+
 /// A decoded key press (the terminal mapping lives in the binary).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -155,6 +173,12 @@ pub struct State {
     /// A message of the client's own (an invalid item, a command's error
     /// reply); shown instead of the player's while set.
     pub message: Option<String>,
+    /// The keymap's notice of skipped spotify-player names (spec 0008
+    /// decision 3), kept until the first `Welcome`, which shows it as the
+    /// message instead of clearing it.
+    pub notice: Option<String>,
+    /// The library page's window widths (spec 0008 "The library layout").
+    pub library_layout: LibraryLayout,
     /// The bindings keys are looked up in (spec 0008); the defaults until
     /// [`apply_keymap`].
     pub keymap: Keymap,
@@ -204,6 +228,8 @@ impl Default for State {
             anchor: None,
             prompt: None,
             message: None,
+            notice: None,
+            library_layout: LibraryLayout::default(),
             keymap: Keymap::default(),
             pending: Vec::new(),
             pending_g: false,
@@ -325,10 +351,12 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
 }
 
 /// Puts `keymap` in force; its notice of skipped spotify-player names
-/// (spec 0008 decision 3), if any, becomes the message.
+/// (spec 0008 decision 3), if any, becomes the message, and stays it
+/// through the player's first `Welcome`.
 pub fn apply_keymap(state: &mut State, keymap: Keymap) {
     if let Some(notice) = keymap.notice() {
-        state.message = Some(notice);
+        state.message = Some(notice.clone());
+        state.notice = Some(notice);
     }
     state.keymap = keymap;
     dispatch::set_pending(state, Vec::new());
@@ -376,6 +404,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             state.login_required = login_required;
             state.message = None;
             apply_snapshot(state, snapshot);
+            // The keymap's notice outlives the first `Welcome` only.
+            if let Some(notice) = state.notice.take() {
+                state.message = Some(notice);
+            }
             browse::reconnected(state)
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),

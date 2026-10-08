@@ -1,6 +1,6 @@
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help).
 
 ## The screen
 
@@ -39,43 +39,69 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 
 ## Keys
 
-| Key | Does |
-|---|---|
-| `Space` | play/pause |
-| `n` / `p` | next / previous track |
-| `>` / `<` | seek forward / backward by the seek step (5 s) |
-| `^` | back to the start of the track |
-| `Ctrl-s` | shuffle on/off |
-| `Ctrl-r` | repeat: off → queue → track → off |
-| `A` | autoplay on/off |
-| `+` / `-` | volume up / down by the volume step (5 %) |
-| `_` | mute / unmute |
-| `o` | add a link or track ID to the end of the queue |
-| `O` | add a link or track ID to play next |
-| `j` or `↓`, `k` or `↑` | move the cursor down, up |
-| `g g`, `G` | move the cursor to the top, to the last loaded row |
-| `Ctrl-f` or `PageDown`, `Ctrl-b` or `PageUp` | move the cursor down, up by a window's height |
-| `Enter` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)) |
-| `Z` or `Ctrl-z` | add the selected track, album or playlist to the end of the queue |
-| `d` | remove the entry under the cursor from the queue |
-| `z` | open the queue page |
-| `g l` | open the library |
-| `g y` | open your favorite tracks |
-| `g s` | open the [search](#search) page (on a search page: back to its input) |
-| `Backspace` or `Ctrl-q` | back to the previous page |
-| `Tab`, `Shift-Tab` | focus the next, previous pane of a page (on the artist page, the left or right half) |
-| `[`, `]` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
-| `g a` or `Ctrl-Space` | the [actions](#actions) on the selected row |
-| `a` | the actions on the playing track |
-| `f` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
-| `Esc` | close a popup or the open prompt, or cancel a list that is loading; does nothing otherwise |
-| `q`, `Ctrl-c` | quit (an attached TUI detaches; the player keeps playing) |
+The default keys, with the command each one runs. Every key can be changed in `keymap.toml`, and the settings below in `app.toml`: see [Configuration](config.md), which lists every command with its key syntax (`C-s` is Control-s, `M-p` Alt-p, `backtab` Shift-Tab).
+
+| Key | Command | Does |
+|---|---|---|
+| `space` | `ResumePause` | play/pause |
+| `n` / `p` | `NextTrack` / `PreviousTrack` | next / previous track |
+| `>` / `<` | `SeekForward` / `SeekBackward` | seek forward / backward by the seek step (5 s) |
+| `^` | `SeekStart` | back to the start of the track |
+| `C-s` | `Shuffle` | shuffle on/off |
+| `C-r` | `Repeat` | repeat: off → queue → track → off |
+| `A` | `ToggleAutoplay` | autoplay on/off |
+| `+` / `-` | `VolumeUp` / `VolumeDown` | volume up / down by the volume step (5 %) |
+| `_` | `Mute` | mute / unmute |
+| `o` | `AddToQueuePrompt` | add a link or track ID to the end of the queue |
+| `O` | `PlayNextPrompt` | add a link or track ID to play next |
+| `j`, `down`, `C-n` / `k`, `up`, `C-p` | `SelectNextOrScrollDown` / `SelectPreviousOrScrollUp` | move the cursor down, up |
+| `g g` / `G`, `end` | `SelectFirstOrScrollToTop` / `SelectLastOrScrollToBottom` | move the cursor to the top, to the last loaded row |
+| `C-f`, `page_down` / `C-b`, `page_up` | `PageSelectNextOrScrollDown` / `PageSelectPreviousOrScrollUp` | move the cursor down, up by a window's height |
+| `enter` | `ChooseSelected` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)); in a popup: run the entry |
+| `Z`, `C-z` | `AddSelectedItemToQueue` | add the selected track, album or playlist to the end of the queue |
+| `d` | `RemoveFromQueue` | remove the entry under the cursor from the queue |
+| `z` | `Queue` | open the queue page |
+| `g l` | `LibraryPage` | open the library |
+| `g y` | `LikedTrackPage` | open your favorite tracks |
+| `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
+| `/` | `Search` | on a search page: back to its input |
+| `backspace`, `C-q` | `PreviousPage` | back to the previous page |
+| `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | focus the next, previous pane of a page (on the artist page, the left or right half) |
+| `[`, `]` | `PreviousTab`, `NextTab` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
+| `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
+| `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
+| `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; does nothing otherwise |
+| `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
+| `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
 `g g` is two presses of `g`; `g l`, `g y`, `g s` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
-While a popup is open, only its own keys act (see [Actions](#actions)); `Space`, `n`, `q` and the others do not reach the player.
+While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name) take every printable key whatever the keymap says.
 
-The steps come from the environment: `TIDAL_PLAYER_VOLUME_STEP` (1–25 %, default 5) and `TIDAL_PLAYER_SEEK_STEP` (1–600 s, default 5); see [Settings](playback.md#settings). Keys cannot be changed yet (spec 0008).
+The steps are `volume_step` (1–25 %, default 5) and `seek_duration_secs` (1–600 s, default 5) in `app.toml`, or `TIDAL_PLAYER_VOLUME_STEP` and `TIDAL_PLAYER_SEEK_STEP`; see [Settings](playback.md#settings). An attached TUI uses its own `keymap.toml` and steps, not the daemon's.
+
+### The keys help
+
+`?` (or `C-h`) opens a popup titled `Keys` anywhere except in a text input, listing the keys that act **where you are**: the open popup's or the focused window's keys first (`Queue`, `Library · Albums`, `Search · Tracks`, …), then `Lists`, `Pages`, `Playback`, `Actions` (your `[[actions]]` bindings) and `App`. The keys shown are the effective ones, after `keymap.toml`, in the file's syntax, so they can be pasted into it. A key that would do nothing right now (playback keys on an empty queue, anything while disconnected) is dimmed.
+
+```
+┌Keys────────────────────────────────────────────────────────┐
+│ Library · Albums                                           │
+│   enter           open the album                           │
+│   Z  C-z          add to the end of the queue              │
+│   g a  C-space    actions on the selected row              │
+│ Lists                                                      │
+│   j  down  C-n    move down                                │
+│   …                                                        │
+│ / filter · enter run · esc close                           │
+└────────────────────────────────────────────────────────────┘
+```
+
+- The list keys (`j`, `k`, `C-f`, `G`, …) move the highlight over the keys
+- `/` starts a **filter**: type to keep the keys whose keys, command name or text contain what you typed (ignoring case); `backspace` deletes, `enter` stops typing and keeps the filter, `esc` clears it. Nothing matches: `No keys match "xyz"`
+- `enter` closes the help and **runs** the highlighted key, as if you had pressed it where you opened the help
+- `esc` (with no filter), `?` or `q` close it. While it is open no other key acts
 
 ## Pages
 
@@ -111,7 +137,7 @@ Each page has a title row above its windows: `Library`, `Favorite tracks · 362 
 
 A page with several windows draws them side by side when the frame is at least 60 columns wide inside:
 
-- **Library**: Playlists 40 %, Albums 40 %, Artists 20 %
+- **Library**: Playlists 40 %, Albums 40 %, Artists 20 % (`[layout] library = { playlist_percent, album_percent }` in [`app.toml`](config.md#apptoml) changes the first two; Artists takes the rest)
 - **Artist**: the left pane (60 %) has the tabs *Top tracks* and *All tracks*, the right pane (40 %) *Albums* (albums, then EPs and singles) and *Appears on*; a pane shows its active tab and its title lists the pane's tabs with the active one highlighted, then `[ ]`: `Top tracks (91) │ All tracks  [ ]` (a title too narrow for the other tab's name drops it)
 
 Below 60 columns only the focused window is drawn, its title followed by `‹Tab›` (on the artist page the tab list and `[ ]` come first, then `‹Tab›` for the other pane). `Tab` focuses the next pane and `Shift-Tab` the previous, wrapping, each on the tab it last showed; `[` and `]` switch the focused pane's tab (*All tracks* is fetched the first time it shows); they do nothing on pages whose panes have one tab. Every window keeps its own cursor; the focused window's is highlighted and the others' are dimmed. Playlist rows show the number of tracks and a `♥` for playlists you follow; album rows the artists and the year (and `EP` or `Single`, when the window has room); tracks that Tidal does not stream in your country are dimmed, as the player will skip them.
@@ -120,7 +146,7 @@ Below 60 columns only the focused window is drawn, its title followed by `‹Tab
 
 Every list is fetched a page at a time: the first page when the page opens, then the next when the cursor comes within one window height of the last loaded row. Meanwhile the last row says `Loading more…`; if that fails, the message takes its place, and the next cursor move near the end tries again. The total in a window's title is Tidal's, known from the start, so `Favorite tracks (362)` shows its size before the rows are all there. `G` goes to the last row loaded so far (and so loads the next page). A window's rows load while the music plays and never delay a key.
 
-The page size is `TIDAL_PLAYER_PAGE_SIZE` (1–10 000, default 100; the playlists and credits lists are fetched in pages of at most 50); see [Settings](playback.md#settings).
+The page size is `page_size` in `app.toml` or `TIDAL_PLAYER_PAGE_SIZE` (1–10 000, default 100; the playlists and credits lists are fetched in pages of at most 50); see [Settings](playback.md#settings).
 
 While a page is being fetched its windows say `Loading…`. A failed fetch shows its message in the page (`Could not load the library: Could not reach Tidal: …`, `Album 123 was not found`, the session-expired message); `Backspace` goes back, and opening the page again tries again. An empty list says so: `No playlists yet`, `No favorite albums yet`, `No favorite artists yet`, `No favorite tracks yet`, `This album has no tracks`, `This playlist has no tracks`, `No top tracks`, `No albums`, `No credits` (`No credits (37 hidden)` when the filters left nothing).
 

@@ -1,4 +1,4 @@
-//! Spec 0008 AC12 (app.toml half): a broken `app.toml` stops `daemon`,
+//! Spec 0008 AC12: a broken `app.toml` or `keymap.toml` stops `daemon`,
 //! `play` and the TUI with exit 2 and the message on stderr, before the
 //! player's socket or raw mode; a missing directory or file runs with the
 //! defaults. Everything is isolated: temp state, runtime and config
@@ -52,34 +52,78 @@ fn run(mut cmd: Command) -> (i32, String, String) {
     )
 }
 
-/// AC12: a broken `app.toml` exits 2 with `<path>: <message>` on stderr,
+/// AC12: a broken `app.toml` or `keymap.toml` exits 2 with `<path>: <message>` on stderr,
 /// for `daemon`, `play` and the TUI, with the folder given by the flag or
 /// by the variable; nothing was started (no runtime directory) and the
 /// text has no escape sequences.
 #[test]
 fn ac12_broken_config_exits_2() {
-    let cases: &[(&str, &[u8], &str)] = &[
+    // (case, file, content, what stderr says after `<path>: `)
+    let cases: &[(&str, &str, &[u8], &str)] = &[
         (
             "unknown key",
+            "app.toml",
             b"volum_step = 3\n",
             "unknown setting \"volum_step\"",
         ),
         (
             "range",
+            "app.toml",
             b"volume_step = 0\n",
             "invalid volume_step: expected an integer from 1 to 25, got 0",
         ),
         (
             "unknown layout key",
+            "app.toml",
             b"[layout]\nlibary = { playlist_percent = 30, album_percent = 30 }\n",
             "unknown setting \"layout.libary\"",
         ),
         (
             "syntax",
+            "app.toml",
             b"autoplay = true\nvolume_step = \n",
             "line 2, column 15",
         ),
-        ("not UTF-8", &[0xff, 0xfe, 0x00], ""),
+        ("not UTF-8", "app.toml", &[0xff, 0xfe, 0x00], ""),
+        // keymap.toml (0008 AC12, keymap half).
+        (
+            "unknown command",
+            "keymap.toml",
+            b"[[keymaps]]\ncommand = \"NextTrack\"\nkey_sequence = \"g n\"\n\n\
+              [[keymaps]]\ncommand = \"NxtTrack\"\nkey_sequence = \"x\"\n",
+            "keymaps[1]: unknown command \"NxtTrack\"",
+        ),
+        (
+            "bad key",
+            "keymap.toml",
+            b"[[keymaps]]\ncommand = \"Shuffle\"\nkey_sequence = \"ctrl+s\"\n",
+            "keymaps[0]: unknown key \"ctrl+s\" in \"ctrl+s\"",
+        ),
+        (
+            "prefix conflict",
+            "keymap.toml",
+            b"[[keymaps]]\ncommand = \"NextTrack\"\nkey_sequence = \"g\"\n",
+            "\"g\" is bound to NextTrack and is the start of \"g g\" (SelectFirstOrScrollToTop)",
+        ),
+        (
+            "keymap syntax",
+            "keymap.toml",
+            b"[[keymaps]]\ncommand = \"NextTrack\nkey_sequence = \"n\"\n",
+            "line 2, column",
+        ),
+        (
+            "unknown field",
+            "keymap.toml",
+            b"[[keymaps]]\ncomand = \"NextTrack\"\nkey_sequence = \"n\"\n",
+            "comand",
+        ),
+        (
+            "no quit key",
+            "keymap.toml",
+            b"[[keymaps]]\ncommand = \"None\"\nkey_sequence = \"q\"\n\n\
+              [[keymaps]]\ncommand = \"None\"\nkey_sequence = \"C-c\"\n",
+            "Quit has no key left",
+        ),
     ];
     // How each command gets the folder: flag after the command, or the
     // variable.
@@ -104,12 +148,12 @@ fn ac12_broken_config_exits_2() {
             cmd.env("TIDAL_PLAYER_CONFIG_DIR", dir);
         }),
     ];
-    for (case, content, message) in cases {
+    for (case, name, content, message) in cases {
         for (how, invoke) in invocations {
             let tmp = tempfile::tempdir().unwrap();
             let config = tmp.path().join("config");
             std::fs::create_dir(&config).unwrap();
-            let file = config.join("app.toml");
+            let file = config.join(name);
             std::fs::write(&file, content).unwrap();
             let mut cmd = bin(tmp.path());
             invoke(&mut cmd, &config);
@@ -187,4 +231,33 @@ fn ac12_missing_config_runs() {
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.contains("* default"), "{stdout}");
+}
+
+/// AC12: a `keymap.toml` with spotify-player commands this player does not
+/// have is not an error: `daemon` and `play` get as far as the login check
+/// (exit 1, not 2); the TUI shows the notice (the model's
+/// `ac12_unsupported_notice` and `ac12_notice_after_welcome`).
+#[test]
+fn ac12_unsupported_keymap_starts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    std::fs::create_dir(&config).unwrap();
+    std::fs::write(
+        config.join("keymap.toml"),
+        "[[keymaps]]\ncommand = \"PlayRandom\"\nkey_sequence = \"x\"\n",
+    )
+    .unwrap();
+    for args in [&["daemon", "-c"][..], &["play", "-c"][..]] {
+        let mut cmd = bin(tmp.path());
+        cmd.args(args).arg(&config);
+        if args[0] == "play" {
+            cmd.arg("1");
+        }
+        let (code, _, stderr) = run(cmd);
+        assert_eq!(
+            (code, stderr.as_str()),
+            (1, "Not logged in: run \"tidal-player login\"\n"),
+            "{args:?}"
+        );
+    }
 }

@@ -51,7 +51,7 @@ use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
-use tidal_player_core::ui::{self as tui_model, Action, Effect, State, update};
+use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, update};
 
 /// Terminal Tidal player.
 #[derive(Debug, Parser)]
@@ -434,6 +434,7 @@ fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_run
 fn tui_main(
     plan: &StorePlan,
     app: &AppConfig,
+    keymap: Keymap,
     args: &[String],
     mode: Option<InsertAt>,
 ) -> Result<ExitCode> {
@@ -452,7 +453,7 @@ fn tui_main(
             return Ok(ExitCode::from(2));
         }
     };
-    let state = tui_state(&player_settings);
+    let state = configured_tui_state(&player_settings, keymap);
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
@@ -475,7 +476,21 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     });
     state.page_size = player_settings.library.page_size;
     state.search_page_size = player_settings.library.search_page_size;
+    state.library_layout = player_settings.layout;
     tui_model::start_on_library(&mut state);
+    state
+}
+
+/// The TUI's model from the resolved settings (`app.toml` under the
+/// environment) and the client's own `keymap.toml` (spec 0008 AC15): the
+/// steps, the page sizes, the library layout and the keymap, whose notice
+/// shows once the player has answered.
+fn configured_tui_state(
+    player_settings: &tidal_player::play::PlayerSettings,
+    keymap: Keymap,
+) -> State {
+    let mut state = tui_state(player_settings);
+    tui_model::apply_keymap(&mut state, keymap);
     state
 }
 
@@ -746,6 +761,20 @@ fn main() -> Result<ExitCode> {
     } else {
         AppConfig::default()
     };
+    // keymap.toml too, in every mode that starts a player or a TUI (spec
+    // 0008 AC12): a broken file stops the daemon as well, though only a
+    // TUI uses the keys. `devices` starts neither and does not read it.
+    let keymap = if reads_config && !matches!(command, Some(Command::Devices)) {
+        match config::load_keymap_toml(&config_dir) {
+            Ok(keymap) => keymap,
+            Err(e) => {
+                eprintln!("{e}");
+                return Ok(ExitCode::from(2));
+            }
+        }
+    } else {
+        Keymap::default()
+    };
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
         Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan, &app),
@@ -766,7 +795,7 @@ fn main() -> Result<ExitCode> {
         }
         Some(Command::Play(args)) => Ok(play(&plan, &app, &args)),
         Some(Command::Devices) => Ok(devices(&app)),
-        None => tui_main(&plan, &app, &items, mode),
+        None => tui_main(&plan, &app, keymap, &items, mode),
     }
 }
 
@@ -814,5 +843,112 @@ mod tests {
         assert_eq!(state.page_size, 33);
         assert_eq!(state.search_page_size, 7);
         assert_eq!(state.page().kind, tidal_player_core::ui::PageKind::Library);
+    }
+    /// 0008 AC15: the TUI's state takes its steps, page sizes, library
+    /// layout and keymap from the config directory, the environment over
+    /// `app.toml` (table: defaults, a file, a variable over a file).
+    #[test]
+    fn ac15_tui_state_from_config() {
+        use tidal_player_core::ui::keymap::{Binding, UiCommand};
+        use tidal_player_core::ui::{Key, LibraryLayout};
+
+        const APP: &str = "volume_step = 10\nseek_duration_secs = 30\npage_size = 50\n\
+            search_page_size = 7\n[layout]\nlibrary = { playlist_percent = 30, album_percent = 50 }\n";
+        const KEYMAP: &str = "[[keymaps]]\ncommand = \"Mute\"\nkey_sequence = \"n\"\n\n\
+            [[keymaps]]\ncommand = \"PlayRandom\"\nkey_sequence = \"x\"\n";
+        struct Row {
+            name: &'static str,
+            files: bool,
+            env: &'static [(&'static str, &'static str)],
+            volume: u8,
+            seek: u64,
+            page_size: u32,
+            search_page_size: u32,
+            layout: (u16, u16),
+            n: UiCommand,
+            message: Option<&'static str>,
+        }
+        let rows = [
+            Row {
+                name: "defaults",
+                files: false,
+                env: &[],
+                volume: 5,
+                seek: 5,
+                page_size: 100,
+                search_page_size: 20,
+                layout: (40, 40),
+                n: UiCommand::NextTrack,
+                message: None,
+            },
+            Row {
+                name: "a file",
+                files: true,
+                env: &[],
+                volume: 10,
+                seek: 30,
+                page_size: 50,
+                search_page_size: 7,
+                layout: (30, 50),
+                n: UiCommand::Mute,
+                message: Some(
+                    "keymap.toml: 1 spotify-player command not supported here: PlayRandom",
+                ),
+            },
+            Row {
+                name: "a variable over a file",
+                files: true,
+                env: &[
+                    ("TIDAL_PLAYER_VOLUME_STEP", "3"),
+                    ("TIDAL_PLAYER_PAGE_SIZE", "9"),
+                ],
+                volume: 3,
+                seek: 30,
+                page_size: 9,
+                search_page_size: 7,
+                layout: (30, 50),
+                n: UiCommand::Mute,
+                message: Some(
+                    "keymap.toml: 1 spotify-player command not supported here: PlayRandom",
+                ),
+            },
+        ];
+        for row in rows {
+            let dir = tempfile::tempdir().unwrap();
+            if row.files {
+                std::fs::write(config::app_toml_path(dir.path()), APP).unwrap();
+                std::fs::write(config::keymap_toml_path(dir.path()), KEYMAP).unwrap();
+            }
+            let app = config::load_app_toml(dir.path()).unwrap();
+            let keymap = config::load_keymap_toml(dir.path()).unwrap();
+            let env = |key: &str| {
+                row.env
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| (*v).to_owned())
+            };
+            let settings = resolve_player_config_with(&app, env).unwrap();
+            let state = configured_tui_state(&settings, keymap);
+            let name = row.name;
+            assert_eq!(state.steps.volume, row.volume, "{name}");
+            assert_eq!(state.steps.seek, Duration::from_secs(row.seek), "{name}");
+            assert_eq!(state.page_size, row.page_size, "{name}");
+            assert_eq!(state.search_page_size, row.search_page_size, "{name}");
+            assert_eq!(
+                state.library_layout,
+                LibraryLayout {
+                    playlist_percent: row.layout.0,
+                    album_percent: row.layout.1,
+                },
+                "{name}"
+            );
+            assert_eq!(
+                state.keymap.get(&[Key::Char('n')]),
+                Some(Binding::Command(row.n)),
+                "{name}"
+            );
+            assert_eq!(state.message(), row.message, "{name}");
+            assert_eq!(state.page().kind, tidal_player_core::ui::PageKind::Library);
+        }
     }
 }

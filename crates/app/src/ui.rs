@@ -103,6 +103,7 @@ pub fn render(state: &State, frame: &mut Frame) {
     };
     render_prompt(state, frame, prompt_row);
     pages::render_popup(state, frame, areas.page, prompt_row);
+    pages::render_help(state, frame, areas.page, area);
 }
 
 // --- the playback window -----------------------------------------------------------
@@ -1669,8 +1670,10 @@ mod tests {
             ]);
         // 0007 AC12: the search page in each of its states.
         let search = search_states();
+        // 0008 AC14: the keys help, open over each kind of view.
+        let help = help_states();
         for (width, height) in sizes {
-            for state in states.iter().chain(&search) {
+            for state in states.iter().chain(&search).chain(&help) {
                 draw(state, width, height);
             }
         }
@@ -1996,5 +1999,228 @@ mod tests {
         // The empty page: the input and one empty window.
         let text = draw(&search_empty(), 50, 20);
         assert_contains(&text, &["Search: ▏", "Tracks ‹Tab›"]);
+    }
+    // --- spec 0008 AC14: the keys help, the library layout ---------------------------
+
+    /// `?` pressed on `state`, then `keys`.
+    fn with_help(mut state: State, keys: &[Key]) -> State {
+        press(&mut state, &[Key::Char('?')]);
+        press(&mut state, keys);
+        assert!(state.help.is_some(), "the help did not open");
+        state
+    }
+
+    /// The library with its *Albums* window focused.
+    fn library_albums() -> State {
+        let mut state = library();
+        press(&mut state, &[Key::Tab]);
+        state
+    }
+
+    /// The library with `n` moved to `g n`, `q` unbound and an
+    /// `[[actions]]` binding.
+    fn custom_keymap() -> State {
+        use tidal_player_core::ui::keymap::{
+            ActionEntry, CommandEntry, KeymapEntry, KeymapFile, Target, build,
+        };
+        let entry = |key_sequence: &str, name: &str| KeymapEntry {
+            command: CommandEntry::name(name),
+            key_sequence: key_sequence.into(),
+        };
+        let file = KeymapFile {
+            keymaps: vec![
+                entry("n", "None"),
+                entry("g n", "NextTrack"),
+                entry("q", "None"),
+            ],
+            actions: vec![ActionEntry {
+                action: "GoToAlbum".into(),
+                key_sequence: "g B".into(),
+                target: Target::PlayingTrack,
+            }],
+        };
+        let mut state = library();
+        tidal_player_core::ui::apply_keymap(&mut state, build(&file).unwrap());
+        state
+    }
+
+    fn typed_keys(text: &str) -> Vec<Key> {
+        text.chars().map(Key::Char).collect()
+    }
+
+    fn filtered(filter: &str) -> State {
+        let mut keys = vec![Key::Char('/')];
+        keys.extend(typed_keys(filter));
+        with_help(library_albums(), &keys)
+    }
+
+    fn help_states() -> Vec<State> {
+        vec![
+            with_help(state_of(playing()), &[]),
+            with_help(library_albums(), &[]),
+            filtered("fav"),
+            filtered("xyz"),
+            with_help(actions_popup(), &[]),
+            with_help(custom_keymap(), &[]),
+            with_help(state_of(playing()), &[Key::Char('j'); 30]),
+        ]
+    }
+
+    /// The line of `text` that contains `part`.
+    fn line_with<'a>(text: &'a str, part: &str) -> &'a str {
+        text.split('\n')
+            .find(|l| l.contains(part))
+            .unwrap_or_else(|| panic!("{part:?} missing:\n{text}"))
+    }
+
+    #[test]
+    fn ac14_help_80x24() {
+        // On the queue page: the window's section first, then the rest.
+        let state = with_help(state_of(playing()), &[]);
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "┌Keys",
+                "Queue",
+                "play the entry",
+                "Lists",
+                "j  down  C-n",
+                "move down",
+                "/ filter · enter run · esc close",
+            ],
+        );
+        let queue = row_of(&text, " Queue");
+        let lists = row_of(&text, " Lists");
+        assert!(queue < lists, "sections out of order:\n{text}");
+        // The highlighted row: the first binding row.
+        let y = row_of(&text, "play the entry");
+        let x = line_with(&text, "play the entry")
+            .split("enter")
+            .next()
+            .unwrap()
+            .chars()
+            .count();
+        let terminal = draw_terminal(&state, 80, 24);
+        let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+        assert!(cell.modifier.contains(Mod::REVERSED), "{cell:?}\n{text}");
+        // 80 % of the page area (78 × 18): 62 × 14, centred.
+        let top = row_of(&text, "┌Keys");
+        let left = line_with(&text, "┌Keys").chars().position(|c| c == '┌');
+        assert_eq!((left, top), (Some(9), 7), "{text}");
+        assert_eq!(
+            line_with(&text, "┌Keys")
+                .chars()
+                .filter(|c| *c == '─')
+                .count()
+                + 2
+                + 4,
+            62,
+            "{text}"
+        );
+        insta::assert_snapshot!("ac14_help_queue", text);
+
+        // The library, *Albums* focused.
+        let text = draw(&with_help(library_albums(), &[]), 80, 24);
+        assert_contains(
+            &text,
+            &["┌Keys", "Library · Albums", "open the album", "Z  C-z"],
+        );
+        insta::assert_snapshot!("ac14_help_library_albums", text);
+
+        // Filtered by `fav`: only the matching rows, the filter shown.
+        let text = draw(&filtered("fav"), 80, 24);
+        assert_contains(&text, &["┌Keys", "/fav", "favorite tracks", "g y"]);
+        assert!(!text.contains("play / pause"), "{text}");
+        insta::assert_snapshot!("ac14_help_filtered", text);
+
+        // Nothing matches.
+        let text = draw(&filtered("xyz"), 80, 24);
+        assert_contains(&text, &["┌Keys", "No keys match \"xyz\""]);
+        insta::assert_snapshot!("ac14_help_no_match", text);
+
+        // Opened from the actions popup: the popup's section first.
+        let state = with_help(actions_popup(), &[]);
+        assert!(state.popup.is_some());
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "┌Keys",
+                "Popup · Actions",
+                "run the selected entry",
+                "Lists",
+                " App",
+            ],
+        );
+        assert!(!text.contains("play / pause"), "{text}");
+        insta::assert_snapshot!("ac14_help_actions_popup", text);
+
+        // A custom keymap: the moved key, the removed one gone, `Actions`.
+        let text = draw(&with_help(custom_keymap(), &[]), 80, 24);
+        // The window, Lists and Pages sections come first: scroll to the
+        // end to see the rest.
+        let state = with_help(custom_keymap(), &[Key::Char('G')]);
+        let end = draw(&state, 80, 24);
+        assert_contains(&end, &["Actions", "g B", "go to the album (playing track)"]);
+        assert_contains(&end, &["C-c", "quit"]);
+        assert!(line_with(&end, "quit").contains("C-c"), "{end}");
+        assert!(!line_with(&end, "quit").contains("q  C-c"), "{end}");
+        insta::assert_snapshot!("ac14_help_custom_keymap", text);
+        insta::assert_snapshot!("ac14_help_custom_keymap_end", end);
+        let mut keys = vec![Key::Char('/')];
+        keys.extend(typed_keys("next"));
+        let middle = draw(&with_help(custom_keymap(), &keys), 80, 24);
+        assert!(line_with(&middle, "next track").contains("g n"), "{middle}");
+        assert!(
+            !line_with(&middle, "next track").contains("n  g n"),
+            "{middle}"
+        );
+    }
+
+    /// 40×12: the help takes the whole terminal (at least 40 × 10); the key
+    /// column stays whole and the help text is cut with `…`.
+    #[test]
+    fn ac14_help_40x12() {
+        let text = draw(&with_help(library(), &[]), 40, 12);
+        assert_contains(
+            &text,
+            &["┌Keys", "Library · Playlists", "open the playlist"],
+        );
+        let row = line_with(&text, "Z  C-z");
+        assert!(row.contains("add to the end of"), "{text}");
+        assert!(row.contains('…'), "not cut: {row:?}\n{text}");
+        assert!(!text.contains("add to the end of the queue"), "{text}");
+        insta::assert_snapshot!("ac14_help_40x12", text);
+    }
+
+    /// The library at `playlist_percent = 30, album_percent = 50`: 23, 39
+    /// and 16 of the 78 columns.
+    #[test]
+    fn ac14_library_percentages() {
+        let mut state = library();
+        state.library_layout = tidal_player_core::ui::LibraryLayout {
+            playlist_percent: 30,
+            album_percent: 50,
+        };
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &["Playlists (22)", "Albums (14)", "Artists (196)"]);
+        let titles = line_with(&text, "Playlists (22)");
+        let column = |part: &str| titles[..titles.find(part).unwrap()].chars().count();
+        assert_eq!(
+            (column("Playlists"), column("Albums"), column("Artists")),
+            (2, 25, 64),
+            "{text}"
+        );
+        insta::assert_snapshot!("ac14_library_30_50", text);
+        // The defaults keep 0006's 40 / 40 / 20.
+        let text = draw(&library(), 80, 24);
+        let titles = line_with(&text, "Playlists (22)");
+        let column = |part: &str| titles[..titles.find(part).unwrap()].chars().count();
+        assert_eq!(
+            (column("Playlists"), column("Albums"), column("Artists")),
+            (2, 33, 64),
+            "{text}"
+        );
     }
 }
