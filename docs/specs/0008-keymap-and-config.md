@@ -232,6 +232,10 @@ Docs:
 
 - **AC17** — `docs/config.md` documents both files, every key, every command and action with default keys, the key syntax, the errors, and the unsupported spotify-player names; `docs/tui.md` "Keys" names each key's command and documents the keys help; `docs/playback.md` "Settings" and `docs/daemon.md` point to `app.toml` (the unit's `Environment=` lines still work). A test checks that every command and action in the keymap appears in `docs/config.md` with its default keys. `CLAUDE.md` "Status" names this spec; this spec links to them
 
+Default files (added 2026-10-08 at the user's request, "gen a default keymap and app toml"):
+
+- **AC18** — `examples/app.toml` sets every `app.toml` key to its default, and resolving it with no flags or variables gives exactly the defaults; `examples/keymap.toml` has one `[[keymaps]]` entry per default binding (the "Commands and their default keys" table, same sequences and commands, nothing else) and builds to the default keymap. Copying either into the config directory changes nothing, so they are starting points to edit. `docs/config.md` and `README.md` link them
+
 ## Edge cases & errors
 
 | Situation | Behaviour |
@@ -273,6 +277,7 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC15 | `crates/app/src/main.rs` :: `ac15_tui_state_from_config` (table) + `crates/app/tests/daemon.rs` :: `ac15_daemon_reads_app_toml` | state and player settings from files | stub `tui_state` ignores the config |
 | AC16 | `crates/app/tests/daemon.rs` :: `ac16_keymap_is_per_client` | each client's `n` | stub sends the default keymap's command |
 | AC17 | `crates/app/tests/docs.rs` :: `ac17_every_command_documented` + reviewed at acceptance | names and default keys in `docs/config.md` | stub `docs/config.md` lacks the commands |
+| AC18 | `crates/app/tests/examples.rs` :: `ac18_example_app_toml_is_the_defaults`, `ac18_example_keymap_is_the_defaults` | every key present and equal to the default; one entry per default binding, builds to `Keymap::default()` | the example files are committed empty |
 
 Checked by hand at acceptance on the user's machine (results in the PR description): copying a real spotify-player `keymap.toml` starts with the notice and its supported bindings working; the daemon restarted with `app.toml` setting `output_device` and `quality` plays to that device at that quality; `M-` and F-keys reach the TUI in the user's terminal.
 
