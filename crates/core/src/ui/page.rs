@@ -7,9 +7,11 @@ use std::time::Duration;
 use crate::item::Item;
 use crate::library::{
     AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, PageData, PageRequest,
-    PlaylistSummary, RoleCategory,
+    PlaylistSummary, RoleCategory, TopHit,
 };
 use crate::track::{ArtistRef, Track};
+
+use super::search::{Search, SearchFocus};
 
 /// The history keeps at most this many pages above the queue (the queue at
 /// the bottom is never dropped).
@@ -36,6 +38,9 @@ pub enum PageKind {
     Album(u64),
     Playlist(String),
     Artist(u64),
+    /// The search page (spec 0007) and the query it last sent; empty
+    /// until the first search.
+    Search(String),
 }
 
 impl PageKind {
@@ -49,6 +54,8 @@ impl PageKind {
             Self::Album(id) => PageRequest::Album(*id),
             Self::Playlist(uuid) => PageRequest::Playlist(uuid.clone()),
             Self::Artist(id) => PageRequest::Artist(*id),
+            Self::Search(query) if query.is_empty() => return None,
+            Self::Search(query) => PageRequest::Search(query.clone()),
         })
     }
 }
@@ -96,17 +103,22 @@ pub enum WindowKind {
     AppearsOn,
     /// The artist's credits (*All tracks*).
     AllTracks,
+    /// The search page's result lists (spec 0007).
+    SearchTracks,
+    SearchAlbums,
+    SearchArtists,
+    SearchPlaylists,
 }
 
 impl WindowKind {
     /// The window's name in its title.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Playlists => "Playlists",
-            Self::Albums | Self::ArtistAlbums => "Albums",
-            Self::Artists => "Artists",
+            Self::Playlists | Self::SearchPlaylists => "Playlists",
+            Self::Albums | Self::ArtistAlbums | Self::SearchAlbums => "Albums",
+            Self::Artists | Self::SearchArtists => "Artists",
             Self::FavoriteTracks => "Favorite tracks",
-            Self::AlbumTracks | Self::PlaylistTracks => "Tracks",
+            Self::AlbumTracks | Self::PlaylistTracks | Self::SearchTracks => "Tracks",
             Self::TopTracks => "Top tracks",
             Self::AppearsOn => "Appears on",
             Self::AllTracks => "All tracks",
@@ -125,6 +137,10 @@ impl WindowKind {
             Self::TopTracks => "No top tracks",
             Self::ArtistAlbums | Self::AppearsOn => "No albums",
             Self::AllTracks => "No credits",
+            Self::SearchTracks => "No tracks found",
+            Self::SearchAlbums => "No albums found",
+            Self::SearchArtists => "No artists found",
+            Self::SearchPlaylists => "No playlists found",
         }
     }
 }
@@ -189,6 +205,16 @@ pub enum Row<'a> {
 }
 
 impl<'a> Row<'a> {
+    /// The row a search's top hit acts as (spec 0007 decision 6).
+    pub fn top_hit(hit: &'a TopHit) -> Self {
+        match hit {
+            TopHit::Track(t) => Self::Track(t),
+            TopHit::Album(a) => Self::Album(a),
+            TopHit::Artist(a) => Self::Artist(a),
+            TopHit::Playlist(p) => Self::Playlist(p),
+        }
+    }
+
     /// The track of a track or credit row.
     pub fn track(self) -> Option<&'a Track> {
         match self {
@@ -271,16 +297,18 @@ impl Window {
     /// An empty window of `kind` over `list`.
     pub fn new(kind: WindowKind, list: ListRef) -> Self {
         let rows = match kind {
-            WindowKind::Playlists => Rows::Playlists(Vec::new()),
-            WindowKind::Albums | WindowKind::ArtistAlbums | WindowKind::AppearsOn => {
-                Rows::Albums(Vec::new())
-            }
-            WindowKind::Artists => Rows::Artists(Vec::new()),
+            WindowKind::Playlists | WindowKind::SearchPlaylists => Rows::Playlists(Vec::new()),
+            WindowKind::Albums
+            | WindowKind::ArtistAlbums
+            | WindowKind::AppearsOn
+            | WindowKind::SearchAlbums => Rows::Albums(Vec::new()),
+            WindowKind::Artists | WindowKind::SearchArtists => Rows::Artists(Vec::new()),
             WindowKind::AllTracks => Rows::Credits(Vec::new()),
             WindowKind::FavoriteTracks
             | WindowKind::AlbumTracks
             | WindowKind::PlaylistTracks
-            | WindowKind::TopTracks => Rows::Tracks(Vec::new()),
+            | WindowKind::TopTracks
+            | WindowKind::SearchTracks => Rows::Tracks(Vec::new()),
         };
         Self {
             kind,
@@ -487,6 +515,17 @@ pub fn largest_page(list: &ListRef) -> u32 {
     }
 }
 
+/// Whether `list` is one of a search's (sized by the search page size).
+pub fn is_search_list(list: &ListRef) -> bool {
+    matches!(
+        list,
+        ListRef::SearchTracks(_)
+            | ListRef::SearchAlbums(_)
+            | ListRef::SearchArtists(_)
+            | ListRef::SearchPlaylists(_)
+    )
+}
+
 /// One page of the history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
@@ -506,6 +545,9 @@ pub struct Page {
     pub panes: Vec<Vec<usize>>,
     /// Each pane's active tab (an index into its `panes` entry).
     pub tabs: Vec<usize>,
+    /// The search page's input, top hit and focus (spec 0007); `None` on
+    /// every other page.
+    pub search: Option<Search>,
 }
 
 impl Page {
@@ -536,6 +578,24 @@ impl Page {
                 Window::new(WindowKind::AppearsOn, ListRef::ArtistAppearsOn(*id)),
                 Window::new(WindowKind::AllTracks, ListRef::Credits(*id)),
             ],
+            PageKind::Search(query) => vec![
+                Window::new(
+                    WindowKind::SearchTracks,
+                    ListRef::SearchTracks(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchAlbums,
+                    ListRef::SearchAlbums(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchArtists,
+                    ListRef::SearchArtists(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchPlaylists,
+                    ListRef::SearchPlaylists(query.clone()),
+                ),
+            ],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -543,7 +603,9 @@ impl Page {
             _ => (0..windows.len()).map(|i| vec![i]).collect(),
         };
         let tabs = vec![0; panes.len()];
+        let search = matches!(kind, PageKind::Search(_)).then(Search::default);
         Self {
+            search,
             kind,
             header: None,
             load: Load::Idle,
@@ -594,9 +656,57 @@ impl Page {
         self.focus = self.panes[at][self.tabs[at]];
     }
 
-    /// The focused window; `None` on the queue.
+    /// The focused window; `None` on the queue, and on a search page
+    /// while its input or top hit has the focus.
     pub fn focused(&self) -> Option<&Window> {
+        if !self.windows_focused() {
+            return None;
+        }
         self.windows.get(self.focus)
+    }
+
+    /// Whether a window has the focus (always, but on a search page).
+    pub fn windows_focused(&self) -> bool {
+        self.search
+            .as_ref()
+            .is_none_or(|s| s.focus == SearchFocus::Windows)
+    }
+
+    /// The row under the focus on a loaded page: the focused window's row
+    /// under its cursor, or a search's top hit.
+    pub fn selected(&self) -> Option<Row<'_>> {
+        if self.load != Load::Idle {
+            return None;
+        }
+        if let Some(search) = &self.search
+            && search.focus == SearchFocus::TopHit
+        {
+            return search.top_hit.as_ref().map(Row::top_hit);
+        }
+        self.focused()?.selected()
+    }
+
+    /// What a search's reply focuses (spec 0007 "Sending"): the top hit,
+    /// else the first non-empty window; `None` when there is no result
+    /// (or the page is loading or failed).
+    pub fn result_focus(&self) -> Option<(SearchFocus, usize)> {
+        let search = self.search.as_ref()?;
+        if self.load != Load::Idle {
+            return None;
+        }
+        if search.top_hit.is_some() {
+            return Some((SearchFocus::TopHit, self.focus));
+        }
+        let window = self.windows.iter().position(|w| !w.rows.is_empty())?;
+        Some((SearchFocus::Windows, window))
+    }
+
+    /// Gives the focus to `focus` (`window` when it is a window).
+    pub(super) fn focus_on(&mut self, focus: SearchFocus, window: usize) {
+        if let Some(search) = self.search.as_mut() {
+            search.focus = focus;
+        }
+        self.focus = window;
     }
 
     /// The window of `kind`, if the page has one.
@@ -653,6 +763,8 @@ impl Page {
             (PageKind::Album(_), None) => vec!["Album".into()],
             (PageKind::Playlist(_), None) => vec!["Playlist".into()],
             (PageKind::Artist(_), None) => vec!["Artist".into()],
+            (PageKind::Search(query), _) if query.is_empty() => vec!["Search".into()],
+            (PageKind::Search(query), _) => vec!["Search".into(), format!("\"{query}\"")],
         };
         parts.join(" · ")
     }
@@ -707,6 +819,26 @@ impl Page {
                     ListItems::Albums(appears_on),
                 ]
             }
+            (
+                PageKind::Search(_),
+                PageData::Search {
+                    top_hit,
+                    tracks,
+                    albums,
+                    artists,
+                    playlists,
+                },
+            ) => {
+                if let Some(search) = self.search.as_mut() {
+                    search.top_hit = top_hit.map(|hit| *hit);
+                }
+                vec![
+                    ListItems::Tracks(tracks),
+                    ListItems::Albums(albums),
+                    ListItems::Artists(artists),
+                    ListItems::Playlists(playlists),
+                ]
+            }
             _ => return,
         };
         self.load = Load::Idle;
@@ -716,6 +848,13 @@ impl Page {
         for (window, items) in self.windows.iter_mut().zip(lists) {
             let limit = page_size.min(largest_page(&window.list));
             window.append(items, limit);
+        }
+        // A search focuses its result, else its input (spec 0007).
+        if self.search.is_some() {
+            let (focus, window) = self
+                .result_focus()
+                .unwrap_or((SearchFocus::Input, self.focus));
+            self.focus_on(focus, window);
         }
     }
 }

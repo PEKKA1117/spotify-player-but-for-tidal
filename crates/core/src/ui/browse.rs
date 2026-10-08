@@ -2,13 +2,13 @@
 //! window focus and cursors, scrolling loads, the whole-list load,
 //! playing and queueing from a page, the popups and the library writes.
 
-use crate::library::{FavoriteKind, LibraryRequest, LibraryResponse, ListRef};
+use crate::library::{FavoriteKind, LibraryRequest, LibraryResponse, ListRef, PlaylistSummary};
 use crate::protocol::{Command, InsertAt};
 use crate::track::Track;
 
 use super::page::{
     Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind, group,
-    largest_page,
+    is_search_list, largest_page,
 };
 use super::popup::{self, Confirmed, MenuAction, Popup, TrackSource};
 use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State};
@@ -100,19 +100,24 @@ fn request(state: &mut State, request: LibraryRequest, effects: &mut Vec<Effect>
     Some(id)
 }
 
-/// The `limit` of a `More` for `list`: the page size, at most the
-/// endpoint's largest page.
+/// The `limit` of a `More` for `list`: the page size (a search list's:
+/// the search page size), at most the endpoint's largest page.
 fn limit(state: &State, list: &ListRef) -> u32 {
-    state.page_size.clamp(1, largest_page(list))
+    let size = if is_search_list(list) {
+        state.search_page_size
+    } else {
+        state.page_size
+    };
+    size.clamp(1, largest_page(list))
 }
 
-fn top(state: &State) -> usize {
+pub(super) fn top(state: &State) -> usize {
     state.history.len() - 1
 }
 
 /// Asks for page `index` (a page of the history): `Loading`, or failed
 /// with the connection's message while disconnected.
-fn fetch_page(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
+pub(super) fn fetch_page(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
     let Some(page) = state.history[index].kind.request() else {
         return;
     };
@@ -144,12 +149,18 @@ pub(super) fn open(state: &mut State, kind: PageKind) -> Vec<Effect> {
         }
         return effects;
     }
-    state.history.push(Page::new(kind));
+    push(state, Page::new(kind));
+    fetch_page(state, top(state), &mut effects);
+    effects
+}
+
+/// Pushes `page` on the history, dropping the oldest page above the queue
+/// past [`MAX_HISTORY`].
+pub(super) fn push(state: &mut State, page: Page) {
+    state.history.push(page);
     if state.history.len() > MAX_HISTORY + 1 {
         state.history.remove(1);
     }
-    fetch_page(state, top(state), &mut effects);
-    effects
 }
 
 /// `Backspace`/`C-q`: back to the page under; the queue stays.
@@ -226,7 +237,7 @@ pub(super) fn move_window_cursor(
     let index = top(state);
     let page = &mut state.history[index];
     let focus = page.focus;
-    if page.load != Load::Idle {
+    if page.load != Load::Idle || !page.windows_focused() {
         return Vec::new();
     }
     let Some(window) = page.windows.get_mut(focus) else {
@@ -265,13 +276,10 @@ pub(super) fn browse_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
     })
 }
 
-/// The row under the focused window's cursor on a loaded browse page.
+/// The row under the focus on a loaded browse page (a search's top hit
+/// included).
 fn selected(state: &State) -> Option<Row<'_>> {
-    let page = state.page();
-    if page.load != Load::Idle {
-        return None;
-    }
-    page.focused()?.selected()
+    state.page().selected()
 }
 
 /// `Enter`: opens an album, playlist or artist; plays from a track.
@@ -483,6 +491,14 @@ pub(super) fn actions_on_selected(state: &mut State) -> Vec<Effect> {
                 (track.title.clone(), popup::track_actions(track, own))
             }
             Row::Album(album) => (album.title.clone(), popup::album_actions(album)),
+            // A search playlist is never the user's own (spec 0007).
+            Row::Playlist(playlist) if page.search.is_some() => {
+                let playlist = PlaylistSummary {
+                    own: false,
+                    ..playlist.clone()
+                };
+                (playlist.title.clone(), popup::playlist_actions(&playlist))
+            }
             Row::Playlist(playlist) => (playlist.title.clone(), popup::playlist_actions(playlist)),
             Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
         })
@@ -856,6 +872,7 @@ fn page_error(kind: &PageKind, message: String) -> String {
     match kind {
         PageKind::Library => format!("Could not load the library: {message}"),
         PageKind::FavoriteTracks => format!("Could not load the favorite tracks: {message}"),
+        PageKind::Search(_) => format!("Could not search: {message}"),
         _ => message,
     }
 }
@@ -871,7 +888,12 @@ pub(super) fn reply(
     let waiting = Load::Loading { id };
     // A page.
     if let Some(index) = state.history.iter().position(|p| p.load == waiting) {
-        let page_size = state.page_size;
+        let page = &state.history[index];
+        let page_size = if page.search.is_some() {
+            state.search_page_size
+        } else {
+            state.page_size
+        };
         let page = &mut state.history[index];
         match result {
             Ok(LibraryResponse::Page(data)) => {
