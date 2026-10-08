@@ -78,12 +78,12 @@ The steps come from the environment: `TIDAL_PLAYER_VOLUME_STEP` (1–25 %, defau
 
 ## Pages
 
-The area below the playback window shows one page at a time. Opening a page puts it on top of a **history**; `Backspace` (or `Ctrl-q`) goes back to the page under it, exactly as you left it (its rows, cursors and focus), without fetching again. Opening a page always fetches it fresh. The queue is always at the bottom of the history and cannot be closed; opening the page that is already on top does nothing, and the history keeps the last 50 pages.
+The area below the playback window shows one page at a time. Opening a page puts it on top of a **history**; `Backspace` (or `Ctrl-q`) goes back to the page under it, exactly as you left it (its rows, cursors and focus), without fetching again. Opening a page always fetches it fresh. The TUI starts on the library, with the queue under it (`Backspace` or `z` shows it). The queue is always at the bottom of the history and cannot be closed; opening the page that is already on top does nothing, and the history keeps the last 50 pages.
 
 | Page | Opened with | Windows (`Tab` moves between panes) |
 |---|---|---|
-| Queue | `z`; the page at start | the queue |
-| Library | `g l` | Playlists, Albums, Artists |
+| Queue | `z`; `Backspace` from the library at start | the queue |
+| Library | `g l`; the page at start | Playlists, Albums, Artists |
 | Favorite tracks | `g y` | the tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |

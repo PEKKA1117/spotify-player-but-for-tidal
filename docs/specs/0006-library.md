@@ -49,12 +49,12 @@ Read from tidalt's `internal/tidal/{api,library}.go`, `internal/ui/{keys,model}.
 
 ### Pages
 
-The area below the playback window shows one **page** at a time. The queue (0004) is the first page. Opening a page puts it on top of a **history**; going back returns to the page under it, with its loaded rows, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached until 0009).
+The area below the playback window shows one **page** at a time. The queue (0004) is the bottom page of the history; the TUI **starts on the library** (the user, 2026-10-08), pushed on top of the queue, so `Backspace` goes to the queue. The library shows `Loading…` until the player's first `Welcome` arrives, then is fetched (a client asks nothing before it is connected). Opening a page puts it on top of a **history**; going back returns to the page under it, with its loaded rows, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached until 0009).
 
 | Page | Opened with | Windows (`Tab` moves between them) |
 |---|---|---|
-| Queue | `z`; it is the page at start | the queue (0004) |
-| Library | `g l` | **Playlists**, **Albums**, **Artists** |
+| Queue | `z`; `Backspace` from the start page | the queue (0004) |
+| Library | `g l`; the page at start | **Playlists**, **Albums**, **Artists** |
 | Favorite tracks | `g y` | the tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
@@ -226,7 +226,7 @@ Player (`tidal-player`, fake library source, 0005's server tests):
 
 Client model (`tidal_player_core::ui`, pure):
 
-- **AC9** — History: `z`, `g l`, `g y` and `Enter` on album/playlist/artist rows push the page and emit `Library { Page(…) }` with a fresh ID (the queue page emits none); opening the top page again does nothing; `Backspace`/`C-q` pop and the page under shows its kept rows, cursors and focus with no request; the bottom page is never popped; the 51st push drops the oldest page above the queue. A reply applies to the page/window with that ID only, also when it is not on top; one for an unknown ID is dropped (table)
+- **AC9** — History: `z`, `g l`, `g y` and `Enter` on album/playlist/artist rows push the page and emit `Library { Page(…) }` with a fresh ID (the queue page emits none); opening the top page again does nothing; `Backspace`/`C-q` pop and the page under shows its kept rows, cursors and focus with no request; the bottom page is never popped; the 51st push drops the oldest page above the queue. Start: `start_on_library` puts the library over the queue showing `Loading…` and emits nothing; the first `Welcome` emits its `Page(Library)` request once (a second `Welcome` does not); a `Disconnected` before it fails the page with the disconnected message and the next `Welcome` fetches it. A reply applies to the page/window with that ID only, also when it is not on top; one for an unknown ID is dropped (table)
 - **AC10** — Scrolling: a cursor move that comes within one window height of the last loaded row emits `More { list, offset: loaded so far rounded up to the page size, limit: page size }` once (no second request while one is pending); its rows are appended skipping known IDs; a short page before the total does not stop later loads; a failed `More` shows its message as the last row and the next move near the end asks again; `G` goes to the last loaded row; *All tracks* asks for its first page when first focused; the role filter (`f`, `Space`, `Enter`, `Esc`) shows only rows with a checked category and keeps the hidden count, and asks for more pages when the filtered rows run out near the cursor (table)
 - **AC11** — Windows and cursors: `Tab`/`BackTab` cycle the focus over the page's windows, wrapping; cursor keys move the focused window's cursor only, clamped to the loaded rows; cursors survive leaving and coming back; a loading, failed or empty window ignores them
 - **AC12** — Playing and queueing (table over every row of "Playing and queueing from a page"): `Enter` on track *i* of a fully loaded *n*-track list sends `LoadQueue { tracks: the list in page order, start: i }` (never sorted or shuffled); on a partly loaded list it first emits `More` until the total is loaded, then sends it once; `Esc` while loading cancels and sends nothing; above 40 000 tracks it sends nothing and sets the too-many message; `Z`/`C-z` on a track sends `Open { [Track(id)], Some(End) }`, on an album/playlist `Open { [item], Some(End) }`, on an artist nothing; `d` on the queue sends `RemoveFromQueue(entry ID)` and on a browse page nothing; the queue's `Enter` is 0004's
@@ -280,7 +280,7 @@ Each automated test is named after its criterion (`ac10_…`). Red is a failing 
 | AC6 | `crates/api/tests/library.rs` :: `ac6_credits` | first page and `dataApiPath` pages; filters; hidden count | stub keeps Atmos-only and instrumental rows |
 | AC7 | `crates/api/tests/library.rs` :: `ac7_writes` (table) | forms, paths, `If-None-Match`, retry once on add, no retry on remove | stub sends no ETag, so every edit is a `412` |
 | AC8 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender`, `ac8_errors` (table), `ac8_does_not_block` | one reply, sender only, messages, latency, per-client order | stub runs the request on the player thread, so a held one blocks the `TogglePause` reply |
-| AC9 | `crates/core/src/ui.rs` :: `ac9_history` (table), `ac9_reply_by_id` (table) | stack, effects, kept state, stale drop | stub replaces the page instead of pushing |
+| AC9 | `crates/core/src/ui.rs` :: `ac9_history` (table), `ac9_reply_by_id` (table), `ac9_start_on_library` | stack, effects, kept state, stale drop | stub replaces the page instead of pushing |
 | AC10 | `crates/core/src/ui.rs` :: `ac10_scroll_loads` (table) | `More` offsets, no duplicates, short pages, failures | stub never asks for a second page |
 | AC11 | `crates/core/src/ui.rs` :: `ac11_windows_and_cursors` (table) | focus cycle, cursor per window | stub moves every window's cursor |
 | AC12 | `crates/core/src/ui.rs` :: `ac12_play_and_queue` (table) | the exact command per row; whole-list load | stub `Enter` sends the loaded rows only |

@@ -268,6 +268,13 @@ pub enum Effect {
     Library { id: u64, request: LibraryRequest },
 }
 
+/// Puts the library over the queue as the start page (spec 0006 "Pages"),
+/// fetched on the first `Welcome`.
+pub fn start_on_library(state: &mut State) -> Vec<Effect> {
+    let _ = state;
+    Vec::new()
+}
+
 /// Applies `action` to `state` and returns the effects the caller must run.
 pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {

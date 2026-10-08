@@ -1672,3 +1672,37 @@ fn ac16_disconnected_and_login() {
     assert_eq!(request, LibraryRequest::Page(PageRequest::FavoriteTracks));
     assert_eq!(state.history.len(), 2);
 }
+
+/// AC9: the TUI starts on the library over the queue; it is fetched on the
+/// first `Welcome` (once), or on the next one after a disconnection.
+#[test]
+fn ac9_start_on_library() {
+    let welcome = || Action::Welcome {
+        snapshot: snapshot(&[1], Some(1)),
+        login_required: false,
+    };
+    let mut state = State::default();
+    assert_eq!(crate::ui::start_on_library(&mut state), vec![]);
+    assert_eq!(state.history.len(), 2, "the library over the queue");
+    assert_eq!(state.page().kind, PageKind::Library);
+    assert!(
+        matches!(state.page().load, Load::Loading { .. }),
+        "Loading…"
+    );
+    let (id, request) = one_request(&update(&mut state, welcome()));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Library));
+    assert_eq!(state.page().load, Load::Loading { id });
+    assert_eq!(update(&mut state, welcome()), vec![], "fetched once");
+
+    // Disconnected before the first Welcome: fetched on the next one.
+    let mut state = State::default();
+    crate::ui::start_on_library(&mut state);
+    update(&mut state, Action::Disconnected { shut_down: false });
+    assert_eq!(state.page().load, Load::Failed(DISCONNECTED.into()));
+    let (_, request) = one_request(&update(&mut state, welcome()));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Library));
+
+    // Backspace shows the queue.
+    press(&mut state, &[Key::Backspace]);
+    assert_eq!(state.page().kind, PageKind::Queue);
+}
