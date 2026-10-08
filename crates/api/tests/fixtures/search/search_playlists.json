@@ -1,0 +1,37 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "totalNumberOfItems": 3,
+  "items": [
+    {
+      "uuid": "1f11afd7-1a4e-4e4f-b49e-d61848c42ada",
+      "title": "Pierce The Veil Essentials",
+      "numberOfTracks": 15,
+      "numberOfVideos": 0,
+      "creator": {
+        "id": 0
+      },
+      "description": "Essentials.",
+      "duration": 3509,
+      "lastUpdated": "2024-04-25T00:00:00.000+0000",
+      "created": "2023-10-18T00:00:00.000+0000",
+      "type": "EDITORIAL",
+      "publicPlaylist": true,
+      "url": "http://www.tidal.com/playlist/1f11afd7-1a4e-4e4f-b49e-d61848c42ada",
+      "image": "06ab476f-3d18-4d67-9cdd-9ff681fd8dda",
+      "popularity": 34,
+      "squareImage": "4ff2e291-0970-4604-a1e6-22f21f8a6bd7",
+      "customImageUrl": null,
+      "promotedArtists": [
+        {
+          "id": 4108155,
+          "name": "Pierce The Veil",
+          "handle": null,
+          "type": "MAIN",
+          "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+        }
+      ],
+      "lastItemAddedAt": "2024-04-25T00:00:00.000+0000"
+    }
+  ]
+}

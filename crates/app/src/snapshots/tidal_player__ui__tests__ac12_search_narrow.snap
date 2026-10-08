@@ -1,0 +1,24 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│Search · "pierce the veil"                      │
+│Search: pierce the veil                         │
+│Top hit: Pierce The Veil · artist               │
+│┌Tracks (300) ‹Tab›────────────────────────────┐│
+││  1    Hell Above          Pierce The…    3:32││
+││  2    King For A Day      Pierce The…    3:52││
+││  3    Bulls In The Bronx  Pierce The…    4:50││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

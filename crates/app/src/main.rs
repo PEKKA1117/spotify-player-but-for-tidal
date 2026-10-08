@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind},
+    event::{self, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -20,7 +20,7 @@ use tidal_player::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
     },
     daemon::{forward_signals, notify_ready},
-    input::key_to_action,
+    input::event_to_action,
     ipc::{
         self, ClaimError,
         client::{ConnectError, Connection},
@@ -219,13 +219,7 @@ fn run<C: Connector>(
         }
         terminal.draw(|frame| render(&state, frame))?;
         if event::poll(FRAME)? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    actions.extend(key_to_action(key));
-                }
-                Event::Paste(text) => actions.push(Action::Paste(text)),
-                _ => {}
-            }
+            actions.extend(event_to_action(event::read()?));
         } else {
             actions.push(Action::Tick);
         }
@@ -448,16 +442,7 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
             return Ok(ExitCode::from(2));
         }
     };
-    // The page size is resolved here, for both roles: an attached client
-    // asks the player's API through it with the same environment (spec
-    // 0006 "Page size"), a standalone one is the player.
-    let mut state = State::new(tui_model::Steps {
-        volume: player_settings.steps.volume,
-        seek: player_settings.steps.seek,
-    });
-    state.page_size = player_settings.library.page_size;
-    // Spec 0006 "Pages": the TUI starts on the library.
-    tui_model::start_on_library(&mut state);
+    let state = tui_state(&player_settings);
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
@@ -466,6 +451,22 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
         }
         Err(code) => Ok(code),
     }
+}
+
+/// The TUI's model before it starts, for both roles: the page sizes are
+/// resolved here, as an attached client asks the player's API through
+/// them with the same environment (spec 0006 "Page size", 0007 "Search
+/// page size"), and a standalone one is the player. It starts on the
+/// library (spec 0006 "Pages").
+fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
+    let mut state = State::new(tui_model::Steps {
+        volume: player_settings.steps.volume,
+        seek: player_settings.steps.seek,
+    });
+    state.page_size = player_settings.library.page_size;
+    state.search_page_size = player_settings.library.search_page_size;
+    tui_model::start_on_library(&mut state);
+    state
 }
 
 /// A TUI client (spec 0005 "The TUI as a client"): no session, no store,
@@ -756,5 +757,18 @@ mod tests {
         for args in refused {
             assert!(parse(args).is_err(), "{args:?} accepted");
         }
+    }
+
+    /// 0007 AC13 (wiring): every TUI, attached or standalone, sizes its
+    /// requests with both resolved page sizes, and starts on the library.
+    #[test]
+    fn ac13_tui_state_page_sizes() {
+        let mut settings = tidal_player::play::PlayerSettings::default();
+        settings.library.page_size = 33;
+        settings.library.search_page_size = 7;
+        let state = tui_state(&settings);
+        assert_eq!(state.page_size, 33);
+        assert_eq!(state.search_page_size, 7);
+        assert_eq!(state.page().kind, tidal_player_core::ui::PageKind::Library);
     }
 }

@@ -17,6 +17,13 @@
 //! - **A playlist's `own`** in its header is `creator.id == user_id`.
 //! - **A playlist edit** that answers `412` is retried once per request to
 //!   Tidal's `items` endpoint (one per chunk of 100 tracks).
+//! - **A search's top hit** whose `value` cannot be read is no top hit:
+//!   the lists still show (spec 0007).
+//! - **A search's Atmos-only tracks** are dropped without counting them as
+//!   `hidden`: the window's title shows Tidal's total, as 0006's favorite
+//!   tracks do (spec 0007 "Edge cases").
+//! - **A search `400` without a `userMessage`** reads as any other status
+//!   (`Tidal answered 400`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -27,7 +34,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use tidal_player_core::library::{
     AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, LibraryRequest, LibraryResponse,
-    ListItems, ListPage, ListRef, PageData, PageRequest, PlaylistSummary, RoleCategory,
+    ListItems, ListPage, ListRef, PageData, PageRequest, PlaylistSummary, RoleCategory, TopHit,
     hidden_version,
 };
 use tidal_player_core::{ArtistRef, Item, Track, TrackId};
@@ -47,6 +54,8 @@ const LARGEST_ITEMS: u32 = 100;
 const LARGEST: u32 = 1000;
 /// Tracks per request to a playlist's `items` (Tidal's limit).
 const ADD_CHUNK: usize = 100;
+/// The kinds a search asks for: always sent, or `videos` fill (spec 0007).
+const SEARCH_TYPES: &str = "TRACKS,ALBUMS,ARTISTS,PLAYLISTS";
 
 /// What was not found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +89,9 @@ pub enum LibraryError {
     /// A track, album or artist ID that is not a number.
     #[error("Not a valid ID: {0}")]
     InvalidId(String),
+    /// `400` on a search, with Tidal's `userMessage` (spec 0007).
+    #[error("Tidal refused the search: {0}")]
+    SearchRefused(String),
     /// From the [`Authenticator`], unchanged: `LoginRequired`, transport
     /// errors, unexpected statuses (`5xx`, `429`, ...).
     #[error("{}", auth_message(.0))]
@@ -242,6 +254,7 @@ impl LibraryClient {
                     appears_on,
                 })
             }
+            PageRequest::Search(query) => self.search(&query, size).await,
         }
     }
 
@@ -323,6 +336,26 @@ impl LibraryClient {
             }
             ListRef::Credits(id) => {
                 ListItems::Credits(self.credits(*id, offset, limit, hidden_words).await?)
+            }
+            ListRef::SearchTracks(query) => {
+                let page: RawPage<TrackDto> =
+                    self.search_list("tracks", query, offset, limit).await?;
+                ListItems::Tracks(page.map(stereo_track, offset))
+            }
+            ListRef::SearchAlbums(query) => {
+                let page: RawPage<AlbumDto> =
+                    self.search_list("albums", query, offset, limit).await?;
+                ListItems::Albums(page.map(|a| Some(a.into()), offset))
+            }
+            ListRef::SearchArtists(query) => {
+                let page: RawPage<ArtistDto> =
+                    self.search_list("artists", query, offset, limit).await?;
+                ListItems::Artists(page.map(|a| Some(ArtistRef::from(a)), offset))
+            }
+            ListRef::SearchPlaylists(query) => {
+                let page: RawPage<PlaylistDto> =
+                    self.search_list("playlists", query, offset, limit).await?;
+                ListItems::Playlists(page.map(|p| Some(p.into_summary(false)), offset))
             }
         })
     }
@@ -651,6 +684,67 @@ impl LibraryClient {
         self.read(path, &query, subject, what).await
     }
 
+    // Search ----------------------------------------------------------
+
+    /// `GET /search`: the four lists' first pages and the top hit.
+    async fn search(&self, query: &str, size: u32) -> Result<PageData> {
+        let dto: SearchDto = self
+            .search_read(
+                "search",
+                &[("query", query), ("types", SEARCH_TYPES)],
+                0,
+                size,
+            )
+            .await?;
+        Ok(PageData::Search {
+            top_hit: dto.top_hit.and_then(top_hit).map(Box::new),
+            tracks: dto.tracks.map(stereo_track, 0),
+            albums: dto.albums.map(|a| Some(a.into()), 0),
+            artists: dto.artists.map(|a| Some(ArtistRef::from(a)), 0),
+            playlists: dto.playlists.map(|p| Some(p.into_summary(false)), 0),
+        })
+    }
+
+    /// `GET /search/{kind}`: one page of one list, bare items.
+    async fn search_list<T: DeserializeOwned>(
+        &self,
+        kind: &str,
+        query: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<RawPage<T>> {
+        self.search_read(
+            &format!("search/{kind}"),
+            &[("query", query)],
+            offset,
+            limit,
+        )
+        .await
+    }
+
+    /// A search call: `extra`, `limit` (clamped) and `offset`; a `400` with
+    /// a `userMessage` is [`LibraryError::SearchRefused`].
+    async fn search_read<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        extra: &[(&str, &str)],
+        offset: u32,
+        limit: u32,
+    ) -> Result<T> {
+        let limit = limit.clamp(1, LARGEST).to_string();
+        let offset = offset.to_string();
+        let mut query = extra.to_vec();
+        query.push(("limit", limit.as_str()));
+        query.push(("offset", offset.as_str()));
+        let response = self.fetch(path, &query).await?;
+        if response.status().as_u16() == 400
+            && let Some(message) = user_message(&response)
+        {
+            return Err(LibraryError::SearchRefused(message));
+        }
+        parse(&check(&response, None)?, "search")
+    }
+
     // Favorites -------------------------------------------------------
 
     async fn is_favorite(&self, kind: FavoriteKind, id: &str) -> Result<bool> {
@@ -823,11 +917,15 @@ impl LibraryClient {
         extra: &[(&str, &str)],
         subject: Option<Subject>,
     ) -> Result<ApiResponse> {
+        check(&self.fetch(path, extra).await?, subject)
+    }
+
+    /// `GET` with `countryCode`; the response whatever its status.
+    async fn fetch(&self, path: &str, extra: &[(&str, &str)]) -> Result<ApiResponse> {
         let (_, country) = self.auth.account().await;
         let mut query = vec![("countryCode", country.as_str())];
         query.extend_from_slice(extra);
-        let response = self.auth.get(path, &query, Some(REQUEST_TIMEOUT)).await?;
-        check(&response, subject)
+        Ok(self.auth.get(path, &query, Some(REQUEST_TIMEOUT)).await?)
     }
 
     /// [`Self::get`], and the body decoded.
@@ -916,6 +1014,47 @@ fn parse<T: DeserializeOwned>(response: &ApiResponse, what: &'static str) -> Res
     response.json().map_err(|_| LibraryError::Malformed(what))
 }
 
+/// Tidal's `userMessage` from an error body, when it has a non-empty one.
+fn user_message(response: &ApiResponse) -> Option<String> {
+    #[derive(Deserialize)]
+    struct ErrorBody {
+        #[serde(rename = "userMessage")]
+        user_message: Option<String>,
+    }
+    let message = response.json::<ErrorBody>().ok()?.user_message?;
+    (!message.trim().is_empty()).then_some(message)
+}
+
+/// The track, unless it has no stereo mode (Dolby-Atmos-only).
+fn stereo_track(dto: TrackDto) -> Option<Track> {
+    dto.audio_modes
+        .iter()
+        .any(|m| m == "STEREO")
+        .then(|| Track::from(dto))
+}
+
+/// A search's `topHit` (`{type, value}`) by its `type`; any other type, or
+/// a `value` that cannot be read, is none.
+fn top_hit(hit: serde_json::Value) -> Option<TopHit> {
+    let kind = hit.get("type")?.as_str()?.to_owned();
+    let value = hit.get("value")?.clone();
+    match kind.as_str() {
+        "TRACKS" => stereo_track(serde_json::from_value(value).ok()?).map(TopHit::Track),
+        "ALBUMS" => Some(TopHit::Album(
+            serde_json::from_value::<AlbumDto>(value).ok()?.into(),
+        )),
+        "ARTISTS" => Some(TopHit::Artist(
+            serde_json::from_value::<ArtistDto>(value).ok()?.into(),
+        )),
+        "PLAYLISTS" => Some(TopHit::Playlist(
+            serde_json::from_value::<PlaylistDto>(value)
+                .ok()?
+                .into_summary(false),
+        )),
+        _ => None,
+    }
+}
+
 fn clamp_total(total: u64) -> u32 {
     u32::try_from(total).unwrap_or(u32::MAX)
 }
@@ -981,6 +1120,18 @@ impl<T> RawPage<T> {
             hidden: 0,
         }
     }
+}
+
+/// `GET /search`: the four lists asked for (`videos` ignored) and the top
+/// hit, read by [`top_hit`].
+#[derive(Deserialize)]
+struct SearchDto {
+    tracks: RawPage<TrackDto>,
+    albums: RawPage<AlbumDto>,
+    artists: RawPage<ArtistDto>,
+    playlists: RawPage<PlaylistDto>,
+    #[serde(default, rename = "topHit")]
+    top_hit: Option<serde_json::Value>,
 }
 
 /// `{created, item}`.

@@ -1,0 +1,432 @@
+{
+  "artists": {
+    "limit": 20,
+    "offset": 0,
+    "totalNumberOfItems": 7,
+    "items": [
+      {
+        "id": 4108155,
+        "name": "Pierce The Veil",
+        "artistTypes": [
+          "ARTIST",
+          "CONTRIBUTOR"
+        ],
+        "url": "http://www.tidal.com/artist/4108155",
+        "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7",
+        "selectedAlbumCoverFallback": null,
+        "popularity": 77,
+        "artistRoles": [
+          {
+            "categoryId": -1,
+            "category": "Artist"
+          },
+          {
+            "categoryId": 2,
+            "category": "Songwriter"
+          }
+        ],
+        "mixes": {
+          "ARTIST_MIX": "0001c688e28efd901107694a91ab82"
+        },
+        "handle": null,
+        "userId": 1234,
+        "spotlighted": false
+      },
+      {
+        "id": 3668002,
+        "name": "Sleeping With Sirens",
+        "artistTypes": [
+          "ARTIST",
+          "CONTRIBUTOR"
+        ],
+        "url": "http://www.tidal.com/artist/3668002",
+        "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7",
+        "selectedAlbumCoverFallback": null,
+        "popularity": 0,
+        "artistRoles": [
+          {
+            "categoryId": -1,
+            "category": "Artist"
+          },
+          {
+            "categoryId": 2,
+            "category": "Songwriter"
+          }
+        ],
+        "mixes": {
+          "ARTIST_MIX": "0001c688e28efd901107694a91ab82"
+        },
+        "handle": null,
+        "userId": 1234,
+        "spotlighted": false
+      }
+    ]
+  },
+  "albums": {
+    "limit": 20,
+    "offset": 0,
+    "totalNumberOfItems": 55,
+    "items": [
+      {
+        "id": 58758536,
+        "title": "Collide With The Sky",
+        "duration": 2776,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2016-04-01T00:00:00.000+0000",
+        "allowStreaming": true,
+        "premiumStreamingOnly": false,
+        "numberOfTracks": 12,
+        "numberOfVideos": 0,
+        "numberOfVolumes": 1,
+        "releaseDate": "2012-07-16",
+        "copyright": "© 2012 Fearless Records",
+        "type": "ALBUM",
+        "version": null,
+        "url": "http://www.tidal.com/album/58758536",
+        "cover": "9cf0c416-8bb6-499c-b14f-fd4c00287658",
+        "vibrantColor": "#a3d5d7",
+        "videoCover": null,
+        "explicit": true,
+        "upc": "00888072397729",
+        "popularity": 72,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "ai": false,
+        "artists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          }
+        ]
+      },
+      {
+        "id": 274869620,
+        "title": "The Jaws Of Life",
+        "duration": 2492,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2016-04-01T00:00:00.000+0000",
+        "allowStreaming": true,
+        "premiumStreamingOnly": false,
+        "numberOfTracks": 12,
+        "numberOfVideos": 0,
+        "numberOfVolumes": 1,
+        "releaseDate": "2023-02-10",
+        "copyright": "© 2012 Fearless Records",
+        "type": "EP",
+        "version": null,
+        "url": "http://www.tidal.com/album/274869620",
+        "cover": "9cf0c416-8bb6-499c-b14f-fd4c00287658",
+        "vibrantColor": "#a3d5d7",
+        "videoCover": null,
+        "explicit": true,
+        "upc": "00888072397729",
+        "popularity": 72,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "ai": false,
+        "artists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          }
+        ]
+      }
+    ]
+  },
+  "playlists": {
+    "limit": 20,
+    "offset": 0,
+    "totalNumberOfItems": 3,
+    "items": [
+      {
+        "uuid": "1f11afd7-1a4e-4e4f-b49e-d61848c42ada",
+        "title": "Pierce The Veil Essentials",
+        "numberOfTracks": 15,
+        "numberOfVideos": 0,
+        "creator": {},
+        "description": "Essentials.",
+        "duration": 3509,
+        "lastUpdated": "2024-04-25T00:00:00.000+0000",
+        "created": "2023-10-18T00:00:00.000+0000",
+        "type": "EDITORIAL",
+        "publicPlaylist": true,
+        "url": "http://www.tidal.com/playlist/1f11afd7-1a4e-4e4f-b49e-d61848c42ada",
+        "image": "06ab476f-3d18-4d67-9cdd-9ff681fd8dda",
+        "popularity": 34,
+        "squareImage": "4ff2e291-0970-4604-a1e6-22f21f8a6bd7",
+        "customImageUrl": null,
+        "promotedArtists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          }
+        ],
+        "lastItemAddedAt": "2024-04-25T00:00:00.000+0000"
+      }
+    ]
+  },
+  "tracks": {
+    "limit": 20,
+    "offset": 0,
+    "totalNumberOfItems": 223,
+    "items": [
+      {
+        "id": 58758540,
+        "title": "King For A Day",
+        "duration": 236,
+        "replayGain": -11.45,
+        "peak": 0.977112,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2016-04-01T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 2,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 73,
+        "copyright": "℗ 2012 Fearless Records",
+        "bpm": 130,
+        "key": "FSharp",
+        "keyScale": "MINOR",
+        "url": "http://www.tidal.com/track/58758540",
+        "isrc": "US5261216602",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "accessType": null,
+        "spotlighted": false,
+        "ai": false,
+        "artists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          },
+          {
+            "id": 4982923,
+            "name": "Kellin Quinn",
+            "handle": null,
+            "type": "FEATURED",
+            "picture": null
+          }
+        ],
+        "album": {
+          "id": 58758536,
+          "title": "Collide With The Sky",
+          "cover": "9cf0c416-8bb6-499c-b14f-fd4c00287658",
+          "vibrantColor": "#a3d5d7",
+          "videoCover": null,
+          "releaseDate": "2012-07-16"
+        },
+        "mixes": {
+          "TRACK_MIX": "001fc025c266e55fbea7830febe99d"
+        }
+      },
+      {
+        "id": 58758538,
+        "title": "Hell Above",
+        "duration": 224,
+        "replayGain": -11.45,
+        "peak": 0.977112,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2016-04-01T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 2,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 73,
+        "copyright": "℗ 2012 Fearless Records",
+        "bpm": 130,
+        "key": "FSharp",
+        "keyScale": "MINOR",
+        "url": "http://www.tidal.com/track/58758538",
+        "isrc": "US5261216602",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "upload": false,
+        "accessType": null,
+        "spotlighted": false,
+        "ai": false,
+        "artists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          }
+        ],
+        "album": {
+          "id": 58758536,
+          "title": "Collide With The Sky",
+          "cover": "9cf0c416-8bb6-499c-b14f-fd4c00287658",
+          "vibrantColor": "#a3d5d7",
+          "videoCover": null,
+          "releaseDate": "2012-07-16"
+        },
+        "mixes": {
+          "TRACK_MIX": "001fc025c266e55fbea7830febe99d"
+        }
+      },
+      {
+        "id": 447285811,
+        "title": "Hell Above",
+        "duration": 224,
+        "replayGain": -11.45,
+        "peak": 0.977112,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "adSupportedStreamReady": true,
+        "djReady": true,
+        "stemReady": false,
+        "streamStartDate": "2016-04-01T00:00:00.000+0000",
+        "premiumStreamingOnly": false,
+        "trackNumber": 2,
+        "volumeNumber": 1,
+        "version": null,
+        "popularity": 73,
+        "copyright": "℗ 2012 Fearless Records",
+        "bpm": 130,
+        "key": "FSharp",
+        "keyScale": "MINOR",
+        "url": "http://www.tidal.com/track/447285811",
+        "isrc": "US5261216602",
+        "editable": false,
+        "explicit": false,
+        "audioQuality": "LOW",
+        "audioModes": [
+          "DOLBY_ATMOS"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "DOLBY_ATMOS"
+          ]
+        },
+        "upload": false,
+        "accessType": null,
+        "spotlighted": false,
+        "ai": false,
+        "artists": [
+          {
+            "id": 4108155,
+            "name": "Pierce The Veil",
+            "handle": null,
+            "type": "MAIN",
+            "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7"
+          }
+        ],
+        "album": {
+          "id": 447285809,
+          "title": "Collide With The Sky",
+          "cover": "9cf0c416-8bb6-499c-b14f-fd4c00287658",
+          "vibrantColor": "#a3d5d7",
+          "videoCover": null,
+          "releaseDate": "2012-07-16"
+        },
+        "mixes": {
+          "TRACK_MIX": "001fc025c266e55fbea7830febe99d"
+        }
+      }
+    ]
+  },
+  "videos": {
+    "limit": 20,
+    "offset": 0,
+    "totalNumberOfItems": 0,
+    "items": []
+  },
+  "topHit": {
+    "value": {
+      "id": 4108155,
+      "name": "Pierce The Veil",
+      "artistTypes": [
+        "ARTIST",
+        "CONTRIBUTOR"
+      ],
+      "url": "http://www.tidal.com/artist/4108155",
+      "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7",
+      "selectedAlbumCoverFallback": null,
+      "popularity": 77,
+      "artistRoles": [
+        {
+          "categoryId": -1,
+          "category": "Artist"
+        },
+        {
+          "categoryId": 2,
+          "category": "Songwriter"
+        }
+      ],
+      "mixes": {
+        "ARTIST_MIX": "0001c688e28efd901107694a91ab82"
+      },
+      "handle": null,
+      "userId": 1234,
+      "spotlighted": false
+    },
+    "type": "ARTISTS"
+  }
+}

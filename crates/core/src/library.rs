@@ -104,6 +104,12 @@ pub enum ListRef {
     ArtistAppearsOn(u64),
     /// The artist's *All tracks* (`Credits for <artist>`).
     Credits(u64),
+    /// A search's tracks, albums, artists and playlists, by query (spec
+    /// 0007).
+    SearchTracks(String),
+    SearchAlbums(String),
+    SearchArtists(String),
+    SearchPlaylists(String),
 }
 
 /// A page to open.
@@ -114,6 +120,18 @@ pub enum PageRequest {
     Album(u64),
     Playlist(String),
     Artist(u64),
+    /// A search, by its trimmed query (spec 0007).
+    Search(String),
+}
+
+/// Tidal's top hit of a search (spec 0007 decision 6): one item of any
+/// kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TopHit {
+    Track(Track),
+    Album(AlbumSummary),
+    Artist(ArtistRef),
+    Playlist(PlaylistSummary),
 }
 
 /// A page's header and the first page of each of its lists (*All tracks*
@@ -144,6 +162,15 @@ pub enum PageData {
         top_tracks: ListPage<Track>,
         albums: ListPage<AlbumSummary>,
         appears_on: ListPage<AlbumSummary>,
+    },
+    /// A search's top hit and the first page of each result list.
+    Search {
+        /// Boxed: a track is large, and most pages carry none.
+        top_hit: Option<Box<TopHit>>,
+        tracks: ListPage<Track>,
+        albums: ListPage<AlbumSummary>,
+        artists: ListPage<ArtistRef>,
+        playlists: ListPage<PlaylistSummary>,
     },
 }
 

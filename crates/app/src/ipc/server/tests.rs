@@ -116,6 +116,16 @@ impl Client {
         id
     }
 
+    /// Sends `request` as a `Library` request; its `id`.
+    fn ask_library(&mut self, request: LibraryRequest) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.conn
+            .send(&ClientMessage::Library { id, request })
+            .unwrap();
+        id
+    }
+
     /// The next `LibraryReply` (events before it are skipped).
     fn library_reply(&mut self) -> (u64, Result<LibraryResponse, String>) {
         loop {
@@ -955,6 +965,68 @@ fn ac8_reply_to_sender() {
         )
     };
     assert_eq!(library.seen(), vec![want("one"), want("two")]);
+}
+
+/// Spec 0007 AC4: a search page and a `More` on each search list are
+/// answered like any 0006 request: one reply, to the sender only; the
+/// search page gets the search page size, everything else the page size.
+#[test]
+fn ac4_search_reply_to_sender() {
+    use tidal_player_core::library::{ListRef, PageRequest};
+
+    let library = Arc::new(FakeLibrary::default());
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    let q = "pierce the veil".to_owned();
+    let more = |list: ListRef| LibraryRequest::More {
+        list,
+        offset: 20,
+        limit: 20,
+    };
+    let requests = vec![
+        LibraryRequest::Page(PageRequest::Search(q.clone())),
+        more(ListRef::SearchTracks(q.clone())),
+        more(ListRef::SearchAlbums(q.clone())),
+        more(ListRef::SearchArtists(q.clone())),
+        more(ListRef::SearchPlaylists(q.clone())),
+        LibraryRequest::Page(PageRequest::Library),
+    ];
+    for request in &requests {
+        let id = a.ask_library(request.clone());
+        assert_eq!(
+            a.library_reply(),
+            (id, Ok(LibraryResponse::Done)),
+            "{request:?}"
+        );
+    }
+    // Nothing for `b`, nothing more for `a`.
+    let got = b.request(NOOP);
+    assert_eq!(
+        library_replies(&got),
+        Vec::<&ServerMessage>::new(),
+        "{got:?}"
+    );
+    assert_eq!(library_replies(&b.drain()).len(), 0);
+    let got = a.request(NOOP);
+    assert_eq!(library_replies(&got).len(), 0, "{got:?}");
+
+    let settings = crate::player_runtime::LibrarySettings::default();
+    assert_ne!(settings.page_size, settings.search_page_size);
+    let want: Vec<_> = requests
+        .iter()
+        .map(|request| {
+            let size = match request {
+                LibraryRequest::Page(PageRequest::Search(_)) => settings.search_page_size,
+                _ => settings.page_size,
+            };
+            (request.clone(), size, settings.hidden_words.clone())
+        })
+        .collect();
+    assert_eq!(library.seen(), want);
 }
 
 /// AC8: a failing library's message is the `Err`, unchanged.

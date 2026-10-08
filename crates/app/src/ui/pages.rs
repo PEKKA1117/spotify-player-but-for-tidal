@@ -1,7 +1,9 @@
 //! Rendering of the library's pages and popups (spec 0006 "Rendering"):
 //! the title row, the windows (side by side from 60 columns, else the
-//! focused one), their rows, and the popups over the page. Drawn from the
-//! UI model's public API only; the queue page is drawn by `ui.rs`.
+//! focused one), their rows, and the popups over the page; on the search
+//! page (spec 0007 "Rendering") the input and top-hit rows, then its four
+//! windows in a 2 × 2 grid. Drawn from the UI model's public API only; the
+//! queue page is drawn by `ui.rs`.
 
 use ratatui::{
     Frame,
@@ -10,12 +12,13 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
-use tidal_player_core::library::AlbumKind;
+use tidal_player_core::library::{AlbumKind, TopHit};
 use tidal_player_core::ui::{
-    Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, State, Window,
+    Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search,
+    SearchFocus, State, Window, WindowKind,
 };
 
-use super::{Columns, draw_prompt, fit, pad, text_width};
+use super::{Columns, draw_prompt, fit, pad, tail, text_width};
 
 /// From this many columns inside the frame a page draws its windows side
 /// by side; below, only the focused one.
@@ -29,6 +32,22 @@ const ROLES_COLUMN: usize = 22;
 const POPUP_WIDTH: u16 = 50;
 /// The `‹Tab›` marker in a window's title.
 const TAB: &str = "‹Tab›";
+/// The search input's label and the cursor block after its text while it
+/// has the focus (spec 0007 "Rendering").
+const SEARCH_LABEL: &str = "Search: ";
+const SEARCH_CURSOR: &str = "▏";
+const TOP_HIT_LABEL: &str = "Top hit: ";
+
+/// What a window shows in place of its rows, or its rows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fill {
+    /// Its rows (or its own loading, failure or empty message).
+    Rows,
+    /// The page is being fetched: `Loading…`.
+    Loading,
+    /// Nothing: a search page before its first search.
+    Blank,
+}
 
 /// Rows of a list window for a page area of `page` (the title row and the
 /// window's two border rows excluded).
@@ -78,6 +97,13 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     if body.height == 0 {
         return;
     }
+    let body = match &page.search {
+        Some(search) => search_rows(frame, page, search, body),
+        None => body,
+    };
+    if body.height == 0 {
+        return;
+    }
     if let Load::Failed(message) = &page.load {
         let lines: Vec<Line> = wrap(message, width)
             .into_iter()
@@ -86,7 +112,13 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         frame.render_widget(Paragraph::new(lines), body);
         return;
     }
-    let loading = matches!(page.load, Load::Loading { .. });
+    let fill = if matches!(page.load, Load::Loading { .. }) {
+        Fill::Loading
+    } else if page.kind == PageKind::Search(String::new()) {
+        Fill::Blank
+    } else {
+        Fill::Rows
+    };
     for slot in slots(page, body) {
         if slot.window >= page.windows.len() {
             continue;
@@ -96,11 +128,74 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
             slot.rect,
             slot.window,
             &page.windows,
-            slot.window == page.focus,
+            page.windows_focused() && slot.window == page.focus,
             &slot.hint,
-            loading,
+            fill,
         );
     }
+}
+
+/// Draws a search page's input row and, when there is one, its top-hit
+/// row at the top of `body` (spec 0007 "Rendering"); returns the rows
+/// left for the windows.
+fn search_rows(frame: &mut Frame, page: &Page, search: &Search, body: Rect) -> Rect {
+    let width = usize::from(body.width);
+    let focused = search.focus == SearchFocus::Input;
+    // The end of the query stays in view, one column kept for the cursor.
+    let room = width.saturating_sub(text_width(SEARCH_LABEL) + 1);
+    let query = if text_width(&search.input) <= room {
+        search.input.clone()
+    } else {
+        format!("…{}", tail(&search.input, room.saturating_sub(1)))
+    };
+    let cursor = if focused { SEARCH_CURSOR } else { "" };
+    let style = if focused {
+        Style::new().add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            fit(&format!("{SEARCH_LABEL}{query}{cursor}"), width),
+            style,
+        )),
+        Rect { height: 1, ..body },
+    );
+    let mut rest = Rect {
+        y: body.y + 1,
+        height: body.height - 1,
+        ..body
+    };
+    if let Some(hit) = &search.top_hit
+        && rest.height > 0
+        && page.load == Load::Idle
+    {
+        let mut style = Style::new();
+        if matches!(hit, TopHit::Track(t) if !t.streamable) {
+            style = style.add_modifier(Modifier::DIM);
+        }
+        if search.focus == SearchFocus::TopHit {
+            style = style.add_modifier(Modifier::REVERSED);
+        }
+        frame.render_widget(
+            Paragraph::new(Line::styled(fit(&top_hit_row(hit), width), style)),
+            Rect { height: 1, ..rest },
+        );
+        rest.y += 1;
+        rest.height -= 1;
+    }
+    rest
+}
+
+/// `Top hit: Pierce The Veil · artist`.
+fn top_hit_row(hit: &TopHit) -> String {
+    let (name, kind) = match hit {
+        TopHit::Track(t) => (t.title.as_str(), "track"),
+        TopHit::Album(a) => (a.title.as_str(), "album"),
+        TopHit::Artist(a) => (a.name.as_str(), "artist"),
+        TopHit::Playlist(p) => (p.title.as_str(), "playlist"),
+    };
+    format!("{TOP_HIT_LABEL}{name} · {kind}")
 }
 
 /// Where each drawn window goes (spec 0006 "Rendering").
@@ -143,6 +238,39 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
                 ..rest
             };
             [playlists, albums, artists]
+                .into_iter()
+                .enumerate()
+                .map(|(window, rect)| Slot {
+                    rect,
+                    window,
+                    hint: Hint::None,
+                })
+                .collect()
+        }
+        PageKind::Search(_) => {
+            // Tracks | Albums over Artists | Playlists, each half the
+            // width and half the height.
+            let left = body.width / 2;
+            let top = body.height - body.height / 2;
+            let column = |x: u16, width: u16| {
+                [
+                    Rect {
+                        x,
+                        width,
+                        height: top,
+                        ..body
+                    },
+                    Rect {
+                        x,
+                        y: body.y + top,
+                        width,
+                        height: body.height - top,
+                    },
+                ]
+            };
+            let [tracks, artists] = column(body.x, left);
+            let [albums, playlists] = column(body.x + left, body.width - left);
+            [tracks, albums, artists, playlists]
                 .into_iter()
                 .enumerate()
                 .map(|(window, rect)| Slot {
@@ -198,7 +326,7 @@ fn render_window(
     windows: &[Window],
     focused: bool,
     hint: &Hint,
-    page_loading: bool,
+    fill: Fill,
 ) {
     let window = &windows[active];
     let room = usize::from(area.width).saturating_sub(2);
@@ -259,7 +387,7 @@ fn render_window(
     }
     let lines = window_lines(
         window,
-        page_loading,
+        fill,
         focused,
         usize::from(inner.width),
         usize::from(inner.height),
@@ -277,7 +405,7 @@ fn message_lines(text: &str, width: usize, style: Style) -> Vec<Line<'static>> {
 /// The visible rows of `window`, scrolled to keep the cursor in view.
 fn window_lines(
     window: &Window,
-    page_loading: bool,
+    fill: Fill,
     focused: bool,
     width: usize,
     height: usize,
@@ -285,8 +413,12 @@ fn window_lines(
     let plain = Style::new();
     let dim = Style::new().add_modifier(Modifier::DIM);
     let red = Style::new().fg(Color::Red);
+    if fill == Fill::Blank {
+        return Vec::new();
+    }
     // Nothing fetched yet (or the page is being fetched again).
-    if page_loading || (window.total.is_none() && !matches!(window.load, Load::Failed(_))) {
+    if fill == Fill::Loading || (window.total.is_none() && !matches!(window.load, Load::Failed(_)))
+    {
         return message_lines("Loading…", width, dim);
     }
     if window.is_empty() {
@@ -334,7 +466,10 @@ fn window_lines(
                     }
                 }
                 Row::Album(album) => album_row(album, width),
-                Row::Playlist(playlist) => playlist_row(playlist, width),
+                // A search's playlists are not the user's: no heart.
+                Row::Playlist(playlist) => {
+                    playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
+                }
                 Row::Artist(artist) => fit(&artist.name, width),
             };
             Some((text, style))
@@ -410,9 +545,18 @@ fn album_row(album: &tidal_player_core::library::AlbumSummary, width: usize) -> 
     row
 }
 
-/// `♥ title   42`: a favorite (followed) playlist has the heart.
-fn playlist_row(playlist: &tidal_player_core::library::PlaylistSummary, width: usize) -> String {
-    let prefix = if playlist.own { "  " } else { "♥ " };
+/// `♥ title   42`: a favorite (followed) playlist has the heart, when
+/// `hearts` (not in search results, spec 0007 decision 5).
+fn playlist_row(
+    playlist: &tidal_player_core::library::PlaylistSummary,
+    width: usize,
+    hearts: bool,
+) -> String {
+    let prefix = if hearts && !playlist.own {
+        "♥ "
+    } else {
+        "  "
+    };
     let count = playlist.tracks.map(|n| n.to_string()).unwrap_or_default();
     const COUNT: usize = 5;
     if width < 2 + 1 + COUNT + 4 {
