@@ -30,7 +30,9 @@ use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
 use tidal_player_core::item::parse_item;
-use tidal_player_core::library::{DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse};
+use tidal_player_core::library::{
+    DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageRequest,
+};
 use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
@@ -142,6 +144,18 @@ impl Default for LibrarySettings {
                 .iter()
                 .map(|w| (*w).to_owned())
                 .collect(),
+        }
+    }
+}
+
+impl LibrarySettings {
+    /// The page size [`Library::request`] gets for `request`: the search
+    /// page size for a search page, else the library's (a `More` carries
+    /// its own `limit`).
+    pub fn page_size_for(&self, request: &LibraryRequest) -> u32 {
+        match request {
+            LibraryRequest::Page(PageRequest::Search(_)) => self.search_page_size,
+            _ => self.page_size,
         }
     }
 }
@@ -1004,11 +1018,8 @@ impl TokioJobs {
 impl Jobs for TokioJobs {
     fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest) {
         let library = Arc::clone(&self.library);
-        let LibrarySettings {
-            page_size,
-            hidden_words,
-            ..
-        } = self.library_settings.clone();
+        let page_size = self.library_settings.page_size_for(&request);
+        let hidden_words = self.library_settings.hidden_words.clone();
         let results = self.results.clone();
         self.runtime.spawn(async move {
             let result = library.request(request, page_size, hidden_words).await;
@@ -1386,17 +1397,14 @@ pub(crate) mod fakes {
         fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest) {
             let results = self.results.clone();
             let settings = self.library_settings.clone();
+            let page_size = settings.page_size_for(&request);
             let library = self.library.clone();
             std::thread::spawn(move || {
                 let result = match library {
                     Some(library) => tokio::runtime::Builder::new_current_thread()
                         .build()
                         .expect("a test runtime")
-                        .block_on(library.request(
-                            request,
-                            settings.page_size,
-                            settings.hidden_words,
-                        )),
+                        .block_on(library.request(request, page_size, settings.hidden_words)),
                     None => Err("library not available".to_owned()),
                 };
                 let _ = results.send(RuntimeInput::LibraryDone { client, id, result });
@@ -1725,6 +1733,80 @@ mod tests {
             ),
             "{calls:?}"
         );
+    }
+
+    /// Never opens a stream (the library test below plays nothing).
+    struct NoOpener;
+
+    impl StreamOpener for NoOpener {
+        fn open(&self, _: TrackId) -> BoxFuture<'static, Result<Prepared, Failure>> {
+            Box::pin(async {
+                Err(Failure {
+                    kind: player::FailureKind::TrackOnly,
+                    message: "no streams here".to_owned(),
+                })
+            })
+        }
+    }
+
+    /// Spec 0007 AC4: the real jobs pass the search page size with a search
+    /// page, and the page size with every other request (a `More` carries
+    /// its own `limit`).
+    #[test]
+    fn ac4_tokio_jobs_search_page_size() {
+        use tidal_player_core::library::{ListRef, PageRequest};
+
+        let tokio = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let library = Arc::new(FakeLibrary::default());
+        let settings = LibrarySettings {
+            page_size: 100,
+            search_page_size: 7,
+            hidden_words: vec!["live".to_owned()],
+        };
+        let (tx, rx) = mpsc::channel();
+        let mut jobs = TokioJobs::new(
+            tokio.handle().clone(),
+            Arc::new(NoOpener),
+            Arc::new(PromptMeta),
+            tx,
+        )
+        .with_library(Arc::clone(&library) as _, settings);
+        let q = "a&b".to_owned();
+        let table = [
+            (LibraryRequest::Page(PageRequest::Search(q.clone())), 7),
+            (
+                LibraryRequest::More {
+                    list: ListRef::SearchTracks(q.clone()),
+                    offset: 20,
+                    limit: 20,
+                },
+                100,
+            ),
+            (LibraryRequest::Page(PageRequest::FavoriteTracks), 100),
+        ];
+        for (n, (request, _)) in table.iter().enumerate() {
+            jobs.library(ClientId(1), n as u64, request.clone());
+            let done = tokio.block_on(async {
+                loop {
+                    match rx.try_recv() {
+                        Ok(input) => break input,
+                        Err(_) => tokio::time::sleep(Duration::from_millis(5)).await,
+                    }
+                }
+            });
+            assert!(
+                matches!(done, RuntimeInput::LibraryDone { id, .. } if id == n as u64),
+                "{request:?}"
+            );
+        }
+        let want: Vec<_> = table
+            .into_iter()
+            .map(|(request, size)| (request, size, vec!["live".to_owned()]))
+            .collect();
+        assert_eq!(library.seen(), want);
     }
 
     /// Metadata from memory for the open prompt: album 10 is tracks 1 and
