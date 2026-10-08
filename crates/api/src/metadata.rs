@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use tidal_player_core::{Item, Track, TrackId};
+use tidal_player_core::{AlbumRef, ArtistRef, Item, Track, TrackId};
 
 use crate::auth::{AuthError, Authenticator};
 
@@ -173,20 +173,33 @@ struct PlaylistEntry {
 }
 
 #[derive(Deserialize)]
-struct ArtistDto {
-    name: String,
+pub(crate) struct ArtistDto {
+    pub(crate) id: u64,
+    pub(crate) name: String,
 }
 
 #[derive(Deserialize)]
 struct AlbumDto {
+    id: u64,
     title: String,
+}
+
+impl From<ArtistDto> for ArtistRef {
+    fn from(dto: ArtistDto) -> Self {
+        ArtistRef {
+            id: dto.id,
+            name: dto.name,
+        }
+    }
 }
 
 /// The keys of a track response this player reads; the rest is ignored.
 #[derive(Deserialize)]
-struct TrackDto {
+pub(crate) struct TrackDto {
     id: u64,
     title: String,
+    /// `Instrumental`, `Live`, ...; `null` for most tracks.
+    version: Option<String>,
     /// Whole seconds.
     duration: Option<u64>,
     #[serde(default, rename = "allowStreaming")]
@@ -197,20 +210,28 @@ struct TrackDto {
     artists: Vec<ArtistDto>,
     artist: Option<ArtistDto>,
     album: Option<AlbumDto>,
+    /// `STEREO`, `DOLBY_ATMOS`: read by the artist's *All tracks* (spec
+    /// 0006 AC6).
+    #[serde(default, rename = "audioModes")]
+    pub(crate) audio_modes: Vec<String>,
 }
 
 impl From<TrackDto> for Track {
     fn from(dto: TrackDto) -> Self {
-        let artists: Vec<String> = if dto.artists.is_empty() {
-            dto.artist.into_iter().map(|a| a.name).collect()
+        let artists: Vec<ArtistRef> = if dto.artists.is_empty() {
+            dto.artist.into_iter().map(ArtistRef::from).collect()
         } else {
-            dto.artists.into_iter().map(|a| a.name).collect()
+            dto.artists.into_iter().map(ArtistRef::from).collect()
         };
         Track {
             id: TrackId(dto.id),
             title: dto.title,
+            version: dto.version,
             artists,
-            album: dto.album.map(|a| a.title),
+            album: dto.album.map(|a| AlbumRef {
+                id: a.id,
+                title: a.title,
+            }),
             duration: dto.duration.map(Duration::from_secs),
             streamable: dto.allow_streaming && dto.stream_ready,
         }

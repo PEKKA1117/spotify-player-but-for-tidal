@@ -1,0 +1,16 @@
+{
+  "uuid": "00000000-0000-4000-8000-0000000000a1",
+  "title": "Running",
+  "numberOfTracks": 42,
+  "numberOfVideos": 0,
+  "description": "",
+  "duration": 9000,
+  "lastUpdated": "2026-01-01T00:00:00.000+0000",
+  "created": "2026-03-02T10:00:00.000+0000",
+  "type": "USER",
+  "publicPlaylist": false,
+  "creator": {
+    "id": 1
+  },
+  "squareImage": "00000000-0000-4000-8000-000000000003"
+}

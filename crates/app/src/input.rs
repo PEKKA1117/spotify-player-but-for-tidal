@@ -22,6 +22,12 @@ pub fn key_to_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Up => Key::Up,
         KeyCode::Down => Key::Down,
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Key::BackTab,
+        KeyCode::Tab => Key::Tab,
+        // Shift-Tab: crossterm reports `BackTab` (with or without Shift).
+        KeyCode::BackTab => Key::BackTab,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
         _ => return None,
     };
     Some(Action::Key(decoded))
@@ -36,9 +42,13 @@ mod tests {
     /// 0001 AC5 through the key map: `q` and `Esc` quit (with the prompt
     /// closed; with it open they edit it, spec 0004 AC28).
     #[test]
-    fn maps_q_and_esc_to_quit() {
-        for code in [KeyCode::Char('q'), KeyCode::Esc] {
-            let key = KeyEvent::new(code, KeyModifiers::NONE);
+    fn maps_q_and_ctrl_c_to_quit_and_esc_to_nothing() {
+        // Spec 0006 AC15: `Esc` no longer quits; `q` and `C-c` do.
+        for (code, modifiers) in [
+            (KeyCode::Char('q'), KeyModifiers::NONE),
+            (KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ] {
+            let key = KeyEvent::new(code, modifiers);
             let action = key_to_action(key).expect("an action");
             assert_eq!(
                 update(&mut State::default(), action),
@@ -46,16 +56,21 @@ mod tests {
                 "{code:?}"
             );
         }
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let effects = key_to_action(esc).map(|a| update(&mut State::default(), a));
+        assert!(effects.as_ref().is_none_or(Vec::is_empty), "{effects:?}");
         let other = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
         let effects = key_to_action(other).map(|a| update(&mut State::default(), a));
         assert!(effects.as_ref().is_none_or(Vec::is_empty), "{effects:?}");
     }
 
-    /// AC20: crossterm key events decode into the core's keys: characters
-    /// as typed (Shift gives the upper-case character), Control + letter,
-    /// and the named keys; anything else is dropped.
+    /// 0004 AC20 and 0006 AC18: crossterm key events decode into the
+    /// core's keys: characters as typed (Shift gives the upper-case
+    /// character), Control + letter, and the named keys (`Tab`, `BackTab`
+    /// as crossterm reports Shift-Tab or as Shift + `Tab`, `Backspace`,
+    /// `PageUp`, `PageDown`); anything else is dropped.
     #[test]
-    fn ac20_key_events() {
+    fn ac18_key_events() {
         let none = KeyModifiers::NONE;
         let shift = KeyModifiers::SHIFT;
         let ctrl = KeyModifiers::CONTROL;
@@ -79,7 +94,19 @@ mod tests {
             (KeyCode::Up, none, Some(Key::Up)),
             (KeyCode::Down, none, Some(Key::Down)),
             (KeyCode::F(1), none, None),
-            (KeyCode::Tab, none, None),
+            (KeyCode::Tab, none, Some(Key::Tab)),
+            (KeyCode::BackTab, none, Some(Key::BackTab)),
+            (KeyCode::BackTab, shift, Some(Key::BackTab)),
+            (KeyCode::Tab, shift, Some(Key::BackTab)),
+            (KeyCode::PageUp, none, Some(Key::PageUp)),
+            (KeyCode::PageDown, none, Some(Key::PageDown)),
+            (KeyCode::Char(' '), ctrl, Some(Key::Ctrl(' '))),
+            (KeyCode::Char('f'), ctrl, Some(Key::Ctrl('f'))),
+            (KeyCode::Char('b'), ctrl, Some(Key::Ctrl('b'))),
+            (KeyCode::Char('q'), ctrl, Some(Key::Ctrl('q'))),
+            (KeyCode::Char('z'), ctrl, Some(Key::Ctrl('z'))),
+            (KeyCode::Char('c'), ctrl, Some(Key::Ctrl('c'))),
+            (KeyCode::Home, none, None),
             (KeyCode::Char('x'), KeyModifiers::ALT, None),
         ];
         for (code, modifiers, key) in cases {

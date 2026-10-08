@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
+use tidal_player_core::library::LibraryResponse;
 use tidal_player_core::player::PlayerConfig;
 use tidal_player_core::protocol::{
     ClientMessage, Command, Event, InsertAt, PlayerSnapshot, ServerMessage,
@@ -17,7 +19,9 @@ use tidal_player_core::{EntryId, Track, ui};
 
 use super::*;
 use crate::ipc::client::{Connection, RecvError};
-use crate::player_runtime::fakes::{Call, FakeEngine, FakeJobs, Log, Script, track};
+use crate::player_runtime::fakes::{
+    Call, FakeEngine, FakeJobs, FakeLibrary, Log, Script, delete, track,
+};
 use crate::player_runtime::{PlayerRuntime, RuntimeHandle, spawn_runtime};
 
 /// The longest any one message may take to arrive.
@@ -36,10 +40,19 @@ struct TestPlayer {
 
 impl TestPlayer {
     fn start() -> Self {
+        Self::start_with(|jobs| jobs)
+    }
+
+    /// A player whose library is `library`.
+    fn start_with_library(library: &Arc<FakeLibrary>) -> Self {
+        Self::start_with(|jobs| jobs.with_library(Arc::clone(library) as _))
+    }
+
+    fn start_with(jobs: impl FnOnce(FakeJobs) -> FakeJobs) -> Self {
         let log: Log = Log::default();
         let (tx, rx) = mpsc::channel();
         let engine = FakeEngine::new(&log, Script::Plays);
-        let jobs = FakeJobs::new(&log, &tx, true);
+        let jobs = jobs(FakeJobs::new(&log, &tx, true));
         let runtime = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
         let handle = spawn_runtime(runtime, rx, tx.clone());
         Self {
@@ -88,6 +101,28 @@ impl Client {
             .send(&ClientMessage::Request { id, command })
             .unwrap();
         id
+    }
+
+    /// Sends a library request named `label` (see `delete`).
+    fn library(&mut self, label: &str) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.conn
+            .send(&ClientMessage::Library {
+                id,
+                request: delete(label),
+            })
+            .unwrap();
+        id
+    }
+
+    /// The next `LibraryReply` (events before it are skipped).
+    fn library_reply(&mut self) -> (u64, Result<LibraryResponse, String>) {
+        loop {
+            if let ServerMessage::LibraryReply { id, result } = self.recv() {
+                return (id, result);
+            }
+        }
     }
 
     fn recv(&mut self) -> ServerMessage {
@@ -183,7 +218,9 @@ impl View {
             }
             ServerMessage::Event(Event::LoginRequired) => self.login_required = true,
             ServerMessage::Event(Event::LoginRestored) => self.login_required = false,
-            ServerMessage::Event(Event::ShuttingDown) | ServerMessage::Reply { .. } => {}
+            ServerMessage::Event(Event::ShuttingDown)
+            | ServerMessage::Reply { .. }
+            | ServerMessage::LibraryReply { .. } => {}
         }
     }
 
@@ -448,6 +485,7 @@ impl ModelClient {
                     assert!(effects.is_empty(), "{effects:?}");
                 }
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
+                ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
             }
         }
     }
@@ -871,4 +909,164 @@ fn ac8_login_status() {
         tokio.block_on(async { tokio::time::sleep(Duration::from_millis(30)).await });
         assert_eq!(events(&a.request(NOOP)), vec![], "{initial:?}");
     }
+}
+
+fn library_replies(messages: &[ServerMessage]) -> Vec<&ServerMessage> {
+    messages
+        .iter()
+        .filter(|m| matches!(m, ServerMessage::LibraryReply { .. }))
+        .collect()
+}
+
+/// AC8: the reply goes to the sender only, once, with the request's `id`;
+/// the player passes its settings along.
+#[test]
+fn ac8_reply_to_sender() {
+    let library = Arc::new(FakeLibrary::default());
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    let first = a.library("one");
+    let second = a.library("two");
+    assert_eq!(a.library_reply(), (first, Ok(LibraryResponse::Done)));
+    assert_eq!(a.library_reply(), (second, Ok(LibraryResponse::Done)));
+    // Everything the player sent before this reply has arrived at `b`:
+    // no library reply among it, nor after.
+    let got = b.request(NOOP);
+    assert_eq!(
+        library_replies(&got),
+        Vec::<&ServerMessage>::new(),
+        "{got:?}"
+    );
+    assert_eq!(library_replies(&b.drain()).len(), 0);
+    // Exactly one reply each: nothing more for `a` either.
+    let got = a.request(NOOP);
+    assert_eq!(library_replies(&got).len(), 0, "{got:?}");
+
+    let settings = crate::player_runtime::LibrarySettings::default();
+    let want = |label: &str| {
+        (
+            delete(label),
+            settings.page_size,
+            settings.hidden_words.clone(),
+        )
+    };
+    assert_eq!(library.seen(), vec![want("one"), want("two")]);
+}
+
+/// AC8: a failing library's message is the `Err`, unchanged.
+#[test]
+fn ac8_errors() {
+    let library = Arc::new(FakeLibrary::default());
+    let table = [
+        ("plain", "Playlist not found"),
+        ("empty", ""),
+        (
+            "long",
+            "Tidal said: 429 Too Many Requests; try again in a minute",
+        ),
+        ("unicode", "Kein Zugriff – bitte erneut anmelden ✓"),
+    ];
+    for (label, message) in table {
+        library.fail(label, message);
+    }
+    let player = TestPlayer::start_with_library(&library);
+    let mut client = player.connect();
+    client.subscribe();
+    for (label, message) in table {
+        let id = client.library(label);
+        assert_eq!(
+            client.library_reply(),
+            (id, Err(message.to_owned())),
+            "{label}"
+        );
+    }
+    // Success is not an error.
+    let id = client.library("fine");
+    assert_eq!(client.library_reply(), (id, Ok(LibraryResponse::Done)));
+}
+
+/// AC8: a held request delays neither commands nor events nor another
+/// client; one client's requests run one at a time, in order.
+#[test]
+fn ac8_does_not_block() {
+    let library = Arc::new(FakeLibrary::default());
+    let release_a1 = library.hold("a1");
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    let a1 = a.library("a1");
+    let a2 = a.library("a2");
+    // Commands are answered (and events flow) while a1 is held.
+    let before = Instant::now();
+    let got = a.request(Command::LoadQueue {
+        tracks: tracks(1..=2),
+        start: 0,
+    });
+    let got_toggle = a.request(Command::TogglePause);
+    assert!(
+        before.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        before.elapsed()
+    );
+    assert!(
+        !events(&got).is_empty() && !events(&got_toggle).is_empty(),
+        "{got:?} {got_toggle:?}"
+    );
+    assert!(library_replies(&got).is_empty() && library_replies(&got_toggle).is_empty());
+    // The other client's request completes meanwhile.
+    let b1 = b.library("b1");
+    assert_eq!(b.library_reply(), (b1, Ok(LibraryResponse::Done)));
+    // a2 has not started: it waits for a1.
+    assert_eq!(library.started(), vec!["a1", "b1"]);
+
+    release_a1.send(()).unwrap();
+    assert_eq!(a.library_reply(), (a1, Ok(LibraryResponse::Done)));
+    assert_eq!(a.library_reply(), (a2, Ok(LibraryResponse::Done)));
+    assert_eq!(library.started(), vec!["a1", "b1", "a2"]);
+}
+
+/// AC8: a client that leaves with a request out leaves the player (and the
+/// others) unaffected; its reply is dropped.
+#[test]
+fn ac8_disconnect_mid_request() {
+    let library = Arc::new(FakeLibrary::default());
+    let release = library.hold("gone");
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    a.library("gone");
+    a.library("queued");
+    // Wait until the player has the first one out.
+    let deadline = Instant::now() + WAIT;
+    while library.started().is_empty() {
+        assert!(Instant::now() < deadline, "the request never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    a.conn.close();
+    drop(a);
+    // The player handles the detach (the socket close is noticed on
+    // another thread, with no reply to wait for).
+    std::thread::sleep(Duration::from_millis(150));
+    b.request(NOOP);
+
+    release.send(()).unwrap();
+    // The player still serves everyone.
+    let id = b.library("after");
+    assert_eq!(b.library_reply(), (id, Ok(LibraryResponse::Done)));
+    b.request(Command::TogglePause);
+    // The leaver's second request never ran.
+    assert_eq!(library.started(), vec!["gone", "after"]);
+    let _ = LibraryRequest::DeletePlaylist {
+        uuid: String::new(),
+    };
 }

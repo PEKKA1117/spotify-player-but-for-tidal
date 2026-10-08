@@ -9,7 +9,7 @@ use tidal_player_api::auth::{
     AuthConfig, AuthError, Authenticator, ManualClock, MemoryStore, Session, SessionStore,
 };
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
-use tidal_player_core::{Item, Track, TrackId};
+use tidal_player_core::{AlbumRef, ArtistRef, Item, Track, TrackId};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -17,6 +17,8 @@ const TRACK: &str = include_str!("fixtures/metadata/track.json");
 const TRACK_NO_ALLOW: &str = include_str!("fixtures/metadata/track_unstreamable_allow.json");
 const TRACK_NO_READY: &str = include_str!("fixtures/metadata/track_unstreamable_ready.json");
 const TRACK_NO_DURATION: &str = include_str!("fixtures/metadata/track_no_duration.json");
+const TRACK_NO_ALBUM: &str = include_str!("fixtures/metadata/track_no_album.json");
+const TRACK_VERSION: &str = include_str!("fixtures/metadata/track_version.json");
 const ALBUM_PAGE: &str = include_str!("fixtures/metadata/album_page.json");
 const PLAYLIST_PAGE: &str = include_str!("fixtures/metadata/playlist_page_with_video.json");
 const RADIO_PAGE: &str = include_str!("fixtures/metadata/radio_page.json");
@@ -122,14 +124,106 @@ fn ids(tracks: &[Track]) -> Vec<u64> {
     tracks.iter().map(|t| t.id.0).collect()
 }
 
+fn artist(id: u64, name: &str) -> ArtistRef {
+    ArtistRef {
+        id,
+        name: name.into(),
+    }
+}
+
+fn artist_a() -> ArtistRef {
+    artist(3001, "Artist A")
+}
+
 fn track_one() -> Track {
     Track {
         id: TrackId(1001),
         title: "Track One".into(),
-        artists: vec!["Artist A".into(), "Artist B".into()],
-        album: Some("Album One".into()),
+        version: None,
+        artists: vec![artist_a(), artist(3002, "Artist B")],
+        album: Some(AlbumRef {
+            id: 2001,
+            title: "Album One".into(),
+        }),
         duration: Some(Duration::from_secs(291)),
         streamable: true,
+    }
+}
+
+/// Spec 0006 AC2: artist and album IDs come from `artists[].id` (or the
+/// lone `artist`) and `album.id`; `album: null` is `None`; `version` is
+/// kept.
+#[tokio::test]
+async fn ac2_track_refs() {
+    let rows: [(&str, &str, Track); 4] = [
+        ("two artists, an album", TRACK, track_one()),
+        (
+            "album null",
+            TRACK_NO_ALBUM,
+            Track {
+                id: TrackId(1005),
+                title: "Track Five".into(),
+                album: None,
+                ..track_one()
+            },
+        ),
+        (
+            "a version",
+            TRACK_VERSION,
+            Track {
+                id: TrackId(1006),
+                title: "Track Six".into(),
+                version: Some("Instrumental".into()),
+                ..track_one()
+            },
+        ),
+        (
+            "only the lone artist",
+            &{
+                let mut t = fixture(TRACK);
+                t["artists"] = json!([]);
+                t.to_string()
+            },
+            Track {
+                artists: vec![artist_a()],
+                ..track_one()
+            },
+        ),
+    ];
+    for (name, body, want) in rows {
+        let s = Setup::new().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/tracks/{}", want.id.0)))
+            .respond_with(json_body(200, body))
+            .mount(&s.server)
+            .await;
+        let got = s.client.get_track(want.id).await.unwrap();
+        let refs = |t: &Track| {
+            (
+                t.artists.iter().map(|a| a.id).collect::<Vec<_>>(),
+                t.album.as_ref().map(|a| a.id),
+            )
+        };
+        assert_eq!(refs(&got), refs(&want), "{name}: IDs");
+        assert_eq!(got, want, "{name}");
+    }
+
+    // Pages map their tracks the same way.
+    let s = Setup::new().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/albums/9/tracks"))
+        .respond_with(json_body(200, ALBUM_PAGE))
+        .mount(&s.server)
+        .await;
+    let got = s.client.get_album_tracks(9).await.unwrap();
+    for t in &got {
+        assert_eq!(t.artists, [artist_a()], "album track {}", t.id);
+        assert_eq!(
+            t.album.as_ref().map(|a| a.id),
+            Some(2001),
+            "album track {}",
+            t.id
+        );
     }
 }
 
@@ -143,7 +237,7 @@ async fn ac17_get_track() {
             Track {
                 id: TrackId(1002),
                 title: "Track Two".into(),
-                artists: vec!["Artist A".into()],
+                artists: vec![artist_a()],
                 streamable: false,
                 ..track_one()
             },
@@ -154,7 +248,7 @@ async fn ac17_get_track() {
             Track {
                 id: TrackId(1003),
                 title: "Track Three".into(),
-                artists: vec!["Artist A".into()],
+                artists: vec![artist_a()],
                 streamable: false,
                 ..track_one()
             },
@@ -165,7 +259,7 @@ async fn ac17_get_track() {
             Track {
                 id: TrackId(1004),
                 title: "Track Four".into(),
-                artists: vec!["Artist A".into()],
+                artists: vec![artist_a()],
                 duration: None,
                 ..track_one()
             },
@@ -279,7 +373,7 @@ async fn ac17_playlist_pages_and_videos() {
     let got = s.client.get_playlist_tracks(UUID).await.unwrap();
     assert_eq!(ids(&got), [1001, 1002, 1003], "video left out, order kept");
     let mut first = track_one();
-    first.artists = vec!["Artist A".into()];
+    first.artists = vec![artist_a()];
     first.title = "Track One".into();
     first.duration = Some(Duration::from_secs(200));
     assert_eq!(got[0], first, "mapped as a bare track");
@@ -487,7 +581,7 @@ async fn ac27_suggestions() {
     let got = s.client.get_suggestions(TrackId(1001)).await.unwrap();
     assert_eq!(ids(&got), [1001, 1011, 1012], "in order, seed included");
     assert_eq!(got[0], track_one());
-    assert_eq!(got[1].album.as_deref(), Some("Album Two"));
+    assert_eq!(got[1].album_title(), Some("Album Two"));
     assert_eq!(
         s.requests().await,
         [(

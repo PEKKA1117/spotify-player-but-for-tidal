@@ -26,9 +26,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tidal_player_api::auth::BoxFuture;
+use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
 use tidal_player_core::item::parse_item;
+use tidal_player_core::library::{DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse};
 use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
@@ -89,6 +91,70 @@ pub trait Jobs {
     fn suggest(&mut self, tag: u64, seed: TrackId);
     /// Expand the items of an `Open`, in order (answer: `Expanded`).
     fn expand(&mut self, tag: u64, items: Vec<Item>);
+    /// Answer a library request of `client` (answer: `LibraryDone`).
+    fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest);
+}
+
+/// The library as the player reaches it (spec 0006 "Talking to the
+/// player"); the real one adapts `tidal_player_api::library::LibraryClient`.
+/// An `Err` is the message the client shows.
+pub trait Library: Send + Sync {
+    fn request(
+        &self,
+        request: LibraryRequest,
+        page_size: u32,
+        hidden_words: Vec<String>,
+    ) -> BoxFuture<'_, Result<LibraryResponse, String>>;
+}
+
+/// The library until a real one is connected: every request fails.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoLibrary;
+
+impl Library for NoLibrary {
+    fn request(
+        &self,
+        _: LibraryRequest,
+        _: u32,
+        _: Vec<String>,
+    ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+        Box::pin(async { Err("library not available".to_owned()) })
+    }
+}
+
+/// What the player passes to every [`Library::request`] (spec 0006 "Lists
+/// load as you scroll", "The artist's *All tracks*").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibrarySettings {
+    pub page_size: u32,
+    pub hidden_words: Vec<String>,
+}
+
+impl Default for LibrarySettings {
+    fn default() -> Self {
+        Self {
+            page_size: 100,
+            hidden_words: DEFAULT_HIDDEN_VERSIONS
+                .iter()
+                .map(|w| (*w).to_owned())
+                .collect(),
+        }
+    }
+}
+
+impl Library for LibraryClient {
+    fn request(
+        &self,
+        request: LibraryRequest,
+        page_size: u32,
+        hidden_words: Vec<String>,
+    ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+        Box::pin(async move {
+            LibraryClient::request(self, request, page_size, &hidden_words)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
 }
 
 /// A resolved stream, opened and ready for the engine.
@@ -240,6 +306,12 @@ pub enum RuntimeInput {
     },
     /// The authenticator's status changed (spec 0005 "The daemon").
     Login { required: bool },
+    /// A [`Jobs::library`] result, for the client that asked.
+    LibraryDone {
+        client: ClientId,
+        id: u64,
+        result: Result<LibraryResponse, String>,
+    },
 }
 
 /// A track the player accepted as started (engine `Started`, or a gapless
@@ -300,6 +372,17 @@ pub struct PlayerRuntime<E, J> {
     /// earlier one.
     opens: VecDeque<PendingOpen>,
     next_open: u64,
+    /// Each client's library requests: one runs at a time, the rest wait in
+    /// arrival order. Different clients' run independently.
+    library: HashMap<ClientId, LibraryQueue>,
+}
+
+/// One client's library requests.
+#[derive(Debug, Default)]
+struct LibraryQueue {
+    /// A request of this client is out.
+    busy: bool,
+    waiting: VecDeque<(u64, LibraryRequest)>,
 }
 
 impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
@@ -317,6 +400,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             hub: Hub::default(),
             opens: VecDeque::new(),
             next_open: 0,
+            library: HashMap::new(),
         }
     }
 
@@ -354,6 +438,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         match input {
             RuntimeInput::Client(input) => self.client_input(input),
             RuntimeInput::Expanded { tag, result } => self.expanded(tag, result),
+            RuntimeInput::LibraryDone { client, id, result } => {
+                self.library_done(client, id, result);
+                Handled::default()
+            }
             RuntimeInput::Login { required } => {
                 let events: Vec<Event> =
                     self.hub.set_login_required(required).into_iter().collect();
@@ -421,6 +509,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             // Routed by `handle`.
             RuntimeInput::Client(_)
             | RuntimeInput::Expanded { .. }
+            | RuntimeInput::LibraryDone { .. }
             | RuntimeInput::Login { .. } => {
                 return handled;
             }
@@ -609,10 +698,26 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     fn client_input(&mut self, input: ClientInput) -> Handled {
         match input {
             ClientInput::Attach { client, peer } => self.hub.attach(client, peer),
-            ClientInput::Detach(client) => self.hub.detach(client),
+            ClientInput::Detach(client) => {
+                self.hub.detach(client);
+                // Its waiting requests never run; the one out is answered
+                // to nobody.
+                self.library.remove(&client);
+            }
             ClientInput::Subscribe(client) => {
                 let snapshot = self.snapshot();
                 self.hub.subscribe(client, snapshot);
+            }
+            ClientInput::Library {
+                client,
+                id,
+                request,
+            } => {
+                if self.hub.contains(client) {
+                    let queue = self.library.entry(client).or_default();
+                    queue.waiting.push_back((id, request));
+                    self.library_next(client);
+                }
             }
             ClientInput::Request {
                 client,
@@ -630,6 +735,29 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             }
         }
         Handled::default()
+    }
+
+    /// Starts `client`'s next waiting library request, unless one is out.
+    fn library_next(&mut self, client: ClientId) {
+        let Some(queue) = self.library.get_mut(&client) else {
+            return;
+        };
+        if queue.busy {
+            return;
+        }
+        if let Some((id, request)) = queue.waiting.pop_front() {
+            queue.busy = true;
+            self.jobs.library(client, id, request);
+        }
+    }
+
+    /// A library request finished: the reply to its client, then its next.
+    fn library_done(&mut self, client: ClientId, id: u64, result: Result<LibraryResponse, String>) {
+        self.hub.reply_library(client, id, result);
+        if let Some(queue) = self.library.get_mut(&client) {
+            queue.busy = false;
+        }
+        self.library_next(client);
     }
 
     /// Starts expanding an `Open`'s items; it is applied in turn.
@@ -839,6 +967,8 @@ pub struct TokioJobs {
     opener: Arc<dyn StreamOpener>,
     metadata: Arc<dyn Metadata>,
     results: Sender<RuntimeInput>,
+    library: Arc<dyn Library>,
+    library_settings: LibrarySettings,
 }
 
 impl TokioJobs {
@@ -853,11 +983,34 @@ impl TokioJobs {
             opener,
             metadata,
             results,
+            library: Arc::new(NoLibrary),
+            library_settings: LibrarySettings::default(),
         }
+    }
+
+    /// Serves library requests with `library`, passing `settings` to it.
+    #[must_use]
+    pub fn with_library(mut self, library: Arc<dyn Library>, settings: LibrarySettings) -> Self {
+        self.library = library;
+        self.library_settings = settings;
+        self
     }
 }
 
 impl Jobs for TokioJobs {
+    fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest) {
+        let library = Arc::clone(&self.library);
+        let LibrarySettings {
+            page_size,
+            hidden_words,
+        } = self.library_settings.clone();
+        let results = self.results.clone();
+        self.runtime.spawn(async move {
+            let result = library.request(request, page_size, hidden_words).await;
+            let _ = results.send(RuntimeInput::LibraryDone { client, id, result });
+        });
+    }
+
     fn resolve(&mut self, tag: u64, track: TrackId) {
         let opening = self.opener.open(track);
         let results = self.results.clone();
@@ -903,6 +1056,7 @@ pub(crate) mod fakes {
         Codec, EngineError, OutputKind, ReadOutcome, SampleFormat, SourceError, SourceLayout,
     };
     use tidal_player_core::player::FailureKind;
+    use tidal_player_core::{AlbumRef, ArtistRef};
 
     /// One call the runtime made, on the engine or the jobs, in order.
     #[derive(Debug, Clone, PartialEq)]
@@ -1116,6 +1270,10 @@ pub(crate) mod fakes {
         pub drops: Arc<AtomicUsize>,
         /// Expands `Open`s at once when `immediate` (else the test answers).
         pub metadata: Option<Arc<dyn Metadata>>,
+        /// Answers library requests (each on its own thread, so a held
+        /// one blocks nothing); without one every request fails.
+        pub library: Option<Arc<dyn Library>>,
+        pub library_settings: LibrarySettings,
     }
 
     impl FakeJobs {
@@ -1128,11 +1286,118 @@ pub(crate) mod fakes {
                 suggestions: Vec::new(),
                 drops: Arc::new(AtomicUsize::new(0)),
                 metadata: None,
+                library: None,
+                library_settings: LibrarySettings::default(),
             }
+        }
+
+        /// Serves library requests with `library`.
+        #[must_use]
+        pub fn with_library(mut self, library: Arc<dyn Library>) -> Self {
+            self.library = Some(library);
+            self
+        }
+    }
+
+    /// A library from memory: it records each request (by [`label`]) when
+    /// it starts, fails the labels given a message, and holds the labels
+    /// given a gate until the test opens it.
+    #[derive(Default)]
+    pub struct FakeLibrary {
+        started: Mutex<Vec<String>>,
+        seen: Mutex<Vec<(LibraryRequest, u32, Vec<String>)>>,
+        errors: Mutex<HashMap<String, String>>,
+        gates: Mutex<HashMap<String, Receiver<()>>>,
+    }
+
+    /// A request's name in the fakes: the UUID of a `DeletePlaylist`.
+    pub fn label(request: &LibraryRequest) -> String {
+        match request {
+            LibraryRequest::DeletePlaylist { uuid } => uuid.clone(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    pub fn delete(label: &str) -> LibraryRequest {
+        LibraryRequest::DeletePlaylist {
+            uuid: label.to_owned(),
+        }
+    }
+
+    impl FakeLibrary {
+        /// The request `label` fails with `message`.
+        pub fn fail(&self, label: &str, message: &str) {
+            let mut errors = self.errors.lock().unwrap();
+            errors.insert(label.to_owned(), message.to_owned());
+        }
+
+        /// The request `label` waits until the returned sender fires (or is
+        /// dropped).
+        pub fn hold(&self, label: &str) -> Sender<()> {
+            let (open, gate) = mpsc::channel();
+            self.gates.lock().unwrap().insert(label.to_owned(), gate);
+            open
+        }
+
+        /// The labels of the requests started, in order.
+        pub fn started(&self) -> Vec<String> {
+            self.started.lock().unwrap().clone()
+        }
+
+        /// Every request started, with the settings it got.
+        pub fn seen(&self) -> Vec<(LibraryRequest, u32, Vec<String>)> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    impl Library for FakeLibrary {
+        fn request(
+            &self,
+            request: LibraryRequest,
+            page_size: u32,
+            hidden_words: Vec<String>,
+        ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+            Box::pin(async move {
+                let name = label(&request);
+                self.started.lock().unwrap().push(name.clone());
+                self.seen
+                    .lock()
+                    .unwrap()
+                    .push((request, page_size, hidden_words));
+                let gate = self.gates.lock().unwrap().remove(&name);
+                if let Some(gate) = gate {
+                    // Blocks this job's own thread only.
+                    let _ = gate.recv();
+                }
+                match self.errors.lock().unwrap().get(&name) {
+                    Some(message) => Err(message.clone()),
+                    None => Ok(LibraryResponse::Done),
+                }
+            })
         }
     }
 
     impl Jobs for FakeJobs {
+        fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest) {
+            let results = self.results.clone();
+            let settings = self.library_settings.clone();
+            let library = self.library.clone();
+            std::thread::spawn(move || {
+                let result = match library {
+                    Some(library) => tokio::runtime::Builder::new_current_thread()
+                        .build()
+                        .expect("a test runtime")
+                        .block_on(library.request(
+                            request,
+                            settings.page_size,
+                            settings.hidden_words,
+                        )),
+                    None => Err("library not available".to_owned()),
+                };
+                let _ = results.send(RuntimeInput::LibraryDone { client, id, result });
+            });
+        }
+
         fn resolve(&mut self, tag: u64, track: TrackId) {
             self.log.lock().unwrap().push(Call::Resolve {
                 tag,
@@ -1178,8 +1443,15 @@ pub(crate) mod fakes {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["Artist".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 1,
+                name: "Artist".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 1,
+                title: "Album".into(),
+            }),
             duration: duration.map(Duration::from_secs),
             streamable: true,
         }

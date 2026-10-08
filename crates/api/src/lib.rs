@@ -5,12 +5,14 @@
 //! [`auth::Authenticator`].
 
 pub mod auth;
+pub mod library;
 pub mod metadata;
 pub mod stream;
 
 use std::fmt;
 
 use reqwest::StatusCode;
+use reqwest::header::HeaderMap;
 use serde::de::DeserializeOwned;
 
 /// Tidal's `subStatus` for "Asset is not ready for playback": a `401` that
@@ -18,17 +20,27 @@ use serde::de::DeserializeOwned;
 /// the token is bad (spec 0002 AC18).
 pub const SUB_STATUS_NOT_AVAILABLE: u64 = 4005;
 
-/// A response from [`auth::Authenticator::get`]: the status and the whole body,
-/// as the server sent them.
+/// A response from [`auth::Authenticator::get`] and its siblings: the status,
+/// the headers and the whole body, as the server sent them.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiResponse {
     status: StatusCode,
+    headers: HeaderMap,
     body: Vec<u8>,
 }
 
 impl ApiResponse {
-    pub(crate) fn new(status: StatusCode, body: Vec<u8>) -> Self {
-        Self { status, body }
+    pub(crate) fn new(status: StatusCode, headers: HeaderMap, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    /// A response header's value (`ETag`, ...), when present and text.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name)?.to_str().ok()
     }
 
     /// The HTTP status.

@@ -75,8 +75,10 @@ It reads `/proc/asound/cards` and `/proc/asound/pcm`; capture-only devices (micr
 | Previous restarts the track after (s); `0`: previous always goes back | | `TIDAL_PLAYER_PREVIOUS_RESTART` (0–60) | `3` |
 | Autoplay at start | `--autoplay` (`play` only) | `TIDAL_PLAYER_AUTOPLAY` (`on`, `off`) | `off` |
 | Release the device after pausing for (s); see [Releasing the device](daemon.md#releasing-the-device-while-paused) | | `TIDAL_PLAYER_RELEASE_PAUSED` (0–3600, or `never`) | `10` |
+| Rows fetched at a time for the library's lists in the TUI; see [Lists load as you scroll](tui.md#lists-load-as-you-scroll) | | `TIDAL_PLAYER_PAGE_SIZE` (1–10 000) | `100` |
+| Words that hide alternate versions in an artist's *All tracks* (comma-separated; an empty value hides nothing); see [The artist's All tracks](tui.md#the-artists-all-tracks) | | `TIDAL_PLAYER_HIDE_VERSIONS` | `instrumental, inst, off vocal, karaoke, tv version, tv ver, tv size, tv edit, sped up, speed up, nightcore, slowed, slowed + reverb, reverb, 8d, 8d audio` |
 
-A flag beats the environment, which beats the default. An empty variable counts as unset. An invalid value exits 2 before anything starts, naming the variable and what it accepts (`invalid TIDAL_PLAYER_SEEK_STEP: expected an integer from 1 to 600, got "0"`). An unknown quality exits 2. `low` is refused too: Tidal's `LOW` streams are HE-AAC, which the player cannot decode; `high` (AAC 320 kbit/s) is the lowest setting.
+A flag beats the environment, which beats the default. An empty variable counts as unset (except `TIDAL_PLAYER_HIDE_VERSIONS`, where empty means hide nothing). An invalid value exits 2 before anything starts, naming the variable and what it accepts (`invalid TIDAL_PLAYER_SEEK_STEP: expected an integer from 1 to 600, got "0"`). An unknown quality exits 2. `low` is refused too: Tidal's `LOW` streams are HE-AAC, which the player cannot decode; `high` (AAC 320 kbit/s) is the lowest setting.
 
 The quality is the **highest** to ask for. Tidal answers with what the track and your subscription allow: a CD-quality track asked at `hi-res` comes as `LOSSLESS` (FLAC 16-bit 44.1 kHz), and some tracks only exist as `HIGH`.
 

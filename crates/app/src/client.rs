@@ -14,6 +14,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use tidal_player_core::Item;
+use tidal_player_core::library::LibraryRequest;
 use tidal_player_core::protocol::{ClientMessage, Command, Event, InsertAt, ServerMessage};
 use tidal_player_core::ui::Action;
 
@@ -164,6 +165,11 @@ impl Link for InProcessLink {
                 client,
                 id,
                 command,
+            },
+            ClientMessage::Library { id, request } => ClientInput::Library {
+                client,
+                id,
+                request,
             },
         };
         self.inputs
@@ -372,6 +378,12 @@ impl<C: Connector> Session<C> {
         self.write(&ClientMessage::Request { id, command });
     }
 
+    /// Sends a library request (spec 0006 AC19); its answer comes back from
+    /// [`Self::poll`] as `Action::LibraryReply` with the same `id`.
+    pub fn send_library(&mut self, id: u64, request: LibraryRequest) {
+        self.write(&ClientMessage::Library { id, request });
+    }
+
     fn write(&mut self, message: &ClientMessage) {
         if let Some(link) = self.link.as_mut()
             && link.send(message).is_err()
@@ -424,6 +436,9 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::Reply { result, .. })) => {
                     actions.push(Action::Reply(result))
                 }
+                Ok(Some(ServerMessage::LibraryReply { id, result })) => {
+                    actions.push(Action::LibraryReply { id, result })
+                }
                 Err(_) => self.lost = true,
             }
         }
@@ -458,7 +473,7 @@ mod tests {
     use super::*;
     use tidal_player_core::protocol::{PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode};
     use tidal_player_core::ui::{self, Key, State};
-    use tidal_player_core::{EntryId, Track, TrackId};
+    use tidal_player_core::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
     /// What a fake link was sent, and what it will receive.
     #[derive(Default)]
@@ -519,8 +534,15 @@ mod tests {
         Track {
             id: TrackId(id),
             title: format!("Title {id}"),
-            artists: vec!["Artist".into()],
-            album: Some("Album".into()),
+            version: None,
+            artists: vec![ArtistRef {
+                id: 1,
+                name: "Artist".into(),
+            }],
+            album: Some(AlbumRef {
+                id: 1,
+                title: "Album".into(),
+            }),
             duration: Some(Duration::from_secs(200)),
             streamable: true,
         }
@@ -870,5 +892,129 @@ mod tests {
             .push_back(Ok(ServerMessage::Event(Event::Player(snapshot(&[1, 2])))));
         apply(&mut state, session.poll(Instant::now()));
         assert_eq!(ids(&state), vec![1, 2]);
+    }
+
+    /// A request the fakes answer: `Done`, or `Err` for `fail`.
+    fn deleting(label: &str) -> LibraryRequest {
+        crate::player_runtime::fakes::delete(label)
+    }
+
+    use tidal_player_core::library::LibraryResponse;
+
+    /// The player's answer to a library request, as the session hands it on.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct LibraryReply {
+        id: u64,
+        result: Result<LibraryResponse, String>,
+    }
+
+    /// Polls `session` until `want` library replies came (or time is up).
+    fn library_replies<C: Connector>(session: &mut Session<C>, want: usize) -> Vec<LibraryReply> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut got = Vec::new();
+        while got.len() < want && Instant::now() < deadline {
+            for action in session.poll(Instant::now()) {
+                if let Action::LibraryReply { id, result } = action {
+                    got.push(LibraryReply { id, result });
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        got
+    }
+
+    /// AC19: `send_library` sends `ClientMessage::Library`; a
+    /// `LibraryReply` comes out of the session as `Action::LibraryReply`.
+    #[test]
+    fn ac19_library_on_the_link() {
+        let wire = Shared::default();
+        let mut session = Session::new(FakeConnector::default(), FakeLink(Rc::clone(&wire)), None);
+        session.send_library(4, deleting("x"));
+        assert_eq!(
+            wire.borrow().sent.last(),
+            Some(&ClientMessage::Library {
+                id: 4,
+                request: deleting("x"),
+            })
+        );
+        wire.borrow_mut()
+            .incoming
+            .push_back(Ok(ServerMessage::LibraryReply {
+                id: 4,
+                result: Err("no".into()),
+            }));
+        assert_eq!(
+            session.poll(Instant::now()),
+            vec![Action::LibraryReply {
+                id: 4,
+                result: Err("no".into()),
+            }]
+        );
+        assert!(session.poll(Instant::now()).is_empty());
+    }
+
+    /// AC19: a request goes to the player and its reply comes back with
+    /// its `id`, over the socket and in-process.
+    #[test]
+    fn ac19_library_round_trip() {
+        use crate::ipc::client::Connection;
+        use crate::ipc::server::attach_stream;
+        use crate::player_runtime::fakes::{FakeEngine, FakeJobs, FakeLibrary, Log, Script};
+        use crate::player_runtime::{PlayerRuntime, spawn_runtime};
+        use std::sync::Arc;
+        use tidal_player_core::player::PlayerConfig;
+
+        let library = Arc::new(FakeLibrary::default());
+        library.fail("bad", "Playlist not found");
+        let log: Log = Log::default();
+        let (tx, rx) = mpsc::channel();
+        let engine = FakeEngine::new(&log, Script::Plays);
+        let jobs = FakeJobs::new(&log, &tx, true).with_library(library.clone());
+        let runtime = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+        let _player = spawn_runtime(runtime, rx, tx.clone());
+
+        // Over a socket pair.
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        attach_stream(ours, &tx).unwrap();
+        let link = Connection::handshake(theirs, Path::new("<pair>")).unwrap();
+        let connector = SocketConnector::new(PathBuf::from("<pair>"));
+        let mut socket = Session::new(connector, link, None);
+        socket.send_library(1, deleting("ok"));
+        socket.send_library(2, deleting("bad"));
+        assert_eq!(
+            library_replies(&mut socket, 2),
+            vec![
+                LibraryReply {
+                    id: 1,
+                    result: Ok(LibraryResponse::Done),
+                },
+                LibraryReply {
+                    id: 2,
+                    result: Err("Playlist not found".into()),
+                },
+            ]
+        );
+
+        // In-process.
+        let mut connector = InProcess::new(tx.clone());
+        let link = connector.connect().unwrap();
+        let mut inner = Session::new(connector, link, None);
+        inner.send_library(9, deleting("bad"));
+        inner.send_library(10, deleting("ok"));
+        assert_eq!(
+            library_replies(&mut inner, 2),
+            vec![
+                LibraryReply {
+                    id: 9,
+                    result: Err("Playlist not found".into()),
+                },
+                LibraryReply {
+                    id: 10,
+                    result: Ok(LibraryResponse::Done),
+                },
+            ]
+        );
+        // Each client got only its own.
+        assert!(library_replies(&mut socket, 1).is_empty());
     }
 }

@@ -1,10 +1,10 @@
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md) and [spec 0005](specs/0005-daemon-and-clients.md).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library).
 
 ## The screen
 
-One frame titled `tidal-player`, with the **playback window** (4 rows) at the top and the **queue** below it:
+One frame titled `tidal-player`, with the **playback window** (4 rows) at the top and one **page** below it. The first page is the **queue**; [Pages](#pages) lists the others:
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -35,7 +35,7 @@ One frame titled `tidal-player`, with the **playback window** (4 rows) at the to
 
 The queue in the order it plays (shuffled when shuffle is on). The playing track is marked `▶` and kept in view when it changes. The highlighted row is the **cursor**, which you move with the keys below; it stays on its track when the queue changes, and moves to the neighbouring row when its track is removed. Tracks added by [autoplay](#shuffle-repeat-and-autoplay) come after a `Suggested` row and are drawn dimmed.
 
-In a narrow terminal the columns are cut with `…`; the album column goes first, then the artist. In a terminal of fewer than 8 rows (9 while the session-expired line shows) only the playback window is shown. When the session has expired, the last row says `Session expired — run "tidal-player login" in another terminal` (see [Logging in](login.md)).
+In a narrow terminal the columns are cut with `…`; the album column goes first, then the artist. In a terminal of fewer than 8 rows (9 while the session-expired line shows) only the playback window is shown, whatever the page. When the session has expired, the last row says `Session expired — run "tidal-player login" in another terminal` (see [Logging in](login.md)).
 
 ## Keys
 
@@ -53,20 +53,130 @@ In a narrow terminal the columns are cut with `…`; the album column goes first
 | `o` | add a link or track ID to the end of the queue |
 | `O` | add a link or track ID to play next |
 | `j` or `↓`, `k` or `↑` | move the cursor down, up |
-| `g g`, `G` | move the cursor to the top, to the bottom |
-| `Enter` | play the track under the cursor |
-| `q`, `Esc` | quit (an attached TUI detaches; the player keeps playing) |
+| `g g`, `G` | move the cursor to the top, to the last loaded row |
+| `Ctrl-f` or `PageDown`, `Ctrl-b` or `PageUp` | move the cursor down, up by a window's height |
+| `Enter` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)) |
+| `Z` or `Ctrl-z` | add the selected track, album or playlist to the end of the queue |
+| `d` | remove the entry under the cursor from the queue |
+| `z` | open the queue page |
+| `g l` | open the library |
+| `g y` | open your favorite tracks |
+| `Backspace` or `Ctrl-q` | back to the previous page |
+| `Tab`, `Shift-Tab` | focus the next, previous pane of a page (on the artist page, the left or right half) |
+| `[`, `]` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
+| `g a` or `Ctrl-Space` | the [actions](#actions) on the selected row |
+| `a` | the actions on the playing track |
+| `f` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
+| `Esc` | close a popup or the open prompt, or cancel a list that is loading; does nothing otherwise |
+| `q`, `Ctrl-c` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; a `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+
+While a popup is open, only its own keys act (see [Actions](#actions)); `Space`, `n`, `q` and the others do not reach the player.
 
 The steps come from the environment: `TIDAL_PLAYER_VOLUME_STEP` (1–25 %, default 5) and `TIDAL_PLAYER_SEEK_STEP` (1–600 s, default 5); see [Settings](playback.md#settings). Keys cannot be changed yet (spec 0008).
+
+## Pages
+
+The area below the playback window shows one page at a time. Opening a page puts it on top of a **history**; `Backspace` (or `Ctrl-q`) goes back to the page under it, exactly as you left it (its rows, cursors and focus), without fetching again. Opening a page always fetches it fresh. The TUI starts on the library, with the queue under it (`Backspace` or `z` shows it). The queue is always at the bottom of the history and cannot be closed; opening the page that is already on top does nothing, and the history keeps the last 50 pages.
+
+| Page | Opened with | Windows (`Tab` moves between panes) |
+|---|---|---|
+| Queue | `z`; `Backspace` from the library at start | the queue |
+| Library | `g l`; the page at start | Playlists, Albums, Artists |
+| Favorite tracks | `g y` | the tracks |
+| Album | `Enter` on an album; *Go to album* | the album's tracks |
+| Playlist | `Enter` on a playlist | the playlist's tracks |
+| Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
+
+Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
+
+```
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│Library                                                                       │
+│┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
+││  Running                  42││Collide With Th…  Pierce The…││Pierce The Ve…││
+││♥ Late night               17││Misadventures     Pierce The…││Sleeping With…││
+││  Gym mix                   8││Hold On Till May  Pierce The…││Bring Me The… ││
+│…                                                                             │
+```
+
+### Windows
+
+A page with several windows draws them side by side when the frame is at least 60 columns wide inside:
+
+- **Library**: Playlists 40 %, Albums 40 %, Artists 20 %
+- **Artist**: the left pane (60 %) has the tabs *Top tracks* and *All tracks*, the right pane (40 %) *Albums* (albums, then EPs and singles) and *Appears on*; a pane shows its active tab and its title lists the pane's tabs with the active one highlighted, then `[ ]`: `Top tracks (91) │ All tracks  [ ]` (a title too narrow for the other tab's name drops it)
+
+Below 60 columns only the focused window is drawn, its title followed by `‹Tab›` (on the artist page the tab list and `[ ]` come first, then `‹Tab›` for the other pane). `Tab` focuses the next pane and `Shift-Tab` the previous, wrapping, each on the tab it last showed; `[` and `]` switch the focused pane's tab (*All tracks* is fetched the first time it shows); they do nothing on pages whose panes have one tab. Every window keeps its own cursor; the focused window's is highlighted and the others' are dimmed. Playlist rows show the number of tracks and a `♥` for playlists you follow; album rows the artists and the year (and `EP` or `Single`, when the window has room); tracks that Tidal does not stream in your country are dimmed, as the player will skip them.
+
+### Lists load as you scroll
+
+Every list is fetched a page at a time: the first page when the page opens, then the next when the cursor comes within one window height of the last loaded row. Meanwhile the last row says `Loading more…`; if that fails, the message takes its place, and the next cursor move near the end tries again. The total in a window's title is Tidal's, known from the start, so `Favorite tracks (362)` shows its size before the rows are all there. `G` goes to the last row loaded so far (and so loads the next page). A window's rows load while the music plays and never delay a key.
+
+The page size is `TIDAL_PLAYER_PAGE_SIZE` (1–10 000, default 100; the playlists and credits lists are fetched in pages of at most 50); see [Settings](playback.md#settings).
+
+While a page is being fetched its windows say `Loading…`. A failed fetch shows its message in the page (`Could not load the library: Could not reach Tidal: …`, `Album 123 was not found`, the session-expired message); `Backspace` goes back, and opening the page again tries again. An empty list says so: `No playlists yet`, `No favorite albums yet`, `No favorite artists yet`, `No favorite tracks yet`, `This album has no tracks`, `This playlist has no tracks`, `No top tracks`, `No albums`, `No credits` (`No credits (37 hidden)` when the filters left nothing).
+
+While the player is unreachable (an attached TUI whose player went away) the loaded pages can still be browsed and the history used, but nothing new is fetched: a page opened then shows `Disconnected from the player: reconnecting…` and is fetched again when the player is back.
+
+### The artist's *All tracks*
+
+*All tracks* is Tidal's "Credits for <artist>": every track the artist is credited on, as performer, songwriter, producer or engineer, most popular first. It is fetched when you first focus it. Wide windows show the artist's role categories on each track (`Performer, Songwriter`) next to the album.
+
+Left out, with the number hidden in the window's title (`All tracks (548 · 37 hidden)`): copies without a stereo mix (Dolby Atmos only, which the player cannot decode) and **alternate versions**: a track whose version, or a bracketed part or ` - …` suffix of its title, is one of the hidden words, such as `Instrumental`, `TV Size`, `Sped Up` or `Slowed + Reverb`. `Acoustic`, `Live` and remixes stay. The words are `TIDAL_PLAYER_HIDE_VERSIONS`; see [Settings](playback.md#settings). The other windows show every version.
+
+#### The role filter
+
+`f` in *All tracks* opens a popup with the four role categories (Performer, Songwriter, Producer, Engineer) as check boxes, all checked at first. `j`/`k` move, `Space` toggles one, `Enter` applies, `Esc` cancels. Only tracks where the artist has a checked role are shown, and the title says which are (`All tracks (548 · Performer, Songwriter · 37 hidden)`). More rows load as usual while you scroll. The filter lasts as long as the page is in the history.
+
+## Playing and queueing from a page
+
+| Key | On | Does |
+|---|---|---|
+| `Enter` | a track on a page | Replaces the queue with **every track of that list**, in the order shown, and plays the one you chose, so the queue goes on after it |
+| `Enter` | a track in the queue | Plays that entry |
+| `Enter` | an album, playlist or artist | Opens its page (nothing plays) |
+| `Z`, `Ctrl-z` | a track | Adds it to the end of the queue; with nothing playing it starts |
+| `Z`, `Ctrl-z` | an album or playlist | Adds all its tracks to the end of the queue |
+| `Z`, `Ctrl-z` | an artist | Nothing |
+| `d` | an entry in the queue | Removes it (removing the playing one moves on) |
+
+`Enter` on a track needs the whole list, so a list that is only partly loaded is first fetched to its end: the playback window's message row says `Loading 300 of 1 234…`, and `Esc` cancels it with nothing sent. A list of more than 40 000 tracks is refused (`Too many tracks to queue at once (N)`).
+
+## Actions
+
+`g a` or `Ctrl-Space` opens a small popup of actions on the selected row, titled with its name; `a` opens it for the playing track (nothing happens when nothing plays). `j`/`k` move, `Enter` runs the action and closes the popup, `Esc` closes it.
+
+| On | Actions, in this order |
+|---|---|
+| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
+| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Play next* (not for the playing track), *Remove from queue*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
+| An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
+| A playlist | *Open*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites* (not your own playlists), *Delete playlist* (your own only) |
+| An artist | *Open*, *Add to favorites*, *Remove from favorites* |
+
+*Go to album* is left out for a track without an album. Tidal's favorites cannot be queried for one item yet, so both *Add to favorites* and *Remove from favorites* are offered; the one that does not apply is harmless.
+
+### Favorites and playlists
+
+The result shows in the playback window's message row: `Added to favorites`, `Removed from favorites`, `Added 12 tracks to <playlist>`, `Removed from <playlist>`, `Created <playlist>`, `Deleted <playlist>`, or the error. A page that shows what changed (the favorites, the library, the playlist) is fetched again after a change.
+
+- **Add to playlist…** opens a second popup listing your own playlists (newest first) under *New playlist…*; `Enter` adds the track, or all the tracks of the album, at the end of the playlist. If a track is already in the playlist (as far as the loaded copy shows) it asks `Already in <playlist>: add again? (y/n)`
+- **New playlist…** asks `Playlist name: ` in the top row of the page; `Enter` creates a private playlist with that name and adds the tracks to it; `Esc` cancels; an empty name does nothing
+- **Remove from this playlist** removes the track at that position. If the playlist was changed elsewhere in the meantime, nothing is removed (`The playlist changed: nothing was changed, try again`) and the page is fetched again
+- **Delete playlist** asks `Delete <playlist>? (y/n)`; `y` deletes it, `n` or `Esc` cancels
 
 ## Adding tracks
 
 `o` opens a prompt over the top of the queue, `Add to queue: `; `O` opens `Play next: `. Type or paste (the terminal's paste, `Ctrl-Shift-v` in most terminals) a track ID or a Tidal track, album or playlist link, as on the [command line](playback.md#items), then:
 
 - `Enter` sends the item to the player, which fetches the tracks and adds them at the end of the queue (`o`) or right after the playing track (`O`). If nothing is playing (an empty queue, or a stopped player with no current track), the first added track starts. The queue shows them once the player has added them
-- `Backspace` deletes the last character; `Esc` closes the prompt without adding anything
+- `Backspace` deletes the last character; `Esc` closes the prompt without adding anything (`Esc` otherwise does nothing: `q` quits)
 
 While the prompt is open every key types into it: `Space`, `q` and the other keys do not reach the player. An invalid item (`Not a Tidal track, album or playlist: …`) or a failed fetch (`Album 123 was not found`) closes the prompt and shows the message in the playback window; the queue is unchanged.
 

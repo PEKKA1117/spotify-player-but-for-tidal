@@ -45,6 +45,7 @@ use tidal_player::{
 use tidal_player_api::auth::{
     AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
 };
+use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::{format_devices, parse_devices};
 use tidal_player_core::Item;
@@ -189,13 +190,30 @@ fn run<C: Connector>(
     mut state: State,
 ) -> Result<()> {
     let mut actions = Vec::new();
+    // A list window's height follows the terminal (spec 0006 "Lists load
+    // as you scroll"): sent before the first frame and whenever the size
+    // (or the session-expired line, which takes a row) changes, from the
+    // same layout `render` draws.
+    let mut list_height = None;
     loop {
+        let size = terminal.size()?;
+        let height = tidal_player::ui::list_height(
+            ratatui::layout::Rect::new(0, 0, size.width, size.height),
+            state.login_required,
+        );
+        if list_height != Some(height) {
+            list_height = Some(height);
+            actions.push(Action::Resize {
+                list_height: height,
+            });
+        }
         actions.extend(session.poll(Instant::now()));
         for action in actions.drain(..) {
             for effect in update(&mut state, action) {
                 match effect {
                     Effect::Quit => return Ok(()),
                     Effect::Send(command) => session.send(command),
+                    Effect::Library { id, request } => session.send_library(id, request),
                 }
             }
         }
@@ -327,7 +345,8 @@ fn daemon(plan: &StorePlan) -> Result<ExitCode> {
         }
     };
     let (results, inputs) = std::sync::mpsc::channel();
-    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
+    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
+        .with_library(player_library(&auth), player_settings.library.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
     // The engine opens the device only once something plays (0003).
@@ -405,6 +424,12 @@ fn choose_role() -> Result<Role, ExitCode> {
     }
 }
 
+/// The library the player answers clients' requests with (spec 0006),
+/// sharing the player's `Authenticator`.
+fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_runtime::Library> {
+    Arc::new(LibraryClient::new(Arc::clone(auth)))
+}
+
 /// `tidal-player [ITEM]...`: the TUI, as the player (standalone) or as a
 /// client of the running one.
 fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result<ExitCode> {
@@ -423,10 +448,16 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
             return Ok(ExitCode::from(2));
         }
     };
-    let state = State::new(tui_model::Steps {
+    // The page size is resolved here, for both roles: an attached client
+    // asks the player's API through it with the same environment (spec
+    // 0006 "Page size"), a standalone one is the player.
+    let mut state = State::new(tui_model::Steps {
         volume: player_settings.steps.volume,
         seek: player_settings.steps.seek,
     });
+    state.page_size = player_settings.library.page_size;
+    // Spec 0006 "Pages": the TUI starts on the library.
+    tui_model::start_on_library(&mut state);
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
@@ -502,7 +533,8 @@ fn standalone(
         }
     };
     let (results, inputs) = std::sync::mpsc::channel();
-    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone());
+    let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
+        .with_library(player_library(&auth), player_settings.library.clone());
     let mut config = player_settings.player;
     config.country = Some(country);
     let (listener, socket) = match bind_player(&lock) {

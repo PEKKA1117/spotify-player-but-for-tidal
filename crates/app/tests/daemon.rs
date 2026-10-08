@@ -18,6 +18,7 @@ use tidal_player::ipc::lock::{Probe, probe};
 use tidal_player::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
 use tidal_player::session_store::EncryptedFileStore;
 use tidal_player_api::auth::{Session, SessionStore};
+use tidal_player_core::library::{LibraryRequest, PageRequest};
 use tidal_player_core::protocol::{
     ClientMessage, Command as PlayerCommand, Event, PlayerSnapshot, ServerMessage,
 };
@@ -454,6 +455,27 @@ fn ac14_client_needs_no_session() {
     );
     assert!(stderr.contains("terminal"), "{code:?}: {stderr}");
     wait_snapshot(&mut watcher, "track 1001", |s| has_track(s, 1001));
+    // 0006 AC19: a client's library request is answered by the player (with
+    // no library connected yet: an error), and still opens no session.
+    watcher
+        .send(&ClientMessage::Library {
+            id: 77,
+            request: LibraryRequest::Page(PageRequest::Library),
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no library reply");
+        match watcher.recv(Some(Duration::from_millis(200))) {
+            Ok(Some(ServerMessage::LibraryReply { id, result })) => {
+                assert_eq!(id, 77);
+                assert!(result.is_ok() || result.is_err());
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => panic!("connection failed: {e:?}"),
+        }
+    }
     // Nothing was written to the empty state dir.
     assert_eq!(std::fs::read_dir(machine.empty.path()).unwrap().count(), 0);
 }

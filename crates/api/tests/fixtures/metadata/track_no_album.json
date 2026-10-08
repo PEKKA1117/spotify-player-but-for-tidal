@@ -1,0 +1,68 @@
+{
+  "id": 1005,
+  "title": "Track Five",
+  "duration": 291,
+  "replayGain": -11.56,
+  "peak": 0.922334,
+  "allowStreaming": true,
+  "streamReady": true,
+  "payToStream": false,
+  "adSupportedStreamReady": true,
+  "djReady": true,
+  "stemReady": false,
+  "streamStartDate": "2014-10-13T00:00:00.000+0000",
+  "premiumStreamingOnly": false,
+  "trackNumber": 1,
+  "volumeNumber": 1,
+  "version": null,
+  "popularity": 79,
+  "copyright": "(P) 1980 Fake Records",
+  "bpm": 137,
+  "key": "A",
+  "keyScale": "MAJOR",
+  "url": "http://www.tidal.com/track/1005",
+  "isrc": "XXXX11000001",
+  "editable": false,
+  "explicit": false,
+  "audioQuality": "LOSSLESS",
+  "audioModes": [
+    "STEREO"
+  ],
+  "mediaMetadata": {
+    "tags": [
+      "LOSSLESS",
+      "HIRES_LOSSLESS"
+    ]
+  },
+  "upload": false,
+  "accessType": "PUBLIC",
+  "spotlighted": false,
+  "ai": false,
+  "artist": {
+    "id": 3001,
+    "name": "Artist A",
+    "handle": null,
+    "type": "MAIN",
+    "picture": "00000000-0000-4000-8000-000000000001"
+  },
+  "artists": [
+    {
+      "id": 3001,
+      "name": "Artist A",
+      "handle": null,
+      "type": "MAIN",
+      "picture": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "id": 3002,
+      "name": "Artist B",
+      "handle": null,
+      "type": "FEATURED",
+      "picture": "00000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "album": null,
+  "mixes": {
+    "TRACK_MIX": "0000000000000000000000000000aa"
+  }
+}

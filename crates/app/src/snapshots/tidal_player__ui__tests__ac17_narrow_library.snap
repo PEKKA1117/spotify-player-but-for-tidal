@@ -1,0 +1,24 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│Library                                         │
+│┌Playlists (22) ‹Tab›──────────────────────────┐│
+││  Running                                   42││
+││♥ Late night                                17││
+││  Gym mix                                    8││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

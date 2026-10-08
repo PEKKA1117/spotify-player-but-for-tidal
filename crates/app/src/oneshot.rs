@@ -185,9 +185,9 @@ pub fn status_lines(snapshot: &PlayerSnapshot, login_required: bool) -> String {
             };
             let mut first = vec![format!("{symbol} {}", track.title)];
             if !track.artists.is_empty() {
-                first.push(track.artists.join(", "));
+                first.push(track.artist_names());
             }
-            if let Some(album) = track.album.as_deref().filter(|a| !a.is_empty()) {
+            if let Some(album) = track.album_title().filter(|a| !a.is_empty()) {
                 first.push(album.to_owned());
             }
             lines.push(first.join(" · "));
@@ -327,7 +327,7 @@ mod tests {
     use super::*;
     use crate::ipc::client::RecvError;
     use tidal_player_core::protocol::{NowPlaying, QueueEntry};
-    use tidal_player_core::{AudioQuality, EntryId, Item, Track, TrackId};
+    use tidal_player_core::{AlbumRef, ArtistRef, AudioQuality, EntryId, Item, Track, TrackId};
 
     #[derive(Debug, Parser)]
     struct Cli {
@@ -442,8 +442,18 @@ mod tests {
         Track {
             id: TrackId(id),
             title: title.into(),
-            artists: artists.iter().map(|a| (*a).into()).collect(),
-            album: Some(album.into()),
+            version: None,
+            artists: artists
+                .iter()
+                .map(|a| ArtistRef {
+                    id: 1,
+                    name: (*a).into(),
+                })
+                .collect(),
+            album: Some(AlbumRef {
+                id: 1,
+                title: album.into(),
+            }),
             duration: secs.map(Duration::from_secs),
             streamable: true,
         }
