@@ -1,0 +1,63 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "totalNumberOfItems": 7,
+  "items": [
+    {
+      "id": 4108155,
+      "name": "Pierce The Veil",
+      "artistTypes": [
+        "ARTIST",
+        "CONTRIBUTOR"
+      ],
+      "url": "http://www.tidal.com/artist/4108155",
+      "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7",
+      "selectedAlbumCoverFallback": null,
+      "popularity": 77,
+      "artistRoles": [
+        {
+          "categoryId": -1,
+          "category": "Artist"
+        },
+        {
+          "categoryId": 2,
+          "category": "Songwriter"
+        }
+      ],
+      "mixes": {
+        "ARTIST_MIX": "0001c688e28efd901107694a91ab82"
+      },
+      "handle": null,
+      "userId": 1234,
+      "spotlighted": false
+    },
+    {
+      "id": 3668002,
+      "name": "Sleeping With Sirens",
+      "artistTypes": [
+        "ARTIST",
+        "CONTRIBUTOR"
+      ],
+      "url": "http://www.tidal.com/artist/3668002",
+      "picture": "f6a7aaed-b47b-488a-8e76-476546648ff7",
+      "selectedAlbumCoverFallback": null,
+      "popularity": 0,
+      "artistRoles": [
+        {
+          "categoryId": -1,
+          "category": "Artist"
+        },
+        {
+          "categoryId": 2,
+          "category": "Songwriter"
+        }
+      ],
+      "mixes": {
+        "ARTIST_MIX": "0001c688e28efd901107694a91ab82"
+      },
+      "handle": null,
+      "userId": 1234,
+      "spotlighted": false
+    }
+  ]
+}
