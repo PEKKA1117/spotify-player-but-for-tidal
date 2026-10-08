@@ -124,7 +124,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `ResumePause` | `space` | 所有地方 | play / pause（播放／暫停） |
 | `NextTrack` | `n` | 所有地方 | next track（下一首曲目） |
 | `PreviousTrack` | `p` | 所有地方 | previous track（上一首曲目） |
-| `SeekForward`（`duration`：1–600 秒，選用） | `>` | 所有地方 | seek forward (by `duration`, default `seek_duration_secs`)（快轉，幅度為 `duration`，預設為 `seek_duration_secs`） |
+| `SeekForward`（`duration`：1–600 秒，選用） | `>` | 所有地方 | seek forward (by `duration`, default `seek_duration_secs`)（向前跳轉，幅度為 `duration`，預設為 `seek_duration_secs`） |
 | `SeekBackward`（`duration`：1–600 秒，選用） | `<` | 所有地方 | seek backward（倒轉） |
 | `SeekStart` | `^` | 所有地方 | back to the start of the track（回到曲目開頭） |
 | `Shuffle` | `C-s` | 所有地方 | shuffle on / off（隨機播放開／關） |

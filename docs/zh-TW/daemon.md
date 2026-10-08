@@ -35,7 +35,7 @@
 
 當播放器原本沒有在播放任何東西（佇列為空，或已停止且沒有目前曲目）時，第一個加入的曲目會開始播放。由播放器取得這些項目（`Album 123 was not found` 會顯示在播放視窗中）；用戶端不需要自己登入：它從不讀取工作階段、金鑰圈 (keyring) 或密語，也從不開啟音訊裝置。
 
-附加的 TUI 外觀與操作都和獨立模式的 TUI 相同（[TUI](tui.md)），並有自己的按鍵與 TUI 設定：它讀取自己的 `keymap.toml` 與 `app.toml`（音量與快轉幅度、頁面大小、音樂庫版面），而不是常駐程式的（見[設定](config.md)）。它只顯示播放器傳來的內容：用 `o` 加入的項目，要等播放器加入之後才會出現在佇列中。若連線中斷，最後的畫面會保留，訊息列顯示 `Disconnected from the player: reconnecting…`（或 `The player shut down: waiting for it to come back…`），播放按鍵不會有作用，TUI 每秒重試一次。重新連上後，畫面會顯示播放器目前的狀態。游標按鍵與 `q` 在此期間都能使用。
+附加的 TUI 外觀與操作都和獨立模式的 TUI 相同（[TUI](tui.md)），並有自己的按鍵與 TUI 設定：它讀取自己的 `keymap.toml` 與 `app.toml`（音量與跳轉幅度、頁面大小、音樂庫版面），而不是常駐程式的（見[設定](config.md)）。它只顯示播放器傳來的內容：用 `o` 加入的項目，要等播放器加入之後才會出現在佇列中。若連線中斷，最後的畫面會保留，訊息列顯示 `Disconnected from the player: reconnecting…`（或 `The player shut down: waiting for it to come back…`），播放按鍵不會有作用，TUI 每秒重試一次。重新連上後，畫面會顯示播放器目前的狀態。游標按鍵與 `q` 在此期間都能使用。
 
 <a id="running-the-daemon-under-systemd"></a>
 ## 在 systemd 下執行常駐程式
@@ -134,7 +134,7 @@ Queue: 2 of 12
 - 暫停達到**釋放延遲**（預設 10 秒）後，它會關閉裝置，若為獨占（`hw:`）輸出，則將音效卡交還給 PipeWire 或 PulseAudio。曲目、其位置與已緩衝的內容都會保留。此時 TUI 的第三列結尾會是 `· device released`，`playback status` 也會顯示這一點
 - 暫停期間，若有其他應用程式（透過 PipeWire 的裝置保留機制）要求使用音效卡，不論延遲為何都會立即釋放。播放或載入中時，播放器會拒絕，與先前相同
 - **繼續播放**會重新開啟裝置，並從停止的位置準確繼續：不會跳過或重複播放任何內容。若裝置此時忙碌或已不存在，播放器會維持暫停並顯示訊息（`Output hw:1,0 is busy (used by …)`），且從不跳過；`Space`（或 `playback play-pause`）會再試一次
-- 在已釋放狀態下快轉會移動播放位置；繼續播放時從新的位置開始
+- 在已釋放狀態下跳轉會移動播放位置；繼續播放時從新的位置開始
 
 | 設定 | `app.toml` | 環境變數 | 接受值 | 預設 |
 |---|---|---|---|---|
