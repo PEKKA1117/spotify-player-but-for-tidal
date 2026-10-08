@@ -1,0 +1,68 @@
+# tidal-player app.toml: every setting at its default, spelled out.
+#
+# Copy to ~/.config/tidal-player/app.toml (or your --config-folder) and edit.
+# As shipped it changes nothing. Every key is optional: delete the ones you
+# don't change. A flag or a TIDAL_PLAYER_* environment variable still beats
+# the file. An unknown key or a value out of range stops the player with
+# exit code 2, naming the file and the key. Details: docs/config.md.
+
+# Highest quality to ask Tidal for: "hi-res", "lossless" or "high".
+# (--quality, TIDAL_PLAYER_QUALITY)
+quality = "hi-res"
+
+# ALSA output: "default" (shared, through the system mixer), or "hw:1,0" for
+# exclusive, bit-perfect output to a DAC; list them with `tidal-player devices`.
+# (--device, TIDAL_PLAYER_DEVICE)
+output_device = "default"
+
+# Volume step of + and - in the TUI, in %: 1 to 25. (TIDAL_PLAYER_VOLUME_STEP)
+volume_step = 5
+
+# Seek step of > and < in the TUI, in seconds: 1 to 600. (TIDAL_PLAYER_SEEK_STEP)
+seek_duration_secs = 5
+
+# Previous restarts the track when more than this many seconds have played:
+# 0 to 60; 0 makes previous always go back. (TIDAL_PLAYER_PREVIOUS_RESTART)
+previous_restart_secs = 3
+
+# Autoplay suggestions when the queue runs out, at start: true or false.
+# (--autoplay, TIDAL_PLAYER_AUTOPLAY)
+autoplay = false
+
+# Release the audio device after pausing for this many seconds: 0 to 3600,
+# or "never". (TIDAL_PLAYER_RELEASE_PAUSED)
+release_paused_secs = 10
+
+# Rows fetched at a time for the library's lists: 1 to 10000.
+# (TIDAL_PLAYER_PAGE_SIZE)
+page_size = 100
+
+# Rows fetched at a time for search results: 1 to 1000.
+# (TIDAL_PLAYER_SEARCH_PAGE_SIZE)
+search_page_size = 20
+
+# Words that hide alternate versions from an artist's "All tracks"; [] hides
+# nothing. (TIDAL_PLAYER_HIDE_VERSIONS, comma-separated)
+hide_versions = [
+    "instrumental",
+    "inst",
+    "off vocal",
+    "karaoke",
+    "tv version",
+    "tv ver",
+    "tv size",
+    "tv edit",
+    "sped up",
+    "speed up",
+    "nightcore",
+    "slowed",
+    "slowed + reverb",
+    "reverb",
+    "8d",
+    "8d audio",
+]
+
+[layout]
+# Library page widths in %, each 1 to 98, together at most 99; Artists takes
+# the rest.
+library = { playlist_percent = 40, album_percent = 40 }

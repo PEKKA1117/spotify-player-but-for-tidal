@@ -15,6 +15,13 @@ An empty variable counts as unset. The flag goes **after** the subcommand: `tida
 
 The directory and both files may be missing: the defaults are used, and nothing is ever created or written there. The files are read **once, at start**; a daemon picks up a changed file when restarted (`systemctl --user restart tidal-player`).
 
+**Starting points**: [`examples/app.toml`](../examples/app.toml) and [`examples/keymap.toml`](../examples/keymap.toml) spell out every default (each setting with its range, each key binding with its command). Copied as they are they change nothing; edit what you want and delete the rest:
+
+```sh
+mkdir -p ~/.config/tidal-player
+cp examples/app.toml examples/keymap.toml ~/.config/tidal-player/
+```
+
 Each process uses what concerns it: the player (the standalone TUI, the daemon, `play`) the player settings, the TUI (standalone or attached to a daemon) the TUI settings and `keymap.toml`. An attached TUI uses its own `keymap.toml` and TUI settings, not the daemon's. Still, every process that starts a player or a TUI checks **both** files whole: a typo in a key stops the daemon too, so one restart shows it.
 
 ## `app.toml`

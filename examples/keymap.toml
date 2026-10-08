@@ -1,0 +1,254 @@
+# tidal-player keymap.toml: every default binding, spelled out.
+#
+# Copy to ~/.config/tidal-player/keymap.toml (or your --config-folder) and edit.
+# As shipped it changes nothing: each entry binds a key sequence to the
+# command it already has. Entries add to or replace the defaults one key
+# sequence at a time, so you may also delete everything you don't change.
+#
+#   command = "None"                              unbinds that key sequence
+#   command = { SeekForward = { duration = 30 } } a command with parameters
+#   command = { VolumeChange = { offset = 1 } }
+#
+# Key syntax (spotify-player's): single characters (A is Shift-a), or
+# enter space tab backtab backspace esc left right up down insert delete
+# home end page_up page_down f1..f12, optionally prefixed with C- (Control)
+# or M- (Alt); sequences are keys separated by spaces ("g l").
+# A sequence may not be the start of another one ("g" next to "g l").
+# Every command, action and rule: docs/config.md.
+
+# ResumePause: play / pause (everywhere)
+[[keymaps]]
+command = "ResumePause"
+key_sequence = "space"
+
+# NextTrack: next track (everywhere)
+[[keymaps]]
+command = "NextTrack"
+key_sequence = "n"
+
+# PreviousTrack: previous track (everywhere)
+[[keymaps]]
+command = "PreviousTrack"
+key_sequence = "p"
+
+# SeekForward: seek forward (by duration, default seek_duration_secs) (everywhere)
+[[keymaps]]
+command = "SeekForward"
+key_sequence = ">"
+
+# SeekBackward: seek backward (everywhere)
+[[keymaps]]
+command = "SeekBackward"
+key_sequence = "<"
+
+# SeekStart: back to the start of the track (everywhere)
+[[keymaps]]
+command = "SeekStart"
+key_sequence = "^"
+
+# Shuffle: shuffle on / off (everywhere)
+[[keymaps]]
+command = "Shuffle"
+key_sequence = "C-s"
+
+# Repeat: repeat: off → queue → track (everywhere)
+[[keymaps]]
+command = "Repeat"
+key_sequence = "C-r"
+
+# ToggleAutoplay: autoplay on / off (everywhere)
+[[keymaps]]
+command = "ToggleAutoplay"
+key_sequence = "A"
+
+# VolumeUp: volume up by volume_step (everywhere)
+[[keymaps]]
+command = "VolumeUp"
+key_sequence = "+"
+
+# VolumeDown: volume down by volume_step (everywhere)
+[[keymaps]]
+command = "VolumeDown"
+key_sequence = "-"
+
+# Mute: mute / unmute (everywhere)
+[[keymaps]]
+command = "Mute"
+key_sequence = "_"
+
+# AddToQueuePrompt: add a link or ID to the end of the queue (everywhere)
+[[keymaps]]
+command = "AddToQueuePrompt"
+key_sequence = "o"
+
+# PlayNextPrompt: add a link or ID to play next (everywhere)
+[[keymaps]]
+command = "PlayNextPrompt"
+key_sequence = "O"
+
+# SelectNextOrScrollDown: move down (lists, popups)
+[[keymaps]]
+command = "SelectNextOrScrollDown"
+key_sequence = "j"
+[[keymaps]]
+command = "SelectNextOrScrollDown"
+key_sequence = "down"
+[[keymaps]]
+command = "SelectNextOrScrollDown"
+key_sequence = "C-n"
+
+# SelectPreviousOrScrollUp: move up (lists, popups)
+[[keymaps]]
+command = "SelectPreviousOrScrollUp"
+key_sequence = "k"
+[[keymaps]]
+command = "SelectPreviousOrScrollUp"
+key_sequence = "up"
+[[keymaps]]
+command = "SelectPreviousOrScrollUp"
+key_sequence = "C-p"
+
+# PageSelectNextOrScrollDown: move down a window (lists, popups)
+[[keymaps]]
+command = "PageSelectNextOrScrollDown"
+key_sequence = "C-f"
+[[keymaps]]
+command = "PageSelectNextOrScrollDown"
+key_sequence = "page_down"
+
+# PageSelectPreviousOrScrollUp: move up a window (lists, popups)
+[[keymaps]]
+command = "PageSelectPreviousOrScrollUp"
+key_sequence = "C-b"
+[[keymaps]]
+command = "PageSelectPreviousOrScrollUp"
+key_sequence = "page_up"
+
+# SelectFirstOrScrollToTop: move to the top (lists, popups)
+[[keymaps]]
+command = "SelectFirstOrScrollToTop"
+key_sequence = "g g"
+
+# SelectLastOrScrollToBottom: move to the last loaded row (lists, popups)
+[[keymaps]]
+command = "SelectLastOrScrollToBottom"
+key_sequence = "G"
+[[keymaps]]
+command = "SelectLastOrScrollToBottom"
+key_sequence = "end"
+
+# ChooseSelected: play the track with its list / open / run (lists, popups)
+[[keymaps]]
+command = "ChooseSelected"
+key_sequence = "enter"
+
+# AddSelectedItemToQueue: add to the end of the queue (lists)
+[[keymaps]]
+command = "AddSelectedItemToQueue"
+key_sequence = "Z"
+[[keymaps]]
+command = "AddSelectedItemToQueue"
+key_sequence = "C-z"
+
+# RemoveFromQueue: remove from the queue (the queue)
+[[keymaps]]
+command = "RemoveFromQueue"
+key_sequence = "d"
+
+# ShowActionsOnSelectedItem: actions on the selected row (lists)
+[[keymaps]]
+command = "ShowActionsOnSelectedItem"
+key_sequence = "g a"
+[[keymaps]]
+command = "ShowActionsOnSelectedItem"
+key_sequence = "C-space"
+
+# ShowActionsOnCurrentTrack: actions on the playing track (everywhere)
+[[keymaps]]
+command = "ShowActionsOnCurrentTrack"
+key_sequence = "a"
+
+# FocusNextWindow: next pane (pages)
+[[keymaps]]
+command = "FocusNextWindow"
+key_sequence = "tab"
+
+# FocusPreviousWindow: previous pane (pages)
+[[keymaps]]
+command = "FocusPreviousWindow"
+key_sequence = "backtab"
+
+# NextTab: next tab (panes with tabs)
+[[keymaps]]
+command = "NextTab"
+key_sequence = "]"
+
+# PreviousTab: previous tab (panes with tabs)
+[[keymaps]]
+command = "PreviousTab"
+key_sequence = "["
+
+# RoleFilter: the role filter (the artist's *All tracks*)
+[[keymaps]]
+command = "RoleFilter"
+key_sequence = "f"
+
+# Queue: the queue page (everywhere)
+[[keymaps]]
+command = "Queue"
+key_sequence = "z"
+
+# LibraryPage: the library (everywhere)
+[[keymaps]]
+command = "LibraryPage"
+key_sequence = "g l"
+
+# LikedTrackPage: favorite tracks (everywhere)
+[[keymaps]]
+command = "LikedTrackPage"
+key_sequence = "g y"
+
+# SearchPage: the search page (on one: its input) (everywhere)
+[[keymaps]]
+command = "SearchPage"
+key_sequence = "g s"
+
+# Search: back to the search input (the search page)
+[[keymaps]]
+command = "Search"
+key_sequence = "/"
+
+# PreviousPage: back (everywhere)
+[[keymaps]]
+command = "PreviousPage"
+key_sequence = "backspace"
+[[keymaps]]
+command = "PreviousPage"
+key_sequence = "C-q"
+
+# ClosePopup: close / cancel (popups, prompts, loads)
+[[keymaps]]
+command = "ClosePopup"
+key_sequence = "esc"
+
+# OpenCommandHelp: this help (everywhere)
+[[keymaps]]
+command = "OpenCommandHelp"
+key_sequence = "?"
+[[keymaps]]
+command = "OpenCommandHelp"
+key_sequence = "C-h"
+
+# Quit: quit (an attached TUI detaches) (everywhere)
+[[keymaps]]
+command = "Quit"
+key_sequence = "q"
+[[keymaps]]
+command = "Quit"
+key_sequence = "C-c"
+
+# [[actions]] run an entry of the actions popup directly (none by default):
+# [[actions]]
+# action = "GoToAlbum"
+# key_sequence = "g B"
+# target = "PlayingTrack"   # or "SelectedItem" (the default)
