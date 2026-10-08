@@ -1,7 +1,9 @@
 //! Rendering of the library's pages and popups (spec 0006 "Rendering"):
 //! the title row, the windows (side by side from 60 columns, else the
-//! focused one), their rows, and the popups over the page. Drawn from the
-//! UI model's public API only; the queue page is drawn by `ui.rs`.
+//! focused one), their rows, and the popups over the page; on the search
+//! page (spec 0007 "Rendering") the input and top-hit rows, then its four
+//! windows in a 2 × 2 grid. Drawn from the UI model's public API only; the
+//! queue page is drawn by `ui.rs`.
 
 use ratatui::{
     Frame,
