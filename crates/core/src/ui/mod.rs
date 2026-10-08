@@ -26,6 +26,8 @@
 //! [`Page::search`]; its keys live in [`search`].
 
 mod browse;
+mod dispatch;
+pub mod keymap;
 pub mod page;
 pub mod popup;
 pub mod search;
@@ -38,6 +40,7 @@ use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, Qu
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use keymap::{BaseKey, Keymap};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
     Row, Rows, Window, WindowKind, clock, group, largest_page,
@@ -64,7 +67,7 @@ impl Default for Steps {
 }
 
 /// A decoded key press (the terminal mapping lives in the binary).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     /// A printable character, upper case included (`G`, `O`, `A`).
     Char(char),
@@ -82,6 +85,19 @@ pub enum Key {
     BackTab,
     PageUp,
     PageDown,
+    Left,
+    Right,
+    Home,
+    End,
+    Insert,
+    Delete,
+    /// `f1`–`f12`.
+    F(u8),
+    /// Alt + a key (`M-a` is `Alt(BaseKey::Char('a'))`, `M-enter`).
+    Alt(BaseKey),
+    /// Control + a named key (`C-enter`); Control + a character is
+    /// [`Key::Ctrl`].
+    CtrlKey(BaseKey),
 }
 
 /// The open prompt (`o` / `O`): what has been typed and where it adds.
@@ -139,6 +155,10 @@ pub struct State {
     /// `s` open the library, the favorite tracks, the actions popup and the
     /// search page (spec 0007).
     pub pending_g: bool,
+    /// The bindings keys are looked up in (spec 0008).
+    pub keymap: Keymap,
+    /// The keys of a sequence being collected (spec 0008).
+    pub pending: Vec<Key>,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
     pub history: Vec<Page>,
@@ -177,6 +197,8 @@ impl Default for State {
             prompt: None,
             message: None,
             pending_g: false,
+            keymap: Keymap::default(),
+            pending: Vec::new(),
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
             whole_list: None,
@@ -291,6 +313,11 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
     state.history.push(library);
     state.start_pending = true;
     Vec::new()
+}
+
+/// Puts `keymap` in force (stub: the notice is not shown).
+pub fn apply_keymap(state: &mut State, keymap: Keymap) {
+    state.keymap = keymap;
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
@@ -412,13 +439,7 @@ fn prompt_key(state: &mut State, at: InsertAt, key: Key) -> Vec<Effect> {
                 }
             };
         }
-        Key::Ctrl(_)
-        | Key::Up
-        | Key::Down
-        | Key::Tab
-        | Key::BackTab
-        | Key::PageUp
-        | Key::PageDown => {}
+        _ => {}
     }
     Vec::new()
 }
