@@ -24,6 +24,7 @@
 mod browse;
 pub mod page;
 pub mod popup;
+pub mod search;
 
 use std::time::Duration;
 
@@ -38,6 +39,7 @@ pub use page::{
     Row, Rows, Window, WindowKind, clock, group, largest_page,
 };
 pub use popup::{Confirmed, MenuAction, NEW_PLAYLIST, PLAYLIST_NAME, Popup, TrackSource};
+pub use search::{DEFAULT_SEARCH_PAGE_SIZE, MAX_QUERY, Search, SearchFocus};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +146,9 @@ pub struct State {
     pub writes: Vec<(u64, Write)>,
     /// The page size of every list request (`TIDAL_PLAYER_PAGE_SIZE`).
     pub page_size: u32,
+    /// The page size of every search request, the first page of each
+    /// result list included (`TIDAL_PLAYER_SEARCH_PAGE_SIZE`, spec 0007).
+    pub search_page_size: u32,
     /// A list window's height in rows: the next page loads when the cursor
     /// comes within this many rows of the last loaded one, and `C-f`/`C-b`
     /// move by it. Set by [`Action::Resize`]; 20 until then.
@@ -172,6 +177,7 @@ impl Default for State {
             whole_list: None,
             writes: Vec::new(),
             page_size: DEFAULT_PAGE_SIZE,
+            search_page_size: DEFAULT_SEARCH_PAGE_SIZE,
             list_height: 20,
             next_request: 1,
             start_pending: false,

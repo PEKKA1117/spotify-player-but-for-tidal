@@ -7,9 +7,11 @@ use std::time::Duration;
 use crate::item::Item;
 use crate::library::{
     AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, PageData, PageRequest,
-    PlaylistSummary, RoleCategory,
+    PlaylistSummary, RoleCategory, TopHit,
 };
 use crate::track::{ArtistRef, Track};
+
+use super::search::Search;
 
 /// The history keeps at most this many pages above the queue (the queue at
 /// the bottom is never dropped).
@@ -36,6 +38,9 @@ pub enum PageKind {
     Album(u64),
     Playlist(String),
     Artist(u64),
+    /// The search page (spec 0007) and the query it last sent; empty
+    /// until the first search.
+    Search(String),
 }
 
 impl PageKind {
@@ -49,6 +54,8 @@ impl PageKind {
             Self::Album(id) => PageRequest::Album(*id),
             Self::Playlist(uuid) => PageRequest::Playlist(uuid.clone()),
             Self::Artist(id) => PageRequest::Artist(*id),
+            Self::Search(query) if query.is_empty() => return None,
+            Self::Search(query) => PageRequest::Search(query.clone()),
         })
     }
 }
@@ -96,17 +103,22 @@ pub enum WindowKind {
     AppearsOn,
     /// The artist's credits (*All tracks*).
     AllTracks,
+    /// The search page's result lists (spec 0007).
+    SearchTracks,
+    SearchAlbums,
+    SearchArtists,
+    SearchPlaylists,
 }
 
 impl WindowKind {
     /// The window's name in its title.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Playlists => "Playlists",
-            Self::Albums | Self::ArtistAlbums => "Albums",
-            Self::Artists => "Artists",
+            Self::Playlists | Self::SearchPlaylists => "Playlists",
+            Self::Albums | Self::ArtistAlbums | Self::SearchAlbums => "Albums",
+            Self::Artists | Self::SearchArtists => "Artists",
             Self::FavoriteTracks => "Favorite tracks",
-            Self::AlbumTracks | Self::PlaylistTracks => "Tracks",
+            Self::AlbumTracks | Self::PlaylistTracks | Self::SearchTracks => "Tracks",
             Self::TopTracks => "Top tracks",
             Self::AppearsOn => "Appears on",
             Self::AllTracks => "All tracks",
@@ -125,6 +137,10 @@ impl WindowKind {
             Self::TopTracks => "No top tracks",
             Self::ArtistAlbums | Self::AppearsOn => "No albums",
             Self::AllTracks => "No credits",
+            Self::SearchTracks => "No tracks found",
+            Self::SearchAlbums => "No albums found",
+            Self::SearchArtists => "No artists found",
+            Self::SearchPlaylists => "No playlists found",
         }
     }
 }
@@ -271,16 +287,18 @@ impl Window {
     /// An empty window of `kind` over `list`.
     pub fn new(kind: WindowKind, list: ListRef) -> Self {
         let rows = match kind {
-            WindowKind::Playlists => Rows::Playlists(Vec::new()),
-            WindowKind::Albums | WindowKind::ArtistAlbums | WindowKind::AppearsOn => {
-                Rows::Albums(Vec::new())
-            }
-            WindowKind::Artists => Rows::Artists(Vec::new()),
+            WindowKind::Playlists | WindowKind::SearchPlaylists => Rows::Playlists(Vec::new()),
+            WindowKind::Albums
+            | WindowKind::ArtistAlbums
+            | WindowKind::AppearsOn
+            | WindowKind::SearchAlbums => Rows::Albums(Vec::new()),
+            WindowKind::Artists | WindowKind::SearchArtists => Rows::Artists(Vec::new()),
             WindowKind::AllTracks => Rows::Credits(Vec::new()),
             WindowKind::FavoriteTracks
             | WindowKind::AlbumTracks
             | WindowKind::PlaylistTracks
-            | WindowKind::TopTracks => Rows::Tracks(Vec::new()),
+            | WindowKind::TopTracks
+            | WindowKind::SearchTracks => Rows::Tracks(Vec::new()),
         };
         Self {
             kind,
@@ -506,6 +524,9 @@ pub struct Page {
     pub panes: Vec<Vec<usize>>,
     /// Each pane's active tab (an index into its `panes` entry).
     pub tabs: Vec<usize>,
+    /// The search page's input, top hit and focus (spec 0007); `None` on
+    /// every other page.
+    pub search: Option<Search>,
 }
 
 impl Page {
@@ -536,6 +557,24 @@ impl Page {
                 Window::new(WindowKind::AppearsOn, ListRef::ArtistAppearsOn(*id)),
                 Window::new(WindowKind::AllTracks, ListRef::Credits(*id)),
             ],
+            PageKind::Search(query) => vec![
+                Window::new(
+                    WindowKind::SearchTracks,
+                    ListRef::SearchTracks(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchAlbums,
+                    ListRef::SearchAlbums(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchArtists,
+                    ListRef::SearchArtists(query.clone()),
+                ),
+                Window::new(
+                    WindowKind::SearchPlaylists,
+                    ListRef::SearchPlaylists(query.clone()),
+                ),
+            ],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -543,7 +582,9 @@ impl Page {
             _ => (0..windows.len()).map(|i| vec![i]).collect(),
         };
         let tabs = vec![0; panes.len()];
+        let search = matches!(kind, PageKind::Search(_)).then(Search::default);
         Self {
+            search,
             kind,
             header: None,
             load: Load::Idle,
@@ -653,6 +694,8 @@ impl Page {
             (PageKind::Album(_), None) => vec!["Album".into()],
             (PageKind::Playlist(_), None) => vec!["Playlist".into()],
             (PageKind::Artist(_), None) => vec!["Artist".into()],
+            (PageKind::Search(query), _) if query.is_empty() => vec!["Search".into()],
+            (PageKind::Search(query), _) => vec!["Search".into(), format!("\"{query}\"")],
         };
         parts.join(" · ")
     }
