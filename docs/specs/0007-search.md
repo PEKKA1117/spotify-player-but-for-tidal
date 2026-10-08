@@ -1,6 +1,6 @@
 # 0007 — Search
 
-- **Status**: draft (2026-10-08). decisions answered by the user (see "Decisions"); waits on `scripts/tidal-search-probe.sh` for the API shapes under "Not verified", then approval
+- **Status**: draft (2026-10-08); decisions answered by the user (see "Decisions"); waits on `scripts/tidal-search-probe.sh` for the API shapes under "Not verified", then approval
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key (AC14)
