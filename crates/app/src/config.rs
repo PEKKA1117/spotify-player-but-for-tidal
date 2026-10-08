@@ -71,7 +71,18 @@ pub fn config_dir(
     xdg_config_home: Option<&str>,
     home: Option<&Path>,
 ) -> PathBuf {
-    let _ = (flag, dir_var, xdg_config_home);
+    fn set(v: Option<&str>) -> Option<&str> {
+        v.filter(|v| !v.is_empty())
+    }
+    if let Some(flag) = flag {
+        return flag.to_owned();
+    }
+    if let Some(dir) = set(dir_var) {
+        return PathBuf::from(dir);
+    }
+    if let Some(xdg) = set(xdg_config_home) {
+        return Path::new(xdg).join("tidal-player");
+    }
     home.unwrap_or(Path::new("."))
         .join(".config")
         .join("tidal-player")
@@ -98,17 +109,213 @@ pub fn keymap_toml_path(dir: &Path) -> PathBuf {
     dir.join(KEYMAP_TOML)
 }
 
-/// Parses the text of `app.toml` (`path` only names it in errors).
+/// Parses the text of `app.toml` (`path` only names it in errors). Every
+/// key is optional; an unknown key anywhere, a wrong type or a value out of
+/// range is an error naming the key.
 pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError> {
-    let _ = (path, text);
-    Ok(AppConfig::default())
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
+        let (line, column) = e
+            .span()
+            .map_or((1, 1), |span| line_column(text, span.start));
+        ConfigError::at(
+            path,
+            format!("line {line}, column {column}: {}", e.message()),
+        )
+    })?;
+    let invalid = |key: &str, what: String| ConfigError::at(path, format!("invalid {key}: {what}"));
+    let mut config = AppConfig::default();
+    for (key, value) in &table {
+        match key.as_str() {
+            "quality" => {
+                config.quality = Some(match value.as_str() {
+                    Some(name) => {
+                        name.parse()
+                            .map_err(|e: tidal_player_core::ParseQualityError| {
+                                invalid(key, e.to_string())
+                            })?
+                    }
+                    None => {
+                        return Err(invalid(
+                            key,
+                            format!("expected hi-res, lossless or high, got {}", describe(value)),
+                        ));
+                    }
+                });
+            }
+            "output_device" => match value.as_str().filter(|name| !name.is_empty()) {
+                Some(name) => config.output_device = Some(name.to_owned()),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected a device name, got {}", describe(value)),
+                    ));
+                }
+            },
+            "volume_step" => {
+                config.volume_step = Some(int_in(path, key, value, 1, 25)? as u8);
+            }
+            "seek_duration_secs" => {
+                config.seek_duration_secs = Some(int_in(path, key, value, 1, 600)?);
+            }
+            "previous_restart_secs" => {
+                config.previous_restart_secs = Some(int_in(path, key, value, 0, 60)?);
+            }
+            "autoplay" => match value.as_bool() {
+                Some(on) => config.autoplay = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "release_paused_secs" => {
+                config.release_paused = Some(if value.as_str() == Some("never") {
+                    None
+                } else {
+                    let secs = int_in(path, key, value, 0, 3600).map_err(|_| {
+                        invalid(
+                            key,
+                            format!(
+                                "expected an integer from 0 to 3600 or never, got {}",
+                                describe(value)
+                            ),
+                        )
+                    })?;
+                    Some(Duration::from_secs(secs))
+                });
+            }
+            "page_size" => config.page_size = Some(int_in(path, key, value, 1, 10_000)? as u32),
+            "search_page_size" => {
+                config.search_page_size = Some(int_in(path, key, value, 1, 1000)? as u32);
+            }
+            "hide_versions" => config.hide_versions = Some(words(path, key, value)?),
+            "layout" => config.layout = layout(path, value)?,
+            _ => return Err(unknown(path, key)),
+        }
+    }
+    Ok(config)
 }
 
 /// Reads and validates `<dir>/app.toml`; a missing file or directory is
-/// the defaults.
+/// the defaults, a file that cannot be read is `<path>: <io error>`.
 pub fn load_app_toml(dir: &Path) -> Result<AppConfig, ConfigError> {
-    let _ = dir;
-    Ok(AppConfig::default())
+    let path = app_toml_path(dir);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse_app_toml(&path, &text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AppConfig::default()),
+        Err(e) => Err(ConfigError::at(&path, e)),
+    }
+}
+
+fn unknown(path: &Path, key: &str) -> ConfigError {
+    ConfigError::at(path, format!("unknown setting \"{key}\""))
+}
+
+/// How a value reads in "got ...": strings quoted, scalars as written.
+fn describe(value: &toml::Value) -> String {
+    match value {
+        toml::Value::String(s) => format!("{s:?}"),
+        toml::Value::Integer(n) => n.to_string(),
+        toml::Value::Float(f) => f.to_string(),
+        toml::Value::Boolean(b) => b.to_string(),
+        toml::Value::Datetime(d) => d.to_string(),
+        toml::Value::Array(_) => "an array".into(),
+        toml::Value::Table(_) => "a table".into(),
+    }
+}
+
+fn int_in(
+    path: &Path,
+    key: &str,
+    value: &toml::Value,
+    min: u64,
+    max: u64,
+) -> Result<u64, ConfigError> {
+    value
+        .as_integer()
+        .and_then(|n| u64::try_from(n).ok())
+        .filter(|n| (min..=max).contains(n))
+        .ok_or_else(|| {
+            ConfigError::at(
+                path,
+                format!(
+                    "invalid {key}: expected an integer from {min} to {max}, got {}",
+                    describe(value)
+                ),
+            )
+        })
+}
+
+fn words(path: &Path, key: &str, value: &toml::Value) -> Result<Vec<String>, ConfigError> {
+    let wrong = |got: String| {
+        ConfigError::at(
+            path,
+            format!("invalid {key}: expected an array of strings, got {got}"),
+        )
+    };
+    let items = value.as_array().ok_or_else(|| wrong(describe(value)))?;
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| wrong(format!("an array containing {}", describe(item))))
+        })
+        .collect()
+}
+
+/// `[layout] library = { playlist_percent, album_percent }`.
+fn layout(path: &Path, value: &toml::Value) -> Result<LibraryLayout, ConfigError> {
+    let not_table = |key: &str, value: &toml::Value| {
+        ConfigError::at(
+            path,
+            format!("invalid {key}: expected a table, got {}", describe(value)),
+        )
+    };
+    let table = value.as_table().ok_or_else(|| not_table("layout", value))?;
+    let mut layout = LibraryLayout::default();
+    for (key, value) in table {
+        if key != "library" {
+            return Err(unknown(path, &format!("layout.{key}")));
+        }
+        let library = value
+            .as_table()
+            .ok_or_else(|| not_table("layout.library", value))?;
+        for (key, value) in library {
+            let name = format!("layout.library.{key}");
+            match key.as_str() {
+                "playlist_percent" => {
+                    layout.playlist_percent = int_in(path, &name, value, 1, 98)? as u16;
+                }
+                "album_percent" => layout.album_percent = int_in(path, &name, value, 1, 98)? as u16,
+                _ => return Err(unknown(path, &name)),
+            }
+        }
+        let sum = layout.playlist_percent + layout.album_percent;
+        if sum > 99 {
+            return Err(ConfigError::at(
+                path,
+                format!(
+                    "invalid layout.library: playlist_percent + album_percent must be at most 99, got {sum}"
+                ),
+            ));
+        }
+    }
+    Ok(layout)
+}
+
+/// 1-based line and column (in characters) of a byte offset.
+fn line_column(text: &str, offset: usize) -> (usize, usize) {
+    let mut end = offset.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let before = &text[..end];
+    let line = before.matches('\n').count() + 1;
+    let start = before.rfind('\n').map_or(0, |i| i + 1);
+    (line, before[start..].chars().count() + 1)
 }
 
 #[cfg(test)]
