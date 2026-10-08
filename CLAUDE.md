@@ -4,7 +4,20 @@
 
 ## Status
 
-Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Spec `0002-auth.md` (implemented) adds the device-flow login, session storage (keyring, else an age-encrypted file) and refresh/recovery; user docs in `docs/login.md`. Spec `0004-queue-and-controls.md` (implemented) adds the player state machine (`tidal_player_core::player`), the queue, playback controls, autoplay, the player runtime and the first TUI screen; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0005-daemon-and-clients.md` (implemented) adds the headless daemon (systemd user service), one player per user over a Unix socket (`tidal-player::ipc`), TUI clients that attach to it, one-shot `playback` commands, and releasing the audio device while paused; user docs in `docs/daemon.md`. Spec `0006-library.md` (implemented) adds the library: pages with a history (favorites, playlists, albums, artists), windows that load as you scroll, play/queue from a page, the actions popup, favorites and playlist editing, answered by the player over the same socket; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0007-search.md` (implemented) adds the search page (`g s`): a query, Tidal's top hit and four result windows that load as you scroll, answered by the player; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0008-keymap-and-config.md` (implemented) adds `app.toml` (settings; flags and environment still win), a spotify-player-compatible `keymap.toml` dispatched through `tidal_player_core::ui::keymap`, and the keys help popup (`?`, `ui::help`); user docs in `docs/config.md`. Follow-up specs are listed in the "Out of scope" sections.
+Rust workspace (toolchain and checks under "Build & tooling"). The features below exist today. Follow-up specs are listed in each spec's "Out of scope" section.
+
+## Features
+
+One entry per implemented spec: an introduction to the feature, so a reader new to the project knows what the player can do and where to read more. When a spec is implemented, its implementer adds its entry here (or extends the entry of the feature it grows): what the feature is and does for the user, in a few sentences, plus links to the spec and the user docs. It is not a record of the work: no changelog of what was added, changed or fixed, no file-by-file notes, no AC numbers. Those live in the spec, the commits and the PR.
+
+- **Architecture** ([0001](docs/specs/0001-architecture.md)): a Cargo workspace of four crates (`tidal-player-core` for pure logic and UI state, `tidal-player-api` for Tidal, `tidal-player-audio` for decoding and output, the `tidal-player` binary), with dependency rules checked by `cargo xtask layering`. The player and its clients talk only through `Command`/`Event` (`tidal_player_core::protocol`), so the same player runs in the TUI's process or behind a daemon
+- **Login** ([0002](docs/specs/0002-auth.md), [docs/login.md](docs/login.md)): sign in with Tidal's device flow (open a link, enter a code). The session is kept in the system keyring, or in an age-encrypted file when there is none; tokens refresh on their own and are saved, and when a refresh fails the player says so and lets you log in again without restarting
+- **Playback engine** ([0003](docs/specs/0003-playback-engine.md), [docs/playback.md](docs/playback.md)): resolves a track to the best stream Tidal offers down the quality ladder, decodes it, and plays it bit-perfect on an ALSA `hw:` device, taking the card from PipeWire and falling back to `plughw:` only when the device refuses the format. Next tracks are preloaded for gapless playback
+- **Queue and controls** ([0004](docs/specs/0004-queue-and-controls.md), [docs/tui.md](docs/tui.md), [docs/playback.md](docs/playback.md)): a play queue with play/pause, seek, next/previous, shuffle, repeat, volume and gapless auto-advance; autoplay continues with tracks Tidal suggests when the queue runs out. The TUI shows a now-playing bar and the queue, filled from Tidal links or IDs
+- **Daemon and clients** ([0005](docs/specs/0005-daemon-and-clients.md), [docs/daemon.md](docs/daemon.md)): `tidal-player daemon` runs the player headless as a systemd user service, one per user, over a Unix socket. Any number of TUIs attach to it, `tidal-player playback …` sends one-shot commands, and the audio device is released while paused so other apps can use it
+- **Library** ([0006](docs/specs/0006-library.md), [docs/tui.md](docs/tui.md)): browse your favorite tracks, playlists, albums and artists, and the album, playlist and artist pages they lead to, with a page history and lists that load as you scroll. Play a track with the rest of its list queued, add to the queue, and use the actions popup to edit favorites and your playlists
+- **Search** ([0007](docs/specs/0007-search.md), [docs/tui.md](docs/tui.md)): the search page (`g s`) shows Tidal's top hit and matching tracks, albums, artists and playlists in four windows that load as you scroll; their rows play, queue, open and take actions like any other page's
+- **Config, keymap and keys help** ([0008](docs/specs/0008-keymap-and-config.md), [docs/config.md](docs/config.md)): settings in `~/.config/tidal-player/app.toml` (flags and environment still win) and keys in a spotify-player-compatible `keymap.toml`; `examples/` holds the defaults. `?` opens the keys help: the keys for where you are first, filterable, and `Enter` runs one
 
 ## Build & tooling
 
@@ -67,14 +80,14 @@ Each `docs/specs/NNNN-*.md` has:
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; `README.md` is up to date (see "Conventions"); and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` is up to date (see "Conventions"); and the commit history shows the red commit before the green one.
 
 ## Conventions
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
 - Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
-- Keep this file for rules and stable facts. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
+- Keep this file for rules, stable facts and the "Features" introductions. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
 
 ## Carried over from tidalt (facts to re-verify, not requirements)
 
