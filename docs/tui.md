@@ -33,6 +33,8 @@ One frame titled `tidal-player`, with the **playback window** (4 rows) at the to
 3. How it plays: the quality Tidal granted, the format, the output device, and `bit-perfect` or why it is not (as the "Track" and "Output" lines of [`play`](playback.md#output-kinds-and-bit-perfect)), then ` · device released` while paused with the device [released](daemon.md#releasing-the-device-while-paused). When something went wrong, the message takes this row instead (see [Failures](#failures)); so does `Disconnected from the player: reconnecting…` while an attached TUI has lost its player
 4. The progress bar, the position and the length. When Tidal does not give the length, there is no bar: `1:23 / ?:??`
 
+At start the player resumes the last session: the queue it had, `■` stopped at the same position, with its modes and volume; `Space` plays from there (see [Resuming the last session](playback.md#resuming-the-last-session)).
+
 ### Queue
 
 The queue in the order it plays (shuffled when shuffle is on). The playing track is marked `▶` and kept in view when it changes. The highlighted row is the **cursor**, which you move with the keys below; it stays on its track when the queue changes, and moves to the neighbouring row when its track is removed. Tracks added by [autoplay](#shuffle-repeat-and-autoplay) come after a `Suggested` row and are drawn dimmed.
@@ -254,7 +256,7 @@ While the prompt is open every key types into it: `Space`, `q` and the other key
 
 ### Volume
 
-From 0 to 100 %, **100 % by default**, in steps of the volume step. At 100 % the samples are not touched, so a bit-perfect output stays bit-perfect; below 100 % (or muted) the third row says `not bit-perfect: volume below 100%` (or `muted`). The volume follows a curve that matches how loudness is heard (50 % is about −18 dB). Mute (`_`) keeps the volume, so unmuting restores it; changing the volume unmutes. The volume is not remembered across runs yet (spec 0009).
+From 0 to 100 %, **100 % by default**, in steps of the volume step. At 100 % the samples are not touched, so a bit-perfect output stays bit-perfect; below 100 % (or muted) the third row says `not bit-perfect: volume below 100%` (or `muted`). The volume follows a curve that matches how loudness is heard (50 % is about −18 dB). Mute (`_`) keeps the volume, so unmuting restores it; changing the volume unmutes. The volume and mute are remembered across runs, with the queue and the modes (see [Resuming the last session](playback.md#resuming-the-last-session)).
 
 ## Failures
 

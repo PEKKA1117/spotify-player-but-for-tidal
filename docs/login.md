@@ -32,6 +32,8 @@ Running plain `tidal-player` without a stored session prints `Not logged in.` an
 
 Deletes the stored session from every store on this machine and prints `Logged out` (or `Not logged in` when there was none). It exits 0 either way and never asks for a passphrase, so it also clears a session whose passphrase you forgot.
 
+`logout` also deletes the remembered playback state (`playback.json`, see [Resuming the last session](playback.md#resuming-the-last-session)), so the next account does not start with the last one's queue. A player that is running keeps its queue and writes the file again on its next save.
+
 `logout` cannot revoke the login on Tidal's side: Tidal refuses revocation for this client. The login stays valid server-side until Tidal expires it, but no copy of it remains on this machine.
 
 ### `tidal-player daemon`

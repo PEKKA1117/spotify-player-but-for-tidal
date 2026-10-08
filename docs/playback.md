@@ -78,6 +78,7 @@ Every setting can be set in [`app.toml`](config.md#apptoml) (in the [config dire
 | Seek step of `>`/`<` in the TUI (s) | `seek_duration_secs` | | `TIDAL_PLAYER_SEEK_STEP` (1–600) | `5` |
 | Previous restarts the track after (s); `0`: previous always goes back | `previous_restart_secs` | | `TIDAL_PLAYER_PREVIOUS_RESTART` (0–60) | `3` |
 | Autoplay at start | `autoplay` (`true`, `false`) | `--autoplay` (`play` only) | `TIDAL_PLAYER_AUTOPLAY` (`on`, `off`) | `off` |
+| Remember the queue, position, modes and volume across runs; see [Resuming the last session](#resuming-the-last-session) | `remember_playback` (`true`, `false`) | | `TIDAL_PLAYER_REMEMBER_PLAYBACK` (`on`, `off`) | `true` |
 | Release the device after pausing for (s); see [Releasing the device](daemon.md#releasing-the-device-while-paused) | `release_paused_secs` (or `"never"`) | | `TIDAL_PLAYER_RELEASE_PAUSED` (0–3600, or `never`) | `10` |
 | Rows fetched at a time for the library's lists in the TUI; see [Lists load as you scroll](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE` (1–10 000) | `100` |
 | Rows fetched at a time for the search results in the TUI; see [Search](tui.md#search) | `search_page_size` | | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` (1–1000) | `20` |
@@ -88,6 +89,19 @@ A flag beats the environment, which beats `app.toml`, which beats the default, p
 The quality is the **highest** to ask for. Tidal answers with what the track and your subscription allow: a CD-quality track asked at `hi-res` comes as `LOSSLESS` (FLAC 16-bit 44.1 kHz), and some tracks only exist as `HIGH`.
 
 To make a DAC the default, put `output_device = "hw:1,0"` in `~/.config/tidal-player/app.toml` (or `export TIDAL_PLAYER_DEVICE=hw:1,0` in your shell profile).
+
+## Resuming the last session
+
+The player (the standalone TUI, or the daemon) remembers what it was playing and starts from it the next time, **stopped** at the same position: nothing plays, and nothing is fetched or opened, until you press `Space` (or `tidal-player playback play-pause`), which plays from that position. Design: [spec 0009](specs/0009-persistence.md).
+
+- **Remembered**: the queue (with its `Suggested` tracks and its shuffled order), the current track and the position in it, shuffle, repeat, autoplay, the volume and mute. Not remembered: whether it was playing, the output device (it comes from the settings), and anything a TUI shows on its own (the page, the cursor, the search)
+- **Autoplay**: the remembered mode beats `autoplay` in `app.toml` (the file sets it for a fresh queue); `TIDAL_PLAYER_AUTOPLAY` and `--autoplay` beat the remembered mode
+- **`tidal-player ITEM…`** starting a player replaces the remembered queue with the items and plays them; shuffle, repeat, autoplay and volume stay as remembered. `tidal-player play ITEM…` neither reads nor writes the remembered state
+- **When it is saved**: a change is saved within 2 seconds (many changes in a row are saved once); the position while playing at most every 30 seconds; a pause, a stop, a seek, a track change and quitting (`q`, `tidal-player daemon stop`, `systemctl --user stop`) save at once. A crash or a power loss loses at most the last 30 seconds of position
+- **Where**: `playback.json` in the state directory, next to the session file: `$TIDAL_PLAYER_STATE_DIR`, else `$XDG_STATE_HOME/tidal-player`, else `~/.local/state/tidal-player`. It is written to a temporary file and renamed over the old one, so a crash leaves the old file or the new one, never half of one (on a local filesystem). It is the player's data, not a file to edit. `tidal-player logout` deletes it ([Logging in](login.md#tidal-player-logout))
+- **Turning it off**: `remember_playback = false` in [`app.toml`](config.md#apptoml), or `TIDAL_PLAYER_REMEMBER_PLAYBACK=off`. The player then neither reads nor writes `playback.json`, and leaves an existing one as it is
+- **A file that cannot be read**: the player starts with an empty queue and says why in the playback window, `Could not restore the playback state: <path>: <error>`. A corrupt file (or one from another version) is kept as `playback.json.bad` and the message is `Could not restore the playback state (kept as playback.json.bad): <reason>`. The player always starts; the next save writes a fresh file
+- **A save that fails** (disk full, read-only directory): the playback window says `Could not save the playback state: <error>` once; playback goes on, and the next change tries again
 
 ## Output kinds and bit-perfect
 
