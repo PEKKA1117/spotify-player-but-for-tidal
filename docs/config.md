@@ -1,3 +1,5 @@
+English | [繁體中文](zh-TW/config.md)
+
 # Configuration
 
 Two optional files configure tidal-player: **`app.toml`** for the settings and **`keymap.toml`** for the keys, in [spotify-player](https://github.com/aome510/spotify-player)'s format so its `[[keymaps]]` blocks can be copied across. Design: [spec 0008](specs/0008-keymap-and-config.md).

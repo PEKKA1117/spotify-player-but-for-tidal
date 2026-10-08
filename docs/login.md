@@ -1,3 +1,5 @@
+English | [繁體中文](zh-TW/login.md)
+
 # Logging in
 
 `tidal-player` signs in to Tidal with the OAuth2 device flow: you approve a short code on a Tidal web page, and the player never sees your password. Design: [spec 0002](specs/0002-auth.md).

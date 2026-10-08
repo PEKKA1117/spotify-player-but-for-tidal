@@ -80,13 +80,14 @@ Each `docs/specs/NNNN-*.md` has:
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` is up to date (see "Conventions"); and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` and the zh-TW copies are up to date (see "Conventions"); and the commit history shows the red commit before the green one.
 
 ## Conventions
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
 - Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
+- User docs have a Traditional Chinese (Taiwan) translation: `README.zh-TW.md` and `docs/zh-TW/<page>.md`, one per `docs/<page>.md`. English is the source; a PR that changes `README.md` or a user doc updates its zh-TW copy in the same PR, and a new user doc gets its zh-TW copy at once. Each copy starts with a language switcher line, keeps code, keys, commands, paths and config names untranslated, puts `<a id="english-slug"></a>` before each heading so English anchors keep working, and links to specs (English only) and examples by their real paths. Specs and this file are English only
 - Keep this file for rules, stable facts and the "Features" introductions. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
 
 ## Carried over from tidalt (facts to re-verify, not requirements)
