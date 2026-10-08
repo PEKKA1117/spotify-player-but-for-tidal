@@ -103,6 +103,7 @@ pub fn render(state: &State, frame: &mut Frame) {
     };
     render_prompt(state, frame, prompt_row);
     pages::render_popup(state, frame, areas.page, prompt_row);
+    pages::render_help(state, frame, areas.page, area);
 }
 
 // --- the playback window -----------------------------------------------------------
@@ -2148,7 +2149,8 @@ mod tests {
                 "┌Keys",
                 "Popup · Actions",
                 "run the selected entry",
-                "this help",
+                "Lists",
+                " App",
             ],
         );
         assert!(!text.contains("play / pause"), "{text}");
