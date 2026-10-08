@@ -20,6 +20,7 @@ use tidal_player_core::protocol::{
 };
 use tidal_player_core::{AudioQuality, Item, ParseQualityError, Track};
 
+use crate::config::{AppConfig, LibraryLayout};
 use crate::player_runtime::{
     EngineControl, ExpandError, Handled, Jobs, LibrarySettings, Metadata, PlayerRuntime,
     RuntimeInput, expand_items,
@@ -59,16 +60,27 @@ pub fn resolve_settings(
     device_flag: Option<&str>,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<Settings, SettingsError> {
+    resolve_settings_with(&AppConfig::default(), quality_flag, device_flag, env)
+}
+
+/// As [`resolve_settings`], with `app.toml` as the layer under the
+/// environment (spec 0008 "`app.toml`": flag, environment, file, default).
+pub fn resolve_settings_with(
+    file: &AppConfig,
+    quality_flag: Option<&str>,
+    device_flag: Option<&str>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<Settings, SettingsError> {
     let quality = match quality_flag {
         Some(flag) => parse_quality(flag, "--quality")?,
         None => match non_empty(env(QUALITY_VAR)) {
             Some(value) => parse_quality(&value, QUALITY_VAR)?,
-            None => DEFAULT_QUALITY,
+            None => file.quality.unwrap_or(DEFAULT_QUALITY),
         },
     };
     let device = match device_flag {
         Some(flag) => flag.to_owned(),
-        None => configured_device(env),
+        None => configured_device_with(file, env),
     };
     Ok(Settings { quality, device })
 }
@@ -87,7 +99,14 @@ fn parse_quality(value: &str, setting: &str) -> Result<AudioQuality, SettingsErr
 /// The device `play` would use without `--device`, for the `*` of
 /// `devices`.
 pub fn configured_device(env: impl Fn(&str) -> Option<String>) -> String {
-    non_empty(env(DEVICE_VAR)).unwrap_or_else(|| DEFAULT_DEVICE.into())
+    configured_device_with(&AppConfig::default(), env)
+}
+
+/// As [`configured_device`], with `app.toml` under the environment.
+pub fn configured_device_with(file: &AppConfig, env: impl Fn(&str) -> Option<String>) -> String {
+    non_empty(env(DEVICE_VAR))
+        .or_else(|| file.output_device.clone())
+        .unwrap_or_else(|| DEFAULT_DEVICE.into())
 }
 
 /// `Track 77640617: HI_RES_LOSSLESS, FLAC 24-bit 96 kHz stereo`.
@@ -351,6 +370,8 @@ pub struct PlayerSettings {
     pub release_paused: Option<Duration>,
     /// What the player passes to every library request.
     pub library: LibrarySettings,
+    /// The library page's window widths (spec 0008); read by the TUI.
+    pub layout: LibraryLayout,
 }
 
 impl Default for PlayerSettings {
@@ -360,6 +381,7 @@ impl Default for PlayerSettings {
             steps: Steps::default(),
             release_paused: Some(tidal_player_audio::DEFAULT_RELEASE_PAUSED),
             library: LibrarySettings::default(),
+            layout: LibraryLayout::default(),
         }
     }
 }
@@ -370,7 +392,15 @@ impl Default for PlayerSettings {
 pub fn resolve_player_config(
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<PlayerSettings, SettingsError> {
-    resolve_with(false, env)
+    resolve_with(&AppConfig::default(), false, env)
+}
+
+/// As [`resolve_player_config`], with `app.toml` under the environment.
+pub fn resolve_player_config_with(
+    file: &AppConfig,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    resolve_with(file, false, env)
 }
 
 /// As [`resolve_player_config`], for `play`: `--autoplay` beats the
@@ -379,14 +409,25 @@ pub fn resolve_play_config(
     autoplay_flag: bool,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<PlayerSettings, SettingsError> {
-    resolve_with(autoplay_flag, env)
+    resolve_with(&AppConfig::default(), autoplay_flag, env)
+}
+
+/// As [`resolve_play_config`], with `app.toml` under the environment.
+pub fn resolve_play_config_with(
+    file: &AppConfig,
+    autoplay_flag: bool,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<PlayerSettings, SettingsError> {
+    resolve_with(file, autoplay_flag, env)
 }
 
 fn resolve_with(
+    file: &AppConfig,
     autoplay_flag: bool,
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<PlayerSettings, SettingsError> {
     let mut settings = PlayerSettings::default();
+    apply_file(&mut settings, file);
     let get = |var: &str| non_empty(env(var));
     if let Some(value) = get(VOLUME_STEP_VAR) {
         settings.steps.volume = int_in(&value, VOLUME_STEP_VAR, 1, 25)? as u8;
@@ -428,7 +469,7 @@ fn resolve_with(
         true
     } else {
         match get(AUTOPLAY_VAR).as_deref() {
-            None => false,
+            None => settings.player.autoplay,
             Some(value) if value.eq_ignore_ascii_case("on") => true,
             Some(value) if value.eq_ignore_ascii_case("off") => false,
             Some(value) => {
@@ -440,6 +481,36 @@ fn resolve_with(
         }
     };
     Ok(settings)
+}
+
+/// `app.toml` is the layer under the environment: its values replace the
+/// defaults, then the variables replace those.
+fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
+    if let Some(volume) = file.volume_step {
+        settings.steps.volume = volume;
+    }
+    if let Some(secs) = file.seek_duration_secs {
+        settings.steps.seek = Duration::from_secs(secs);
+    }
+    if let Some(secs) = file.previous_restart_secs {
+        settings.player.previous_restart = Duration::from_secs(secs);
+    }
+    if let Some(autoplay) = file.autoplay {
+        settings.player.autoplay = autoplay;
+    }
+    if let Some(release) = file.release_paused {
+        settings.release_paused = release;
+    }
+    if let Some(size) = file.page_size {
+        settings.library.page_size = size;
+    }
+    if let Some(size) = file.search_page_size {
+        settings.library.search_page_size = size;
+    }
+    if let Some(words) = &file.hide_versions {
+        settings.library.hidden_words = words.clone();
+    }
+    settings.layout = file.layout;
 }
 
 fn int_in(value: &str, var: &str, min: u64, max: u64) -> Result<u64, SettingsError> {

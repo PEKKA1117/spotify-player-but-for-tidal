@@ -4,7 +4,7 @@
 
 ## Status
 
-Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Spec `0002-auth.md` (implemented) adds the device-flow login, session storage (keyring, else an age-encrypted file) and refresh/recovery; user docs in `docs/login.md`. Spec `0004-queue-and-controls.md` (implemented) adds the player state machine (`tidal_player_core::player`), the queue, playback controls, autoplay, the player runtime and the first TUI screen; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0005-daemon-and-clients.md` (implemented) adds the headless daemon (systemd user service), one player per user over a Unix socket (`tidal-player::ipc`), TUI clients that attach to it, one-shot `playback` commands, and releasing the audio device while paused; user docs in `docs/daemon.md`. Spec `0006-library.md` (implemented) adds the library: pages with a history (favorites, playlists, albums, artists), windows that load as you scroll, play/queue from a page, the actions popup, favorites and playlist editing, answered by the player over the same socket; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0007-search.md` (implemented) adds the search page (`g s`): a query, Tidal's top hit and four result windows that load as you scroll, answered by the player; user docs in `docs/tui.md` and `docs/playback.md`. Follow-up specs are listed in the "Out of scope" sections.
+Rust workspace, scaffolded by `docs/specs/0001-architecture.md` (implemented). That spec fixes the crate layout, the dependency rules, the player/client boundary (`Command`/`Event` in `tidal_player_core::protocol`) and the run modes. Spec `0002-auth.md` (implemented) adds the device-flow login, session storage (keyring, else an age-encrypted file) and refresh/recovery; user docs in `docs/login.md`. Spec `0004-queue-and-controls.md` (implemented) adds the player state machine (`tidal_player_core::player`), the queue, playback controls, autoplay, the player runtime and the first TUI screen; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0005-daemon-and-clients.md` (implemented) adds the headless daemon (systemd user service), one player per user over a Unix socket (`tidal-player::ipc`), TUI clients that attach to it, one-shot `playback` commands, and releasing the audio device while paused; user docs in `docs/daemon.md`. Spec `0006-library.md` (implemented) adds the library: pages with a history (favorites, playlists, albums, artists), windows that load as you scroll, play/queue from a page, the actions popup, favorites and playlist editing, answered by the player over the same socket; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0007-search.md` (implemented) adds the search page (`g s`): a query, Tidal's top hit and four result windows that load as you scroll, answered by the player; user docs in `docs/tui.md` and `docs/playback.md`. Spec `0008-keymap-and-config.md` (implemented) adds `app.toml` (settings; flags and environment still win), a spotify-player-compatible `keymap.toml` dispatched through `tidal_player_core::ui::keymap`, and the keys help popup (`?`, `ui::help`); user docs in `docs/config.md`. Follow-up specs are listed in the "Out of scope" sections.
 
 ## Build & tooling
 
@@ -67,12 +67,13 @@ Each `docs/specs/NNNN-*.md` has:
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; `README.md` is up to date (see "Conventions"); and the commit history shows the red commit before the green one.
 
 ## Conventions
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
+- Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
 - Keep this file for rules and stable facts. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
 
 ## Carried over from tidalt (facts to re-verify, not requirements)

@@ -6,6 +6,8 @@ use crate::library::{FavoriteKind, LibraryRequest, LibraryResponse, ListRef, Pla
 use crate::protocol::{Command, InsertAt};
 use crate::track::Track;
 
+use super::dispatch::step;
+use super::keymap::{ActionBinding, ActionKind, Target, UiCommand};
 use super::page::{
     Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind, group,
     is_search_list, largest_page,
@@ -253,27 +255,22 @@ pub(super) fn move_window_cursor(
     effects
 }
 
-/// A key on a browse page: cursor keys, `Enter`, `Z`/`C-z`, `d` and `f`;
-/// `None` for the keys the page leaves to playback.
-pub(super) fn browse_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
+/// A list command on a browse page: the cursor moves, `Enter`, `Z`/`C-z`
+/// and `f`; `d` (the queue's) does nothing here.
+pub(super) fn list_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let height = state.list_height;
-    Some(match key {
-        Key::Char('j') | Key::Down => move_window_cursor(state, |i, len| (i + 1).min(len - 1)),
-        Key::Char('k') | Key::Up => move_window_cursor(state, |i, _| i.saturating_sub(1)),
-        Key::Char('G') => move_window_cursor(state, |_, len| len - 1),
-        Key::Ctrl('f') | Key::PageDown => {
-            move_window_cursor(state, |i, len| (i + height).min(len - 1))
-        }
-        Key::Ctrl('b') | Key::PageUp => move_window_cursor(state, |i, _| i.saturating_sub(height)),
-        Key::Enter => enter(state),
-        Key::Char('Z') | Key::Ctrl('z') => queue_selected(state),
-        Key::Char('d') => Vec::new(),
-        Key::Char('f') => {
+    match command {
+        UiCommand::ChooseSelected => enter(state),
+        UiCommand::AddSelectedItemToQueue => queue_selected(state),
+        UiCommand::RoleFilter => {
             open_role_filter(state);
             Vec::new()
         }
-        _ => return None,
-    })
+        _ if command.is_list_move() => {
+            move_window_cursor(state, |i, len| step(command, i, len, height))
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// The row under the focus on a loaded browse page (a search's top hit
@@ -465,8 +462,20 @@ fn open_role_filter(state: &mut State) {
 /// `g a`/`C-Space`: the actions popup for the selected row (the queue's
 /// entry under the cursor on the queue page).
 pub(super) fn actions_on_selected(state: &mut State) -> Vec<Effect> {
+    if let Some((title, actions)) = selected_actions(state) {
+        state.popup = Some(Popup::Actions {
+            title,
+            actions,
+            cursor: 0,
+        });
+    }
+    Vec::new()
+}
+
+/// The title and the entries of the actions popup on the selected row.
+fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
     let page = state.page();
-    let popup = if page.kind == PageKind::Queue {
+    if page.kind == PageKind::Queue {
         state
             .cursor
             .and_then(|id| state.queue().iter().find(|e| e.id == id))
@@ -502,144 +511,196 @@ pub(super) fn actions_on_selected(state: &mut State) -> Vec<Effect> {
             Row::Playlist(playlist) => (playlist.title.clone(), popup::playlist_actions(playlist)),
             Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
         })
-    };
-    if let Some((title, actions)) = popup {
-        state.popup = Some(Popup::Actions {
-            title,
-            actions,
-            cursor: 0,
-        });
     }
-    Vec::new()
 }
 
 /// `a`: the actions popup for the playing track.
 pub(super) fn actions_on_playing(state: &mut State) -> Vec<Effect> {
-    if let Some(entry) = state.current() {
+    if let Some((title, actions)) = playing_actions(state) {
         state.popup = Some(Popup::Actions {
-            title: entry.track.title.clone(),
-            actions: popup::entry_actions(&entry.track, entry.id, true),
+            title,
+            actions,
             cursor: 0,
         });
     }
     Vec::new()
 }
 
-/// A key while a popup is open: only the popup's keys act.
-pub(super) fn popup_key(state: &mut State, key: Key) -> Vec<Effect> {
+/// The title and the entries of the actions popup on the playing track.
+fn playing_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
+    let entry = state.current()?;
+    Some((
+        entry.track.title.clone(),
+        popup::entry_actions(&entry.track, entry.id, true),
+    ))
+}
+
+/// An `[[actions]]` binding (spec 0008): runs the entry of the actions
+/// popup it names on its target, exactly as choosing it there would;
+/// nothing where the popup would not list it.
+pub(super) fn run_action(state: &mut State, binding: ActionBinding) -> Vec<Effect> {
+    let actions = match binding.target {
+        Target::SelectedItem => selected_actions(state),
+        Target::PlayingTrack => playing_actions(state),
+    };
+    let chosen = actions.and_then(|(_, actions)| {
+        actions
+            .into_iter()
+            .find(|action| names(binding.action, action))
+    });
+    match chosen {
+        Some(action) => run(state, action),
+        None => Vec::new(),
+    }
+}
+
+/// Whether `action` is a popup entry of kind `kind` (the first *Go to
+/// artist* is the one `GoToArtist` runs, as it comes first).
+fn names(kind: ActionKind, action: &MenuAction) -> bool {
+    matches!(
+        (kind, action),
+        (ActionKind::GoToAlbum, MenuAction::GoToAlbum(_))
+            | (ActionKind::GoToArtist, MenuAction::GoToArtist(_))
+            | (ActionKind::AddToQueue, MenuAction::AddToQueue(_))
+            | (ActionKind::PlayNext, MenuAction::PlayNext(_))
+            | (ActionKind::AddToLiked, MenuAction::AddFavorite(..))
+            | (ActionKind::DeleteFromLiked, MenuAction::RemoveFavorite(..))
+            | (ActionKind::AddToPlaylist, MenuAction::AddToPlaylist(_))
+            | (
+                ActionKind::DeleteFromPlaylist,
+                MenuAction::RemoveFromPlaylist { .. }
+            )
+            | (ActionKind::RemoveFromQueue, MenuAction::RemoveFromQueue(_))
+            | (
+                ActionKind::DeletePlaylist,
+                MenuAction::DeletePlaylist { .. }
+            )
+    )
+}
+
+/// The popup's fixed keys (spec 0008 decision 6): the name prompt takes
+/// every key, a question its `y`/`n`, the role filter its `Space`. `None`:
+/// the key goes to the keymap.
+pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
+    match (state.popup.as_mut()?, key) {
+        (Popup::NewPlaylist { .. }, _) => Some(name_key(state, key)),
+        (Popup::Confirm { .. }, Key::Char('y')) => match state.popup.take() {
+            Some(Popup::Confirm { on_yes, .. }) => Some(confirmed(state, on_yes)),
+            _ => Some(Vec::new()),
+        },
+        (Popup::Confirm { .. }, Key::Char('n')) => {
+            state.popup = None;
+            Some(Vec::new())
+        }
+        (Popup::Roles { checked, cursor }, Key::Char(' ')) => {
+            checked[*cursor] = !checked[*cursor];
+            Some(Vec::new())
+        }
+        _ => None,
+    }
+}
+
+/// A key in the new-playlist name prompt: it edits the name; `Enter`
+/// creates the playlist (closing the prompt), `Esc` closes it.
+fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
+    let Some(Popup::NewPlaylist { tracks, mut name }) = state.popup.take() else {
+        return Vec::new();
+    };
+    match key {
+        Key::Esc => {}
+        Key::Enter => {
+            let title = name.trim().to_owned();
+            if !title.is_empty() {
+                return write(
+                    state,
+                    LibraryRequest::CreatePlaylist {
+                        title: title.clone(),
+                    },
+                    Write::Create { title, tracks },
+                );
+            }
+        }
+        _ => {
+            match key {
+                Key::Char(c) => name.push(c),
+                Key::Backspace => {
+                    name.pop();
+                }
+                _ => {}
+            }
+            state.popup = Some(Popup::NewPlaylist { tracks, name });
+        }
+    }
+    Vec::new()
+}
+
+/// A command while a popup is open: only the popup's act (the list
+/// commands, `ChooseSelected`, `ClosePopup`); any other leaves it as it is.
+pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let Some(popup) = state.popup.take() else {
         return Vec::new();
     };
-    let down = matches!(key, Key::Char('j') | Key::Down);
-    let up = matches!(key, Key::Char('k') | Key::Up);
+    let height = state.list_height;
+    let close = command == UiCommand::ClosePopup;
+    let choose = command == UiCommand::ChooseSelected;
     match popup {
+        _ if close => {}
         Popup::Actions {
             title,
             actions,
-            mut cursor,
-        } => match key {
-            Key::Esc => {}
-            Key::Enter => {
+            cursor,
+        } => {
+            if choose {
                 if let Some(action) = actions.get(cursor).cloned() {
                     return run(state, action);
                 }
-            }
-            _ => {
-                if down {
-                    cursor = (cursor + 1).min(actions.len().saturating_sub(1));
-                } else if up {
-                    cursor = cursor.saturating_sub(1);
-                }
+            } else {
                 state.popup = Some(Popup::Actions {
+                    cursor: step(command, cursor, actions.len(), height),
                     title,
                     actions,
-                    cursor,
                 });
             }
-        },
+        }
         Popup::AddToPlaylist {
             tracks,
             playlists,
-            mut cursor,
+            cursor,
         } => {
             let own: Vec<(String, String)> = popup::own(&playlists)
                 .iter()
                 .map(|p| (p.uuid.clone(), p.title.clone()))
                 .collect();
-            match key {
-                Key::Esc => {}
-                Key::Enter if cursor == 0 => {
-                    state.popup = Some(Popup::NewPlaylist {
-                        tracks,
-                        name: String::new(),
-                    });
+            if choose && cursor == 0 {
+                state.popup = Some(Popup::NewPlaylist {
+                    tracks,
+                    name: String::new(),
+                });
+            } else if choose {
+                if let Some((uuid, title)) = own.get(cursor - 1).cloned() {
+                    return add_source(state, tracks, uuid, title, true);
                 }
-                Key::Enter => {
-                    if let Some((uuid, title)) = own.get(cursor - 1).cloned() {
-                        return add_source(state, tracks, uuid, title, true);
-                    }
-                }
-                _ => {
-                    if down {
-                        cursor = (cursor + 1).min(own.len());
-                    } else if up {
-                        cursor = cursor.saturating_sub(1);
-                    }
-                    state.popup = Some(Popup::AddToPlaylist {
-                        tracks,
-                        playlists,
-                        cursor,
-                    });
-                }
+            } else {
+                state.popup = Some(Popup::AddToPlaylist {
+                    cursor: step(command, cursor, own.len() + 1, height),
+                    tracks,
+                    playlists,
+                });
             }
         }
-        Popup::NewPlaylist { tracks, mut name } => match key {
-            Key::Esc => {}
-            Key::Enter => {
-                let title = name.trim().to_owned();
-                if !title.is_empty() {
-                    return write(
-                        state,
-                        LibraryRequest::CreatePlaylist {
-                            title: title.clone(),
-                        },
-                        Write::Create { title, tracks },
-                    );
-                }
+        Popup::Roles { checked, cursor } => {
+            if choose {
+                return apply_roles(state, checked);
             }
-            _ => {
-                match key {
-                    Key::Char(c) => name.push(c),
-                    Key::Backspace => {
-                        name.pop();
-                    }
-                    _ => {}
-                }
-                state.popup = Some(Popup::NewPlaylist { tracks, name });
-            }
-        },
-        Popup::Confirm { question, on_yes } => match key {
-            Key::Char('y') => return confirmed(state, on_yes),
-            Key::Char('n') | Key::Esc => {}
-            _ => state.popup = Some(Popup::Confirm { question, on_yes }),
-        },
-        Popup::Roles {
-            mut checked,
-            mut cursor,
-        } => match key {
-            Key::Esc => {}
-            Key::Enter => return apply_roles(state, checked),
-            _ => {
-                if down {
-                    cursor = (cursor + 1).min(checked.len() - 1);
-                } else if up {
-                    cursor = cursor.saturating_sub(1);
-                } else if key == Key::Char(' ') {
-                    checked[cursor] = !checked[cursor];
-                }
-                state.popup = Some(Popup::Roles { checked, cursor });
-            }
-        },
+            state.popup = Some(Popup::Roles {
+                cursor: step(command, cursor, checked.len(), height),
+                checked,
+            });
+        }
+        // Their keys are fixed: only `ClosePopup` acts on them.
+        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. }) => {
+            state.popup = Some(popup);
+        }
     }
     Vec::new()
 }
@@ -854,15 +915,15 @@ fn send_add(
     )
 }
 
-/// A key during a whole-list load: `Esc` cancels it; `q`/`C-c` quit;
-/// nothing else acts until it ends.
-pub(super) fn whole_list_key(state: &mut State, key: Key) -> Vec<Effect> {
-    match key {
-        Key::Esc => {
+/// A command during a whole-list load: `ClosePopup` (`Esc`) cancels it;
+/// `Quit` quits; nothing else acts until it ends.
+pub(super) fn whole_list_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
+    match command {
+        UiCommand::ClosePopup => {
             cancel_whole_list(state);
             Vec::new()
         }
-        Key::Char('q') | Key::Ctrl('c') => vec![Effect::Quit],
+        UiCommand::Quit => vec![Effect::Quit],
         _ => Vec::new(),
     }
 }

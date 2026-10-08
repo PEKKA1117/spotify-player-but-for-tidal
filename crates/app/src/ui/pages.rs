@@ -14,8 +14,8 @@ use ratatui::{
 };
 use tidal_player_core::library::{AlbumKind, TopHit};
 use tidal_player_core::ui::{
-    Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search,
-    SearchFocus, State, Window, WindowKind,
+    HelpSection, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup,
+    ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
 };
 
 use super::{Columns, draw_prompt, fit, pad, tail, text_width};
@@ -119,7 +119,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     } else {
         Fill::Rows
     };
-    for slot in slots(page, body) {
+    for slot in slots(page, state.library_layout, body) {
         if slot.window >= page.windows.len() {
             continue;
         }
@@ -199,7 +199,7 @@ fn top_hit_row(hit: &TopHit) -> String {
 }
 
 /// Where each drawn window goes (spec 0006 "Rendering").
-fn slots(page: &Page, body: Rect) -> Vec<Slot> {
+fn slots(page: &Page, layout: LibraryLayout, body: Rect) -> Vec<Slot> {
     if page.windows.is_empty() {
         return Vec::new();
     }
@@ -229,8 +229,11 @@ fn slots(page: &Page, body: Rect) -> Vec<Slot> {
     };
     match page.kind {
         PageKind::Library => {
-            let w = body.width * 40 / 100;
-            let (playlists, rest) = split(w);
+            // `[layout] library` (spec 0008): the percentages sum to at
+            // most 99, so *Artists* always keeps some columns.
+            let percent = |p: u16| (u32::from(body.width) * u32::from(p.min(98)) / 100) as u16;
+            let (playlists, rest) = split(percent(layout.playlist_percent));
+            let w = percent(layout.album_percent).min(rest.width);
             let albums = Rect { width: w, ..rest };
             let artists = Rect {
                 x: rest.x + w,
@@ -721,6 +724,135 @@ fn centred(area: Rect, width: usize, height: usize) -> Rect {
         width,
         height,
     }
+}
+
+// --- the keys help (spec 0008) ---------------------------------------------------------
+
+/// The help's share of the page area, and its smallest size.
+const HELP_PERCENT: u16 = 80;
+const HELP_MIN: (u16, u16) = (40, 10);
+/// The help's footer without a filter.
+const HELP_FOOTER: &str = "/ filter · enter run · esc close";
+
+/// Draws the keys help, if open, over everything else: centred on the page
+/// area (the inside of the frame when there is none), 80 % of it, at least
+/// 40 × 10, clipped to `screen`.
+pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, screen: Rect) {
+    let Some(open) = state.help.as_ref() else {
+        return;
+    };
+    let page = page.unwrap_or_else(|| Block::bordered().inner(screen));
+    let size = |side: u16, min: u16, room: u16| {
+        (u32::from(side) * u32::from(HELP_PERCENT) / 100)
+            .max(u32::from(min))
+            .min(u32::from(room)) as u16
+    };
+    let width = size(page.width, HELP_MIN.0, screen.width);
+    let height = size(page.height, HELP_MIN.1, screen.height);
+    // Centred on the page, moved back inside the screen.
+    let place = |start: u16, len: u16, want: u16, screen_start: u16, screen_len: u16| {
+        let centre = i32::from(start) + i32::from(len) / 2;
+        let lo = i32::from(screen_start);
+        let hi = i32::from(screen_start) + i32::from(screen_len) - i32::from(want);
+        (centre - i32::from(want) / 2).clamp(lo, hi.max(lo)) as u16
+    };
+    let rect = Rect {
+        x: place(page.x, page.width, width, screen.x, screen.width),
+        y: place(page.y, page.height, height, screen.y, screen.height),
+        width,
+        height,
+    };
+    let block = Block::bordered().title(Line::styled(
+        fit("Keys", usize::from(rect.width).saturating_sub(2)),
+        Style::new().add_modifier(Modifier::BOLD),
+    ));
+    let inner = block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(block, rect);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let width = usize::from(inner.width);
+    let footer = if open.typing || !open.filter.is_empty() {
+        let cursor = if open.typing { SEARCH_CURSOR } else { "" };
+        let keys = if open.typing {
+            "enter keep · esc clear"
+        } else {
+            "enter run · esc clear"
+        };
+        format!("/{}{cursor} · {keys}", open.filter)
+    } else {
+        HELP_FOOTER.to_owned()
+    };
+    let body_height = usize::from(inner.height - 1);
+    let sections = tidal_player_core::ui::visible(state);
+    let (lines, highlighted) = match tidal_player_core::ui::no_match(state) {
+        Some(filter) => (
+            vec![(
+                fit(&format!(" No keys match \"{filter}\""), width),
+                Style::new().add_modifier(Modifier::DIM),
+            )],
+            None,
+        ),
+        None => help_lines(&sections, open.cursor, width),
+    };
+    // The highlighted row stays in view; the top shows first.
+    let offset = highlighted
+        .unwrap_or(0)
+        .saturating_sub(body_height.saturating_sub(1))
+        .min(lines.len().saturating_sub(body_height));
+    let mut shown: Vec<Line> = lines
+        .into_iter()
+        .skip(offset)
+        .take(body_height)
+        .map(|(text, style)| Line::styled(text, style))
+        .collect();
+    shown.resize(body_height, Line::raw(""));
+    shown.push(Line::styled(
+        fit(&format!(" {footer}"), width),
+        Style::new().add_modifier(Modifier::DIM),
+    ));
+    frame.render_widget(Paragraph::new(shown), inner);
+}
+
+/// The help's lines (section headings and rows) for `width` columns, and
+/// the index of the highlighted row's line. The key column is as wide as
+/// the widest keys; the help text is cut to what is left.
+fn help_lines(
+    sections: &[HelpSection],
+    cursor: usize,
+    width: usize,
+) -> (Vec<(String, Style)>, Option<usize>) {
+    let keys_width = sections
+        .iter()
+        .flat_map(|s| &s.rows)
+        .map(|row| text_width(&row.keys))
+        .max()
+        .unwrap_or(0);
+    let at = tidal_player_core::ui::locate(sections, cursor);
+    let mut lines = Vec::new();
+    let mut highlighted = None;
+    for (s, section) in sections.iter().enumerate() {
+        lines.push((
+            fit(&format!(" {}", section.title), width),
+            Style::new().add_modifier(Modifier::BOLD),
+        ));
+        for (r, row) in section.rows.iter().enumerate() {
+            let keys = format!("   {}  ", pad(&row.keys, keys_width));
+            let room = width.saturating_sub(text_width(&keys));
+            let text = fit(&format!("{keys}{}", fit(&row.text, room)), width);
+            let mut style = Style::new();
+            if row.dim {
+                style = style.add_modifier(Modifier::DIM);
+            }
+            if at == Some((s, r)) {
+                style = style.add_modifier(Modifier::REVERSED);
+                highlighted = Some(lines.len());
+            }
+            lines.push((pad(&text, width), style));
+        }
+    }
+    (lines, highlighted)
 }
 
 // --- text ------------------------------------------------------------------------------
