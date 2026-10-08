@@ -1,6 +1,6 @@
 # 0007 — Search
 
-- **Status**: approved (2026-10-08: "the rest seem good", after decision 7); API shapes verified by the live probe (2026-10-08, "Facts")
+- **Status**: implemented (2026-10-08; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-10-08, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key; [`docs/playback.md`](../playback.md) "Settings" gains the search page size (AC14)
@@ -176,16 +176,16 @@ Each test is named after its criterion (`ac7_…`). Red is a failing assertion a
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) + `crates/app/src/play.rs` :: `ac25_player_config` (new rows) | round trip; decoding; the setting | stub `Serialize` writes `null`; stub setting stays 100 |
 | AC2 | `crates/api/tests/search.rs` :: `ac2_search_page` (table) | path, encoded query, params, four lists, errors | stub sends `query` unencoded and returns empty lists |
 | AC3 | `crates/api/tests/search.rs` :: `ac3_search_more` (table) | per-type path, clamp, offset, unwrapping, Atmos drop | stub ignores `offset` |
-| AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (search rows) | one reply to the sender | stub answers `Search` with an error |
+| AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac4_search_reply_to_sender` + `crates/app/src/player_runtime.rs` :: `ac4_tokio_jobs_search_page_size` | one reply to the sender | stub answers `Search` with an error |
 | AC5 | `crates/core/src/ui/search/tests.rs` :: `ac5_search_page_history` (table) | push, refocus, kept state | stub `g s` does nothing |
 | AC6 | `crates/core/src/ui/search/tests.rs` :: `ac6_input_editing` (table) | typed text, no commands | stub lets `q` quit |
 | AC7 | `crates/core/src/ui/search/tests.rs` :: `ac7_send_and_reply` (table) | one request, trimmed, stale drop, focus | stub applies every reply |
 | AC8 | `crates/core/src/ui/search/tests.rs` :: `ac8_windows_and_scroll` (table) | focus cycle, `/`, `Esc`, `More` | stub `Tab` skips the input |
 | AC9 | `crates/core/src/ui/search/tests.rs` :: `ac9_rows_act` (table) | exact command or page per row | stub `Enter` fetches the whole track list |
 | AC10 | `crates/core/src/ui/search/tests.rs` :: `ac10_disconnected` (table) | nothing sent; one re-send | stub sends while disconnected |
-| AC11 | `crates/app/src/input.rs` :: `ac18_key_events` (new rows) | decoded keys, paste | stub drops `C-u` and paste |
+| AC11 | `crates/app/src/input.rs` :: `ac18_key_events` (new `C-u` row, green at once: Ctrl+letter was already decoded) + `ac11_paste_reaches_the_search_input` | decoded keys, paste | stub drops `C-u` and paste |
 | AC12 | `crates/app/src/ui.rs` :: `ac12_search_80x24` (one snapshot per row), `ac12_search_narrow_50x20`, `ac17_no_panic_any_size` (search rows) | `contains` + snapshots | stub render draws no input row |
-| AC13 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (search step) | answered; no session opened | stub client drops the search |
+| AC13 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (search step) + `crates/app/src/main.rs` :: `ac13_tui_state_page_sizes` | answered; no session opened | stub client drops the search |
 | AC14 | — reviewed at acceptance | docs match this spec, linked | — |
 
 Checked by hand at acceptance with a real account (results in the PR description): searching an artist, an album title and a phrase gives the same first results as the Tidal app; scrolling *Tracks* to the end of a large result stops cleanly; `Enter` on a result track plays it with the rest of the loaded results after it; non-ASCII queries (`Sigur Rós`, `米津玄師`) find their artist.
@@ -246,3 +246,4 @@ Not verified:
 - **API**: a `400` with a non-empty `userMessage` on `/search` or `/search/{type}` is `LibraryError::SearchRefused` (`Tidal refused the search: …`); without one it reads as any other status (`Tidal answered 400`). A top hit whose `value` cannot be read is no top hit (the lists still show); a body missing a list is malformed. Dropped Atmos-only tracks are not counted in `ListPage::hidden` (the title shows Tidal's total). All search code lives in `tidal-player-api::library` beside the helpers it shares
 - **Player**: `LibrarySettings::page_size_for(&LibraryRequest)` gives `search_page_size` for `Page(Search(_))` and `page_size` otherwise; `More` carries its own `limit`
 - **Client model**: `PageKind::Search(String)` holds the last sent query (empty before the first search); `Page::search: Option<Search { input, top_hit, focus: Input | TopHit | Windows }>`. The input keeps the text as typed; only the sent query is trimmed. While a search loads the focus stays on the input; a new search on the same page rebuilds it (results cleared, cursors at 0). `Tab` from the top hit goes to *Tracks*, `BackTab` from *Tracks* to the top hit when there is one. `Enter` while disconnected fails the page with the plain disconnected message (so 0006's re-send on `Welcome` matches it); a failure from the player shows `Could not search: <message>`. A paste goes into a focused search input (control characters dropped, capped at 200). The client treats search playlists as never own, whatever the data says
+- **TUI**: the paste mapping moved into `input::event_to_action`; `main.rs` builds the model in `tui_state(&PlayerSettings)`, which sets both page sizes for attached and standalone TUIs. The top-hit row shows `Top hit: <title or name> · <kind>` (reversed when focused, dim for a track that does not stream) and is not drawn while loading; the input's cursor is a drawn `▏`, the row bold when focused and dim otherwise, a long query showing its end (`…tail`). Before the first search the four windows are empty frames; a failed search keeps the input row and replaces the windows with the message. The grid splits rows evenly (the top row takes the odd one). Search playlists show no `♥`. `Action::Resize`'s list height is still the full page height, so a search window (about half as tall) asks for its next page a little earlier than 0006's rule would; harmless
