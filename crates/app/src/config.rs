@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use tidal_player_core::AudioQuality;
 use tidal_player_core::ui::Keymap;
+use tidal_player_core::ui::keymap::{self, KeymapFile};
 
 /// Overrides the config directory (below `--config-folder`).
 pub const CONFIG_DIR_VAR: &str = "TIDAL_PLAYER_CONFIG_DIR";
@@ -29,21 +30,8 @@ impl ConfigError {
 }
 
 /// The library page's window widths (spec 0008 "The library layout"):
-/// *Playlists* and *Albums*; *Artists* takes the rest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LibraryLayout {
-    pub playlist_percent: u16,
-    pub album_percent: u16,
-}
-
-impl Default for LibraryLayout {
-    fn default() -> Self {
-        Self {
-            playlist_percent: 40,
-            album_percent: 40,
-        }
-    }
-}
+/// the TUI model's own type, which `tui_state` hands it.
+pub use tidal_player_core::ui::LibraryLayout;
 
 /// What `app.toml` sets; `None`: not set there (the layer below the
 /// environment falls through to the default).
@@ -115,15 +103,9 @@ pub fn keymap_toml_path(dir: &Path) -> PathBuf {
 /// range is an error naming the key.
 pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
-        let (line, column) = e
-            .span()
-            .map_or((1, 1), |span| line_column(text, span.start));
-        ConfigError::at(
-            path,
-            format!("line {line}, column {column}: {}", e.message()),
-        )
-    })?;
+    let table: toml::Table = text
+        .parse()
+        .map_err(|e: toml::de::Error| syntax_error(path, text, &e))?;
     let invalid = |key: &str, what: String| ConfigError::at(path, format!("invalid {key}: {what}"));
     let mut config = AppConfig::default();
     for (key, value) in &table {
@@ -214,15 +196,31 @@ pub fn load_app_toml(dir: &Path) -> Result<AppConfig, ConfigError> {
 /// builds the keymap from the defaults and its entries (spec 0008
 /// "`keymap.toml`").
 pub fn parse_keymap_toml(path: &Path, text: &str) -> Result<Keymap, ConfigError> {
-    let _ = (path, text);
-    Ok(Keymap::default())
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let file: KeymapFile = toml::from_str(text).map_err(|e| syntax_error(path, text, &e))?;
+    keymap::build(&file).map_err(|e| ConfigError::at(path, e))
 }
 
 /// Reads and validates `<dir>/keymap.toml`; a missing file or directory is
 /// the default keymap, a file that cannot be read is `<path>: <io error>`.
 pub fn load_keymap_toml(dir: &Path) -> Result<Keymap, ConfigError> {
-    let _ = dir;
-    Ok(Keymap::default())
+    let path = keymap_toml_path(dir);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse_keymap_toml(&path, &text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Keymap::default()),
+        Err(e) => Err(ConfigError::at(&path, e)),
+    }
+}
+
+/// `<path>: line L, column C: <parser message>`.
+fn syntax_error(path: &Path, text: &str, e: &toml::de::Error) -> ConfigError {
+    let (line, column) = e
+        .span()
+        .map_or((1, 1), |span| line_column(text, span.start));
+    ConfigError::at(
+        path,
+        format!("line {line}, column {column}: {}", e.message()),
+    )
 }
 
 fn unknown(path: &Path, key: &str) -> ConfigError {

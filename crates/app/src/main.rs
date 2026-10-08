@@ -476,6 +476,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     });
     state.page_size = player_settings.library.page_size;
     state.search_page_size = player_settings.library.search_page_size;
+    state.library_layout = player_settings.layout;
     tui_model::start_on_library(&mut state);
     state
 }
@@ -488,8 +489,9 @@ fn configured_tui_state(
     player_settings: &tidal_player::play::PlayerSettings,
     keymap: Keymap,
 ) -> State {
-    let _ = keymap;
-    tui_state(player_settings)
+    let mut state = tui_state(player_settings);
+    tui_model::apply_keymap(&mut state, keymap);
+    state
 }
 
 /// A TUI client (spec 0005 "The TUI as a client"): no session, no store,
