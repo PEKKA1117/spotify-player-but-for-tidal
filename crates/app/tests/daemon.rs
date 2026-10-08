@@ -39,6 +39,16 @@ async fn mount_metadata(api: &wiremock::MockServer) {
         .respond_with(ResponseTemplate::new(200).set_body_json(fixture("track.json")))
         .mount(api)
         .await;
+    // 0007 AC13: any search answers the probe's "pierce the veil".
+    let search =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../api/tests/fixtures/search/search_page.json");
+    let search: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(search).unwrap()).unwrap();
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(search))
+        .mount(api)
+        .await;
     Mock::given(method("GET"))
         .and(path("/albums/404/tracks"))
         .respond_with(
@@ -476,8 +486,100 @@ fn ac14_client_needs_no_session() {
             Err(e) => panic!("connection failed: {e:?}"),
         }
     }
+    // 0007 AC13: a client's search, as the TUI makes it (`g s`, a typed
+    // query, `Enter`), is answered from the player's API and fills the
+    // search page; still no session.
+    search_from_a_client(&machine.socket());
     // Nothing was written to the empty state dir.
     assert_eq!(std::fs::read_dir(machine.empty.path()).unwrap().count(), 0);
+}
+
+/// 0007 AC13: the TUI's model and session, attached to the player at
+/// `socket`, without a terminal: `g s`, `pierce the veil`, `Enter`; the
+/// search goes to the player, which asks the mock API (`search_page.json`),
+/// and the reply fills the page.
+fn search_from_a_client(socket: &Path) {
+    use tidal_player::client::{Session, SocketConnector};
+    use tidal_player_core::library::TopHit;
+    use tidal_player_core::ui::{Action, Effect, Key, SearchFocus, State, update};
+
+    let link = Connection::connect(socket).unwrap();
+    let mut session = Session::new(SocketConnector::new(socket.to_owned()), link, None);
+    let mut state = State::default();
+    let mut effects = Vec::new();
+    // Until the player's `Welcome` connects the model.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no Welcome");
+        let actions = session.poll(Instant::now());
+        let welcomed = actions.iter().any(|a| matches!(a, Action::Welcome { .. }));
+        for action in actions {
+            effects.extend(update(&mut state, action));
+        }
+        if welcomed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let keys = [Key::Char('g'), Key::Char('s')]
+        .into_iter()
+        .chain("pierce the veil".chars().map(Key::Char))
+        .chain([Key::Enter]);
+    for key in keys {
+        effects.extend(update(&mut state, Action::Key(key)));
+    }
+    let mut asked = 0;
+    for effect in effects.drain(..) {
+        match effect {
+            Effect::Library { id, request } => {
+                assert_eq!(
+                    request,
+                    LibraryRequest::Page(PageRequest::Search("pierce the veil".into()))
+                );
+                asked += 1;
+                session.send_library(id, request);
+            }
+            other => panic!("unexpected effect: {other:?}"),
+        }
+    }
+    assert_eq!(asked, 1);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no search reply");
+        let actions = session.poll(Instant::now());
+        let replied = actions
+            .iter()
+            .any(|a| matches!(a, Action::LibraryReply { .. }));
+        for action in actions {
+            if let Action::LibraryReply { result: Err(e), .. } = &action {
+                panic!("the search failed: {e}");
+            }
+            update(&mut state, action);
+        }
+        if replied {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let page = state.page();
+    assert_eq!(page.title(), "Search · \"pierce the veil\"");
+    let search = page.search.as_ref().expect("a search page");
+    assert!(
+        matches!(&search.top_hit, Some(TopHit::Artist(a)) if a.name == "Pierce The Veil"),
+        "{:?}",
+        search.top_hit
+    );
+    assert_eq!(search.focus, SearchFocus::TopHit);
+    let titles: Vec<String> = page.windows.iter().map(|w| w.title()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Tracks (223)",
+            "Albums (55)",
+            "Artists (7)",
+            "Playlists (3)"
+        ]
+    );
 }
 
 /// AC15: the exit codes of `playback`: bad arguments 2 (nothing sent),

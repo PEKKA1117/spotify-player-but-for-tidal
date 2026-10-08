@@ -1667,10 +1667,333 @@ mod tests {
                 (80, 24),
                 (120, 40),
             ]);
+        // 0007 AC12: the search page in each of its states.
+        let search = search_states();
         for (width, height) in sizes {
-            for state in &states {
+            for state in states.iter().chain(&search) {
                 draw(state, width, height);
             }
         }
+    }
+
+    // --- spec 0007 AC12: the search page ------------------------------------------
+
+    use tidal_player_core::library::TopHit;
+
+    const QUERY: &str = "pierce the veil";
+
+    fn typed(text: &str) -> Vec<Key> {
+        text.chars().map(Key::Char).collect()
+    }
+
+    /// `g s` on the playing state: an empty search page, its input focused.
+    fn search_empty() -> State {
+        let mut state = state_of(playing());
+        let effects = press(&mut state, &[Key::Char('g'), Key::Char('s')]);
+        assert!(effects.is_empty(), "{effects:?}");
+        state
+    }
+
+    /// `pierce the veil` typed and sent: the ID of the search.
+    fn search_sent(state: &mut State) -> u64 {
+        press(state, &typed(QUERY));
+        ask(state, &[Key::Enter])
+    }
+
+    fn search_tracks() -> Vec<Track> {
+        let ptv = "Pierce The Veil";
+        vec![
+            track(11, "Hell Above", ptv, "Collide With The Sky", Some(212)),
+            track(12, "King For A Day", ptv, "Collide With The Sky", Some(232)),
+            track(
+                13,
+                "Bulls In The Bronx",
+                ptv,
+                "Collide With The Sky",
+                Some(290),
+            ),
+        ]
+    }
+
+    fn search_data(top_hit: Option<TopHit>) -> PageData {
+        PageData::Search {
+            top_hit: top_hit.map(Box::new),
+            tracks: list(search_tracks(), 300, 0),
+            albums: list(
+                vec![
+                    album(
+                        1,
+                        "Collide With The Sky",
+                        "Pierce The Veil",
+                        2012,
+                        AlbumKind::Album,
+                    ),
+                    album(
+                        2,
+                        "Misadventures",
+                        "Pierce The Veil",
+                        2016,
+                        AlbumKind::Album,
+                    ),
+                ],
+                41,
+                0,
+            ),
+            artists: list(
+                vec![
+                    artist_ref(7, "Pierce The Veil"),
+                    artist_ref(8, "Sleeping With Sirens"),
+                ],
+                6,
+                0,
+            ),
+            playlists: list(
+                vec![playlist("s1", "This Is Pierce The Veil", 50, false)],
+                300,
+                0,
+            ),
+        }
+    }
+
+    fn search_nothing() -> PageData {
+        PageData::Search {
+            top_hit: None,
+            tracks: list(vec![], 0, 0),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+            playlists: list(vec![], 0, 0),
+        }
+    }
+
+    /// A search for `pierce the veil` answered with `data`.
+    fn searched(data: PageData) -> State {
+        let mut state = search_empty();
+        let id = search_sent(&mut state);
+        answer(&mut state, id, LibraryResponse::Page(data));
+        state
+    }
+
+    fn search_artist_hit() -> State {
+        searched(search_data(Some(TopHit::Artist(artist_ref(
+            7,
+            "Pierce The Veil",
+        )))))
+    }
+
+    fn search_loading() -> State {
+        let mut state = search_empty();
+        search_sent(&mut state);
+        state
+    }
+
+    fn search_failed() -> State {
+        let mut state = search_empty();
+        let id = search_sent(&mut state);
+        fail(&mut state, id, "Could not reach Tidal: timed out");
+        state
+    }
+
+    /// Every state of the search page, for the no-panic sweep.
+    fn search_states() -> Vec<State> {
+        let mut windows = search_artist_hit();
+        press(&mut windows, &[Key::Tab, Key::Tab]);
+        let mut long = search_empty();
+        press(&mut long, &typed(&"米津玄師 ".repeat(40)));
+        vec![
+            search_empty(),
+            search_loading(),
+            search_artist_hit(),
+            searched(search_data(None)),
+            searched(search_nothing()),
+            search_failed(),
+            windows,
+            long,
+        ]
+    }
+
+    /// The row of `text` that holds `part`.
+    fn row_of(text: &str, part: &str) -> usize {
+        text.split('\n')
+            .position(|r| r.contains(part))
+            .unwrap_or_else(|| panic!("{part:?} missing:\n{text}"))
+    }
+
+    /// The cell at the start of `part` on its row.
+    fn cell_at(state: &State, width: u16, height: u16, part: &str) -> ratatui::buffer::Cell {
+        let text = draw(state, width, height);
+        let y = row_of(&text, part);
+        let line = row(&text, y);
+        let x = line[..line.find(part).unwrap()].chars().count();
+        let terminal = draw_terminal(state, width, height);
+        terminal.backend().buffer()[(x as u16, y as u16)].clone()
+    }
+
+    #[test]
+    fn ac12_search_80x24() {
+        // The empty page: the input under the title, focused, with its
+        // cursor; the windows show nothing.
+        let state = search_empty();
+        let text = draw(&state, 80, 24);
+        let title = row_of(&text, "│Search ");
+        assert_eq!(row_of(&text, "Search: ▏"), title + 1, "{text}");
+        assert!(!text.contains("Search ·"), "{text}");
+        assert!(!text.contains("Loading…"), "{text}");
+        assert!(!text.contains("Top hit"), "{text}");
+        assert!(!text.contains("No tracks found"), "{text}");
+        assert!(
+            !cell_at(&state, 80, 24, "Search: ")
+                .modifier
+                .contains(Mod::DIM),
+            "focused input dimmed"
+        );
+        insta::assert_snapshot!("ac12_search_empty", text);
+
+        // Loading: the query in the title, each window `Loading…`.
+        let text = draw(&search_loading(), 80, 24);
+        assert_contains(
+            &text,
+            &["Search · \"pierce the veil\"", "Search: pierce the veil▏"],
+        );
+        assert_eq!(text.matches("Loading…").count(), 4, "{text}");
+        insta::assert_snapshot!("ac12_search_loading", text);
+
+        // Results with a top hit: the top-hit row, highlighted, under the
+        // input; the four windows with totals in a 2 × 2 grid.
+        let state = search_artist_hit();
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Search · \"pierce the veil\"",
+                "Search: pierce the veil",
+                "Top hit: Pierce The Veil · artist",
+                "Tracks (300)",
+                "Albums (41)",
+                "Artists (6)",
+                "Playlists (300)",
+                "Hell Above",
+                "Bulls In The Bronx",
+                "Collide With The Sky",
+                "Misadventures",
+                "Sleeping With Sirens",
+                "This Is Pierce The Veil",
+            ],
+        );
+        assert!(!text.contains('▏'), "the input has no focus:\n{text}");
+        let input = row_of(&text, "Search: ");
+        assert_eq!(row_of(&text, "Top hit: "), input + 1, "{text}");
+        let top = row_of(&text, "Tracks (300)");
+        assert_eq!(row_of(&text, "Albums (41)"), top, "{text}");
+        let bottom = row_of(&text, "Artists (6)");
+        assert_eq!(row_of(&text, "Playlists (300)"), bottom, "{text}");
+        assert!(bottom > row_of(&text, "Bulls In The Bronx"), "{text}");
+        assert!(!text.contains("‹Tab›"), "{text}");
+        assert!(
+            cell_at(&state, 80, 24, "Pierce The Veil · artist")
+                .modifier
+                .contains(Mod::REVERSED),
+            "the focused top hit is not highlighted"
+        );
+        assert!(
+            cell_at(&state, 80, 24, "Search: ")
+                .modifier
+                .contains(Mod::DIM),
+            "the unfocused input is not dim"
+        );
+        insta::assert_snapshot!("ac12_search_top_hit", text);
+
+        // A top hit of each other kind.
+        for (hit, row) in [
+            (
+                TopHit::Track(search_tracks()[0].clone()),
+                "Top hit: Hell Above · track",
+            ),
+            (
+                TopHit::Album(album(
+                    1,
+                    "Collide With The Sky",
+                    "Pierce The Veil",
+                    2012,
+                    AlbumKind::Album,
+                )),
+                "Top hit: Collide With The Sky · album",
+            ),
+            (
+                TopHit::Playlist(playlist("s1", "This Is Pierce The Veil", 50, false)),
+                "Top hit: This Is Pierce The Veil · playlist",
+            ),
+        ] {
+            assert_contains(&draw(&searched(search_data(Some(hit))), 80, 24), &[row]);
+        }
+
+        // Results without a top hit: no top-hit row, *Tracks* focused.
+        let text = draw(&searched(search_data(None)), 80, 24);
+        assert_contains(
+            &text,
+            &["Search: pierce the veil", "Tracks (300)", "Hell Above"],
+        );
+        assert!(!text.contains("Top hit"), "{text}");
+        assert_eq!(
+            row_of(&text, "Tracks (300)"),
+            row_of(&text, "Search: ") + 1,
+            "{text}"
+        );
+        insta::assert_snapshot!("ac12_search_no_top_hit", text);
+
+        // Nothing found: each window says so; the input keeps the focus.
+        let text = draw(&searched(search_nothing()), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Search: pierce the veil▏",
+                "Tracks (0)",
+                "No tracks found",
+                "No albums found",
+                "No artists found",
+                "No playlists found",
+            ],
+        );
+        insta::assert_snapshot!("ac12_search_nothing_found", text);
+
+        // A failed search: its message in the page, the input still there.
+        let text = draw(&search_failed(), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Search: pierce the veil▏",
+                "Could not search: Could not reach Tidal: timed out",
+            ],
+        );
+        assert!(!text.contains("Loading…"), "{text}");
+        insta::assert_snapshot!("ac12_search_failed", text);
+    }
+
+    /// 50×20: the input, the top hit and the focused window alone, its
+    /// title followed by `‹Tab›`.
+    #[test]
+    fn ac12_search_narrow_50x20() {
+        let mut state = search_artist_hit();
+        let text = draw(&state, 50, 20);
+        assert_contains(
+            &text,
+            &[
+                "Search: pierce the veil",
+                "Top hit: Pierce The Veil · artist",
+                "Tracks (300) ‹Tab›",
+                "Hell Above",
+            ],
+        );
+        for other in ["Albums (41)", "Artists (6)", "Playlists (300)"] {
+            assert!(!text.contains(other), "{other} drawn:\n{text}");
+        }
+        insta::assert_snapshot!("ac12_search_narrow", text);
+        // `Tab`: top hit → Tracks → Albums.
+        press(&mut state, &[Key::Tab, Key::Tab]);
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &["Albums (41) ‹Tab›", "Collide With The Sky"]);
+        assert!(!text.contains("Tracks (300)"), "{text}");
+        // The empty page: the input and one empty window.
+        let text = draw(&search_empty(), 50, 20);
+        assert_contains(&text, &["Search: ▏", "Tracks ‹Tab›"]);
     }
 }
