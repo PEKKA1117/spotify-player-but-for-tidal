@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind},
+    event::{self, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -20,7 +20,7 @@ use tidal_player::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
     },
     daemon::{forward_signals, notify_ready},
-    input::key_to_action,
+    input::event_to_action,
     ipc::{
         self, ClaimError,
         client::{ConnectError, Connection},
@@ -219,13 +219,7 @@ fn run<C: Connector>(
         }
         terminal.draw(|frame| render(&state, frame))?;
         if event::poll(FRAME)? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    actions.extend(key_to_action(key));
-                }
-                Event::Paste(text) => actions.push(Action::Paste(text)),
-                _ => {}
-            }
+            actions.extend(event_to_action(event::read()?));
         } else {
             actions.push(Action::Tick);
         }
@@ -470,6 +464,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
         seek: player_settings.steps.seek,
     });
     state.page_size = player_settings.library.page_size;
+    state.search_page_size = player_settings.library.search_page_size;
     tui_model::start_on_library(&mut state);
     state
 }

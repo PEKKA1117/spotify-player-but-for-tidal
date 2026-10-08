@@ -40,6 +40,7 @@ pub fn key_to_action(key: KeyEvent) -> Option<Action> {
 pub fn event_to_action(event: Event) -> Option<Action> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => key_to_action(key),
+        Event::Paste(text) => Some(Action::Paste(text)),
         _ => None,
     }
 }

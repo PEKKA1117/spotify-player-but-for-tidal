@@ -1872,8 +1872,9 @@ mod tests {
                 "Artists (6)",
                 "Playlists (300)",
                 "Hell Above",
-                "Bulls In The Bronx",
-                "Collide With The Sky",
+                // Half the width: the third title is cut.
+                "Bulls In Th…",
+                "Collide With The…",
                 "Misadventures",
                 "Sleeping With Sirens",
                 "This Is Pierce The Veil",
@@ -1886,7 +1887,7 @@ mod tests {
         assert_eq!(row_of(&text, "Albums (41)"), top, "{text}");
         let bottom = row_of(&text, "Artists (6)");
         assert_eq!(row_of(&text, "Playlists (300)"), bottom, "{text}");
-        assert!(bottom > row_of(&text, "Bulls In The Bronx"), "{text}");
+        assert!(bottom > row_of(&text, "Bulls In Th…"), "{text}");
         assert!(!text.contains("‹Tab›"), "{text}");
         assert!(
             cell_at(&state, 80, 24, "Pierce The Veil · artist")
