@@ -1,9 +1,9 @@
 # 0007 — Search
 
-- **Status**: draft (2026-10-08); decisions answered by the user (see "Decisions"); API shapes verified by the live probe (2026-10-08, "Facts"); waiting for approval
+- **Status**: approved (2026-10-08: "the rest seem good", after decision 7); API shapes verified by the live probe (2026-10-08, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)
-- **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key (AC14)
+- **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key; [`docs/playback.md`](../playback.md) "Settings" gains the search page size (AC14)
 
 ## Context
 
@@ -56,7 +56,10 @@ Read from tidalt's `internal/tidal/library.go` (`SearchAll`), `internal/tidal/ap
 
 ### Lists load as you scroll
 
-Each window is a 0006 list: the first page comes with the search (page size `TIDAL_PLAYER_PAGE_SIZE`, clamped per endpoint), the next when the cursor nears the last loaded row, `Loading more…`, failures as the last row, rows already loaded skipped by ID. Tidal returns at most about 300 results per list (the probe: totals of 295, 300, 189, 125; an `offset` past the total answers `200` with no items), so a list holds at most three pages at the default page size.
+Each window is a 0006 list, loaded **to the end of Tidal's results** as you scroll (the user, 2026-10-08): the first page comes with the search, the next when the cursor nears the last loaded row, `Loading more…`, failures as the last row, rows already loaded skipped by ID, until the window holds Tidal's total. The app sets no cap of its own.
+
+- **Search page size**: a setting, `TIDAL_PLAYER_SEARCH_PAGE_SIZE` (until 0008 moves it to `app.toml`), integer **1–1000** (the endpoints' largest page), default **20** (the user, 2026-10-08); empty = unset, invalid → exit 2 naming the variable (0004 "Settings" rules). It sizes the first page of each window and every later page; `TIDAL_PLAYER_PAGE_SIZE` (0006) keeps sizing the library's lists only
+- Tidal's own totals are small: the probe never saw more than 300 results in one list ("love": 295 tracks), and an `offset` past the total answers `200` with no items. That is how much Tidal has for a query, not a limit of the app
 
 ### Playing and queueing from results
 
@@ -64,7 +67,7 @@ Each window is a 0006 list: the first page comes with the search (page size `TID
 
 | Key | On | Does |
 |---|---|---|
-| `Enter` | a track | Replaces the queue with the **loaded** rows of *Tracks*, in result order, and plays the chosen one: `LoadQueue { tracks, start: index }`. Nothing more is fetched first (a search for "love" can match thousands of tracks) |
+| `Enter` | a track | Replaces the queue with the **loaded** rows of *Tracks*, in result order, and plays the chosen one: `LoadQueue { tracks, start: index }`. Nothing more is fetched, before or after (decision 4): 20 tracks by default, more if the window has been scrolled |
 | `Enter` | the top hit, a track | As `Enter` on that track in *Tracks* when it is among the loaded rows; otherwise `LoadQueue { [top hit] + the loaded rows of Tracks, start: 0 }` |
 | `Enter` | an album, playlist or artist (top hit or row) | Opens its page (0006) |
 | `Z`, `C-z` | a track, album or playlist | Adds it at the end of the queue (0006) |
@@ -89,7 +92,7 @@ Shapes from the probe ("Facts"):
 | `Page(Search(q))` | `GET /search?query={q}&types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit={n}&offset=0` | `tracks`, `albums`, `artists`, `playlists`: each `{limit, offset, totalNumberOfItems, items}`; `topHit` `{type, value}` mapped by `type` (`TRACKS`, `ALBUMS`, `ARTISTS`, `PLAYLISTS`; any other type, `topHit: null` or a missing key → `None`); `videos` ignored |
 | `More { SearchTracks(q) … }` | `GET /search/{tracks,albums,artists,playlists}?query={q}&limit=…&offset=…` | `{limit, offset, totalNumberOfItems, items}` with bare items |
 
-Items map with 0006's mappings (tracks: 0004's, albums and artists: 0006's summaries, playlists: `own: false`). Tracks without `STEREO` in `audioModes` are dropped from *Tracks* and as a top hit (the hit is then `None`); the dropped rows still count in `offset`, as 0006's short pages do. The largest page is **1000** on both endpoints (the probe's `limit=1000` was accepted), so `TIDAL_PLAYER_PAGE_SIZE` is clamped to 1000. The per-type endpoints add an `artist` field and leave out the track's `album.releaseDate`; the mapping ignores both. The query is URL-encoded by the HTTP client (spaces, `&`, `/`, non-ASCII). `countryCode` as everywhere.
+Items map with 0006's mappings (tracks: 0004's, albums and artists: 0006's summaries, playlists: `own: false`). Tracks without `STEREO` in `audioModes` are dropped from *Tracks* and as a top hit (the hit is then `None`); the dropped rows still count in `offset`, as 0006's short pages do. The largest page is **1000** on both endpoints (the probe's `limit=1000` was accepted), which bounds `TIDAL_PLAYER_SEARCH_PAGE_SIZE`. The per-type endpoints add an `artist` field and leave out the track's `album.releaseDate`; the mapping ignores both. The query is URL-encoded by the HTTP client (spaces, `&`, `/`, non-ASCII). `countryCode` as everywhere.
 
 ### Rendering
 
@@ -116,12 +119,12 @@ Below the title row: the input row (`Search: <query>▏` with a cursor block whi
 
 Protocol and types (`tidal_player_core`, pure):
 
-- **AC1** — `PageRequest::Search`, `PageData::Search`, every `TopHit` variant and the four `ListRef::Search*` variants survive a JSON round trip and 0005's codec (0006 AC1's tests, new rows)
+- **AC1** — `PageRequest::Search`, `PageData::Search`, every `TopHit` variant and the four `ListRef::Search*` variants survive a JSON round trip and 0005's codec (0006 AC1's tests, new rows). Settings: `TIDAL_PLAYER_SEARCH_PAGE_SIZE` in `resolve_player_config` (0006 AC3's table, new rows: unset → 20, empty → 20, `1`, `1000`, `0`, `1001`, `x`)
 
 API (`tidal-player-api::library`, wiremock fixtures from the probe):
 
-- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit = min(page size, largest page)`, `offset=0`; returns the four lists with their totals and the top hit (one row per `type`, an unknown `type`, `topHit: null` and a missing key → `None`); a Dolby-Atmos-only track dropped from *Tracks* and as a top hit; an empty result (`topHit: null`, totals 0) is four empty lists; a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
-- **AC3** — `More` on each `ListRef::Search*` sends `GET /search/{type}` with `query`, `limit` clamped, `offset`; unwraps bare items (the per-type track shape with `artist` and no `album.releaseDate` maps); drops Dolby-Atmos-only tracks; an `offset` past the total returns no items (table over the four lists)
+- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit` = the search page size, `offset=0`; returns the four lists with their totals and the top hit (one row per `type`, an unknown `type`, `topHit: null` and a missing key → `None`); a Dolby-Atmos-only track dropped from *Tracks* and as a top hit; an empty result (`topHit: null`, totals 0) is four empty lists; a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
+- **AC3** — `More` on each `ListRef::Search*` sends `GET /search/{type}` with `query`, `limit` (the search page size), `offset`; unwraps bare items (the per-type track shape with `artist` and no `album.releaseDate` maps); drops Dolby-Atmos-only tracks; an `offset` past the total returns no items (table over the four lists)
 
 Player (`tidal-player`):
 
@@ -144,7 +147,7 @@ TUI rendering and runtime (`tidal-player`):
 
 Docs:
 
-- **AC14** — `docs/tui.md` documents the search page, its keys (`g s`, input editing, `/`, `Tab`), `Enter` on a track queuing the loaded results, and the messages; `CLAUDE.md` "Status" names this spec; this spec links to them
+- **AC14** — `docs/tui.md` documents the search page, its keys (`g s`, input editing, `/`, `Tab`), `Enter` on a track queuing the loaded results, scrolling to the end of the results, and the messages; `docs/playback.md` "Settings" lists `TIDAL_PLAYER_SEARCH_PAGE_SIZE`; `CLAUDE.md` "Status" names this spec; this spec links to them
 
 ## Edge cases & errors
 
@@ -158,7 +161,8 @@ Docs:
 | `429` | The page shows `Tidal answered 429: try again in a moment`; nothing retries |
 | A result that is a Dolby-Atmos-only track | Not listed (and not the top hit); the title's total is Tidal's, so it can be a few more than the rows (as 0006's favorite tracks) |
 | A 200-character query | Tidal answers no results: `No … found` |
-| Thousands of track results, `Enter` on one | Only the loaded rows are queued, and nothing more is fetched for that queue later (decision 4) |
+| `Enter` on a track right after a search | The 20 loaded tracks are queued (fewer if Atmos-only copies were dropped), nothing more is fetched for that queue (decision 4); scroll first to queue more |
+| Scrolling to the end of a large result | Pages of 20 load until Tidal's total (about 15 requests for 295 tracks, one at a time as the cursor nears the end); then nothing more is asked |
 | A result track not streamable | Dimmed, queued, skipped by the player (0004 AC7) |
 | Narrow terminal | Input plus one window (AC12); below 6 inner rows only the playback window (0004) |
 | Disconnected while searching | The page fails with the disconnected message; re-sent on reconnect if on top (AC10) |
@@ -169,7 +173,7 @@ Each test is named after its criterion (`ac7_…`). Red is a failing assertion a
 
 | AC | Test (file :: name) | What it asserts | Expected red |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) | round trip; decoding | stub `Serialize` writes `null` |
+| AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) + `crates/app/src/play.rs` :: `ac25_player_config` (new rows) | round trip; decoding; the setting | stub `Serialize` writes `null`; stub setting stays 100 |
 | AC2 | `crates/api/tests/search.rs` :: `ac2_search_page` (table) | path, encoded query, params, four lists, errors | stub sends `query` unencoded and returns empty lists |
 | AC3 | `crates/api/tests/search.rs` :: `ac3_search_more` (table) | per-type path, clamp, offset, unwrapping, Atmos drop | stub ignores `offset` |
 | AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (search rows) | one reply to the sender | stub answers `Search` with an error |
@@ -215,7 +219,7 @@ Not verified:
 
 - A `PLAYLISTS` top hit (mapped like the others; tested on a fixture only)
 - Whether a user-created playlist in results carries the owner's `creator.id` (so decision 5 stays: never own)
-- Whether the ~300 cap is fixed or depends on the query (the client follows `totalNumberOfItems` either way)
+- Whether Tidal ever reports more than 300 results for a query (the client follows `totalNumberOfItems` either way)
 
 ## Decisions (answered by the user, 2026-10-08; folded into the body above)
 
@@ -225,6 +229,7 @@ Not verified:
 4. **`Enter` on a result track**: *queue the current results only* ("just add current search results, do not fetch more after enqueuing"): the loaded rows of *Tracks*, nothing fetched before or after
 5. **Own playlists in results**: not answered; the body keeps the proposal (never marked own): the probe showed only editorial playlists, with `creator: {}` or `{id: 0}`
 6. **Tidal's top hit**: *shown*: a one-row *Top hit* between the input and the windows, first in the `Tab` cycle and focused after a search, acting as a row of its kind
+7. **Page size and loading**: *load to the end as 0006 does, 20 at a time* ("we do the inf fetching as spec 6 get the first X (for search i think a default of 20 is fair enough), then pages it"): a setting, `TIDAL_PLAYER_SEARCH_PAGE_SIZE`, default 20
 
 ## Out of scope
 
