@@ -19,6 +19,7 @@ use tidal_player::{
     client::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
     },
+    config::{self, AppConfig},
     daemon::{forward_signals, notify_ready},
     input::event_to_action,
     ipc::{
@@ -32,8 +33,8 @@ use tidal_player::{
     oneshot::PlaybackCommand,
     panic_hook::install_panic_hook,
     play::{
-        ASOUND_DIR_VAR, PlayOptions, configured_device, resolve_play_config, resolve_player_config,
-        resolve_settings,
+        ASOUND_DIR_VAR, PlayOptions, configured_device_with, resolve_play_config_with,
+        resolve_player_config_with, resolve_settings_with,
     },
     playback::{
         HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
@@ -74,6 +75,10 @@ struct Cli {
     /// the queue.
     #[arg(long, requires = "items")]
     play_next: bool,
+    /// Read app.toml and keymap.toml from this directory instead of
+    /// $TIDAL_PLAYER_CONFIG_DIR or ~/.config/tidal-player.
+    #[arg(short = 'c', long, global = true, value_name = "DIR")]
+    config_folder: Option<PathBuf>,
 }
 
 /// Where `--add-to-queue` / `--play-next` add the items; `None` replaces
@@ -288,7 +293,7 @@ fn bind_player(lock: &PlayerLock) -> Result<(std::os::unix::net::UnixListener, P
 /// `tidal-player daemon` (spec 0005 "The daemon"): the lock, the session,
 /// the settings, the socket; then the player serves its clients until one
 /// asks it to shut down.
-fn daemon(plan: &StorePlan) -> Result<ExitCode> {
+fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
     let lock = match claim_player("") {
         Ok(lock) => lock,
         Err(code) => return Ok(code),
@@ -302,14 +307,14 @@ fn daemon(plan: &StorePlan) -> Result<ExitCode> {
         }
         Err(e) => return Ok(report_store_error(&e)),
     };
-    let settings = match resolve_settings(None, None, env_var) {
+    let settings = match resolve_settings_with(app, None, None, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
             return Ok(ExitCode::from(2));
         }
     };
-    let player_settings = match resolve_player_config(env_var) {
+    let player_settings = match resolve_player_config_with(app, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -426,7 +431,12 @@ fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_run
 
 /// `tidal-player [ITEM]...`: the TUI, as the player (standalone) or as a
 /// client of the running one.
-fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result<ExitCode> {
+fn tui_main(
+    plan: &StorePlan,
+    app: &AppConfig,
+    args: &[String],
+    mode: Option<InsertAt>,
+) -> Result<ExitCode> {
     // Refused before anything starts (spec 0004 "Filling the queue").
     let items = match parse_items(args) {
         Ok(items) => items,
@@ -435,7 +445,7 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
             return Ok(ExitCode::from(e.exit_code()));
         }
     };
-    let player_settings = match resolve_player_config(env_var) {
+    let player_settings = match resolve_player_config_with(app, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -447,7 +457,7 @@ fn tui_main(plan: &StorePlan, args: &[String], mode: Option<InsertAt>) -> Result
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
         Ok(Role::Player(lock)) => {
-            standalone(lock, plan.build_store(), player_settings, open, state)
+            standalone(lock, plan.build_store(), app, player_settings, open, state)
         }
         Err(code) => Ok(code),
     }
@@ -488,11 +498,12 @@ fn attached(
 fn standalone(
     lock: PlayerLock,
     store: Arc<dyn SessionStore>,
+    app: &AppConfig,
     player_settings: tidal_player::play::PlayerSettings,
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
 ) -> Result<ExitCode> {
-    let settings = match resolve_settings(None, None, env_var) {
+    let settings = match resolve_settings_with(app, None, None, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -604,9 +615,13 @@ fn api_config() -> AuthConfig {
     config
 }
 
-fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
-    let settings = match resolve_settings(args.quality.as_deref(), args.device.as_deref(), env_var)
-    {
+fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
+    let settings = match resolve_settings_with(
+        app,
+        args.quality.as_deref(),
+        args.device.as_deref(),
+        env_var,
+    ) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -628,7 +643,7 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
             return ExitCode::from(e.exit_code());
         }
     };
-    let player = match resolve_play_config(args.autoplay, env_var) {
+    let player = match resolve_play_config_with(app, args.autoplay, env_var) {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!("{e}");
@@ -686,25 +701,54 @@ fn play(plan: &StorePlan, args: &PlayArgs) -> ExitCode {
 }
 
 /// `tidal-player devices`: `/proc/asound` (or `TIDAL_PLAYER_ASOUND_DIR`).
-fn devices() -> ExitCode {
+fn devices(app: &AppConfig) -> ExitCode {
     let dir = env_var(ASOUND_DIR_VAR)
         .filter(|d| !d.is_empty())
         .map_or_else(|| PathBuf::from("/proc/asound"), PathBuf::from);
     // A missing file means no card (no ALSA, or a container): `default` only.
     let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
     let listing = parse_devices(&read("cards"), &read("pcm"));
-    print!("{}", format_devices(&listing, &configured_device(env_var)));
+    print!(
+        "{}",
+        format_devices(&listing, &configured_device_with(app, env_var))
+    );
     ExitCode::SUCCESS
 }
 
 fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     let mode = queue_mode(&cli);
-    let Cli { command, items, .. } = cli;
+    let Cli {
+        command,
+        items,
+        config_folder,
+        ..
+    } = cli;
     let plan = StorePlan::from_env();
+    // Every command that starts a player or a TUI validates the whole of
+    // app.toml first (spec 0008 AC12): before the lock, the socket and raw
+    // mode.
+    let reads_config = matches!(
+        command,
+        None | Some(Command::Daemon(DaemonArgs { action: None }))
+            | Some(Command::Play(_))
+            | Some(Command::Devices)
+    );
+    let config_dir = config::process_config_dir(config_folder.as_deref());
+    let app = if reads_config {
+        match config::load_app_toml(&config_dir) {
+            Ok(app) => app,
+            Err(e) => {
+                eprintln!("{e}");
+                return Ok(ExitCode::from(2));
+            }
+        }
+    } else {
+        AppConfig::default()
+    };
     match command {
         Some(Command::Logout) => Ok(logout(&plan)),
-        Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan),
+        Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan, &app),
         Some(Command::Daemon(DaemonArgs {
             action: Some(DaemonAction::Stop),
         })) => Ok(tidal_player::daemon::stop()),
@@ -720,9 +764,9 @@ fn main() -> Result<ExitCode> {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
         }
-        Some(Command::Play(args)) => Ok(play(&plan, &args)),
-        Some(Command::Devices) => Ok(devices()),
-        None => tui_main(&plan, &items, mode),
+        Some(Command::Play(args)) => Ok(play(&plan, &app, &args)),
+        Some(Command::Devices) => Ok(devices(&app)),
+        None => tui_main(&plan, &app, &items, mode),
     }
 }
 

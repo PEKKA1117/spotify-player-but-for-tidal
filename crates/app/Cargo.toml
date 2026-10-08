@@ -25,6 +25,7 @@ rpassword = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
 tidal-player-api = { workspace = true }
 tidal-player-audio = { workspace = true }
 tidal-player-core = { workspace = true }
