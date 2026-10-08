@@ -30,6 +30,7 @@
 
 mod browse;
 mod dispatch;
+pub mod help;
 pub mod keymap;
 pub mod page;
 pub mod popup;
@@ -42,6 +43,7 @@ use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, Qu
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use help::{Help, HelpRow, HelpSection, help};
 pub use keymap::{BaseKey, Keymap};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
@@ -167,6 +169,9 @@ pub struct State {
     pub history: Vec<Page>,
     /// The open popup, if any.
     pub popup: Option<Popup>,
+    /// The keys help, if open (spec 0008); over whatever else is open,
+    /// which it leaves as it is.
+    pub help: Option<Help>,
     /// A whole-list load in progress (before `Enter` on a track or an
     /// *Add to playlist…* of an album).
     pub whole_list: Option<WholeList>,
@@ -204,6 +209,7 @@ impl Default for State {
             pending_g: false,
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
+            help: None,
             whole_list: None,
             writes: Vec::new(),
             page_size: DEFAULT_PAGE_SIZE,
