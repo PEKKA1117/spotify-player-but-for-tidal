@@ -2083,3 +2083,6 @@ fn ac22_released_flag() {
     complete(&mut st, &fx);
     assert!(!released(&st), "the next track");
 }
+
+// Spec 0009 AC1–AC3: saving and restoring the playback state.
+mod persistence;

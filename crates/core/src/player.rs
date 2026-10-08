@@ -32,6 +32,7 @@
 //!   start or stop
 
 mod queue;
+mod saved;
 #[cfg(test)]
 mod tests;
 
@@ -44,6 +45,8 @@ use crate::quality::AudioQuality;
 use crate::track::{EntryId, Track, TrackId};
 
 use queue::{Queue, Rng};
+
+pub use saved::{SAVED_PLAYBACK_VERSION, SavedPlayback};
 
 /// Time left in a track at which the next entry is preloaded (and autoplay
 /// asks for suggestions).
