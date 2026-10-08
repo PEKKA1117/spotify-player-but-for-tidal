@@ -1,3 +1,5 @@
+English | [繁體中文](zh-TW/daemon.md)
+
 # The daemon and clients
 
 `tidal-player` can run as a **player** on its own (`tidal-player daemon`, for example as a systemd user service) and be controlled by any number of **clients**: TUIs, one-shot commands such as `tidal-player playback next`, or a second `tidal-player --add-to-queue <link>`. Design: [spec 0005](specs/0005-daemon-and-clients.md).
