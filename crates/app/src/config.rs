@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tidal_player_core::AudioQuality;
+use tidal_player_core::ui::Keymap;
 
 /// Overrides the config directory (below `--config-folder`).
 pub const CONFIG_DIR_VAR: &str = "TIDAL_PLAYER_CONFIG_DIR";
@@ -207,6 +208,21 @@ pub fn load_app_toml(dir: &Path) -> Result<AppConfig, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AppConfig::default()),
         Err(e) => Err(ConfigError::at(&path, e)),
     }
+}
+
+/// Parses the text of `keymap.toml` (`path` only names it in errors) and
+/// builds the keymap from the defaults and its entries (spec 0008
+/// "`keymap.toml`").
+pub fn parse_keymap_toml(path: &Path, text: &str) -> Result<Keymap, ConfigError> {
+    let _ = (path, text);
+    Ok(Keymap::default())
+}
+
+/// Reads and validates `<dir>/keymap.toml`; a missing file or directory is
+/// the default keymap, a file that cannot be read is `<path>: <io error>`.
+pub fn load_keymap_toml(dir: &Path) -> Result<Keymap, ConfigError> {
+    let _ = dir;
+    Ok(Keymap::default())
 }
 
 fn unknown(path: &Path, key: &str) -> ConfigError {

@@ -1280,3 +1280,30 @@ fn ac12_unsupported_notice() {
     assert_eq!(built.unsupported(), names);
     assert_eq!(built.bindings(), Keymap::default().bindings());
 }
+
+/// AC12: the notice is applied before the player's first `Welcome` (the
+/// TUI builds its state before it connects); that `Welcome` shows it in
+/// the message row instead of clearing it. From then on it is a client
+/// message like any other: the next `Welcome` clears it. Without a notice,
+/// `Welcome` clears the message as before.
+#[test]
+fn ac12_notice_after_welcome() {
+    let notice = "keymap.toml: 1 spotify-player command not supported here: PlayRandom";
+    let welcome = || Action::Welcome {
+        snapshot: snapshot(&[7], Some(7)),
+        login_required: false,
+    };
+    let mut state = State::default();
+    apply_keymap(&mut state, keymap(vec![entry("x", "PlayRandom")], vec![]));
+    assert_eq!(state.message(), Some(notice));
+    update(&mut state, welcome());
+    assert_eq!(state.message(), Some(notice), "lost on the first Welcome");
+    update(&mut state, welcome());
+    assert_eq!(state.message(), None, "kept past the second Welcome");
+
+    let mut state = State::default();
+    apply_keymap(&mut state, keymap(vec![entry("g n", "NextTrack")], vec![]));
+    state.message = Some("an earlier message".into());
+    update(&mut state, welcome());
+    assert_eq!(state.message(), None);
+}

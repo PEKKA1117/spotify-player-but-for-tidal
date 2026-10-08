@@ -75,6 +75,8 @@ struct Machine {
     pass_file: PathBuf,
     _tokio: tokio::runtime::Runtime,
     api: String,
+    /// The mock API, for the requests it received (0008 AC15).
+    server: std::sync::Arc<wiremock::MockServer>,
 }
 
 impl Machine {
@@ -103,9 +105,10 @@ impl Machine {
         })
         .unwrap();
         let tokio = tokio::runtime::Runtime::new().unwrap();
-        let api = tokio.block_on(wiremock::MockServer::start());
+        let api = std::sync::Arc::new(tokio.block_on(wiremock::MockServer::start()));
         tokio.block_on(mount_metadata(&api));
         let uri = api.uri();
+        let server = std::sync::Arc::clone(&api);
         // The server lives as long as the runtime's task keeps it.
         tokio.spawn(async move {
             let _api = api;
@@ -119,6 +122,7 @@ impl Machine {
             pass_file,
             _tokio: tokio,
             api: uri,
+            server,
         }
     }
 
@@ -164,6 +168,37 @@ impl Machine {
     fn run(&self, args: &[&str]) -> (Option<i32>, String) {
         let mut running = self.spawn(args);
         running.finish(Duration::from_secs(20))
+    }
+
+    /// Every request the mock API has received so far.
+    fn requests(&self) -> Vec<wiremock::Request> {
+        self._tokio
+            .block_on(self.server.received_requests())
+            .unwrap_or_default()
+    }
+
+    /// Waits at most 10 s for a request to the mock API that `pred`
+    /// accepts.
+    fn wait_request(
+        &self,
+        what: &str,
+        pred: impl Fn(&wiremock::Request) -> bool,
+    ) -> wiremock::Request {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(request) = self.requests().into_iter().find(|r| pred(r)) {
+                return request;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no request for {what} within 10 s: {:?}",
+                self.requests()
+                    .iter()
+                    .map(|r| r.url.to_string())
+                    .collect::<Vec<_>>()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     fn socket(&self) -> PathBuf {
@@ -761,5 +796,154 @@ fn ac17_ready_and_sigterm() {
     assert_eq!(
         (code, stderr.as_str()),
         (Some(1), "Not logged in: run \"tidal-player login\"\n")
+    );
+}
+
+/// 0008 AC15: the daemon's player settings come from `app.toml` in the
+/// config folder given with `-c`: its page size sizes the library's
+/// requests, its quality is the one the stream is asked for, and
+/// `release_paused_secs = "never"` is accepted (the release itself needs an
+/// audio device; it is covered by `config.rs` :: `ac11_precedence`).
+#[test]
+fn ac15_daemon_reads_app_toml() {
+    let machine = Machine::new();
+    let config = tempfile::tempdir().unwrap();
+    std::fs::write(
+        config.path().join("app.toml"),
+        "quality = \"lossless\"\nrelease_paused_secs = \"never\"\npage_size = 7\n",
+    )
+    .unwrap();
+    let dir = config.path().to_str().unwrap();
+    let mut daemon = machine.spawn(&["daemon", "-c", dir]);
+    let mut watcher = attach(&machine.socket());
+
+    // The page size: the library's first requests ask for 7 rows.
+    watcher
+        .send(&ClientMessage::Library {
+            id: 5,
+            request: LibraryRequest::Page(PageRequest::Library),
+        })
+        .unwrap();
+    let request = machine.wait_request("a library page", |r| {
+        r.url.query_pairs().any(|(k, _)| k == "limit")
+    });
+    let limits: Vec<String> = machine
+        .requests()
+        .iter()
+        .flat_map(|r| {
+            r.url
+                .query_pairs()
+                .filter(|(k, _)| k == "limit")
+                .map(|(_, v)| v.into_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        !limits.is_empty() && limits.iter().all(|l| l == "7"),
+        "{limits:?} ({})",
+        request.url
+    );
+
+    // The quality: playing track 1001 asks for its stream at LOSSLESS.
+    assert_eq!(machine.run_client(&["playback", "load", "1001"]).0, Some(0));
+    let request = machine.wait_request("the stream of 1001", |r| {
+        r.url
+            .path()
+            .ends_with("/tracks/1001/playbackinfopostpaywall")
+    });
+    let quality: Vec<String> = request
+        .url
+        .query_pairs()
+        .filter(|(k, _)| k == "audioquality")
+        .map(|(_, v)| v.into_owned())
+        .collect();
+    assert_eq!(quality, ["LOSSLESS"], "{}", request.url);
+    assert!(daemon.running());
+}
+
+/// The TUI's model and session attached to the player at `socket`,
+/// without a terminal, with the keymap of `config` (its `keymap.toml`, read
+/// as the TUI reads it); returned once the player's `Welcome` is in.
+fn keyed_client(
+    socket: &Path,
+    config: &Path,
+) -> (
+    tidal_player::client::Session<tidal_player::client::SocketConnector>,
+    tidal_player_core::ui::State,
+) {
+    use tidal_player::client::{Session, SocketConnector};
+    use tidal_player_core::ui::{Action, State, apply_keymap, update};
+
+    let keymap = tidal_player::config::load_keymap_toml(config).unwrap();
+    let link = Connection::connect(socket).unwrap();
+    let mut session = Session::new(SocketConnector::new(socket.to_owned()), link, None);
+    let mut state = State::default();
+    apply_keymap(&mut state, keymap);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no Welcome");
+        let actions = session.poll(Instant::now());
+        let welcomed = actions.iter().any(|a| matches!(a, Action::Welcome { .. }));
+        for action in actions {
+            update(&mut state, action);
+        }
+        if welcomed {
+            return (session, state);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// 0008 AC16: two clients of one player, each with its own `keymap.toml`:
+/// `n` lowers the volume in the one that rebinds it and still skips in the
+/// other. The keys never reach the player; only the commands do.
+#[test]
+fn ac16_keymap_is_per_client() {
+    use tidal_player_core::ui::{Action, Effect, Key, update};
+
+    let machine = Machine::new();
+    let _daemon = machine.spawn(&["daemon"]);
+    let mut watcher = attach(&machine.socket());
+    // A queue, so that `NextTrack` has something to skip.
+    machine.run_client(&["--add-to-queue", "1001"]);
+    wait_snapshot(&mut watcher, "track 1001", |s| has_track(s, 1001));
+    let rebound = tempfile::tempdir().unwrap();
+    std::fs::write(
+        rebound.path().join("keymap.toml"),
+        "[[keymaps]]\ncommand = { VolumeChange = { offset = -10 } }\nkey_sequence = \"n\"\n",
+    )
+    .unwrap();
+    let plain = tempfile::tempdir().unwrap();
+    let (mut a, mut a_state) = keyed_client(&machine.socket(), rebound.path());
+    let (mut b, mut b_state) = keyed_client(&machine.socket(), plain.path());
+
+    let effects = update(&mut a_state, Action::Key(Key::Char('n')));
+    assert_eq!(
+        effects,
+        vec![Effect::Send(PlayerCommand::ChangeVolume(-10))],
+        "the rebinding client"
+    );
+    for effect in effects {
+        if let Effect::Send(command) = effect {
+            a.send(command);
+        }
+    }
+    wait_snapshot(&mut watcher, "volume 90", |s| s.volume == 90);
+
+    let effects = update(&mut b_state, Action::Key(Key::Char('n')));
+    assert_eq!(
+        effects,
+        vec![Effect::Send(PlayerCommand::Next)],
+        "the other client"
+    );
+    for effect in effects {
+        if let Effect::Send(command) = effect {
+            b.send(command);
+        }
+    }
+    // The first client's keymap is untouched by the second's.
+    assert_eq!(
+        update(&mut a_state, Action::Key(Key::Char('n'))),
+        vec![Effect::Send(PlayerCommand::ChangeVolume(-10))]
     );
 }

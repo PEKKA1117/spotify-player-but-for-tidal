@@ -49,7 +49,7 @@ pub fn event_to_action(event: Event) -> Option<Action> {
 mod tests {
     use super::*;
     use crossterm::event::KeyModifiers;
-    use tidal_player_core::ui::{Effect, Key, State, update};
+    use tidal_player_core::ui::{BaseKey, Effect, Key, State, update};
 
     /// 0001 AC5 through the key map: `q` and `Esc` quit (with the prompt
     /// closed; with it open they edit it, spec 0004 AC28).
@@ -86,6 +86,7 @@ mod tests {
         let none = KeyModifiers::NONE;
         let shift = KeyModifiers::SHIFT;
         let ctrl = KeyModifiers::CONTROL;
+        let alt = KeyModifiers::ALT;
         let cases = [
             (KeyCode::Char(' '), none, Some(Key::Char(' '))),
             (KeyCode::Char('n'), none, Some(Key::Char('n'))),
@@ -105,7 +106,9 @@ mod tests {
             (KeyCode::Backspace, none, Some(Key::Backspace)),
             (KeyCode::Up, none, Some(Key::Up)),
             (KeyCode::Down, none, Some(Key::Down)),
-            (KeyCode::F(1), none, None),
+            // 0008 AC13: F-keys, Home and Alt combinations decode now
+            // (these three rows were dropped keys before 0008).
+            (KeyCode::F(1), none, Some(Key::F(1))),
             (KeyCode::Tab, none, Some(Key::Tab)),
             (KeyCode::BackTab, none, Some(Key::BackTab)),
             (KeyCode::BackTab, shift, Some(Key::BackTab)),
@@ -120,8 +123,35 @@ mod tests {
             (KeyCode::Char('c'), ctrl, Some(Key::Ctrl('c'))),
             // 0007 AC11: `C-u` clears the search input.
             (KeyCode::Char('u'), ctrl, Some(Key::Ctrl('u'))),
-            (KeyCode::Home, none, None),
-            (KeyCode::Char('x'), KeyModifiers::ALT, None),
+            (KeyCode::Home, none, Some(Key::Home)),
+            (
+                KeyCode::Char('x'),
+                KeyModifiers::ALT,
+                Some(Key::Alt(BaseKey::Char('x'))),
+            ),
+            // 0008 AC13: `M-` keys, the new named keys, `f1`-`f12`, and
+            // Control + a named key.
+            (
+                KeyCode::Char('X'),
+                alt | shift,
+                Some(Key::Alt(BaseKey::Char('X'))),
+            ),
+            (KeyCode::Char('p'), alt, Some(Key::Alt(BaseKey::Char('p')))),
+            (KeyCode::Char(' '), alt, Some(Key::Alt(BaseKey::Char(' ')))),
+            (KeyCode::Enter, alt, Some(Key::Alt(BaseKey::Enter))),
+            (KeyCode::Left, alt, Some(Key::Alt(BaseKey::Left))),
+            (KeyCode::F(5), alt, Some(Key::Alt(BaseKey::F(5)))),
+            (KeyCode::Left, none, Some(Key::Left)),
+            (KeyCode::Right, none, Some(Key::Right)),
+            (KeyCode::End, none, Some(Key::End)),
+            (KeyCode::Insert, none, Some(Key::Insert)),
+            (KeyCode::Delete, none, Some(Key::Delete)),
+            (KeyCode::F(12), none, Some(Key::F(12))),
+            (KeyCode::F(13), none, None),
+            (KeyCode::Enter, ctrl, Some(Key::CtrlKey(BaseKey::Enter))),
+            (KeyCode::Right, ctrl, Some(Key::CtrlKey(BaseKey::Right))),
+            (KeyCode::F(2), ctrl, Some(Key::CtrlKey(BaseKey::F(2)))),
+            (KeyCode::Char('a'), ctrl | alt, None),
         ];
         for (code, modifiers, key) in cases {
             assert_eq!(
