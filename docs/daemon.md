@@ -30,7 +30,7 @@ Every player (the standalone TUI, `daemon` and `play`) accepts clients, so `play
 
 When the player had nothing playing (an empty queue, or stopped with no current track), the first added track starts. The player fetches the items (`Album 123 was not found` shows in the playback window); the client needs no login of its own: it never reads the session, the keyring or the passphrase, and never opens the audio device.
 
-An attached TUI looks and works like the standalone one ([The TUI](tui.md)). It shows only what the player sends: an `o` add appears in the queue once the player has added it. If the connection is lost, the last screen stays, the message row says `Disconnected from the player: reconnecting…` (or `The player shut down: waiting for it to come back…`), the playback keys do nothing, and the TUI tries again every second. When it gets back in, the screen shows the player as it is now. The cursor keys and `q` work all the while.
+An attached TUI looks and works like the standalone one ([The TUI](tui.md)), with its own keys and TUI settings: it reads its own `keymap.toml` and `app.toml` (volume and seek steps, page sizes, library layout), not the daemon's (see [Configuration](config.md)). It shows only what the player sends: an `o` add appears in the queue once the player has added it. If the connection is lost, the last screen stays, the message row says `Disconnected from the player: reconnecting…` (or `The player shut down: waiting for it to come back…`), the playback keys do nothing, and the TUI tries again every second. When it gets back in, the screen shows the player as it is now. The cursor keys and `q` work all the while.
 
 ## Running the daemon under systemd
 
@@ -69,7 +69,7 @@ RestartPreventExitStatus=1 2 3
 WantedBy=default.target
 ```
 
-- **Settings** come from the environment, as for the TUI ([Settings](playback.md#settings)): uncomment and edit the `Environment=` line, one line per variable
+- **Settings** come from [`app.toml`](config.md#apptoml), as for the TUI: `~/.config/tidal-player/app.toml` (for another directory, `ExecStart=… daemon -c DIR`). The environment still works and beats the file: uncomment and edit the `Environment=` line, one line per variable ([Settings](playback.md#settings)). The daemon reads the file once, at start: after changing it, `systemctl --user restart tidal-player`. A broken `app.toml` or `keymap.toml` stops it with exit 2 and the message in the journal
 - **The passphrase**: a daemon cannot ask for one. If your session is in the encrypted file rather than the keyring, give it as a credential (uncomment the `LoadCredential=` line, see [Logging in](login.md#giving-the-passphrase-to-the-daemon))
 - **Log in first** with `tidal-player login`. The daemon never starts a login
 - **Exit codes 1, 2 and 3 are not restarted**: not logged in or an unusable session store (1), a bad setting (2), another player running (3). Trying again every few seconds would not fix any of them, so systemd leaves the unit failed. Fix the cause (`systemctl --user status tidal-player` and `journalctl --user -u tidal-player` show the message), then `systemctl --user restart tidal-player`. Any other failure is restarted after 5 s, at most 5 times in 5 minutes
@@ -127,11 +127,11 @@ While paused, the player lets go of the audio device so other applications can u
 - **Resuming** reopens the device and continues exactly where it stopped: nothing is skipped or played twice. If the device is now busy or gone, the player stays paused with the message (`Output hw:1,0 is busy (used by …)`) and never skips; `Space` (or `playback play-pause`) tries again
 - Seeking while released moves the position; the new position plays on resume
 
-| Setting | Environment | Accepted | Default |
-|---|---|---|---|
-| Release the device after pausing for (s) | `TIDAL_PLAYER_RELEASE_PAUSED` | integer 0–3600, or `never` | `10` |
+| Setting | `app.toml` | Environment | Accepted | Default |
+|---|---|---|---|---|
+| Release the device after pausing for (s) | `release_paused_secs` | `TIDAL_PLAYER_RELEASE_PAUSED` | integer 0–3600, or `never` | `10` |
 
-`0` releases at once on pause; `never` keeps the device open while paused (another application asking for it still gets it). The setting applies to every player: the TUI, `play` and the daemon (in the unit, `Environment=TIDAL_PLAYER_RELEASE_PAUSED=0`).
+`0` releases at once on pause; `never` keeps the device open while paused (another application asking for it still gets it). The setting applies to every player: the TUI, `play` and the daemon (`release_paused_secs = 0` in `app.toml`, or in the unit `Environment=TIDAL_PLAYER_RELEASE_PAUSED=0`).
 
 ## Where clients find the player
 
