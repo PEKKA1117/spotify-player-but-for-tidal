@@ -161,12 +161,13 @@ impl Key {
     /// One key of the file's syntax: a name or a character, optionally
     /// after `C-` or `M-`; `None` if it is none of these.
     pub fn parse(text: &str) -> Option<Self> {
-        // Stub: single characters only.
-        let mut chars = text.chars();
-        match (chars.next(), chars.next()) {
-            (Some(c), None) if c != ' ' => Some(Self::Char(c)),
-            _ => None,
+        if let Some(rest) = text.strip_prefix("C-") {
+            return BaseKey::parse(rest).map(Self::ctrl);
         }
+        if let Some(rest) = text.strip_prefix("M-") {
+            return BaseKey::parse(rest).map(Self::Alt);
+        }
+        BaseKey::parse(text).map(BaseKey::key)
     }
 }
 
@@ -926,9 +927,64 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
 /// `None` removes it, later entries beat earlier ones (`[[keymaps]]`, then
 /// `[[actions]]`); spotify-player names without a counterpart are skipped
 /// and listed in [`Keymap::unsupported`].
-pub fn build(_file: &KeymapFile) -> Result<Keymap, KeymapError> {
-    // Stub: the defaults, the entries ignored.
-    Ok(Keymap::default())
+pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
+    let mut keymap = Keymap::default();
+    for (index, entry) in file.keymaps.iter().enumerate() {
+        let at = EntryRef {
+            section: Section::Keymaps,
+            index,
+        };
+        let sequence = KeySequence::parse(&entry.key_sequence)
+            .map_err(|error| KeymapError::Key { entry: at, error })?;
+        let name = entry.command.name.as_str();
+        if name == NONE {
+            keymap.unbind(&sequence);
+            continue;
+        }
+        if UNSUPPORTED_COMMANDS.contains(&name) {
+            keymap.skip(name);
+            continue;
+        }
+        let command = UiCommand::from_name(name, entry.command.params.as_ref())
+            .map_err(|message| KeymapError::Parameter { entry: at, message })?
+            .ok_or_else(|| KeymapError::UnknownCommand {
+                entry: at,
+                name: name.to_owned(),
+            })?;
+        keymap.bind(sequence, Binding::Command(command));
+    }
+    for (index, entry) in file.actions.iter().enumerate() {
+        let at = EntryRef {
+            section: Section::Actions,
+            index,
+        };
+        let sequence = KeySequence::parse(&entry.key_sequence)
+            .map_err(|error| KeymapError::Key { entry: at, error })?;
+        let name = entry.action.as_str();
+        if UNSUPPORTED_ACTIONS.contains(&name) {
+            keymap.skip(name);
+            continue;
+        }
+        let action = ActionKind::from_name(name).ok_or_else(|| KeymapError::UnknownAction {
+            entry: at,
+            name: name.to_owned(),
+        })?;
+        keymap.bind(
+            sequence,
+            Binding::Action(ActionBinding {
+                action,
+                target: entry.target,
+            }),
+        );
+    }
+    check_prefixes(&keymap)?;
+    if keymap
+        .sequences(Binding::Command(UiCommand::Quit))
+        .is_empty()
+    {
+        return Err(KeymapError::NoQuitKey);
+    }
+    Ok(keymap)
 }
 
 /// A bound sequence that starts a longer bound one could never be finished
