@@ -1,6 +1,6 @@
 # 0007 — Search
 
-- **Status**: draft (2026-10-08); decisions answered by the user (see "Decisions"); waits on `scripts/tidal-search-probe.sh` for the API shapes under "Not verified", then approval
+- **Status**: draft (2026-10-08); decisions answered by the user (see "Decisions"); API shapes verified by the live probe (2026-10-08, "Facts"); waiting for approval
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains a "Search" section and the new key (AC14)
@@ -31,7 +31,7 @@ Read from tidalt's `internal/tidal/library.go` (`SearchAll`), `internal/tidal/ap
 5. **A search per keystroke**: requests at Tidal's rate limit (0004 "What went wrong" 3) → a search is sent on `Enter` only (decision 2) (AC7)
 6. **`Enter` on a track plays one track** (tidalt) → the track plays with the track results queued after it (decision 4) (AC9)
 7. **`Enter` on an album queues it** (tidalt) → it opens the album page, as everywhere (AC9)
-8. **Videos among track results** → the tracks window keeps tracks only (AC3)
+8. **Unplayable or non-music results**: videos come back unless `types` is sent, and track results include Dolby-Atmos-only copies (the probe: a `LOW` `DOLBY_ATMOS` "Hell Above") → `types` is always sent, and tracks without `STEREO` in `audioModes` are dropped, as 0006's *All tracks* does (AC2, AC3)
 
 ## Behaviour
 
@@ -56,7 +56,7 @@ Read from tidalt's `internal/tidal/library.go` (`SearchAll`), `internal/tidal/ap
 
 ### Lists load as you scroll
 
-Each window is a 0006 list: the first page comes with the search (page size `TIDAL_PLAYER_PAGE_SIZE`, clamped per endpoint), the next when the cursor nears the last loaded row, `Loading more…`, failures as the last row, rows already loaded skipped by ID. A list stops at the smaller of Tidal's total and the deepest offset Tidal answers (see "Not verified": Tidal may report totals it does not page to).
+Each window is a 0006 list: the first page comes with the search (page size `TIDAL_PLAYER_PAGE_SIZE`, clamped per endpoint), the next when the cursor nears the last loaded row, `Loading more…`, failures as the last row, rows already loaded skipped by ID. Tidal returns at most about 300 results per list (the probe: totals of 295, 300, 189, 125; an `offset` past the total answers `200` with no items), so a list holds at most three pages at the default page size.
 
 ### Playing and queueing from results
 
@@ -82,14 +82,14 @@ Errors are 0006's (`Could not reach Tidal: …`, `Tidal answered 429: try again 
 
 ### What the player fetches
 
-To be confirmed by the probe (see "Not verified"); proposed from tidalt's working code:
+Shapes from the probe ("Facts"):
 
 | Request | API call | Kept |
 |---|---|---|
-| `Page(Search(q))` | `GET /search?query={q}&types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit={n}&offset=0` | `tracks`, `albums`, `artists`, `playlists`: each `{limit, offset, totalNumberOfItems, items}`; `topHit` `{type, value}` mapped by `type` (`TRACKS`, `ALBUMS`, `ARTISTS`, `PLAYLISTS`; any other type, e.g. `VIDEOS`, or no `topHit` → `None`); `videos` ignored |
+| `Page(Search(q))` | `GET /search?query={q}&types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit={n}&offset=0` | `tracks`, `albums`, `artists`, `playlists`: each `{limit, offset, totalNumberOfItems, items}`; `topHit` `{type, value}` mapped by `type` (`TRACKS`, `ALBUMS`, `ARTISTS`, `PLAYLISTS`; any other type, `topHit: null` or a missing key → `None`); `videos` ignored |
 | `More { SearchTracks(q) … }` | `GET /search/{tracks,albums,artists,playlists}?query={q}&limit=…&offset=…` | `{limit, offset, totalNumberOfItems, items}` with bare items |
 
-Items map with 0006's mappings (tracks: 0004's, albums and artists: 0006's summaries, playlists: `own: false`). The query is URL-encoded by the HTTP client (spaces, `&`, `/`, non-ASCII). `countryCode` as everywhere.
+Items map with 0006's mappings (tracks: 0004's, albums and artists: 0006's summaries, playlists: `own: false`). Tracks without `STEREO` in `audioModes` are dropped from *Tracks* and as a top hit (the hit is then `None`); the dropped rows still count in `offset`, as 0006's short pages do. The largest page is **1000** on both endpoints (the probe's `limit=1000` was accepted), so `TIDAL_PLAYER_PAGE_SIZE` is clamped to 1000. The per-type endpoints add an `artist` field and leave out the track's `album.releaseDate`; the mapping ignores both. The query is URL-encoded by the HTTP client (spaces, `&`, `/`, non-ASCII). `countryCode` as everywhere.
 
 ### Rendering
 
@@ -120,8 +120,8 @@ Protocol and types (`tidal_player_core`, pure):
 
 API (`tidal-player-api::library`, wiremock fixtures from the probe):
 
-- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit = min(page size, largest page)`, `offset=0`; returns the four lists with their totals and the top hit (one row per `type`, an unknown `type` and a missing `topHit` → `None`); a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
-- **AC3** — `More` on each `ListRef::Search*` sends `GET /search/{type}` with `query`, `limit` clamped, `offset`; unwraps bare items; drops non-track items from tracks; a page beyond the deepest offset Tidal answers returns no items and `total` = rows so far (table over the four lists)
+- **AC2** — `Page(Search(q))` sends one `GET /search` with `query` URL-encoded (rows: `pierce the veil`, `AC/DC`, `Sigur Rós`, `a&b`), `types`, `countryCode`, `limit = min(page size, largest page)`, `offset=0`; returns the four lists with their totals and the top hit (one row per `type`, an unknown `type`, `topHit: null` and a missing key → `None`); a Dolby-Atmos-only track dropped from *Tracks* and as a top hit; an empty result (`topHit: null`, totals 0) is four empty lists; a `400` → `Tidal refused the search: <userMessage>`; `LoginRequired` and transient errors unchanged (table)
+- **AC3** — `More` on each `ListRef::Search*` sends `GET /search/{type}` with `query`, `limit` clamped, `offset`; unwraps bare items (the per-type track shape with `artist` and no `album.releaseDate` maps); drops Dolby-Atmos-only tracks; an `offset` past the total returns no items (table over the four lists)
 
 Player (`tidal-player`):
 
@@ -156,7 +156,8 @@ Docs:
 | A pasted Tidal link as the query | Searched as text (opening links stays with `o`/`O`; see "Out of scope") |
 | `Enter` pressed repeatedly | Each sends a search; only the latest result is applied (AC7); the player runs a client's requests one at a time (0006 AC8) |
 | `429` | The page shows `Tidal answered 429: try again in a moment`; nothing retries |
-| Tidal reports a total it does not page to | The list stops where Tidal stops answering (AC3) |
+| A result that is a Dolby-Atmos-only track | Not listed (and not the top hit); the title's total is Tidal's, so it can be a few more than the rows (as 0006's favorite tracks) |
+| A 200-character query | Tidal answers no results: `No … found` |
 | Thousands of track results, `Enter` on one | Only the loaded rows are queued, and nothing more is fetched for that queue later (decision 4) |
 | A result track not streamable | Dimmed, queued, skipped by the player (0004 AC7) |
 | Narrow terminal | Input plus one window (AC12); below 6 inner rows only the playback window (0004) |
@@ -170,7 +171,7 @@ Each test is named after its criterion (`ac7_…`). Red is a failing assertion a
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) | round trip; decoding | stub `Serialize` writes `null` |
 | AC2 | `crates/api/tests/search.rs` :: `ac2_search_page` (table) | path, encoded query, params, four lists, errors | stub sends `query` unencoded and returns empty lists |
-| AC3 | `crates/api/tests/search.rs` :: `ac3_search_more` (table) | per-type path, clamp, offset, unwrapping, depth limit | stub ignores `offset` |
+| AC3 | `crates/api/tests/search.rs` :: `ac3_search_more` (table) | per-type path, clamp, offset, unwrapping, Atmos drop | stub ignores `offset` |
 | AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (search rows) | one reply to the sender | stub answers `Search` with an error |
 | AC5 | `crates/core/src/ui/search/tests.rs` :: `ac5_search_page_history` (table) | push, refocus, kept state | stub `g s` does nothing |
 | AC6 | `crates/core/src/ui/search/tests.rs` :: `ac6_input_editing` (table) | typed text, no commands | stub lets `q` quit |
@@ -200,14 +201,21 @@ Verified (2026-10-08, from code and docs):
 - tidalt's search (above) called `GET /v1/search` with `query`, `limit=20`, `countryCode`, `types=TRACKS,ARTISTS,ALBUMS,PLAYLISTS` and decoded `tracks.items`, `artists.items`, `albums.items`, `playlists.items`; it worked against the live API for tidalt's users, with the same client ID as ours
 - 0006's machinery covers the rest: `Library` requests run as jobs in the player, `ListPage` paging, request IDs, the actions popup
 
-Not verified (to be answered by `scripts/tidal-search-probe.sh`, run by the user, before approval):
+Verified on 2026-10-08 against the **live API** by `scripts/tidal-search-probe.sh`, run by the user (country NG; the script was deleted after this update). Fixtures under `crates/api/tests/fixtures/search/` are written from these shapes (catalogue data is public; user IDs replaced):
 
-- The exact `/v1/search` envelope (the `topHit` shape and its `type` values for each kind, the `videos` key; whether each list carries `totalNumberOfItems`); whether `types` limits the response to those lists
-- The largest `limit` per list on `/v1/search` and on `/v1/search/{type}`, and whether the per-type endpoints exist under that path
-- How deep `offset` goes: whether Tidal caps search results (e.g. at 300) whatever `totalNumberOfItems` says
-- Whether track results ever contain videos or non-track items
-- What an empty query, a one-letter query and a 200-character query answer
-- Whether playlist results carry `creator.id` (to mark the user's own playlists, decision 5)
+- `GET /v1/search?query=…&types=…&limit=…&offset=…&countryCode=…` → `200 {artists, albums, playlists, tracks, videos, topHit}`; each list `{limit, offset, totalNumberOfItems, items}` with bare items: artists as 0006's (`id`, `name`, …), albums as 0006's (`type` `ALBUM`/`EP`/`SINGLE`, `releaseDate`, `numberOfTracks`, `duration`, `artists[]`), tracks as 0004's (`artists[].id`, `album {id, title, releaseDate}`, `audioModes`, `version`), playlists (`uuid`, `title`, `numberOfTracks`, `duration`, `type` `EDITORIAL`/`ARTIST`/`PODCAST`, `creator: {}`). Default page 10
+- **`types` limits the lists**: `types=TRACKS` answers the other lists empty with total 0; without `types` the `videos` list is filled (14 music videos for "pierce the veil")
+- **`topHit`**: `{value, type}` with `value` the full item of that kind; `type` `ARTISTS` ("pierce the veil", "love", "Sigur Rós", "米津玄師"), `ALBUMS` ("collide with the sky", "a", "AC/DC"), `TRACKS` ("hell above", "this is pierce the veil", and with `types=TRACKS`); **`null`** when nothing matches (empty, no-match and 200-character queries). `PLAYLISTS` was not seen (no query made a playlist the top hit); it is mapped by the same rule
+- **Page size and depth**: `limit` 50, 100, 300 and 1000 accepted on `/v1/search` and on `/v1/search/tracks`; totals stayed at or under 300 for every query ("love": 295 tracks, 189 albums, 125 artists, 114 playlists; "a" and "collide with the sky": 300 tracks); `/v1/search/tracks?offset=250&limit=50` → 45 items, `offset=300`, `1000`, `10000` → `200` with no items and the same total
+- **Per-type endpoints** `GET /v1/search/{tracks,albums,artists,playlists}` exist and answer `{limit, offset, totalNumberOfItems, items}` with the same order and totals as the combined endpoint; their tracks and albums add `artist` (the main artist), tracks leave out `album.releaseDate`, playlists carry `creator: {id: 0}` for editorial ones
+- **Track results include Dolby-Atmos-only copies** ("hell above": a `LOW`, `["DOLBY_ATMOS"]` copy at position 2) and AI-flagged tracks (`ai: true`, kept)
+- **Queries**: empty → `200`, all empty, `topHit: null` (the client never sends one); `AC/DC`, `Sigur Rós` and `米津玄師` URL-encoded find AC/DC, Sigur Rós and Kenshi Yonezu first; a 200-character query → `200` with no results. No `400` was seen; the `400` message rule stays for safety
+
+Not verified:
+
+- A `PLAYLISTS` top hit (mapped like the others; tested on a fixture only)
+- Whether a user-created playlist in results carries the owner's `creator.id` (so decision 5 stays: never own)
+- Whether the ~300 cap is fixed or depends on the query (the client follows `totalNumberOfItems` either way)
 
 ## Decisions (answered by the user, 2026-10-08; folded into the body above)
 
@@ -215,7 +223,7 @@ Not verified (to be answered by `scripts/tidal-search-probe.sh`, run by the user
 2. **When to search**: *on `Enter`*, as proposed
 3. **Layout**: *2 × 2 grid*, Tracks | Albums over Artists | Playlists
 4. **`Enter` on a result track**: *queue the current results only* ("just add current search results, do not fetch more after enqueuing"): the loaded rows of *Tracks*, nothing fetched before or after
-5. **Own playlists in results**: not answered; the body keeps the proposal (never marked own) until the probe shows whether results carry `creator.id`
+5. **Own playlists in results**: not answered; the body keeps the proposal (never marked own): the probe showed only editorial playlists, with `creator: {}` or `{id: 0}`
 6. **Tidal's top hit**: *shown*: a one-row *Top hit* between the input and the windows, first in the `Tab` cycle and focused after a search, acting as a row of its kind
 
 ## Out of scope
