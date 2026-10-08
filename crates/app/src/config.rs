@@ -49,6 +49,8 @@ pub struct AppConfig {
     pub search_page_size: Option<u32>,
     pub hide_versions: Option<Vec<String>>,
     pub layout: LibraryLayout,
+    /// Spec 0009 "Turning it off".
+    pub remember_playback: Option<bool>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -337,8 +339,9 @@ mod tests {
     use super::*;
     use crate::play::{
         AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR,
-        QUALITY_VAR, RELEASE_PAUSED_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR, VOLUME_STEP_VAR,
-        resolve_play_config_with, resolve_player_config_with, resolve_settings_with,
+        QUALITY_VAR, RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR,
+        SEEK_STEP_VAR, VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
+        resolve_settings_with,
     };
 
     const PATH: &str = "/c/app.toml";
@@ -500,6 +503,18 @@ mod tests {
                 "Some(false)",
             ),
             (
+                "remember_playback true",
+                "remember_playback = true",
+                |c| format!("{:?}", c.remember_playback),
+                "Some(true)",
+            ),
+            (
+                "remember_playback false",
+                "remember_playback = false",
+                |c| format!("{:?}", c.remember_playback),
+                "Some(false)",
+            ),
+            (
                 "quality hi-res",
                 "quality = \"hi-res\"",
                 |c| format!("{:?}", c.quality),
@@ -642,6 +657,11 @@ mod tests {
                 "autoplay type",
                 "autoplay = \"yes\"",
                 "/c/app.toml: invalid autoplay: expected true or false, got \"yes\"",
+            ),
+            (
+                "remember_playback type",
+                "remember_playback = \"off\"",
+                "/c/app.toml: invalid remember_playback: expected true or false, got \"off\"",
             ),
             (
                 "release over",
@@ -927,6 +947,39 @@ mod tests {
                         Ok("true"),
                     )
                     .flags(None, None, true),
+                ],
+            ),
+            (
+                "remember_playback",
+                |_, p| p.remember_playback.to_string(),
+                vec![
+                    Row::new("default", "", &[], Ok("true")),
+                    Row::new("file true", "remember_playback = true", &[], Ok("true")),
+                    Row::new("file false", "remember_playback = false", &[], Ok("false")),
+                    Row::new(
+                        "env over file",
+                        "remember_playback = true",
+                        &[(REMEMBER_PLAYBACK_VAR, "off")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "env on over file",
+                        "remember_playback = false",
+                        &[(REMEMBER_PLAYBACK_VAR, "ON")],
+                        Ok("true"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "remember_playback = false",
+                        &[(REMEMBER_PLAYBACK_VAR, "")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "remember_playback = true",
+                        &[(REMEMBER_PLAYBACK_VAR, "maybe")],
+                        Err(REMEMBER_PLAYBACK_VAR),
+                    ),
                 ],
             ),
             (

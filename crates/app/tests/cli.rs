@@ -123,6 +123,23 @@ async fn ac12_logout_deletes_locally() {
     assert!(mock.received_requests().await.unwrap().is_empty());
 }
 
+/// Spec 0009 AC13: `logout` also deletes `playback.json` and
+/// `playback.json.bad`; its output is unchanged.
+#[test]
+fn ac13_logout_forgets_playback() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("playback.json"), "{}").unwrap();
+    std::fs::write(dir.path().join("playback.json.bad"), "{").unwrap();
+    bin_in(dir.path())
+        .arg("logout")
+        .assert()
+        .code(0)
+        .stdout("Not logged in\n")
+        .stderr("");
+    assert!(!dir.path().join("playback.json").exists());
+    assert!(!dir.path().join("playback.json.bad").exists());
+}
+
 #[test]
 fn ac12_daemon_needs_passphrase() {
     let dir = tempfile::tempdir().unwrap();
