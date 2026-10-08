@@ -726,6 +726,52 @@ fn ac10_scroll_loads() {
 
 // --- AC11 -----------------------------------------------------------------------
 
+/// AC11 (0006 Bugs): the artist page has two panes of two tabs; `Tab`/
+/// `BackTab` cycle the panes (landing on each pane's active tab), `[`/`]`
+/// cycle the focused pane's tabs, wrapping, and ask *All tracks*' first
+/// page when it first shows; on the library they do nothing.
+#[test]
+fn ac11_artist_panes_and_tabs() {
+    use Key::{BackTab, Char, Enter, Tab};
+    let mut state = library();
+    // Window indices: 0 Top tracks, 1 Albums, 2 Appears on, 3 All tracks.
+    open(&mut state, &[Tab, Tab, Enter], artist_data(20));
+    assert_eq!(state.page().focus, 0);
+    // (key, focused window after it, asks All tracks' first page)
+    let steps: Vec<(Key, usize, bool)> = vec![
+        (Tab, 1, false),
+        (Tab, 0, false),
+        (BackTab, 1, false),
+        (BackTab, 0, false),
+        (Char(']'), 3, true),
+        (Tab, 1, false),
+        (Char(']'), 2, false),
+        (Char(']'), 1, false),
+        (Char('['), 2, false),
+        (Char('['), 1, false),
+        (Tab, 3, false),
+        (Char('['), 0, false),
+        (Char(']'), 3, false),
+        (Char(']'), 0, false),
+        (BackTab, 1, false),
+        (BackTab, 0, false),
+    ];
+    for (key, focus, asks) in steps {
+        let effects = press(&mut state, &[key]);
+        assert_eq!(state.page().focus, focus, "{key:?}");
+        if asks {
+            let (_, request) = one_request(&effects);
+            assert_eq!(request, more(ListRef::Credits(20), 0, 50), "{key:?}");
+        } else {
+            assert_eq!(effects, vec![], "{key:?}");
+        }
+    }
+    // On the library `[` and `]` do nothing.
+    let mut library = library();
+    assert_eq!(press(&mut library, &[Char('['), Char(']')]), vec![]);
+    assert_eq!(library.page().focus, 0);
+}
+
 /// AC11: `Tab`/`BackTab` cycle the focus, wrapping; cursor keys move the
 /// focused window's cursor only, clamped; cursors survive leaving the
 /// page; a loading, failed or empty window ignores them.
