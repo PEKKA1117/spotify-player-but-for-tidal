@@ -1,6 +1,6 @@
 # 0008 — Keymap, config files and the keys help
 
-- **Status**: draft (2026-10-08)
+- **Status**: approved (2026-10-08)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0003–0007 (implemented: every setting and key this spec moves into files)
 - **User docs**: a new [`docs/config.md`](../config.md) (the two files, every setting, every command, the key syntax); [`docs/tui.md`](../tui.md) "Keys" names each key's command and gains the keys help; [`docs/playback.md`](../playback.md) "Settings" and [`docs/daemon.md`](../daemon.md) point at `app.toml` (AC17)
@@ -293,16 +293,16 @@ Verified (2026-10-08, from code):
 
 Assumptions, checked at acceptance by hand: which `C-`/`M-` keys the user's terminal actually sends (crossterm's decoding is tested, the terminal is not).
 
-## Decisions (1–4 answered by the user, 2026-10-08, as proposed; 5–8 still open)
+## Decisions (answered by the user, 2026-10-08: 1–4 as proposed, then 5–8 "lgtm")
 
 1. **Scope**: *answered: as proposed*: this spec is config files, keymap and keys help only; spotify-player's in-page filter (`/` popup on any page) and sorting (`s t`, `s a`, …), promised to "0008" by 0006 and 0007, move to their own spec (0012, "Filter and sort"), which binds them through this keymap. Alternative: all in 0008
 2. **A broken file**: *answered: as proposed*: exit 2 before anything starts, in every mode (a daemon cannot show an in-UI error; the env variables already work this way). Alternative: tidalt's (run with defaults, show the error in the TUI, log it in the daemon)
 3. **spotify-player names we do not have**: *answered: as proposed*: skip them with a one-line notice in the TUI, so a spotify-player `keymap.toml` can be copied as is; misspelt names stay errors. Alternative: every unknown name is an error
 4. **A sequence that is a prefix of another**: *answered: as proposed*: an error naming both (spotify-player silently lets the shorter one win). Alternative: spotify-player's behaviour
-5. **Precedence**: *proposed*: flag > environment > `app.toml` > default (0003–0007 promised the variables keep working). Alternative: the file beats the environment
-6. **Text-input keys**: *proposed*: fixed in this spec (`Backspace`, `C-u`, `Enter`, `Esc`, …), not in the keymap. Alternative: spotify-player-style input commands in the keymap
-7. **`app.toml` key names**: *proposed*: as in the table (spotify-player's `seek_duration_secs` and `[layout] library`, ours otherwise, `_secs` suffixes for durations)
-8. **Client credentials** (0002 "may revisit in 0008"): *proposed*: stay constants, not in `app.toml`
+5. **Precedence**: *answered: as proposed*: flag > environment > `app.toml` > default (0003–0007 promised the variables keep working). Alternative: the file beats the environment
+6. **Text-input keys**: *answered: as proposed*: fixed in this spec (`Backspace`, `C-u`, `Enter`, `Esc`, …), not in the keymap. Alternative: spotify-player-style input commands in the keymap
+7. **`app.toml` key names**: *answered: as proposed*: as in the table (spotify-player's `seek_duration_secs` and `[layout] library`, ours otherwise, `_secs` suffixes for durations)
+8. **Client credentials** (0002 "may revisit in 0008"): *answered: as proposed*: stay constants, not in `app.toml`
 
 ## Out of scope
 

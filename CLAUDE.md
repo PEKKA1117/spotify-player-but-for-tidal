@@ -67,12 +67,13 @@ Each `docs/specs/NNNN-*.md` has:
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; `README.md` is up to date (see "Conventions"); and the commit history shows the red commit before the green one.
 
 ## Conventions
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
+- Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
 - Keep this file for rules and stable facts. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
 
 ## Carried over from tidalt (facts to re-verify, not requirements)
