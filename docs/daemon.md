@@ -77,7 +77,7 @@ WantedBy=default.target
 - **Exit codes 1, 2 and 3 are not restarted**: not logged in or an unusable session store (1), a bad setting (2), another player running (3). Trying again every few seconds would not fix any of them, so systemd leaves the unit failed. Fix the cause (`systemctl --user status tidal-player` and `journalctl --user -u tidal-player` show the message), then `systemctl --user restart tidal-player`. Any other failure is restarted after 5 s, at most 5 times in 5 minutes
 - With a standalone TUI open, the service cannot start (exit 3, not restarted). Quit the TUI first, or attach the TUI to the daemon instead (`tidal-player` does that once the daemon runs)
 
-The daemon tells systemd it is ready once clients can connect (`Type=notify`). On `systemctl --user stop` (`SIGTERM`), `SIGINT`, or `tidal-player daemon stop`, it tells its clients, stops playback, releases the device and exits 0. Messages go to stderr, which is the journal under systemd. The queue starts empty each time; remembering it across restarts comes later (spec 0009).
+The daemon tells systemd it is ready once clients can connect (`Type=notify`). On `systemctl --user stop` (`SIGTERM`), `SIGINT`, or `tidal-player daemon stop`, it tells its clients, stops playback, releases the device and exits 0. Messages go to stderr, which is the journal under systemd. A restarted daemon resumes the queue it had, stopped at the same position, and stays silent until something plays it (see [Resuming the last session](playback.md#resuming-the-last-session)).
 
 After `tidal-player login` in any terminal, a running daemon picks up the new session within a few seconds (see ["Session expired"](login.md#session-expired)).
 

@@ -85,6 +85,7 @@ $ tidal-player devices
 | TUI 中 `>`/`<` 的跳轉級距（秒） | `seek_duration_secs` | | `TIDAL_PLAYER_SEEK_STEP`（1–600） | `5` |
 | 超過此秒數後「上一首」改為重新播放目前曲目；`0`：「上一首」一律回到上一首 | `previous_restart_secs` | | `TIDAL_PLAYER_PREVIOUS_RESTART`（0–60） | `3` |
 | 啟動時開啟自動播放 | `autoplay`（`true`、`false`） | `--autoplay`（僅 `play`） | `TIDAL_PLAYER_AUTOPLAY`（`on`、`off`） | `off` |
+| 跨次執行記住佇列、位置、模式與音量；見[接續上次的工作階段](#resuming-the-last-session) | `remember_playback`（`true`、`false`） | | `TIDAL_PLAYER_REMEMBER_PLAYBACK`（`on`、`off`） | `true` |
 | 暫停多久（秒）後釋放裝置；見[暫停時釋放裝置](daemon.md#releasing-the-device-while-paused) | `release_paused_secs`（或 `"never"`） | | `TIDAL_PLAYER_RELEASE_PAUSED`（0–3600，或 `never`） | `10` |
 | TUI 中音樂庫清單每次取得的列數；見[清單隨捲動載入](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE`（1–10 000） | `100` |
 | TUI 中搜尋結果每次取得的列數；見[搜尋](tui.md#search) | `search_page_size` | | `TIDAL_PLAYER_SEARCH_PAGE_SIZE`（1–1000） | `20` |
@@ -95,6 +96,20 @@ $ tidal-player devices
 音質是要求的**最高**音質。Tidal 會依曲目與你的訂閱方案所允許的給出回應：以 `hi-res` 要求的 CD 音質曲目會以 `LOSSLESS`（FLAC 16-bit 44.1 kHz）提供，有些曲目則只有 `HIGH`。
 
 要把 DAC 設為預設，在 `~/.config/tidal-player/app.toml` 中加上 `output_device = "hw:1,0"`（或在 shell 設定檔中加上 `export TIDAL_PLAYER_DEVICE=hw:1,0`）。
+
+<a id="resuming-the-last-session"></a>
+## 接續上次的工作階段
+
+播放器（獨立執行的 TUI 或常駐程式）會記住它正在播放的內容，下次啟動時從那裡開始，並**停止**在相同的位置：在你按下 `Space`（或 `tidal-player playback play-pause`）之前不會播放任何東西，也不會取得或開啟任何東西；按下後從該位置開始播放。設計：[spec 0009](../specs/0009-persistence.md)。
+
+- **會記住的**：佇列（包含 `Suggested` 曲目與隨機後的順序）、目前曲目與其中的位置、隨機播放、重複播放、自動播放、音量與靜音。不會記住的：當時是否正在播放、輸出裝置（來自設定），以及 TUI 自己顯示的內容（頁面、游標、搜尋）
+- **自動播放**：記住的模式優先於 `app.toml` 中的 `autoplay`（檔案設定的是新佇列的模式）；`TIDAL_PLAYER_AUTOPLAY` 與 `--autoplay` 優先於記住的模式
+- **以 `tidal-player ITEM…` 啟動播放器**時，會以這些項目取代記住的佇列並播放；隨機播放、重複播放、自動播放與音量維持記住的值。`tidal-player play ITEM…` 既不讀取也不寫入記住的狀態
+- **何時儲存**：變更會在 2 秒內儲存（連續多次變更只儲存一次）；播放中的位置最多每 30 秒儲存一次；暫停、停止、跳轉、換曲與結束（`q`、`tidal-player daemon stop`、`systemctl --user stop`）會立即儲存。當機或斷電最多遺失最後 30 秒的位置
+- **存放位置**：狀態資料夾中的 `playback.json`，與工作階段檔案放在一起：`$TIDAL_PLAYER_STATE_DIR`，否則 `$XDG_STATE_HOME/tidal-player`，否則 `~/.local/state/tidal-player`。它先寫入暫存檔再改名取代舊檔，因此當機只會留下舊檔或新檔，絕不會只寫一半（在本機檔案系統上）。這是播放器的資料，不是要讓你編輯的檔案。`tidal-player logout` 會刪除它（[登入](login.md#tidal-player-logout)）
+- **關閉此功能**：在 [`app.toml`](config.md#apptoml) 中設定 `remember_playback = false`，或設定 `TIDAL_PLAYER_REMEMBER_PLAYBACK=off`。播放器就既不讀取也不寫入 `playback.json`，並保留既有的檔案不動
+- **無法讀取的檔案**：播放器以空的佇列啟動，並在播放視窗中說明原因：`Could not restore the playback state: <path>: <error>`。損毀的檔案（或其他版本的檔案）會保留為 `playback.json.bad`，訊息為 `Could not restore the playback state (kept as playback.json.bad): <reason>`。播放器一定會啟動；下次儲存時會寫入新的檔案
+- **儲存失敗**（磁碟已滿、資料夾唯讀）：播放視窗會顯示一次 `Could not save the playback state: <error>`；播放不受影響，下一次變更時會再試
 
 <a id="output-kinds-and-bit-perfect"></a>
 ## 輸出類型與位元完美

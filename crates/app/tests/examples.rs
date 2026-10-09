@@ -34,6 +34,7 @@ fn ac18_example_app_toml_is_the_defaults() {
         ),
         ("autoplay", file.autoplay.is_none()),
         ("release_paused_secs", file.release_paused.is_none()),
+        ("remember_playback", file.remember_playback.is_none()),
         ("page_size", file.page_size.is_none()),
         ("search_page_size", file.search_page_size.is_none()),
         ("hide_versions", file.hide_versions.is_none()),

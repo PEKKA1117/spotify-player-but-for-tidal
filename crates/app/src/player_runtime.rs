@@ -23,7 +23,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tidal_player_api::auth::BoxFuture;
 use tidal_player_api::library::LibraryClient;
@@ -41,7 +41,10 @@ use tidal_player_core::protocol::{Command, Event, InsertAt, PlaybackState, Playe
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::ipc::server::{ClientId, ClientInput, Hub};
-use crate::play::{engine_failure, output_description, source_description};
+use crate::persist::{Loaded, Persister, SaveResult, SaveSchedule};
+use crate::play::{
+    PlayerSettings, engine_failure, output_description, source_description, start_autoplay,
+};
 
 /// How long the runtime thread waits for an engine event before it looks at
 /// its other inputs again (the latency of a key press, at worst).
@@ -393,6 +396,41 @@ pub struct PlayerRuntime<E, J> {
     /// Each client's library requests: one runs at a time, the rest wait in
     /// arrival order. Different clients' run independently.
     library: HashMap<ClientId, LibraryQueue>,
+    /// The remembered playback state (spec 0009): `None` for a player
+    /// that remembers nothing (`play`, and the tests of 0004–0008).
+    persistence: Option<Persistence>,
+}
+
+/// The playback file and when to write it (spec 0009 "Saving").
+#[derive(Debug)]
+struct Persistence {
+    persister: Persister,
+    schedule: SaveSchedule,
+}
+
+/// The state a player starts with (spec 0009 "Starting from the
+/// remembered state"): the remembered one when `loaded` holds it (its
+/// autoplay by [`start_autoplay`]), else a fresh one; `loaded`'s message
+/// is the player's message.
+pub fn starting_state(
+    config: PlayerConfig,
+    seed: u64,
+    settings: &PlayerSettings,
+    loaded: Loaded,
+) -> PlayerState {
+    let Loaded { saved, message } = loaded;
+    let mut state = match saved {
+        Some(mut saved) => {
+            saved.autoplay = start_autoplay(settings, Some(saved.autoplay));
+            PlayerState::restore(config, seed, saved)
+        }
+        None => PlayerState::new(config, seed),
+    };
+    if let Some(message) = message {
+        // No client yet: the `Welcome` carries it.
+        player::update(&mut state, PlayerInput::Notice(message));
+    }
+    state
 }
 
 /// One client's library requests.
@@ -405,8 +443,106 @@ struct LibraryQueue {
 
 impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     pub fn new(config: PlayerConfig, seed: u64, engine: E, jobs: J) -> Self {
+        Self::with_state(PlayerState::new(config, seed), engine, jobs)
+    }
+
+    /// The player of the standalone TUI and the daemon (spec 0009): reads
+    /// the remembered state through `persister` now, before any input,
+    /// starts from it, and saves through it from then on.
+    pub fn restored(
+        config: PlayerConfig,
+        seed: u64,
+        settings: &PlayerSettings,
+        persister: Persister,
+        engine: E,
+        jobs: J,
+    ) -> Self {
+        let state = starting_state(config, seed, settings, persister.load());
+        let schedule = SaveSchedule::new(state.saved(), Instant::now());
+        let mut runtime = Self::with_state(state, engine, jobs);
+        runtime.persistence = Some(Persistence {
+            persister,
+            schedule,
+        });
+        runtime
+    }
+
+    /// Writes what the save schedule has due at `now` (spec 0009
+    /// "Saving"); the events are the player's message after a failed
+    /// write, already sent to the subscribers.
+    pub fn tick(&mut self, now: Instant) -> Vec<Event> {
+        let due = self
+            .persistence
+            .as_mut()
+            .and_then(|p| p.schedule.on_tick(now));
+        due.map(|saved| self.write(&saved)).unwrap_or_default()
+    }
+
+    /// After an input: hands the new state to the save schedule, and
+    /// writes it when due (spec 0009 "Saving"). `urgent`: a pause, a stop,
+    /// a seek or a track change saves at once.
+    fn track_change(&mut self, before: &PlayerSnapshot, seek: bool, handled: &mut Handled) {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return;
+        };
+        let after = self.state.snapshot();
+        let stopped_or_paused = before.state != after.state
+            && matches!(after.state, PlaybackState::Paused | PlaybackState::Stopped);
+        let urgent = seek
+            || stopped_or_paused
+            || before.current != after.current
+            || handled.started.is_some();
+        let playing = matches!(
+            after.state,
+            PlaybackState::Playing | PlaybackState::Buffering | PlaybackState::Loading
+        );
+        let due =
+            persistence
+                .schedule
+                .on_change(Instant::now(), self.state.saved(), playing, urgent);
+        if let Some(saved) = due {
+            let events = self.write(&saved);
+            handled.events.extend(events);
+        }
+    }
+
+    /// At `Shutdown`: the last write (nothing is written after it).
+    fn save_at_exit(&mut self) {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return;
+        };
+        if let Some(saved) = persistence
+            .schedule
+            .on_exit(Instant::now(), self.state.saved())
+        {
+            self.write(&saved);
+        }
+    }
+
+    /// Writes `saved`; a failure's message (the first since the last
+    /// success) becomes the player's message, broadcast.
+    fn write(&mut self, saved: &tidal_player_core::SavedPlayback) -> Vec<Event> {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return Vec::new();
+        };
+        let SaveResult::Failed { message } = persistence.persister.save(saved) else {
+            return Vec::new();
+        };
+        persistence.schedule.write_failed();
+        let Some(message) = message else {
+            return Vec::new();
+        };
+        let mut handled = Handled::default();
+        for effect in player::update(&mut self.state, PlayerInput::Notice(message)) {
+            self.execute(effect, &mut handled);
+        }
+        self.hub.broadcast(&handled.events);
+        handled.events
+    }
+
+    fn with_state(state: PlayerState, engine: E, jobs: J) -> Self {
         Self {
-            state: PlayerState::new(config, seed),
+            state,
             engine,
             jobs,
             ready: HashMap::new(),
@@ -419,6 +555,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             opens: VecDeque::new(),
             next_open: 0,
             library: HashMap::new(),
+            persistence: None,
         }
     }
 
@@ -453,6 +590,25 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     /// subscribers; the returned events are the same, for an in-process
     /// client (spec 0005 "Sync").
     pub fn handle(&mut self, input: RuntimeInput) -> Handled {
+        let before = self.persistence.is_some().then(|| self.snapshot());
+        let seek = matches!(
+            &input,
+            RuntimeInput::Command(Command::SeekBy(_) | Command::SeekTo(_))
+                | RuntimeInput::Client(ClientInput::Request {
+                    command: Command::SeekBy(_) | Command::SeekTo(_),
+                    ..
+                })
+        );
+        let mut handled = self.handle_input(input);
+        if handled.shutdown {
+            self.save_at_exit();
+        } else if let Some(before) = before {
+            self.track_change(&before, seek, &mut handled);
+        }
+        handled
+    }
+
+    fn handle_input(&mut self, input: RuntimeInput) -> Handled {
         match input {
             RuntimeInput::Client(input) => self.client_input(input),
             RuntimeInput::Expanded { tag, result } => self.expanded(tag, result),
@@ -913,15 +1069,18 @@ where
         .name("player".into())
         .spawn(move || {
             loop {
-                let Some(input) = runtime.next_input(&inputs, POLL) else {
-                    continue;
-                };
-                let handled = runtime.handle(input);
-                for event in handled.events {
-                    let _ = events_tx.send(event);
+                if let Some(input) = runtime.next_input(&inputs, POLL) {
+                    let handled = runtime.handle(input);
+                    for event in handled.events {
+                        let _ = events_tx.send(event);
+                    }
+                    if handled.shutdown {
+                        break;
+                    }
                 }
-                if handled.shutdown {
-                    break;
+                // Saves due (spec 0009): at most `POLL` late.
+                for event in runtime.tick(Instant::now()) {
+                    let _ = events_tx.send(event);
                 }
             }
             // Dropping the runtime drops the engine, which joins its thread:
@@ -1854,16 +2013,46 @@ mod tests {
 
     impl Client {
         fn new() -> (Self, Log) {
+            Self::build(
+                |engine, jobs| PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs),
+                None,
+            )
+        }
+
+        /// As `main` starts the standalone TUI (spec 0009): the player
+        /// restores from `state_dir` first; `open` is the startup items'
+        /// `Open`, sent when the client connects.
+        fn restored(state_dir: &std::path::Path, open: Option<Command>) -> (Self, Log) {
+            let settings = PlayerSettings::default();
+            Self::build(
+                |engine, jobs| {
+                    PlayerRuntime::restored(
+                        settings.player.clone(),
+                        7,
+                        &settings,
+                        Persister::new(state_dir.to_owned(), settings.remember_playback),
+                        engine,
+                        jobs,
+                    )
+                },
+                open,
+            )
+        }
+
+        fn build(
+            make: impl FnOnce(FakeEngine, FakeJobs) -> PlayerRuntime<FakeEngine, FakeJobs>,
+            open: Option<Command>,
+        ) -> (Self, Log) {
             use crate::client::{Connector, InProcess, Session};
             let log: Log = Arc::default();
             let (tx, inputs) = mpsc::channel();
             let engine = FakeEngine::new(&log, Script::Plays);
             let mut jobs = FakeJobs::new(&log, &tx, true);
             jobs.metadata = Some(Arc::new(PromptMeta));
-            let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+            let rt = make(engine, jobs);
             let mut connector = InProcess::new(tx);
             let link = connector.connect().expect("an in-process link");
-            let session = Session::new(connector, link, None);
+            let session = Session::new(connector, link, open);
             let mut client = Self {
                 ui: ui::State::default(),
                 rt,
@@ -2451,5 +2640,227 @@ mod tests {
         assert_eq!(rig.current_track(), Some(3));
         rig.command(Command::ToggleShuffle);
         assert_eq!(rig.queue(), vec![3, 1, 2]);
+    }
+
+    // --- spec 0009: the remembered playback state ------------------------------
+
+    /// Three 4:56 tracks, the second current, shuffle on, repeat `queue`,
+    /// volume 70, at 1:23 (reached through commands, as a user would).
+    fn remembered() -> tidal_player_core::SavedPlayback {
+        let mut st = PlayerState::new(PlayerConfig::default(), 3);
+        for command in [
+            Command::LoadQueue {
+                tracks: vec![
+                    track(1, Some(296)),
+                    track(2, Some(296)),
+                    track(3, Some(296)),
+                ],
+                start: 1,
+            },
+            Command::ToggleShuffle,
+            Command::CycleRepeat,
+            Command::SetVolume(70),
+            Command::SeekTo(Duration::from_secs(83)),
+        ] {
+            player::update(&mut st, PlayerInput::Command(command));
+        }
+        st.saved()
+    }
+
+    /// A state dir holding `saved` as `playback.json`.
+    fn state_dir_with(saved: &tidal_player_core::SavedPlayback) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        crate::persist::save(&crate::persist::RealFs, dir.path(), saved).unwrap();
+        dir
+    }
+
+    /// The restored snapshot `saved` should give.
+    fn restored_snapshot(saved: &tidal_player_core::SavedPlayback) -> PlayerSnapshot {
+        PlayerState::restore(PlayerConfig::default(), 7, saved.clone()).snapshot()
+    }
+
+    fn restored_runtime(
+        state_dir: &std::path::Path,
+    ) -> (
+        PlayerRuntime<FakeEngine, FakeJobs>,
+        Log,
+        Receiver<RuntimeInput>,
+    ) {
+        let settings = PlayerSettings::default();
+        let log: Log = Arc::default();
+        let (tx, rx) = mpsc::channel();
+        let rt = PlayerRuntime::restored(
+            settings.player.clone(),
+            7,
+            &settings,
+            Persister::new(state_dir.to_owned(), true),
+            FakeEngine::new(&log, Script::Plays),
+            FakeJobs::new(&log, &tx, true),
+        );
+        (rt, log, rx)
+    }
+
+    /// Spec 0009 AC9: the standalone player restores before its first
+    /// frame: the `Welcome` the TUI draws first already holds the
+    /// remembered queue, stopped at its position, and nothing was resolved
+    /// or sent to the engine; a corrupt file is the player's message; quit
+    /// saves what changed.
+    #[test]
+    fn ac9_standalone_restores() {
+        let saved = remembered();
+        let dir = state_dir_with(&saved);
+        let (mut client, log) = Client::restored(dir.path(), None);
+        let expected = restored_snapshot(&saved);
+        assert_eq!(expected.state, PlaybackState::Stopped);
+        assert_eq!(expected.position, Duration::from_secs(83));
+        assert_eq!(client.ui.player.as_ref(), Some(&expected));
+        assert_eq!(client.rt.snapshot(), expected);
+        assert_eq!(
+            client.ui.current().map(|e| e.id),
+            saved.current,
+            "the current entry is marked"
+        );
+        assert_eq!(take(&log), vec![], "nothing resolved or played");
+
+        // Quit (as `q` does): the change is saved before the player ends.
+        client
+            .rt
+            .handle(RuntimeInput::Command(Command::ChangeVolume(-10)));
+        let h = client.rt.handle(RuntimeInput::Command(Command::Shutdown));
+        assert!(h.shutdown);
+        let on_disk = crate::persist::load(&crate::persist::RealFs, dir.path());
+        assert_eq!(
+            on_disk.saved,
+            Some(tidal_player_core::SavedPlayback {
+                volume: 60,
+                ..saved
+            })
+        );
+
+        // A corrupt file: an empty start with the player's message.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("playback.json"), "{").unwrap();
+        let (client, _log) = Client::restored(dir.path(), None);
+        assert!(client.ui.queue().is_empty());
+        let message = client.ui.message().unwrap_or_default();
+        assert!(
+            message
+                .starts_with("Could not restore the playback state (kept as playback.json.bad): "),
+            "{message:?}"
+        );
+        assert!(dir.path().join("playback.json.bad").exists());
+    }
+
+    /// Spec 0009 AC9: `tidal-player ITEM` over a remembered state: the
+    /// items replace the queue and play; shuffle, repeat, autoplay and
+    /// volume stay restored.
+    #[test]
+    fn ac9_items_replace_queue() {
+        let saved = remembered();
+        let dir = state_dir_with(&saved);
+        let open = crate::client::startup_open(vec![Item::Track(TrackId(3))], None);
+        assert!(open.is_some());
+        let (client, _log) = Client::restored(dir.path(), open);
+        let snapshot = client.rt.snapshot();
+        assert_eq!(client.queue(), vec![3]);
+        assert_eq!(snapshot.state, PlaybackState::Playing);
+        assert_eq!(
+            (
+                snapshot.shuffle,
+                snapshot.repeat,
+                snapshot.autoplay,
+                snapshot.volume,
+                snapshot.muted
+            ),
+            (
+                true,
+                tidal_player_core::protocol::RepeatMode::Queue,
+                false,
+                70,
+                false
+            )
+        );
+        assert_eq!(client.shown(), vec![3]);
+    }
+
+    /// Spec 0009 AC8 (the part the daemon binary cannot observe: it has no
+    /// device): a restored player sends nothing before `TogglePause`; then
+    /// it resolves the current entry and the engine's `Play` starts at the
+    /// saved position, with no seek.
+    #[test]
+    fn ac8_play_at_saved_position() {
+        let saved = remembered();
+        let dir = state_dir_with(&saved);
+        let (mut rt, log, rx) = restored_runtime(dir.path());
+        assert_eq!(rt.snapshot(), restored_snapshot(&saved));
+        assert_eq!(take(&log), vec![]);
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
+            rt.handle(input);
+        }
+        let current = restored_snapshot(&saved)
+            .queue
+            .iter()
+            .find(|e| Some(e.id) == saved.current)
+            .map(|e| e.track.id.0)
+            .expect("a current entry");
+        let calls = take(&log);
+        assert!(
+            matches!(
+                calls[..],
+                [Call::Resolve { track, .. }, Call::Play { track: played, start_at, .. }, ..]
+                    if track == current && played == current && start_at == Duration::from_secs(83)
+            ),
+            "{calls:?}"
+        );
+        assert!(
+            !calls.iter().any(|c| matches!(c, Call::Seek(_))),
+            "{calls:?}"
+        );
+    }
+
+    /// Spec 0009 "Saving", as the runtime wires it: a volume change is
+    /// written by the tick 2 s later, not at once; a write that fails is
+    /// the player's message once, broadcast.
+    #[test]
+    fn runtime_saves_on_schedule() {
+        let saved = remembered();
+        let dir = state_dir_with(&saved);
+        let (mut rt, _log, _rx) = restored_runtime(dir.path());
+        let on_disk = |dir: &std::path::Path| {
+            crate::persist::load(&crate::persist::RealFs, dir)
+                .saved
+                .expect("a saved state")
+        };
+        let start = Instant::now();
+        rt.handle(RuntimeInput::Command(Command::SetVolume(50)));
+        assert_eq!(on_disk(dir.path()).volume, 70, "written at once");
+        assert!(rt.tick(start).is_empty());
+        assert_eq!(on_disk(dir.path()).volume, 70);
+        assert!(rt.tick(start + Duration::from_secs(3)).is_empty());
+        assert_eq!(on_disk(dir.path()).volume, 50, "not written after 2 s");
+
+        // Unwritable: the temporary file's name is taken by a directory.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("playback.json.tmp")).unwrap();
+        let (mut rt, _log, _rx) = restored_runtime(dir.path());
+        let h = rt.handle(RuntimeInput::Command(Command::ToggleMute));
+        assert!(h.events.iter().all(|e| match e {
+            Event::Player(s) => s.message.is_none(),
+            _ => true,
+        }));
+        let events = rt.tick(Instant::now() + Duration::from_secs(3));
+        let message = match events.last() {
+            Some(Event::Player(s)) => s.message.clone().unwrap_or_default(),
+            other => panic!("expected a snapshot, got {other:?}"),
+        };
+        assert!(
+            message.starts_with("Could not save the playback state: "),
+            "{message:?}"
+        );
+        assert_eq!(rt.snapshot().message, Some(message));
+        // Shown once: the next failure says nothing new.
+        rt.handle(RuntimeInput::Command(Command::ToggleMute));
+        assert!(rt.tick(Instant::now() + Duration::from_secs(6)).is_empty());
     }
 }

@@ -32,6 +32,7 @@ use tidal_player::{
     login::{LoginOutcome, run_login},
     oneshot::PlaybackCommand,
     panic_hook::install_panic_hook,
+    persist::Persister,
     play::{
         ASOUND_DIR_VAR, PlayOptions, configured_device_with, resolve_play_config_with,
         resolve_player_config_with, resolve_settings_with,
@@ -252,6 +253,11 @@ fn login(store: &dyn SessionStore) -> Result<LoginOutcome> {
 fn logout(plan: &StorePlan) -> ExitCode {
     // Decided without a passphrase; `delete` never needs one either.
     let had_session = plan.has_stored_session();
+    // Spec 0009: the next account does not inherit this one's queue. A
+    // failure is reported but does not change the outcome.
+    if let Err(e) = tidal_player::persist::forget(&tidal_player::persist::RealFs, &plan.state_dir) {
+        eprintln!("Could not forget the playback state: {e}");
+    }
     if let Err(e) = plan.build_store().delete() {
         return report_store_error(&e);
     }
@@ -328,11 +334,6 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
             return Ok(ExitCode::from(1));
         }
     };
-    let (listener, socket) = match bind_player(&lock) {
-        Ok(bound) => bound,
-        Err(code) => return Ok(code),
-    };
-
     let runtime = runtime()?;
     let metadata = Arc::new(MetadataClient::new(Arc::clone(&auth)));
     let (_, country) = runtime.block_on(auth.account());
@@ -346,19 +347,24 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
         .with_library(player_library(&auth), player_settings.library.clone());
-    let mut config = player_settings.player;
+    let mut config = player_settings.player.clone();
     config.country = Some(country);
-    // The engine opens the device only once something plays (0003).
-    let player = spawn_runtime(
-        PlayerRuntime::new(
-            config,
-            time_seed(),
-            spawn_output(&settings.device, player_settings.release_paused),
-            jobs,
-        ),
-        inputs,
-        results,
+    // The remembered state is read before the socket is bound, so the
+    // first `Welcome` carries it (spec 0009). The engine opens the device
+    // only once something plays (0003).
+    let player_runtime = PlayerRuntime::restored(
+        config,
+        time_seed(),
+        &player_settings,
+        Persister::new(plan.state_dir.clone(), player_settings.remember_playback),
+        spawn_output(&settings.device, player_settings.release_paused),
+        jobs,
     );
+    let (listener, socket) = match bind_player(&lock) {
+        Ok(bound) => bound,
+        Err(code) => return Ok(code),
+    };
+    let player = spawn_runtime(player_runtime, inputs, results);
     server::forward_login(auth.status(), player.inputs(), runtime.handle());
     // Before READY=1: a SIGTERM from then on is a clean shutdown.
     forward_signals(runtime.handle(), player.inputs()).context("cannot handle signals")?;
@@ -457,9 +463,15 @@ fn tui_main(
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
-        Ok(Role::Player(lock)) => {
-            standalone(lock, plan.build_store(), app, player_settings, open, state)
-        }
+        Ok(Role::Player(lock)) => standalone(
+            lock,
+            plan.build_store(),
+            plan.state_dir.clone(),
+            app,
+            player_settings,
+            open,
+            state,
+        ),
         Err(code) => Ok(code),
     }
 }
@@ -513,6 +525,7 @@ fn attached(
 fn standalone(
     lock: PlayerLock,
     store: Arc<dyn SessionStore>,
+    state_dir: PathBuf,
     app: &AppConfig,
     player_settings: tidal_player::play::PlayerSettings,
     open: Option<tidal_player_core::protocol::Command>,
@@ -562,22 +575,23 @@ fn standalone(
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
         .with_library(player_library(&auth), player_settings.library.clone());
-    let mut config = player_settings.player;
+    let mut config = player_settings.player.clone();
     config.country = Some(country);
+    // Restored before the socket is bound and before the TUI's first
+    // frame; the startup items' `Open` then replaces the queue (spec 0009).
+    let player_runtime = PlayerRuntime::restored(
+        config,
+        time_seed(),
+        &player_settings,
+        Persister::new(state_dir, player_settings.remember_playback),
+        spawn_output(&settings.device, player_settings.release_paused),
+        jobs,
+    );
     let (listener, socket) = match bind_player(&lock) {
         Ok(bound) => bound,
         Err(code) => return Ok(code),
     };
-    let player = spawn_runtime(
-        PlayerRuntime::new(
-            config,
-            time_seed(),
-            spawn_output(&settings.device, player_settings.release_paused),
-            jobs,
-        ),
-        inputs,
-        results,
-    );
+    let player = spawn_runtime(player_runtime, inputs, results);
     // The login status reaches the TUI as it reaches any client (0002
     // AC14): in the `Welcome`, then as events.
     server::forward_login(auth.status(), player.inputs(), runtime.handle());

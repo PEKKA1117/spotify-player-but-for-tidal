@@ -81,7 +81,7 @@ WantedBy=default.target
 - **結束代碼 1、2 與 3 不會重新啟動**：未登入或工作階段儲存區無法使用（1）、設定錯誤（2）、已有其他播放器在執行（3）。每隔幾秒重試也無法解決其中任何一個，因此 systemd 會讓單元維持失敗狀態。修正原因（`systemctl --user status tidal-player` 與 `journalctl --user -u tidal-player` 會顯示訊息），然後執行 `systemctl --user restart tidal-player`。其他任何失敗會在 5 秒後重新啟動，5 分鐘內最多 5 次
 - 開著獨立模式的 TUI 時，服務無法啟動（以 3 結束，不會重新啟動）。請先退出 TUI，或改為將 TUI 附加到常駐程式（常駐程式執行後，`tidal-player` 就會這麼做）
 
-常駐程式在用戶端可以連線後通知 systemd 它已就緒（`Type=notify`）。收到 `systemctl --user stop`（`SIGTERM`）、`SIGINT` 或 `tidal-player daemon stop` 時，它會通知用戶端、停止播放、釋放裝置並以 0 結束。訊息輸出到 stderr，在 systemd 下即為 journal。每次啟動時佇列都是空的；跨重新啟動記住佇列會在之後實作（spec 0009）。
+常駐程式在用戶端可以連線後通知 systemd 它已就緒（`Type=notify`）。收到 `systemctl --user stop`（`SIGTERM`）、`SIGINT` 或 `tidal-player daemon stop` 時，它會通知用戶端、停止播放、釋放裝置並以 0 結束。訊息輸出到 stderr，在 systemd 下即為 journal。重新啟動的常駐程式會接續先前的佇列，停止在相同的位置，並保持靜音直到有東西播放它（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
 
 在任一終端機執行 `tidal-player login` 之後，正在執行的常駐程式會在幾秒內取得新的工作階段（見[「Session expired」](login.md#session-expired)）。
 

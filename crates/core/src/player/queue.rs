@@ -49,6 +49,30 @@ pub(super) struct Queue {
 }
 
 impl Queue {
+    /// A queue as given: callers ensure `order` is a permutation of the
+    /// entries' IDs and `current`, when set, one of them.
+    pub(super) fn from_parts(
+        entries: Vec<QueueEntry>,
+        order: Vec<EntryId>,
+        current: Option<EntryId>,
+    ) -> Self {
+        Self {
+            entries,
+            order,
+            current,
+        }
+    }
+
+    /// The entries in their original order.
+    pub(super) fn entries(&self) -> &[QueueEntry] {
+        &self.entries
+    }
+
+    /// The entry IDs in play order.
+    pub(super) fn order(&self) -> &[EntryId] {
+        &self.order
+    }
+
     pub(super) fn len(&self) -> usize {
         self.entries.len()
     }

@@ -32,6 +32,7 @@
 //!   start or stop
 
 mod queue;
+mod saved;
 #[cfg(test)]
 mod tests;
 
@@ -44,6 +45,8 @@ use crate::quality::AudioQuality;
 use crate::track::{EntryId, Track, TrackId};
 
 use queue::{Queue, Rng};
+
+pub use saved::{SAVED_PLAYBACK_VERSION, SavedPlayback};
 
 /// Time left in a track at which the next entry is preloaded (and autoplay
 /// asks for suggestions).
@@ -162,6 +165,10 @@ pub enum PlayerInput {
         tag: u64,
         result: Result<Vec<Track>, String>,
     },
+    /// A message from outside the player (spec 0009: restoring or saving
+    /// the playback state failed): shown as the player's message, like a
+    /// failure's, until the next track starts.
+    Notice(String),
 }
 
 /// Why a stream is resolved.
@@ -404,6 +411,11 @@ pub fn update(state: &mut PlayerState, input: PlayerInput) -> Vec<PlayerEffect> 
         PlayerInput::Engine(event) => state.on_engine(event, &mut fx),
         PlayerInput::Resolved { tag, result } => state.on_resolved(tag, result, &mut fx),
         PlayerInput::Suggestions { tag, result } => state.on_suggestions(tag, result, &mut fx),
+        PlayerInput::Notice(message) => {
+            state.message = Some(message);
+            // No longer a failed reacquire's: `Resumed` leaves it.
+            state.resume_failed = false;
+        }
     }
     let after = state.snapshot();
     if after != before {

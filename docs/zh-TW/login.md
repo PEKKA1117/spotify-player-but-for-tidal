@@ -36,6 +36,8 @@ Waiting for approval… (Ctrl-C to cancel)
 
 從這台機器上的每個儲存位置刪除已儲存的工作階段，並印出 `Logged out`（若原本沒有則印出 `Not logged in`）。無論哪種情況都以結束代碼 0 退出，且從不詢問密語，所以也能清除你忘了密語的工作階段。
 
+`logout` 也會刪除記住的播放狀態（`playback.json`，見[接續上次的工作階段](playback.md#resuming-the-last-session)），因此下一個帳號不會沿用上一個帳號的佇列。正在執行的播放器會保留它的佇列，並在下次儲存時重新寫入該檔案。
+
 `logout` 無法在 Tidal 端撤銷登入：Tidal 拒絕為此用戶端撤銷。登入在伺服器端仍然有效，直到 Tidal 讓它過期，但這台機器上不會留下任何副本。
 
 <a id="tidal-player-daemon"></a>

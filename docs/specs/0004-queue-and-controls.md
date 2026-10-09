@@ -97,7 +97,7 @@ The message stays in the snapshot until the next track starts or the next failur
 
 ### Volume
 
-- `0`–`100` %, in steps of the **volume step** (5 by default, a setting, 1–25; `ChangeVolume(±step)`), clamped; **default 100 %**. Mute (`ToggleMute`) sets the gain to 0 and keeps the volume, so unmuting restores it; changing the volume while muted unmutes. Not remembered across runs (0009)
+- `0`–`100` %, in steps of the **volume step** (5 by default, a setting, 1–25; `ChangeVolume(±step)`), clamped; **default 100 %**. Mute (`ToggleMute`) sets the gain to 0 and keeps the volume, so unmuting restores it; changing the volume while muted unmutes. Remembered across runs since 0009
 - Software gain in the engine: `gain = (volume / 100)³` (a perceptual curve: 50 % ≈ −18 dB; decision 2), 0 when muted. At gain 1 the engine does not touch the samples
 - `bit_perfect` (0003 "Output kinds") gains a last condition, *and the gain is 1*: below 100 % the snapshot reports `bit_perfect: false` with the reason `volume below 100%`, and `muted` when muted
 
@@ -155,7 +155,7 @@ Like 0003's, from the environment until 0008 moves them into `app.toml` (keeping
 | Previous restarts the track after (s) | `TIDAL_PLAYER_PREVIOUS_RESTART` | integer 0–60; `0` = previous always goes back | `3` |
 | Autoplay at start | `TIDAL_PLAYER_AUTOPLAY` | `on`, `off` | `off` |
 
-The player takes them as a `PlayerConfig` at start; `ToggleAutoplay` changes autoplay for the running player only (remembering it is 0009).
+The player takes them as a `PlayerConfig` at start; `ToggleAutoplay` changes autoplay for the running player only (0009 remembers it, below an explicit flag or variable).
 
 ### Commands
 
@@ -372,11 +372,11 @@ Not verified (the probe did not reach it):
 - Daemon, clients over a transport, one-shot `playback` commands, multiple clients (0005)
 - Library and search pages, "add to queue" from them (0006, 0007); they will use `AddToQueue` from this spec
 - Configurable keys and settings in `app.toml`/`keymap.toml` (0008)
-- Remembering the queue, position and volume across runs (0009)
+- Remembering the queue, position and volume across runs (done in 0009)
 - MPRIS and media keys (0010); setter commands for it
 - Mixes and radio as pages to browse (0011); autoplay at the end of the queue is in this spec
 - Cover art (its placement rule is fixed here, under "TUI")
-- Switching the output device from the TUI (the engine supports it; a picker comes with 0008/0009)
+- Switching the output device from the TUI (the engine supports it; a picker is a later spec; 0009 left it out)
 - Reordering the queue by keys, saving the queue as a playlist (tidalt had both), removing entries by key (the command exists; the key comes with 0006)
 - Crossfade, ReplayGain, volume ramps, dither
 - Following the playing track with the cursor after idle (tidalt `4b1199d`): the current entry is kept in view instead

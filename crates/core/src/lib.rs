@@ -9,6 +9,6 @@ pub mod track;
 pub mod ui;
 
 pub use item::{Item, ItemError};
-pub use player::{PlayerConfig, PlayerEffect, PlayerInput, PlayerState};
+pub use player::{PlayerConfig, PlayerEffect, PlayerInput, PlayerState, SavedPlayback};
 pub use quality::{AudioQuality, ParseQualityError};
 pub use track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};

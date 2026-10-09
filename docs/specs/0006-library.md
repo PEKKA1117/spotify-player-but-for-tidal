@@ -11,7 +11,7 @@ Until now the queue can only be filled from pasted links and IDs (0004 decision 
 
 It settles 0005's open question (0005 decision 3, "Out of scope"): **the player fetches the pages**, as it already expands `Open`. A client still holds no session, no keyring entry and no API access (0005 AC14 keeps holding).
 
-Search (0007), mixes and radio as pages (0011) and caching (0009) are not in this spec.
+Search (0007), mixes and radio as pages (0011) are not in this spec; 0009 decided against caching.
 
 ### What tidalt did
 
@@ -49,7 +49,7 @@ Read from tidalt's `internal/tidal/{api,library}.go`, `internal/ui/{keys,model}.
 
 ### Pages
 
-The area below the playback window shows one **page** at a time. The queue (0004) is the bottom page of the history; the TUI **starts on the library** (the user, 2026-10-08), pushed on top of the queue, so `Backspace` goes to the queue. The library shows `Loading…` until the player's first `Welcome` arrives, then is fetched (a client asks nothing before it is connected). Opening a page puts it on top of a **history**; going back returns to the page under it, with its loaded rows, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached until 0009).
+The area below the playback window shows one **page** at a time. The queue (0004) is the bottom page of the history; the TUI **starts on the library** (the user, 2026-10-08), pushed on top of the queue, so `Backspace` goes to the queue. The library shows `Loading…` until the player's first `Welcome` arrives, then is fetched (a client asks nothing before it is connected). Opening a page puts it on top of a **history**; going back returns to the page under it, with its loaded rows, cursors and focus as they were, without fetching again. Opening a page always fetches it fresh (nothing is cached; 0009 decision 3).
 
 | Page | Opened with | Windows (`Tab` moves between them) |
 |---|---|---|
@@ -373,7 +373,7 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 - Search (0007)
 - Mixes, radio and "My mixes" pages (0011); spotify-player's *GoToRadio*
 - Renaming playlists, editing their descriptions, reordering their tracks, playlist folders; making a playlist public
-- Caching pages or images, remembering the page history across runs (0009)
+- Caching pages or images, remembering the page history across runs (0009 left both out)
 - Cover art on pages (0004's placement rule applies when it comes)
 - Sorting and filtering lists (spotify-player's `s t`, `/` in a page), the help popup (`?`), configurable keys and page percentages (0008)
 - Jumping to the playing track in its list (spotify-player's `g c`), the "currently playing context" page (`g space`)

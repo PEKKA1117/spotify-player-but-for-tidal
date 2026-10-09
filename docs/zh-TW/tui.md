@@ -36,6 +36,8 @@
 3. 播放方式：Tidal 提供的音質、格式、輸出裝置，以及 `bit-perfect` 或不是位元完美（bit-perfect）的原因（與 [`play`](playback.md#output-kinds-and-bit-perfect) 的「Track」與「Output」兩行相同）；暫停期間若裝置已[釋放](daemon.md#releasing-the-device-while-paused)，後面會加上 ` · device released`。出錯時，訊息會取代這一列（見[失敗處理](#failures)）；連上播放器的 TUI 與播放器失去連線時，這一列也會顯示 `Disconnected from the player: reconnecting…`
 4. 進度條、目前位置與長度。若 Tidal 未提供長度，則不顯示進度條：`1:23 / ?:??`
 
+啟動時播放器會接續上次的工作階段：原本的佇列，以 `■` 停止在相同的位置，模式與音量也相同；按 `Space` 從那裡開始播放（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
+
 <a id="queue"></a>
 ### 佇列
 
@@ -273,7 +275,7 @@
 <a id="volume"></a>
 ### 音量
 
-範圍為 0 到 100 %，**預設 100 %**，每次調整一個音量間隔。在 100 % 時不會更動取樣，因此位元完美的輸出會保持位元完美；低於 100 %（或靜音）時，第三列會顯示 `not bit-perfect: volume below 100%`（或 `muted`）。音量依符合人耳感知響度的曲線變化（50 % 約為 −18 dB）。靜音（`_`）會保留音量，因此取消靜音時會恢復原音量；調整音量會取消靜音。目前還不會跨次執行記住音量（spec 0009）。
+範圍為 0 到 100 %，**預設 100 %**，每次調整一個音量間隔。在 100 % 時不會更動取樣，因此位元完美的輸出會保持位元完美；低於 100 %（或靜音）時，第三列會顯示 `not bit-perfect: volume below 100%`（或 `muted`）。音量依符合人耳感知響度的曲線變化（50 % 約為 −18 dB）。靜音（`_`）會保留音量，因此取消靜音時會恢復原音量；調整音量會取消靜音。音量與靜音會連同佇列與各模式跨次執行記住（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
 
 <a id="failures"></a>
 ## 失敗處理

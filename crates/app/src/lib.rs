@@ -11,6 +11,7 @@ pub mod login;
 pub mod oneshot;
 pub mod panic_hook;
 pub mod passphrase;
+pub mod persist;
 pub mod play;
 pub mod playback;
 pub mod player_runtime;

@@ -29,6 +29,11 @@ previous_restart_secs = 3
 # (--autoplay, TIDAL_PLAYER_AUTOPLAY)
 autoplay = false
 
+# Remember the queue, position, modes and volume between runs, in
+# playback.json in the state directory: true or false.
+# (TIDAL_PLAYER_REMEMBER_PLAYBACK)
+remember_playback = true
+
 # Release the audio device after pausing for this many seconds: 0 to 3600,
 # or "never". (TIDAL_PLAYER_RELEASE_PAUSED)
 release_paused_secs = 10

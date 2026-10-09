@@ -2223,4 +2223,71 @@ mod tests {
             "{text}"
         );
     }
+
+    // --- spec 0009 AC14 ----------------------------------------------------------
+
+    /// The player's state at start, as the standalone TUI and the daemon
+    /// make it from what `playback.json` gave.
+    fn started_from(loaded: crate::persist::Loaded) -> State {
+        let settings = crate::play::PlayerSettings::default();
+        let player =
+            crate::player_runtime::starting_state(settings.player.clone(), 7, &settings, loaded);
+        state_of(player.snapshot())
+    }
+
+    /// AC14: a restored state: stopped (`■`) on "Hell Above" at 1:23 of
+    /// 4:56 with its bar, the queue with the current entry marked.
+    #[test]
+    fn ac14_restored_80x24() {
+        use tidal_player_core::PlayerState;
+        use tidal_player_core::player::{PlayerConfig, PlayerInput, update as player_update};
+        use tidal_player_core::protocol::Command;
+
+        let ptv = "Pierce The Veil";
+        let album = "Collide With The Sky";
+        let mut st = PlayerState::new(PlayerConfig::default(), 3);
+        for command in [
+            Command::LoadQueue {
+                tracks: vec![
+                    track(1001, "May These Noises Startle You", ptv, album, Some(241)),
+                    track(1002, "Hell Above", ptv, album, Some(296)),
+                    track(1003, "A Match Into Water", ptv, album, Some(262)),
+                ],
+                start: 1,
+            },
+            Command::CycleRepeat,
+            Command::SetVolume(70),
+            Command::SeekTo(Duration::from_secs(83)),
+        ] {
+            player_update(&mut st, PlayerInput::Command(command));
+        }
+        let state = started_from(crate::persist::Loaded {
+            saved: Some(st.saved()),
+            message: None,
+        });
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            row(&text, 1),
+            &["■ Hell Above · Pierce The Veil", "repeat: queue", "70%"],
+        );
+        assert_contains(row(&text, 4), &["━", "─", "1:23 / 4:56"]);
+        assert_contains(&text, &["Queue (3)", "▶ 2", "A Match Into Water"]);
+        insta::assert_snapshot!(text);
+    }
+
+    /// AC14: a corrupt `playback.json`: an empty start, the message on the
+    /// message row.
+    #[test]
+    fn ac14_restore_message_80x24() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("playback.json"), "{\"version\": 1").unwrap();
+        let loaded = crate::persist::load(&crate::persist::RealFs, dir.path());
+        let text = draw(&started_from(loaded), 80, 24);
+        assert_contains(row(&text, 1), &["Nothing playing"]);
+        assert_contains(
+            row(&text, 3),
+            &["Could not restore the playback state (kept as playback.json.bad)"],
+        );
+        insta::assert_snapshot!(text);
+    }
 }

@@ -234,7 +234,7 @@ Not verified:
 ## Out of scope
 
 - An in-page filter (`/` on other pages, spotify-player's `Search` popup) and configurable keys (0008)
-- Search history and remembering the last query across runs (0009)
+- Search history and remembering the last query across runs (0009 left it out: clients store nothing)
 - Opening a pasted Tidal link from the search input (stays with `o`/`O`)
 - Videos, mixes and radio among results (0011)
 - One-shot search from the command line (`tidal-player playback search …`)

@@ -334,6 +334,8 @@ pub const AUTOPLAY_VAR: &str = "TIDAL_PLAYER_AUTOPLAY";
 /// Release the device after pausing for this many seconds, or `never`
 /// (spec 0005).
 pub const RELEASE_PAUSED_VAR: &str = "TIDAL_PLAYER_RELEASE_PAUSED";
+/// Remember the playback state between runs: `on` or `off` (spec 0009).
+pub const REMEMBER_PLAYBACK_VAR: &str = "TIDAL_PLAYER_REMEMBER_PLAYBACK";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -372,6 +374,11 @@ pub struct PlayerSettings {
     pub library: LibrarySettings,
     /// The library page's window widths (spec 0008); read by the TUI.
     pub layout: LibraryLayout,
+    /// Whether the player reads and writes `playback.json` (spec 0009).
+    pub remember_playback: bool,
+    /// `player.autoplay` came from `--autoplay` or the environment, so it
+    /// beats a remembered autoplay (spec 0009 "Precedence of autoplay").
+    pub autoplay_explicit: bool,
 }
 
 impl Default for PlayerSettings {
@@ -382,7 +389,19 @@ impl Default for PlayerSettings {
             release_paused: Some(tidal_player_audio::DEFAULT_RELEASE_PAUSED),
             library: LibrarySettings::default(),
             layout: LibraryLayout::default(),
+            remember_playback: true,
+            autoplay_explicit: false,
         }
+    }
+}
+
+/// The autoplay a player starts with (spec 0009 "Precedence of autoplay"):
+/// flag > environment > remembered > `app.toml` > default. `remembered` is
+/// the saved state's autoplay, when a state was restored.
+pub fn start_autoplay(settings: &PlayerSettings, remembered: Option<bool>) -> bool {
+    match remembered {
+        Some(remembered) if !settings.autoplay_explicit => remembered,
+        _ => settings.player.autoplay,
     }
 }
 
@@ -465,22 +484,30 @@ fn resolve_with(
             .map(str::to_owned)
             .collect();
     }
-    settings.player.autoplay = if autoplay_flag {
-        true
-    } else {
-        match get(AUTOPLAY_VAR).as_deref() {
-            None => settings.player.autoplay,
-            Some(value) if value.eq_ignore_ascii_case("on") => true,
-            Some(value) if value.eq_ignore_ascii_case("off") => false,
-            Some(value) => {
-                return Err(SettingsError {
-                    setting: AUTOPLAY_VAR.into(),
-                    message: format!("expected on or off, got \"{value}\""),
-                });
-            }
-        }
-    };
+    if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
+        settings.remember_playback = on;
+    }
+    if autoplay_flag {
+        settings.player.autoplay = true;
+        settings.autoplay_explicit = true;
+    } else if let Some(on) = on_off(get(AUTOPLAY_VAR), AUTOPLAY_VAR)? {
+        settings.player.autoplay = on;
+        settings.autoplay_explicit = true;
+    }
     Ok(settings)
+}
+
+/// `on` or `off`, in any case; `None` when unset.
+fn on_off(value: Option<String>, var: &str) -> Result<Option<bool>, SettingsError> {
+    match value.as_deref() {
+        None => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("on") => Ok(Some(true)),
+        Some(value) if value.eq_ignore_ascii_case("off") => Ok(Some(false)),
+        Some(value) => Err(SettingsError {
+            setting: var.into(),
+            message: format!("expected on or off, got \"{value}\""),
+        }),
+    }
 }
 
 /// `app.toml` is the layer under the environment: its values replace the
@@ -497,6 +524,9 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(autoplay) = file.autoplay {
         settings.player.autoplay = autoplay;
+    }
+    if let Some(remember) = file.remember_playback {
+        settings.remember_playback = remember;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;
@@ -1863,5 +1893,86 @@ mod tests {
             restart.contains(&PlayerEffect::EngineSeek(Duration::ZERO)),
             "3 s threshold: {restart:?}"
         );
+    }
+
+    /// Spec 0009 AC12: the autoplay a player starts with: flag > environment
+    /// > remembered > `app.toml` > default.
+    #[test]
+    fn ac12_autoplay_precedence() {
+        type Env = &'static [(&'static str, &'static str)];
+        // name, app.toml, environment, --autoplay, remembered, want
+        type Row = (&'static str, &'static str, Env, bool, Option<bool>, bool);
+        let rows: &[Row] = &[
+            ("default", "", &[], false, None, false),
+            ("app.toml", "autoplay = true", &[], false, None, true),
+            (
+                "remembered over app.toml (off)",
+                "autoplay = true",
+                &[],
+                false,
+                Some(false),
+                false,
+            ),
+            (
+                "remembered over app.toml (on)",
+                "autoplay = false",
+                &[],
+                false,
+                Some(true),
+                true,
+            ),
+            (
+                "remembered over the default",
+                "",
+                &[],
+                false,
+                Some(true),
+                true,
+            ),
+            (
+                "environment over remembered (off)",
+                "autoplay = true",
+                &[(AUTOPLAY_VAR, "off")],
+                false,
+                Some(true),
+                false,
+            ),
+            (
+                "environment over remembered (on)",
+                "",
+                &[(AUTOPLAY_VAR, "on")],
+                false,
+                Some(false),
+                true,
+            ),
+            (
+                "empty environment falls through to remembered",
+                "autoplay = true",
+                &[(AUTOPLAY_VAR, "")],
+                false,
+                Some(false),
+                false,
+            ),
+            (
+                "--autoplay over all",
+                "autoplay = false",
+                &[(AUTOPLAY_VAR, "off")],
+                true,
+                Some(false),
+                true,
+            ),
+        ];
+        for (name, file, env, flag, remembered, want) in rows {
+            let file = crate::config::parse_app_toml(std::path::Path::new("/c/app.toml"), file)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let env = |key: &str| {
+                env.iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| (*v).to_owned())
+            };
+            let settings = resolve_play_config_with(&file, *flag, env)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(start_autoplay(&settings, *remembered), *want, "{name}");
+        }
     }
 }
