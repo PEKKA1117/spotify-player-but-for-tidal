@@ -1,6 +1,6 @@
 # 0010 — MPRIS2 and media keys
 
-- **Status**: approved (2026-10-09)
+- **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002/0006 (implemented: the metadata and library clients that parse tracks), 0004 (implemented: the player and its protocol), 0005 (implemented: one player per user, the hub of clients, one-shot commands), 0008 (implemented: `app.toml` and its precedence), 0009 (implemented: a restored player is stopped)
 - **User docs**: a new [`docs/mpris.md`](../mpris.md) (desktop controls, media keys, `playerctl`); [`docs/daemon.md`](../daemon.md) (the new one-shot commands, "`playerctl` works"), [`docs/config.md`](../config.md) (`mpris`, `max_cover_arts`, the cache directory), [`docs/playback.md`](../playback.md) (link to the new page) and their zh-TW copies (AC17)
@@ -88,7 +88,7 @@ From the player's state (the snapshot every client gets, 0004):
 | Key | Value |
 |---|---|
 | `mpris:trackid` | `/tidal_player/entry/<entry id>` (an object path; unique per queue entry, so a track queued twice has two) |
-| `mpris:length` | the duration in µs (from the stream once started, 0004), omitted when unknown |
+| `mpris:length` | the queue entry's duration in µs (the one the snapshot carries), omitted when unknown |
 | `xesam:title` | the title, with ` (<version>)` when the track has a version (as the TUI shows it, 0006) |
 | `xesam:artist` | every artist, in Tidal's order |
 | `xesam:album` | the album title, omitted when none |
@@ -148,9 +148,9 @@ The new commands are setters next to 0004's toggles. Two clients acting on stale
 | Situation | MPRIS answer |
 |---|---|
 | The player handled the command (whether or not it changed anything) | success |
-| The player answered `Err(message)` (`Album 123 was not found` for `OpenUri`) | `org.mpris.MediaPlayer2.tidal_player.Error.Failed` with the message |
-| No answer within 5 s (0005's one-shot deadline) | `org.freedesktop.DBus.Error.NoReply`-style failure: `org.mpris.MediaPlayer2.tidal_player.Error.Timeout` |
-| A bad argument (`LoopStatus = "Shuffle"`, a non-object-path `trackid`) | `org.freedesktop.DBus.Error.InvalidArgs` |
+| The player answered `Err(message)` (`Album 123 was not found` for `OpenUri`) | `org.mpris.MediaPlayer2.tidal_player.Error.Failed` with the message (a property write: `org.freedesktop.DBus.Error.Failed`) |
+| No answer within 5 s (0005's one-shot deadline) | `org.mpris.MediaPlayer2.tidal_player.Error.Timeout` (a property write: `org.freedesktop.DBus.Error.NoReply`; zbus lets property writes answer only standard errors) |
+| A bad argument (`LoopStatus = "Shuffle"`, a non-object-path `trackid`, an `OpenUri` the item parser refuses) | `org.freedesktop.DBus.Error.InvalidArgs` |
 | The player is shutting down | `org.mpris.MediaPlayer2.tidal_player.Error.Failed` `The player is shutting down` |
 
 A failure that is the player's own (a track that cannot play, an output that is busy) is not an MPRIS error: it is the player's message, as for every client.
