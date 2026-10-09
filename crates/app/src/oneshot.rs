@@ -21,11 +21,32 @@ pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// What a one-shot command says when the player is silent.
 pub const NO_ANSWER: &str = "The player did not answer";
 
+/// The argument of `shuffle`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Switch {
+    On,
+    Off,
+}
+
+/// The argument of `repeat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RepeatArg {
+    Off,
+    Queue,
+    Track,
+}
+
 /// The `playback` subcommands.
 #[derive(Debug, Clone, PartialEq, Eq, clap::Subcommand)]
 pub enum PlaybackCommand {
     /// Play or pause.
     PlayPause,
+    /// Start or resume playing.
+    Play,
+    /// Pause.
+    Pause,
+    /// Stop, keeping the current entry at 0:00.
+    Stop,
     /// Skip to the next entry.
     Next,
     /// Back to the start, or to the previous entry.
@@ -42,10 +63,16 @@ pub enum PlaybackCommand {
     },
     /// Mute or unmute.
     Mute,
-    /// Shuffle on or off.
-    Shuffle,
-    /// Repeat: off, queue, track.
-    Repeat,
+    /// Shuffle: on or off; without an argument, toggle.
+    Shuffle {
+        #[arg(value_enum, value_name = "on|off")]
+        state: Option<Switch>,
+    },
+    /// Repeat: off, queue, track; without an argument, cycle.
+    Repeat {
+        #[arg(value_enum, value_name = "off|queue|track")]
+        mode: Option<RepeatArg>,
+    },
     /// Autoplay on or off.
     Autoplay,
     /// Replace the queue with these items and play the first.
@@ -99,8 +126,11 @@ pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
         PlaybackCommand::Seek { position } => seek(position)?,
         PlaybackCommand::Volume { level } => volume(level)?,
         PlaybackCommand::Mute => Command::ToggleMute,
-        PlaybackCommand::Shuffle => Command::ToggleShuffle,
-        PlaybackCommand::Repeat => Command::CycleRepeat,
+        PlaybackCommand::Play | PlaybackCommand::Pause | PlaybackCommand::Stop => {
+            Command::TogglePause
+        }
+        PlaybackCommand::Shuffle { .. } => Command::ToggleShuffle,
+        PlaybackCommand::Repeat { .. } => Command::CycleRepeat,
         PlaybackCommand::Autoplay => Command::ToggleAutoplay,
         PlaybackCommand::Load { items } => Command::Open {
             items: items_of(items)?,
@@ -352,6 +382,23 @@ mod tests {
         const ALBUM: &str = "https://tidal.com/browse/album/10";
         let rows: Vec<(&[&str], Result<Plan, String>)> = vec![
             (&["play-pause"], request(Command::TogglePause)),
+            (&["play"], request(Command::Play)),
+            (&["pause"], request(Command::Pause)),
+            (&["stop"], request(Command::Stop)),
+            (&["shuffle", "on"], request(Command::SetShuffle(true))),
+            (&["shuffle", "off"], request(Command::SetShuffle(false))),
+            (
+                &["repeat", "off"],
+                request(Command::SetRepeat(RepeatMode::Off)),
+            ),
+            (
+                &["repeat", "queue"],
+                request(Command::SetRepeat(RepeatMode::Queue)),
+            ),
+            (
+                &["repeat", "track"],
+                request(Command::SetRepeat(RepeatMode::Track)),
+            ),
             (&["next"], request(Command::Next)),
             (&["previous"], request(Command::Previous)),
             (
@@ -397,6 +444,8 @@ mod tests {
             (&["status"], Ok(Plan::Status { json: false })),
             (&["status", "--json"], Ok(Plan::Status { json: true })),
             // Refused.
+            (&["shuffle", "maybe"], Err("invalid value".into())),
+            (&["repeat", "all"], Err("invalid value".into())),
             (
                 &["volume", "101"],
                 Err("Invalid volume \"101\": expected 0 to 100, +N or -N".into()),

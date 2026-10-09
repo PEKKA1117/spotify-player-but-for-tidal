@@ -751,6 +751,8 @@ impl PlayerState {
                 }
             }
             Command::TogglePause => self.toggle_pause(fx),
+            Command::Play | Command::Pause | Command::Stop => {}
+            Command::SetShuffle(_) | Command::SetRepeat(_) | Command::SetPosition { .. } => {}
             Command::Next => {
                 let Some(current) = self.queue.current else {
                     return;
