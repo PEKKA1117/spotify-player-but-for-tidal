@@ -750,4 +750,109 @@ mod tests {
         CoverCache::new(dir.path(), 1).start().unwrap();
         assert_eq!(names(&covers), vec![format!("{C}.jpg")]);
     }
+
+    fn with_cover(id: u64, cover: Option<&str>) -> tidal_player_core::Track {
+        let mut t = crate::player_runtime::fakes::track(id, Some(200));
+        t.album.as_mut().unwrap().cover = cover.map(str::to_owned);
+        t
+    }
+
+    /// The `Metadata` signals recorded, in order.
+    fn metadata_signals(
+        signals: &[crate::mpris::testing::Signal],
+    ) -> Vec<(Vec<&'static str>, crate::mpris::model::Metadata)> {
+        use crate::mpris::model::Value;
+        use crate::mpris::testing::Signal;
+        signals
+            .iter()
+            .filter_map(|s| match s {
+                Signal::Changed(p) => match p.get("Metadata") {
+                    Some(Value::Metadata(m)) => Some((p.keys().copied().collect(), m.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// AC21: on the adapter, an entry's `Metadata` comes at once without
+    /// `mpris:artUrl`, then once more (one `PropertiesChanged`, `Metadata`
+    /// alone) with the `file://` URL; nothing when the entry changed
+    /// while its cover downloaded.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ac21_metadata_sequence() {
+        use crate::mpris::hub::{DEADLINE, Options};
+        use crate::mpris::model::Value;
+        use crate::mpris::testing::Rig;
+        use tidal_player_core::protocol::Command;
+
+        let server = image_server().await;
+        let slow = |body: &[u8]| jpeg(body.to_vec()).set_delay(Duration::from_millis(300));
+        mount(&server, A, slow(b"A")).await;
+        mount(&server, B, slow(b"B")).await;
+        let dir = tempfile::tempdir().unwrap();
+        let cache = CoverCache::new(dir.path(), 20).with_base(&server.uri());
+        let rig = Rig::new(Options {
+            deadline: DEADLINE,
+            covers: Some((cache, tokio::runtime::Handle::current())),
+            log: crate::mpris::tracing_log(),
+        });
+        rig.send(Command::LoadQueue {
+            tracks: vec![
+                with_cover(1, Some(A)),
+                with_cover(2, Some(B)),
+                with_cover(3, None),
+            ],
+            start: 0,
+        });
+        let file = format!(
+            "file://{}",
+            dir.path().join("covers").join(format!("{A}.jpg")).display()
+        );
+        let art = |m: &crate::mpris::model::Metadata| m.get("mpris:artUrl").cloned();
+        let signals = rig.bus.wait("A's file", |signals| {
+            metadata_signals(signals)
+                .iter()
+                .any(|(_, m)| art(m) == Some(Value::Str(file.clone())))
+        });
+        let metadata = metadata_signals(&signals);
+        assert_eq!(metadata.len(), 2, "{metadata:?}");
+        assert_eq!(art(&metadata[0].1), None, "art before the download");
+        assert_eq!(
+            metadata[1].0,
+            vec!["Metadata"],
+            "one signal, Metadata alone"
+        );
+        assert_eq!(
+            metadata[1].1,
+            {
+                let mut m = metadata[0].1.clone();
+                m.insert("mpris:artUrl".into(), Value::Str(file.clone()));
+                m
+            },
+            "the same metadata with the file"
+        );
+
+        // Entry 2 (B, downloading), then at once entry 3 (no cover): B's
+        // file changes nothing.
+        rig.send(Command::Next);
+        rig.send(Command::Next);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !names(&dir.path().join("covers")).contains(&format!("{B}.jpg")) {
+            assert!(std::time::Instant::now() < deadline, "B never cached");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let metadata = metadata_signals(&rig.bus.take());
+        let last = metadata.last().expect("metadata for the next entries");
+        assert_eq!(
+            last.1.get("mpris:trackid"),
+            Some(&Value::ObjectPath("/tidal_player/entry/3".into())),
+            "{metadata:?}"
+        );
+        assert!(
+            metadata.iter().all(|(_, m)| art(m).is_none()),
+            "{metadata:?}"
+        );
+    }
 }
