@@ -1,0 +1,25 @@
+---
+source: crates/app/src/ui.rs
+assertion_line: 1911
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│My Mix 1 · 4 tracks                             │
+│Pierce The Veil, Sleeping With Sirens           │
+│┌Tracks (4)────────────────────────────────────┐│
+││  1  Song 1               Pierce The V…   3:01││
+││  2  Song 2               Pierce The V…   3:02││
+││  3  Song 3               Pierce The V…   3:03││
+││  4  Song 4               Pierce The V…   3:04││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

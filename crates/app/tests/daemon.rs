@@ -49,6 +49,23 @@ async fn mount_metadata(api: &wiremock::MockServer) {
         .respond_with(ResponseTemplate::new(200).set_body_json(search))
         .mount(api)
         .await;
+    // 0011 AC12: the mixes page.
+    Mock::given(method("GET"))
+        .and(path("/pages/my_collection_my_mixes"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                serde_json::from_slice::<serde_json::Value>(
+                    &std::fs::read(
+                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("../api/tests/fixtures/mixes/mixes_page.json"),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            ),
+        )
+        .mount(api)
+        .await;
     Mock::given(method("GET"))
         .and(path("/albums/404/tracks"))
         .respond_with(
@@ -525,8 +542,78 @@ fn ac14_client_needs_no_session() {
     // query, `Enter`), is answered from the player's API and fills the
     // search page; still no session.
     search_from_a_client(&machine.socket());
+    // 0011 AC12: a client's `g m` is answered from the player's API too.
+    mixes_from_a_client(&machine.socket());
     // Nothing was written to the empty state dir.
     assert_eq!(std::fs::read_dir(machine.empty.path()).unwrap().count(), 0);
+}
+
+/// 0011 AC12: the TUI's model and session, attached to the player at
+/// `socket`, without a terminal: `g m`; the player asks the mock API
+/// (`mixes_page.json`) and the reply fills the mixes page.
+fn mixes_from_a_client(socket: &Path) {
+    use tidal_player::client::{Session, SocketConnector};
+    use tidal_player_core::ui::{Action, Effect, Key, State, update};
+
+    let link = Connection::connect(socket).unwrap();
+    let mut session = Session::new(SocketConnector::new(socket.to_owned()), link, None);
+    let mut state = State::default();
+    let mut effects = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no Welcome");
+        let actions = session.poll(Instant::now());
+        let welcomed = actions.iter().any(|a| matches!(a, Action::Welcome { .. }));
+        for action in actions {
+            effects.extend(update(&mut state, action));
+        }
+        if welcomed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for key in [Key::Char('g'), Key::Char('m')] {
+        effects.extend(update(&mut state, Action::Key(key)));
+    }
+    let mut asked = 0;
+    for effect in effects.drain(..) {
+        match effect {
+            Effect::Library { id, request } => {
+                assert_eq!(request, LibraryRequest::Page(PageRequest::Mixes));
+                asked += 1;
+                session.send_library(id, request);
+            }
+            other => panic!("unexpected effect: {other:?}"),
+        }
+    }
+    assert_eq!(asked, 1);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no mixes reply");
+        let actions = session.poll(Instant::now());
+        let replied = actions
+            .iter()
+            .any(|a| matches!(a, Action::LibraryReply { .. }));
+        for action in actions {
+            if let Action::LibraryReply { result: Err(e), .. } = &action {
+                panic!("the mixes failed: {e}");
+            }
+            update(&mut state, action);
+        }
+        if replied {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(state.page().title(), "Mixes · 3 mixes");
+    let titles: Vec<String> = (0..3)
+        .filter_map(|i| state.page().windows[0].row(i))
+        .map(|row| match row {
+            tidal_player_core::ui::Row::Mix(m) => m.title.clone(),
+            _ => panic!("not a mix row"),
+        })
+        .collect();
+    assert_eq!(titles, ["My Daily Discovery", "My Mix 1", "My Mix 2"]);
 }
 
 /// 0007 AC13: the TUI's model and session, attached to the player at
