@@ -1,0 +1,15 @@
+{
+  "limit": 2,
+  "offset": 0,
+  "totalNumberOfItems": 5,
+  "items": [
+    {
+      "id": "0000000000000000000000000000a5",
+      "title": "My Mix 5",
+      "subTitle": "Artist A and more",
+      "description": "Pop, Rock",
+      "mixType": "DAILY_MIX",
+      "contentBehavior": "UNRESTRICTED"
+    }
+  ]
+}

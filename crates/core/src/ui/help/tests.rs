@@ -254,6 +254,7 @@ fn pages(focus: bool, tabs: bool) -> Vec<&'static str> {
         "LibraryPage",
         "LikedTrackPage",
         "SearchPage",
+        "MixesPage",
         "PreviousPage",
     ]);
     pages
@@ -269,6 +270,8 @@ fn page_sections(window: (&'static str, Vec<&'static str>), focus: bool, tabs: b
         ("Lists", LISTS.to_vec()),
         ("Pages", pages(focus, tabs)),
         ("Playback", PLAYBACK.to_vec()),
+        // The default `[[actions]]` binding (spec 0011).
+        ("Actions", vec!["GoToRadio"]),
         ("App", APP.to_vec()),
     ]
 }
@@ -370,6 +373,7 @@ fn ac7_help_sections() {
             ("Search · Top hit", search_rows.clone()),
             ("Pages", pages(true, false)),
             ("Playback", PLAYBACK.to_vec()),
+            ("Actions", vec!["GoToRadio"]),
             ("App", APP.to_vec()),
         ],
     ));
@@ -470,11 +474,9 @@ fn ac7_help_custom_keymap() {
     assert!(row(&sections, "NextTrack").is_none(), "unbound: not listed");
     let action = row(&sections, "GoToAlbum").expect("the action");
     assert_eq!(action.keys, "g B");
-    assert_eq!(names(&sections, "Actions"), ["GoToAlbum"]);
-    assert!(
-        !help(&with_queue()).iter().any(|s| s.title == "Actions"),
-        "no [[actions]]: no section"
-    );
+    assert_eq!(names(&sections, "Actions"), ["GoToRadio", "GoToAlbum"]);
+    // Without a file's `[[actions]]` the section holds the default one.
+    assert_eq!(names(&help(&with_queue()), "Actions"), ["GoToRadio"]);
 }
 
 /// AC7: rows that would do nothing now are dim: playback keys on an empty

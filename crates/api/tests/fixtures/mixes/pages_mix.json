@@ -1,0 +1,33 @@
+{
+  "title": "My Daily Discovery",
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "MIX_HEADER",
+          "mix": {
+            "id": "00a1b2c3d4e5f60718293a4b5c6d7e",
+            "title": "My Daily Discovery",
+            "subTitle": "Songs by new and familiar artists inspired by your listening.",
+            "mixType": "DISCOVERY_MIX",
+            "mixNumber": null
+          },
+          "playbackControls": []
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "TRACK_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000bb?mixId=00a1b2c3d4e5f60718293a4b5c6d7e",
+            "limit": 10,
+            "totalNumberOfItems": 3,
+            "items": []
+          }
+        }
+      ]
+    }
+  ]
+}

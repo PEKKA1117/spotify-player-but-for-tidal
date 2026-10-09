@@ -17,7 +17,7 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 use super::super::dispatch::run_command;
 use super::super::{
     Action, Confirmed, Effect, Key, Page, PageKind, Popup, SearchFocus, State, TrackSource,
-    apply_keymap, update,
+    apply_keymap, help, update,
 };
 use super::{
     ACTIONS, ActionBinding, ActionEntry, ActionKind, BaseKey, Binding, CommandEntry, KeyError,
@@ -340,7 +340,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 39] = [
+const DEFAULTS: [(&[&str], &str); 41] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -375,11 +375,14 @@ const DEFAULTS: [(&[&str], &str); 39] = [
     (&["g l"], "LibraryPage"),
     (&["g y"], "LikedTrackPage"),
     (&["g s"], "SearchPage"),
+    (&["g m"], "MixesPage"),
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
     (&["?", "C-h"], "OpenCommandHelp"),
     (&["q", "C-c"], "Quit"),
+    // The first default `[[actions]]` binding (spec 0011).
+    (&["r"], "GoToRadio"),
 ];
 
 /// What a built keymap must hold.
@@ -644,7 +647,7 @@ fn ac2_build_keymap() {
                     entry("n", "LyricsPage"),
                     entry("y", "PlayRandom"),
                 ],
-                vec![action("w", "GoToRadio", Target::SelectedItem)],
+                vec![action("w", "GoToShow", Target::SelectedItem)],
             ),
             Expect::Ok(
                 vec![
@@ -653,14 +656,14 @@ fn ac2_build_keymap() {
                     ("w", None),
                     ("n", cmd(C::NextTrack)),
                 ],
-                vec!["PlayRandom", "LyricsPage", "GoToRadio"],
+                vec!["PlayRandom", "LyricsPage", "GoToShow"],
             ),
         ),
         (
             "a bound g hides the g sequences",
             file(vec![entry("g", "LibraryPage")], vec![]),
             Expect::Err(
-                r#""g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage); unbind those with command = "None" first"#,
+                r#""g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage); unbind those with command = "None" first"#,
             ),
         ),
         (
@@ -687,7 +690,7 @@ fn ac2_build_keymap() {
             "removing the conflicting defaults first makes g valid",
             file(
                 [
-                    none_on(&["g g", "g a", "g l", "g y", "g s"]),
+                    none_on(&["g g", "g a", "g l", "g y", "g s", "g m"]),
                     vec![entry("g", "LibraryPage")],
                 ]
                 .concat(),
@@ -832,8 +835,9 @@ fn ac3_every_binding_dispatches() {
     let keymap = Keymap::default();
     assert!(!keymap.bindings().is_empty());
     for (sequence, binding) in keymap.bindings() {
+        // The default `[[actions]]` binding (`r`) is AC9's (spec 0011).
         let Binding::Command(command) = *binding else {
-            panic!("a default action binding: {sequence}");
+            continue;
         };
         let state = acting(command);
         let mut by_keys = state.clone();
@@ -958,6 +962,7 @@ fn label_of(action: ActionKind) -> &'static str {
     match action {
         ActionKind::GoToAlbum => "Go to album",
         ActionKind::GoToArtist => "Go to artist",
+        ActionKind::GoToRadio => "Go to radio",
         ActionKind::AddToQueue => "Add to queue",
         ActionKind::PlayNext => "Play next",
         ActionKind::AddToLiked => "Add to favorites",
@@ -1307,4 +1312,94 @@ fn ac12_notice_after_welcome() {
     state.message = Some("an earlier message".into());
     update(&mut state, welcome());
     assert_eq!(state.message(), None);
+}
+
+// --- spec 0011 AC9 ------------------------------------------------------------
+
+/// Spec 0011 AC9: the defaults hold `g m` and `r`, both in the keys help;
+/// `GoToRadio` parses with both targets, `r` can be unbound, `r x` conflicts
+/// with the default `r` until it is, `GoToRadio` is no longer skipped, and
+/// the defaults have no prefix conflict.
+#[test]
+fn ac9_mixes_and_radio_keys() {
+    use UiCommand as C;
+    let radio = |target| {
+        Some(Binding::Action(ActionBinding {
+            action: ActionKind::GoToRadio,
+            target,
+        }))
+    };
+    let defaults = Keymap::default();
+    assert_eq!(
+        bound(&defaults, "g m"),
+        Some(Binding::Command(C::MixesPage))
+    );
+    assert_eq!(bound(&defaults, "r"), radio(Target::SelectedItem));
+    assert_eq!(build(&KeymapFile::default()), Ok(Keymap::default()));
+
+    // Both are in the keys help, with their texts.
+    let sections = help(&queue());
+    let text_of = |name: &str| {
+        sections
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.command == name)
+            .map(|r| (r.keys.clone(), r.text.clone()))
+    };
+    assert_eq!(
+        text_of("MixesPage"),
+        Some(("g m".into(), "your mixes".into()))
+    );
+    assert_eq!(
+        text_of("GoToRadio"),
+        Some((
+            "r".into(),
+            "the radio of the selected track or artist".into()
+        ))
+    );
+
+    // A user `[[actions]]` entry parses with both targets, and is not
+    // skipped as a spotify-player action.
+    assert!(!UNSUPPORTED_ACTIONS.contains(&"GoToRadio"));
+    assert!(ACTIONS.contains(&ActionKind::GoToRadio));
+    let json = r#"{ "actions": [
+        { "action": "GoToRadio", "key_sequence": "x" },
+        { "action": "GoToRadio", "key_sequence": "y", "target": "PlayingTrack" }
+    ] }"#;
+    let parsed: KeymapFile = serde_json::from_str(json).expect("deserialises");
+    let built = build(&parsed).expect("valid");
+    assert_eq!(bound(&built, "x"), radio(Target::SelectedItem));
+    assert_eq!(bound(&built, "y"), radio(Target::PlayingTrack));
+    assert_eq!(built.unsupported(), Vec::<String>::new());
+    assert_eq!(bound(&built, "r"), radio(Target::SelectedItem), "kept");
+
+    // `command = "None"` removes the default.
+    let unbound = keymap(vec![entry("r", "None")], vec![]);
+    assert_eq!(bound(&unbound, "r"), None);
+    let mut state = with_keymap(
+        {
+            let mut state = State::default();
+            let data = PageData::FavoriteTracks {
+                tracks: list(vec![track(1)], 1),
+            };
+            open(&mut state, &[Key::Char('g'), Key::Char('y')], data);
+            state
+        },
+        unbound,
+    );
+    assert_eq!(press(&mut state, &[Key::Char('r')]), vec![], "unbound");
+    assert_eq!(state.history.len(), 2);
+
+    // `r x` conflicts with the default `r` until it is unbound.
+    assert_eq!(
+        build(&file(vec![entry("r x", "NextTrack")], vec![]))
+            .err()
+            .map(|e| e.to_string())
+            .as_deref(),
+        Some(
+            r#""r" is bound to GoToRadio and is the start of "r x" (NextTrack); unbind those with command = "None" first"#
+        )
+    );
+    let moved = keymap(vec![entry("r", "None"), entry("r x", "NextTrack")], vec![]);
+    assert_eq!(bound(&moved, "r x"), Some(Binding::Command(C::NextTrack)));
 }

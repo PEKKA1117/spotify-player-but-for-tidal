@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋），以及 [spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），以及 [spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -73,6 +73,8 @@
 | `g l` | `LibraryPage` | 開啟音樂庫 |
 | `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
 | `g s` | `SearchPage` | 開啟[搜尋](#search)頁面（在搜尋頁面上：回到輸入框） |
+| `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
+| `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
 | `/` | `Search` | 在搜尋頁面上：回到輸入框 |
 | `backspace`, `C-q` | `PreviousPage` | 回到上一個頁面 |
 | `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | 將焦點移到頁面的下一個、上一個窗格（在藝人頁面上為左半或右半） |
@@ -84,7 +86,7 @@
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
-`g g` 是按兩次 `g`；`g l`、`g y`、`g s` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
+`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
 彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱）會接收所有可列印的按鍵，不受按鍵對應影響。
 
@@ -124,11 +126,14 @@
 | 音樂庫 | `g l`；啟動時的頁面 | Playlists、Albums、Artists |
 | 收藏的曲目 | `g y` | 曲目 |
 | 搜尋 | `g s` | 輸入框、最佳結果、Tracks、Albums、Artists、Playlists（見[搜尋](#search)） |
+| Mixes | `g m` | 你的 mix（見 [Mix 與電台](#mixes-and-radio)） |
+| Mix | 在 mix 上按 `Enter` | 該 mix 的曲目 |
+| 電台 | 在曲目或藝人上按 `r`；*Go to radio* | 電台的曲目 |
 | 專輯 | 在專輯上按 `Enter`；*Go to album* | 專輯的曲目 |
 | 播放清單 | 在播放清單上按 `Enter` | 播放清單的曲目 |
 | 藝人 | 在藝人上按 `Enter`；*Go to artist* | 兩個窗格，各有兩個分頁：Top tracks \| All tracks，以及 Albums \| Appears on（`[` `]` 切換窗格的分頁） |
 
-每個頁面在視窗上方都有一列標題：`Library`、`Favorite tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
+每個頁面在視窗上方都有一列標題：`Library`、`Favorite tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`、`Mixes · 7 mixes`、`<mix> · 10 tracks`、`<track> Radio · <artists>`、`<artist> Radio`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -206,6 +211,15 @@
 
 沒有符合的結果時顯示：`No tracks found`、`No albums found`、`No artists found`、`No playlists found`。搜尋失敗時，頁面中會顯示 `Could not search: <reason>`。
 
+<a id="mixes-and-radio"></a>
+## Mix 與電台
+
+`g m` 開啟你的 **mix**：每日 mix、*My Daily Discovery* 與 Tidal 為你建立的其他 mix，依 Tidal 的順序排列，每列先顯示標題再顯示副標題（`My Mix 1  Pierce The Veil, Sleeping With Sirens and more`），放不下時以 `…` 截斷。在 mix 上按 `Enter` 開啟其頁面：標題列是 mix 的標題，頁面至少 8 列高時，其下以暗色顯示副標題，再來是它的曲目。mix 是像專輯一樣的曲目清單：在曲目上按 `Enter` 會播放它，並將 mix 的其餘曲目排入佇列；在 mix 上按 `Z` 沒有作用（請先開啟它），它的動作選單只有 *Open*。
+
+在選取的曲目或藝人上按 `r`（任何頁面，包括佇列）會開啟它的**電台**：`<track> Radio · <artists>` 或 `<artist> Radio`，最多 100 首 Tidal 推薦的曲目。在你於曲目上按 `Enter`（播放它，並將電台其餘曲目排入佇列）或 `Z` 之前，不會播放任何東西，佇列也維持原樣。[動作](#actions)選單中的 *Go to radio* 作用相同，綁定在其他按鍵的 `[[actions]]` 項目亦同（見[設定](config.md#actions)）；專輯、播放清單與 mix 沒有電台。
+
+這些頁面一次完整送達，因此沒有隨捲動載入，且每次開啟都會重新抓取；`Backspace` 會回到保持離開時樣子的頁面。頁面中的訊息：`No mixes yet`、`This mix has no tracks`、`No radio for this track`、`No radio for this artist`（Tidal 沒有它的電台，並非失敗），失敗時為 `Could not load the mixes: <reason>`、`Mix <id> was not found`、`Track 1 was not found`、`Artist 1 was not found`。曲目列與其他頁面相同，無法串流的曲目以暗色顯示。
+
 <a id="playing-and-queueing-from-a-page"></a>
 ## 從頁面播放與加入佇列
 
@@ -213,10 +227,10 @@
 |---|---|---|
 | `Enter` | 頁面上的曲目 | 以**該清單的所有曲目**依顯示順序取代佇列，並播放你選的那一首，播完後佇列會繼續往下播 |
 | `Enter` | 佇列中的曲目 | 播放該項目 |
-| `Enter` | 專輯、播放清單或藝人 | 開啟其頁面（不會播放） |
+| `Enter` | 專輯、播放清單、藝人或 mix | 開啟其頁面（不會播放） |
 | `Z`, `Ctrl-z` | 曲目 | 加到佇列尾端；若沒有在播放則開始播放 |
 | `Z`, `Ctrl-z` | 專輯或播放清單 | 將其所有曲目加到佇列尾端 |
-| `Z`, `Ctrl-z` | 藝人 | 沒有作用 |
+| `Z`, `Ctrl-z` | 藝人或 mix | 沒有作用 |
 | `d` | 佇列中的項目 | 移除該項目（移除正在播放的項目時會接著播下一首） |
 
 在曲目上按 `Enter` 需要完整的清單，因此只載入部分的清單會先抓取到最後：播放視窗的訊息列會顯示 `Loading 300 of 1 234…`，按 `Esc` 可取消，且不會送出任何內容。超過 40 000 首曲目的清單會被拒絕（`Too many tracks to queue at once (N)`）。
@@ -228,11 +242,12 @@
 
 | 對象 | 動作（依此順序） |
 |---|---|
-| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist* |
-| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to favorites*、*Remove from favorites*、*Add to playlist…* |
+| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Go to radio*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist* |
+| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Go to radio*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to favorites*、*Remove from favorites*、*Add to playlist…* |
 | 專輯 | *Open*、*Go to artist: …*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*、*Add to playlist…* |
 | 播放清單 | *Open*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*（你自己的播放清單沒有這兩項）、*Delete playlist*（僅限你自己的） |
-| 藝人 | *Open*、*Add to favorites*、*Remove from favorites* |
+| 藝人 | *Open*、*Go to radio*、*Add to favorites*、*Remove from favorites* |
+| Mix | *Open* |
 
 沒有專輯的曲目不會出現 *Go to album*。Tidal 目前無法查詢單一項目是否已收藏，因此 *Add to favorites* 與 *Remove from favorites* 都會列出；不適用的那一項執行了也無妨。
 

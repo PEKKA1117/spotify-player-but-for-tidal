@@ -186,7 +186,8 @@ pub fn check_greeting(line: &[u8], socket: &Path) -> Result<(), GreetingError> {
 mod tests {
     use super::*;
     use tidal_player_core::library::{
-        LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, PageRequest,
+        LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, PageData,
+        PageRequest,
     };
     use tidal_player_core::protocol::{ClientMessage, Command, Event, ServerMessage};
 
@@ -372,6 +373,19 @@ mod tests {
                     })],
                 ),
                 (
+                    "a mix page request (0011 AC1)",
+                    vec![
+                        b"{\"Library\":{\"id\":5,\"request\":{\"Page\":{\"Mix\":\"016214541b7a008d226272cf9d0964\"}}}}\n"
+                            .to_vec(),
+                    ],
+                    vec![Want::Message(ClientMessage::Library {
+                        id: 5,
+                        request: LibraryRequest::Page(PageRequest::Mix(
+                            "016214541b7a008d226272cf9d0964".into(),
+                        )),
+                    })],
+                ),
+                (
                     "an encoded library request, split",
                     encode(&library).chunks(5).map(<[u8]>::to_vec).collect(),
                     vec![Want::Message(library)],
@@ -392,6 +406,23 @@ mod tests {
             ServerMessage::LibraryReply {
                 id: 4,
                 result: Err("Album 1 was not found".into()),
+            },
+            // 0011 AC1: a mix page.
+            ServerMessage::LibraryReply {
+                id: 6,
+                result: Ok(LibraryResponse::Page(PageData::Mix {
+                    mix: MixSummary {
+                        id: "016214541b7a008d226272cf9d0964".into(),
+                        title: "My Daily Discovery".into(),
+                        subtitle: Some("Updates every morning.".into()),
+                    },
+                    tracks: ListPage {
+                        items: vec![],
+                        offset: 0,
+                        total: 0,
+                        hidden: 0,
+                    },
+                })),
             },
         ];
         let mut decoder = Decoder::<ServerMessage>::new();

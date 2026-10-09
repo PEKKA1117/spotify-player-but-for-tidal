@@ -152,6 +152,7 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `LibraryPage` | `g l` | everywhere | the library |
 | `LikedTrackPage` | `g y` | everywhere | favorite tracks |
 | `SearchPage` | `g s` | everywhere | the search page (on one: its input) |
+| `MixesPage` | `g m` | everywhere | your mixes |
 | `Search` | `/` | the search page | back to the search input |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
 | `ClosePopup` | `esc` | popups, prompts, loads | close / cancel |
@@ -162,12 +163,13 @@ Commands with parameters are written as an inline table: `command = { VolumeChan
 
 ### Actions
 
-For `[[actions]]`; none has a default key.
+For `[[actions]]`; only `GoToRadio` has a default key (`r`, on the selected row).
 
 | Action | Does | On |
 |---|---|---|
 | `GoToAlbum` | go to the album | tracks with an album |
 | `GoToArtist` | go to the (first) artist | tracks, albums |
+| `GoToRadio` | go to the radio (a page; nothing plays until `Enter`) | tracks, artists |
 | `AddToQueue` | add to the end of the queue | tracks, albums, playlists |
 | `PlayNext` | play next | tracks (not the playing one), albums, playlists |
 | `AddToLiked` | add to favorites | tracks, albums, artists, playlists you follow |
@@ -182,7 +184,7 @@ For `[[actions]]`; none has a default key.
 These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SwitchTheme`.
 
 - Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `SwitchTheme`, `SwitchDevice`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `LyricsPage`, `BrowsePage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `MovePlaylistItemUp`, `MovePlaylistItemDown`, `CreatePlaylist`, `OpenLogs`
-- Actions: `GoToRadio`, `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
+- Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
 
 A misspelt name (`NxtTrack`) is still an error.
 

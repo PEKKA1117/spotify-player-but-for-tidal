@@ -1,0 +1,22 @@
+{
+  "id": "my_collection_my_mixes",
+  "title": "My Mix",
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "MIX_LIST",
+          "title": "",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000aa",
+            "limit": 20,
+            "offset": 0,
+            "totalNumberOfItems": 0,
+            "items": []
+          },
+          "supportsPaging": false
+        }
+      ]
+    }
+  ]
+}

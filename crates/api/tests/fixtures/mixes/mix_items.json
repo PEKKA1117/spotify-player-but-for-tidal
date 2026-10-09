@@ -1,0 +1,214 @@
+{
+  "limit": 10,
+  "offset": 0,
+  "totalNumberOfItems": 5,
+  "items": [
+    {
+      "item": {
+        "id": 5001,
+        "title": "Song One",
+        "duration": 201,
+        "replayGain": -9.5,
+        "peak": 0.98,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "version": null,
+        "trackNumber": 1,
+        "volumeNumber": 1,
+        "popularity": 50,
+        "isrc": "XX0000000001",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 14001,
+          "title": "Album Song One",
+          "cover": "00000000-0000-4000-8000-000000005001"
+        },
+        "mixes": {
+          "TRACK_MIX": "000000000000000000000000001389"
+        }
+      },
+      "type": "track"
+    },
+    {
+      "item": {
+        "id": 5002,
+        "title": "Song Two",
+        "duration": 202,
+        "replayGain": -9.5,
+        "peak": 0.98,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "version": null,
+        "trackNumber": 1,
+        "volumeNumber": 1,
+        "popularity": 50,
+        "isrc": "XX0000000002",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "artist": {
+          "id": 3002,
+          "name": "Artist B",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 3002,
+            "name": "Artist B",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 14002,
+          "title": "Album Song Two",
+          "cover": "00000000-0000-4000-8000-000000005002"
+        },
+        "mixes": {
+          "TRACK_MIX": "00000000000000000000000000138a"
+        }
+      },
+      "type": "track"
+    },
+    {
+      "item": {
+        "id": 777,
+        "title": "A Video",
+        "album": null,
+        "artist": {
+          "id": 3001,
+          "name": "Artist A"
+        },
+        "audioModes": [
+          "STEREO"
+        ]
+      },
+      "type": "video"
+    },
+    {
+      "item": {
+        "id": 5003,
+        "title": "Atmos Only",
+        "duration": 203,
+        "replayGain": -9.5,
+        "peak": 0.98,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "version": null,
+        "trackNumber": 1,
+        "volumeNumber": 1,
+        "popularity": 50,
+        "isrc": "XX0000000003",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "DOLBY_ATMOS"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 14003,
+          "title": "Album Atmos Only",
+          "cover": "00000000-0000-4000-8000-000000005003"
+        },
+        "mixes": {
+          "TRACK_MIX": "00000000000000000000000000138b"
+        }
+      },
+      "type": "track"
+    },
+    {
+      "item": {
+        "id": 5004,
+        "title": "Song Four",
+        "duration": 204,
+        "replayGain": -9.5,
+        "peak": 0.98,
+        "allowStreaming": true,
+        "streamReady": true,
+        "payToStream": false,
+        "version": null,
+        "trackNumber": 1,
+        "volumeNumber": 1,
+        "popularity": 50,
+        "isrc": "XX0000000004",
+        "explicit": false,
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "mediaMetadata": {
+          "tags": [
+            "LOSSLESS"
+          ]
+        },
+        "artist": {
+          "id": 3001,
+          "name": "Artist A",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 3001,
+            "name": "Artist A",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 14004,
+          "title": "Album Song Four",
+          "cover": "00000000-0000-4000-8000-000000005004"
+        },
+        "mixes": {
+          "TRACK_MIX": "00000000000000000000000000138c"
+        }
+      },
+      "type": "track"
+    }
+  ]
+}

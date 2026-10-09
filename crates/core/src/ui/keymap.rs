@@ -281,6 +281,7 @@ pub enum UiCommand {
     LibraryPage,
     LikedTrackPage,
     SearchPage,
+    MixesPage,
     Search,
     PreviousPage,
     ClosePopup,
@@ -289,7 +290,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 40] = [
+pub const COMMANDS: [UiCommand; 41] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -325,6 +326,7 @@ pub const COMMANDS: [UiCommand; 40] = [
     UiCommand::LibraryPage,
     UiCommand::LikedTrackPage,
     UiCommand::SearchPage,
+    UiCommand::MixesPage,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -371,6 +373,7 @@ impl UiCommand {
             Self::LibraryPage => "LibraryPage",
             Self::LikedTrackPage => "LikedTrackPage",
             Self::SearchPage => "SearchPage",
+            Self::MixesPage => "MixesPage",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
@@ -459,6 +462,8 @@ pub enum ActionKind {
     GoToAlbum,
     /// The first artist (the popup lists each).
     GoToArtist,
+    /// The radio of the selected track or artist (spec 0011).
+    GoToRadio,
     AddToQueue,
     PlayNext,
     AddToLiked,
@@ -470,9 +475,10 @@ pub enum ActionKind {
 }
 
 /// Every action, in the spec's order.
-pub const ACTIONS: [ActionKind; 10] = [
+pub const ACTIONS: [ActionKind; 11] = [
     ActionKind::GoToAlbum,
     ActionKind::GoToArtist,
+    ActionKind::GoToRadio,
     ActionKind::AddToQueue,
     ActionKind::PlayNext,
     ActionKind::AddToLiked,
@@ -489,6 +495,7 @@ impl ActionKind {
         match self {
             Self::GoToAlbum => "GoToAlbum",
             Self::GoToArtist => "GoToArtist",
+            Self::GoToRadio => "GoToRadio",
             Self::AddToQueue => "AddToQueue",
             Self::PlayNext => "PlayNext",
             Self::AddToLiked => "AddToLiked",
@@ -575,8 +582,7 @@ pub const UNSUPPORTED_COMMANDS: [&str; 29] = [
 
 /// spotify-player actions without a counterpart here: skipped with a
 /// notice.
-pub const UNSUPPORTED_ACTIONS: [&str; 11] = [
-    "GoToRadio",
+pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
     "GoToShow",
     "AddToLibrary",
     "DeleteFromLibrary",
@@ -906,12 +912,22 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('l')], C::LibraryPage),
         (vec![g('y')], C::LikedTrackPage),
         (vec![g('s')], C::SearchPage),
+        (vec![g('m')], C::MixesPage),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),
         (vec![one(Char('?')), one(Ctrl('h'))], C::OpenCommandHelp),
         (vec![one(Char('q')), one(Ctrl('c'))], C::Quit),
     ];
+    // The default `[[actions]]` bindings (spec 0011): `r`, the radio of
+    // the selected track or artist.
+    let actions = [(
+        vec![one(Char('r'))],
+        ActionBinding {
+            action: ActionKind::GoToRadio,
+            target: Target::SelectedItem,
+        },
+    )];
     table
         .into_iter()
         .flat_map(|(sequences, command)| {
@@ -919,6 +935,11 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
                 .into_iter()
                 .map(move |s| (s, Binding::Command(command)))
         })
+        .chain(actions.into_iter().flat_map(|(sequences, action)| {
+            sequences
+                .into_iter()
+                .map(move |s| (s, Binding::Action(action)))
+        }))
         .collect()
 }
 

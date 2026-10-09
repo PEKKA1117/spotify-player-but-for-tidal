@@ -1,0 +1,45 @@
+{
+  "id": 5001,
+  "title": "Song One",
+  "duration": 201,
+  "replayGain": -9.5,
+  "peak": 0.98,
+  "allowStreaming": true,
+  "streamReady": true,
+  "payToStream": false,
+  "version": null,
+  "trackNumber": 1,
+  "volumeNumber": 1,
+  "popularity": 50,
+  "isrc": "XX0000000001",
+  "explicit": false,
+  "audioQuality": "LOSSLESS",
+  "audioModes": [
+    "STEREO"
+  ],
+  "mediaMetadata": {
+    "tags": [
+      "LOSSLESS"
+    ]
+  },
+  "artist": {
+    "id": 3001,
+    "name": "Artist A",
+    "type": "MAIN"
+  },
+  "artists": [
+    {
+      "id": 3001,
+      "name": "Artist A",
+      "type": "MAIN"
+    }
+  ],
+  "album": {
+    "id": 14001,
+    "title": "Album Song One",
+    "cover": "00000000-0000-4000-8000-000000005001"
+  },
+  "mixes": {
+    "TRACK_MIX": "000000000000000000000000001389"
+  }
+}

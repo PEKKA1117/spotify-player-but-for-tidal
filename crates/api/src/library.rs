@@ -34,8 +34,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use tidal_player_core::library::{
     AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, LibraryRequest, LibraryResponse,
-    ListItems, ListPage, ListRef, PageData, PageRequest, PlaylistSummary, RoleCategory, TopHit,
-    hidden_version,
+    ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed,
+    RoleCategory, TopHit, hidden_version,
 };
 use tidal_player_core::{ArtistRef, Item, Track, TrackId};
 
@@ -57,11 +57,22 @@ const ADD_CHUNK: usize = 100;
 /// The kinds a search asks for: always sent, or `videos` fill (spec 0007).
 const SEARCH_TYPES: &str = "TRACKS,ALBUMS,ARTISTS,PLAYLISTS";
 
+/// The page size of a radio: the largest an artist radio takes (`400`
+/// above).
+const RADIO_LIMIT: &str = "100";
+/// What the page endpoints (`/pages/...`) are asked.
+const PAGES_QUERY: [(&str, &str); 2] = [("deviceType", "BROWSER"), ("locale", "en_US")];
+
 /// What was not found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subject {
     Item(Item),
     Artist(u64),
+    /// A mix, by Tidal's mix ID (spec 0011).
+    Mix(String),
+    /// A radio Tidal cannot generate (spec 0011): an empty list, never
+    /// shown as an error.
+    Radio,
 }
 
 impl std::fmt::Display for Subject {
@@ -70,6 +81,8 @@ impl std::fmt::Display for Subject {
         match self {
             Self::Item(item) => write!(f, "{item}"),
             Self::Artist(id) => write!(f, "Artist {id}"),
+            Self::Mix(id) => write!(f, "Mix {id}"),
+            Self::Radio => f.write_str("Radio"),
         }
     }
 }
@@ -255,6 +268,29 @@ impl LibraryClient {
                 })
             }
             PageRequest::Search(query) => self.search(&query, size).await,
+            PageRequest::Mixes => Ok(PageData::Mixes {
+                mixes: self.mixes().await?,
+            }),
+            PageRequest::Mix(id) => {
+                let (mix, tracks) = tokio::try_join!(self.mix_header(&id), self.mix_items(&id))?;
+                Ok(PageData::Mix { mix, tracks })
+            }
+            PageRequest::TrackRadio(id) => {
+                let path = format!("tracks/{id}/radio");
+                let (track, tracks) = tokio::try_join!(self.track_header(id), self.radio(&path))?;
+                Ok(PageData::Radio {
+                    seed: RadioSeed::Track(track),
+                    tracks,
+                })
+            }
+            PageRequest::ArtistRadio(id) => {
+                let path = format!("artists/{id}/radio");
+                let (artist, tracks) = tokio::try_join!(self.artist_header(id), self.radio(&path))?;
+                Ok(PageData::Radio {
+                    seed: RadioSeed::Artist(artist),
+                    tracks,
+                })
+            }
         }
     }
 
@@ -299,6 +335,134 @@ impl LibraryClient {
             id: dto.id,
             name: dto.name,
         })
+    }
+
+    async fn track_header(&self, id: u64) -> Result<Track> {
+        let dto: TrackDto = self
+            .read(
+                &format!("tracks/{id}"),
+                &[],
+                Some(Subject::Item(Item::Track(TrackId(id)))),
+                "track",
+            )
+            .await?;
+        Ok(dto.into())
+    }
+
+    // Mixes and radio (spec 0011) ---------------------------------------
+
+    /// `GET /pages/my_collection_my_mixes`: every `MIX_LIST` module's
+    /// mixes, the rest of a module that holds fewer than its total read
+    /// from its `dataApiPath` with our own offset (the answers report
+    /// `offset: 0`). Video mixes, repeated and empty IDs are dropped.
+    async fn mixes(&self) -> Result<ListPage<MixSummary>> {
+        let page: MixesPage = self
+            .read("pages/my_collection_my_mixes", &PAGES_QUERY, None, "mixes")
+            .await?;
+        let mut entries = Vec::new();
+        for module in page
+            .rows
+            .into_iter()
+            .flat_map(|row| row.modules)
+            .filter(|m| m.kind == "MIX_LIST")
+        {
+            let Some(list) = module.paged_list else {
+                continue;
+            };
+            let step = if list.limit > 0 {
+                list.limit
+            } else {
+                clamp_total(list.items.len() as u64)
+            };
+            let mut held = list.items.len() as u64;
+            entries.extend(list.items);
+            while held < list.total && step > 0 {
+                let raw: RawPage<MixDto> = self
+                    .page_of(
+                        &list.data_api_path,
+                        &PAGES_QUERY,
+                        clamp_total(held),
+                        step,
+                        None,
+                        "mixes",
+                    )
+                    .await?;
+                if raw.items.is_empty() {
+                    break;
+                }
+                held += raw.items.len() as u64;
+                entries.extend(raw.items);
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        let items: Vec<MixSummary> = entries
+            .into_iter()
+            .filter(|m| !m.mix_type.contains("VIDEO") && !m.id.is_empty())
+            .filter(|m| seen.insert(m.id.clone()))
+            .map(MixSummary::from)
+            .collect();
+        Ok(whole(items))
+    }
+
+    /// `GET /pages/mix`: the `MIX_HEADER` module's mix.
+    async fn mix_header(&self, id: &str) -> Result<MixSummary> {
+        let mut query = PAGES_QUERY.to_vec();
+        query.push(("mixId", id));
+        let page: MixHeaderPage = self
+            .read(
+                "pages/mix",
+                &query,
+                Some(Subject::Mix(id.to_owned())),
+                "mix",
+            )
+            .await?;
+        page.rows
+            .into_iter()
+            .flat_map(|row| row.modules)
+            .find_map(|m| m.mix)
+            .map(MixSummary::from)
+            .ok_or(LibraryError::Malformed("mix"))
+    }
+
+    /// `GET /mixes/{id}/items`, once: Tidal ignores `limit` and `offset`
+    /// and answers the whole mix. Only `track` items, with a stereo mode.
+    async fn mix_items(&self, id: &str) -> Result<ListPage<Track>> {
+        let raw: RawPage<TypedEntry> = self
+            .read(
+                &format!("mixes/{id}/items"),
+                &[],
+                Some(Subject::Mix(id.to_owned())),
+                "mix",
+            )
+            .await?;
+        Ok(whole(
+            raw.items
+                .into_iter()
+                .filter(|entry| entry.kind == "track")
+                .filter_map(|entry| serde_json::from_value::<TrackDto>(entry.item).ok())
+                .filter_map(stereo_track)
+                .collect(),
+        ))
+    }
+
+    /// `GET {path}?limit=100`, bare tracks; a `404`/`2001` (Tidal cannot
+    /// generate that radio) is an empty list.
+    async fn radio(&self, path: &str) -> Result<ListPage<Track>> {
+        let result = self
+            .read::<RawPage<TrackDto>>(
+                path,
+                &[("limit", RADIO_LIMIT)],
+                Some(Subject::Radio),
+                "radio",
+            )
+            .await;
+        match result {
+            Ok(raw) => Ok(whole(
+                raw.items.into_iter().filter_map(stereo_track).collect(),
+            )),
+            Err(LibraryError::NotFound(Subject::Radio)) => Ok(whole(Vec::new())),
+            Err(other) => Err(other),
+        }
     }
 
     // Lists -----------------------------------------------------------
@@ -1055,6 +1219,17 @@ fn top_hit(hit: serde_json::Value) -> Option<TopHit> {
     }
 }
 
+/// A list that arrives whole: `total` is the rows kept (spec 0011).
+fn whole<T>(items: Vec<T>) -> ListPage<T> {
+    let total = clamp_total(items.len() as u64);
+    ListPage {
+        items,
+        offset: 0,
+        total,
+        hidden: 0,
+    }
+}
+
 fn clamp_total(total: u64) -> u32 {
     u32::try_from(total).unwrap_or(u32::MAX)
 }
@@ -1288,4 +1463,77 @@ struct CreditEntry {
 struct RoleDto {
     #[serde(rename = "categoryId")]
     category_id: i64,
+}
+
+/// `GET /pages/my_collection_my_mixes`.
+#[derive(Deserialize)]
+struct MixesPage {
+    #[serde(default)]
+    rows: Vec<MixesRow>,
+}
+
+#[derive(Deserialize)]
+struct MixesRow {
+    #[serde(default)]
+    modules: Vec<MixesModule>,
+}
+
+#[derive(Deserialize)]
+struct MixesModule {
+    #[serde(default, rename = "type")]
+    kind: String,
+    #[serde(rename = "pagedList")]
+    paged_list: Option<MixList>,
+}
+
+#[derive(Deserialize)]
+struct MixList {
+    #[serde(default, rename = "dataApiPath")]
+    data_api_path: String,
+    #[serde(default)]
+    limit: u32,
+    #[serde(default, rename = "totalNumberOfItems")]
+    total: u64,
+    #[serde(default)]
+    items: Vec<MixDto>,
+}
+
+/// `GET /pages/mix`.
+#[derive(Deserialize)]
+struct MixHeaderPage {
+    #[serde(default)]
+    rows: Vec<MixHeaderRow>,
+}
+
+#[derive(Deserialize)]
+struct MixHeaderRow {
+    #[serde(default)]
+    modules: Vec<MixHeaderModule>,
+}
+
+#[derive(Deserialize)]
+struct MixHeaderModule {
+    mix: Option<MixDto>,
+}
+
+#[derive(Deserialize)]
+struct MixDto {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default, rename = "subTitle")]
+    subtitle: Option<String>,
+    #[serde(default, rename = "mixType")]
+    mix_type: String,
+}
+
+impl From<MixDto> for MixSummary {
+    fn from(dto: MixDto) -> Self {
+        MixSummary {
+            id: dto.id,
+            title: dto.title,
+            subtitle: dto.subtitle.filter(|s| !s.trim().is_empty()),
+        }
+    }
 }

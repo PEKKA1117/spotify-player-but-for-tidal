@@ -12,9 +12,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
-use tidal_player_core::library::{AlbumKind, TopHit};
+use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
-    HelpSection, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup,
+    Header, HelpSection, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup,
     ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
 };
 
@@ -23,6 +23,9 @@ use super::{Columns, draw_prompt, fit, pad, tail, text_width};
 /// From this many columns inside the frame a page draws its windows side
 /// by side; below, only the focused one.
 const SIDE_BY_SIDE: u16 = 60;
+/// A mix page shows its subtitle as a second title row from this page
+/// height (spec 0011 "Rendering").
+const MIX_SUBTITLE_HEIGHT: u16 = 8;
 /// A credits row shows the album column as well as the roles from this
 /// window width.
 const ROLES_WIDE: usize = 100;
@@ -89,11 +92,32 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         )),
         Rect { height: 1, ..area },
     );
-    let body = Rect {
+    let mut body = Rect {
         y: area.y + 1,
         height: area.height - 1,
         ..area
     };
+    // A mix page (spec 0011): its subtitle as a second, dim title row
+    // when the page is tall enough.
+    if let Some(Header::Mix(MixSummary {
+        subtitle: Some(subtitle),
+        ..
+    })) = &page.header
+        && area.height >= MIX_SUBTITLE_HEIGHT
+    {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                fit(subtitle, width),
+                Style::new().add_modifier(Modifier::DIM),
+            )),
+            Rect { height: 1, ..body },
+        );
+        body = Rect {
+            y: body.y + 1,
+            height: body.height - 1,
+            ..body
+        };
+    }
     if body.height == 0 {
         return;
     }
@@ -474,6 +498,11 @@ fn window_lines(
                     playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
+                // `title  subtitle` (spec 0011 "Rendering").
+                Row::Mix(mix) => match &mix.subtitle {
+                    Some(subtitle) => fit(&format!("{}  {subtitle}", mix.title), width),
+                    None => fit(&mix.title, width),
+                },
             };
             Some((text, style))
         })

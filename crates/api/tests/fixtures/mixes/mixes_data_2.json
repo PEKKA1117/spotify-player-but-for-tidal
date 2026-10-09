@@ -1,0 +1,23 @@
+{
+  "limit": 2,
+  "offset": 0,
+  "totalNumberOfItems": 5,
+  "items": [
+    {
+      "id": "0000000000000000000000000000a3",
+      "title": "My Mix 3",
+      "subTitle": "Artist A and more",
+      "description": "Pop, Rock",
+      "mixType": "DAILY_MIX",
+      "contentBehavior": "UNRESTRICTED"
+    },
+    {
+      "id": "0000000000000000000000000000a4",
+      "title": "My Video Mix 4",
+      "subTitle": "Artist A and more",
+      "description": "Pop, Rock",
+      "mixType": "VIDEO_DAILY_MIX",
+      "contentBehavior": "UNRESTRICTED"
+    }
+  ]
+}

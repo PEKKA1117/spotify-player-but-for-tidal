@@ -1,6 +1,6 @@
 ---
 source: crates/app/src/ui.rs
-assertion_line: 2170
+assertion_line: 2171
 expression: end
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -11,13 +11,13 @@ expression: end
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
 ││  Runni┌Keys────────────────────────────────────────────────────────┐The Ve…││
-││♥ Late │   +               volume up                                │g With…││
-││  Gym m│   -               volume down                              │e The… ││
-││       │   _               mute / unmute                            │       ││
+││♥ Late │   -               volume down                              │g With…││
+││  Gym m│   _               mute / unmute                            │e The… ││
 ││       │   o               add a link or ID to the end of the queue │       ││
 ││       │   O               add a link or ID to play next            │       ││
 ││       │   a               actions on the playing track             │       ││
 ││       │ Actions                                                    │       ││
+││       │   r               the radio of the selected track or artist│       ││
 ││       │   g B             go to the album (playing track)          │       ││
 ││       │ App                                                        │       ││
 ││       │   ?  C-h          this help                                │       ││
