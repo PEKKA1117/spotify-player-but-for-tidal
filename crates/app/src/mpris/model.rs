@@ -7,9 +7,9 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use tidal_player_core::EntryId;
 use tidal_player_core::item::parse_item;
 use tidal_player_core::protocol::{Command, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode};
-use tidal_player_core::EntryId;
 
 /// `mpris:trackid` with no current entry (the one `/org/mpris` path the
 /// MPRIS spec lets players use).
@@ -42,20 +42,93 @@ pub fn trackid(entry: EntryId) -> String {
 
 /// The entry a `mpris:trackid` names, when it is one of ours.
 pub fn entry_of(trackid: &str) -> Option<EntryId> {
-    let _ = trackid;
-    None
+    let id = trackid.strip_prefix(TRACK_PREFIX)?;
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    id.parse().ok().map(EntryId)
+}
+
+/// Whether `path` is a D-Bus object path: `/`, or `/`-separated non-empty
+/// elements of `[A-Za-z0-9_]`.
+fn is_object_path(path: &str) -> bool {
+    path == "/"
+        || path.strip_prefix('/').is_some_and(|rest| {
+            rest.split('/').all(|element| {
+                !element.is_empty()
+                    && element
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            })
+        })
+}
+
+fn current(snapshot: &PlayerSnapshot) -> Option<(usize, &QueueEntry)> {
+    let id = snapshot.current?;
+    snapshot.queue.iter().enumerate().find(|(_, e)| e.id == id)
+}
+
+fn micros(d: Duration) -> i64 {
+    i64::try_from(d.as_micros()).unwrap_or(i64::MAX)
 }
 
 /// `Metadata` of the current entry (`NoTrack` alone with none); `art`
 /// gives the `mpris:artUrl` for a cover ID (`None`: omitted).
 pub fn metadata(snapshot: &PlayerSnapshot, art: &dyn Fn(&str) -> Option<String>) -> Metadata {
-    let _ = (snapshot, art);
     let mut metadata = Metadata::new();
-    metadata.insert(
-        "mpris:trackid".into(),
-        Value::ObjectPath(NO_TRACK.to_owned()),
+    let Some((_, entry)) = current(snapshot) else {
+        metadata.insert(
+            "mpris:trackid".into(),
+            Value::ObjectPath(NO_TRACK.to_owned()),
+        );
+        return metadata;
+    };
+    let track = &entry.track;
+    let mut put = |key: &str, value: Value| {
+        metadata.insert(key.to_owned(), value);
+    };
+    put("mpris:trackid", Value::ObjectPath(trackid(entry.id)));
+    if let Some(duration) = track.duration {
+        put("mpris:length", Value::Int64(micros(duration)));
+    }
+    let title = match &track.version {
+        Some(version) => format!("{} ({version})", track.title),
+        None => track.title.clone(),
+    };
+    put("xesam:title", Value::Str(title));
+    put(
+        "xesam:artist",
+        Value::StrList(track.artists.iter().map(|a| a.name.clone()).collect()),
+    );
+    if let Some(album) = &track.album {
+        put("xesam:album", Value::Str(album.title.clone()));
+        if let Some(url) = album.cover.as_deref().and_then(art) {
+            put("mpris:artUrl", Value::Str(url));
+        }
+    }
+    put(
+        "xesam:url",
+        Value::Str(format!("https://tidal.com/browse/track/{}", track.id)),
     );
     metadata
+}
+
+/// `PlaybackStatus`: a load reads as playing (the user asked to play); the
+/// player already shows a load held by a pause as `Paused`.
+fn playback_status(state: PlaybackState) -> &'static str {
+    match state {
+        PlaybackState::Playing | PlaybackState::Buffering | PlaybackState::Loading => "Playing",
+        PlaybackState::Paused => "Paused",
+        PlaybackState::Stopped => "Stopped",
+    }
+}
+
+fn loop_status(repeat: RepeatMode) -> &'static str {
+    match repeat {
+        RepeatMode::Off => "None",
+        RepeatMode::Queue => "Playlist",
+        RepeatMode::Track => "Track",
+    }
 }
 
 /// Every property of the `Player` table: `position` is the current
@@ -65,22 +138,39 @@ pub fn player_properties(
     position: Duration,
     art: &dyn Fn(&str) -> Option<String>,
 ) -> Properties {
-    let _ = position;
+    let current = current(snapshot);
+    let has_current = current.is_some();
+    let can_go_next = current.is_some_and(|(index, _)| {
+        index + 1 < snapshot.queue.len() || snapshot.repeat != RepeatMode::Off
+    });
+    let can_seek = current.is_some_and(|(_, e)| e.track.duration.is_some());
+    let volume = if snapshot.muted {
+        0.0
+    } else {
+        f64::from(snapshot.volume) / 100.0
+    };
+    let position = if has_current { micros(position) } else { 0 };
     let mut p = Properties::new();
-    p.insert("PlaybackStatus", Value::Str("Stopped".into()));
-    p.insert("LoopStatus", Value::Str("None".into()));
-    p.insert("Shuffle", Value::Bool(false));
-    p.insert("Volume", Value::Double(1.0));
-    p.insert("Position", Value::Int64(0));
+    p.insert(
+        "PlaybackStatus",
+        Value::Str(playback_status(snapshot.state).into()),
+    );
+    p.insert(
+        "LoopStatus",
+        Value::Str(loop_status(snapshot.repeat).into()),
+    );
+    p.insert("Shuffle", Value::Bool(snapshot.shuffle));
+    p.insert("Volume", Value::Double(volume));
+    p.insert("Position", Value::Int64(position));
     p.insert("Rate", Value::Double(1.0));
     p.insert("MinimumRate", Value::Double(1.0));
     p.insert("MaximumRate", Value::Double(1.0));
     p.insert("Metadata", Value::Metadata(metadata(snapshot, art)));
-    p.insert("CanGoNext", Value::Bool(true));
-    p.insert("CanGoPrevious", Value::Bool(true));
-    p.insert("CanPlay", Value::Bool(true));
-    p.insert("CanPause", Value::Bool(true));
-    p.insert("CanSeek", Value::Bool(false));
+    p.insert("CanGoNext", Value::Bool(can_go_next));
+    p.insert("CanGoPrevious", Value::Bool(has_current));
+    p.insert("CanPlay", Value::Bool(has_current));
+    p.insert("CanPause", Value::Bool(has_current));
+    p.insert("CanSeek", Value::Bool(can_seek));
     p.insert("CanControl", Value::Bool(true));
     p
 }
@@ -88,19 +178,29 @@ pub fn player_properties(
 /// The properties `new` changed from `old`, with their new values;
 /// `Position` never counts (it is not signalled).
 pub fn changes(old: &Properties, new: &Properties) -> Properties {
-    let _ = (old, new);
-    Properties::new()
+    new.iter()
+        .filter(|(key, value)| **key != "Position" && old.get(*key) != Some(*value))
+        .map(|(key, value)| (*key, value.clone()))
+        .collect()
 }
 
 /// Where the current entry was or is: its ID and position.
 pub type At = Option<(EntryId, Duration)>;
 
+/// How far a position may run ahead of the clock before it is a seek.
+const SLACK: Duration = Duration::from_secs(1);
+
 /// The position to signal with `Seeked`, when the current entry's position
 /// jumped from `old` to `new` (`elapsed`: the playing time between the two
-/// reports).
+/// reports). Another entry counts from `0:00`: it is a seek only when it
+/// starts elsewhere (a restored position).
 pub fn seeked(old: At, new: At, elapsed: Duration) -> Option<Duration> {
-    let _ = (old, new, elapsed);
-    None
+    let (entry, position) = new?;
+    let from = match old {
+        Some((before, at)) if before == entry => at,
+        _ => Duration::ZERO,
+    };
+    (position < from || position > from + elapsed + SLACK).then_some(position)
 }
 
 /// The current entry's position as the player last reported it, moving on
@@ -157,8 +257,14 @@ impl PositionClock {
 
     /// The position now: `0` with no current entry.
     pub fn position(&self, now: Instant) -> Duration {
-        let _ = now;
-        self.position
+        if self.entry.is_none() {
+            return Duration::ZERO;
+        }
+        let position = self.position + self.elapsed(now);
+        match self.duration {
+            Some(duration) => position.min(duration.max(self.position)),
+            None => position,
+        }
     }
 }
 
@@ -206,23 +312,53 @@ impl std::fmt::Display for CallError {
 
 /// The player command for `call`; `None`: the call does nothing.
 pub fn command_for(call: &Call) -> Result<Option<Command>, CallError> {
-    Ok(match call {
-        Call::PlayPause | Call::Play | Call::Pause => Some(Command::TogglePause),
-        Call::Next => Some(Command::Next),
-        Call::Previous => Some(Command::Previous),
-        _ => None,
-    })
-}
-
-#[allow(dead_code)]
-fn current(snapshot: &PlayerSnapshot) -> Option<&QueueEntry> {
-    let id = snapshot.current?;
-    snapshot.queue.iter().find(|e| e.id == id)
-}
-
-#[allow(dead_code)]
-fn unused(_: RepeatMode, _: &str) {
-    let _ = parse_item;
+    Ok(Some(match call {
+        Call::PlayPause => Command::TogglePause,
+        Call::Play => Command::Play,
+        Call::Pause => Command::Pause,
+        Call::Stop => Command::Stop,
+        Call::Next => Command::Next,
+        Call::Previous => Command::Previous,
+        // Integer division rounds toward zero.
+        Call::Seek(offset) => Command::SeekBy(offset / 1000),
+        Call::SetPosition { trackid, position } => {
+            if !is_object_path(trackid) {
+                return Err(CallError::InvalidArgs(format!(
+                    "Not an object path: {trackid}"
+                )));
+            }
+            let (Some(entry), Ok(position)) = (entry_of(trackid), u64::try_from(*position)) else {
+                return Ok(None);
+            };
+            Command::SetPosition {
+                entry,
+                position: Duration::from_micros(position),
+            }
+        }
+        Call::OpenUri(uri) => {
+            let item = parse_item(uri).map_err(|e| CallError::InvalidArgs(e.to_string()))?;
+            Command::Open {
+                items: vec![item],
+                at: None,
+            }
+        }
+        Call::SetShuffle(on) => Command::SetShuffle(*on),
+        Call::SetLoopStatus(status) => Command::SetRepeat(match status.as_str() {
+            "None" => RepeatMode::Off,
+            "Playlist" => RepeatMode::Queue,
+            "Track" => RepeatMode::Track,
+            other => {
+                return Err(CallError::InvalidArgs(format!(
+                    "LoopStatus must be None, Track or Playlist, got \"{other}\""
+                )));
+            }
+        }),
+        // NaN becomes 0 (a saturating cast).
+        Call::SetVolume(volume) => {
+            Command::SetVolume((volume * 100.0).round().clamp(0.0, 100.0) as u8)
+        }
+        Call::SetRate(_) => return Ok(None),
+    }))
 }
 
 #[cfg(test)]
@@ -265,7 +401,9 @@ mod tests {
     /// Entries 1, 2, 3 (tracks 11, 12, 13, 200 s), entry `current` current.
     fn snap(current: Option<u64>, state: PlaybackState) -> PlayerSnapshot {
         PlayerSnapshot {
-            queue: (1..=3).map(|i| entry(i, track(10 + i, Some(200)))).collect(),
+            queue: (1..=3)
+                .map(|i| entry(i, track(10 + i, Some(200))))
+                .collect(),
             current: current.map(EntryId),
             state,
             position: S(10),
@@ -492,8 +630,14 @@ mod tests {
         for row in rows {
             let p = player_properties(&row.snapshot, S(10), &file_art);
             let name = row.name;
-            let can = ["CanGoNext", "CanGoPrevious", "CanPlay", "CanPause", "CanSeek"]
-                .map(|k| get(&p, k).clone());
+            let can = [
+                "CanGoNext",
+                "CanGoPrevious",
+                "CanPlay",
+                "CanPause",
+                "CanSeek",
+            ]
+            .map(|k| get(&p, k).clone());
             let want: Vec<(&str, Value)> = vec![
                 ("PlaybackStatus", Value::Str(row.status.into())),
                 ("LoopStatus", Value::Str(row.loop_status.into())),
@@ -571,11 +715,23 @@ mod tests {
                 snap(None, PlaybackState::Stopped),
                 vec![("mpris:trackid", Value::ObjectPath(NO_TRACK.into()))],
             ),
-            ("empty", empty(), vec![("mpris:trackid", Value::ObjectPath(NO_TRACK.into()))]),
+            (
+                "empty",
+                empty(),
+                vec![("mpris:trackid", Value::ObjectPath(NO_TRACK.into()))],
+            ),
             ("version, artists, album, cover", full.clone(), base(5)),
-            ("no album", no_album, without(&["xesam:album", "mpris:artUrl"], 5)),
+            (
+                "no album",
+                no_album,
+                without(&["xesam:album", "mpris:artUrl"], 5),
+            ),
             ("no cover", no_cover, without(&["mpris:artUrl"], 5)),
-            ("unknown duration", no_duration, without(&["mpris:length"], 5)),
+            (
+                "unknown duration",
+                no_duration,
+                without(&["mpris:length"], 5),
+            ),
             ("the same track queued twice", twice, base(6)),
         ];
         for (name, snapshot, want) in rows {
@@ -649,7 +805,11 @@ mod tests {
             ),
         ];
         for (name, new, pos, want) in rows {
-            assert_eq!(keys(changes(&props(&base, 10), &props(&new, pos))), want, "{name}");
+            assert_eq!(
+                keys(changes(&props(&base, 10), &props(&new, pos))),
+                want,
+                "{name}"
+            );
         }
         // A track change: `Metadata` and the `Can*` that changed (the last
         // entry has nothing after it).
@@ -686,12 +846,30 @@ mod tests {
         let ms = Duration::from_millis;
         let rows: [(&str, At, At, Duration, Option<Duration>); 9] = [
             ("forward by elapsed", e(1, 10), e(1, 11), S(1), None),
-            ("forward within the second", e(1, 10), Some((EntryId(1), ms(11_900))), S(1), None),
+            (
+                "forward within the second",
+                e(1, 10),
+                Some((EntryId(1), ms(11_900))),
+                S(1),
+                None,
+            ),
             ("backward", e(1, 10), e(1, 5), S(1), Some(S(5))),
             ("back to 0:00", e(1, 10), e(1, 0), S(0), Some(S(0))),
-            ("forward by elapsed + 2 s", e(1, 10), e(1, 13), S(1), Some(S(13))),
+            (
+                "forward by elapsed + 2 s",
+                e(1, 10),
+                e(1, 13),
+                S(1),
+                Some(S(13)),
+            ),
             ("another entry at 0", e(1, 10), e(2, 0), S(0), None),
-            ("another entry at a restored position", e(1, 10), e(2, 83), S(0), Some(S(83))),
+            (
+                "another entry at a restored position",
+                e(1, 10),
+                e(2, 83),
+                S(0),
+                Some(S(83)),
+            ),
             ("no current entry", e(1, 10), None, S(0), None),
             ("a first entry at 0", None, e(1, 0), S(0), None),
         ];
@@ -707,30 +885,100 @@ mod tests {
         let t0 = Instant::now();
         let rows: [(&str, Option<u64>, u64, PlaybackState, Option<u64>, u64, u64); 8] = [
             // name, entry, reported, state, duration, seconds later, want
-            ("playing", Some(1), 10, PlaybackState::Playing, Some(200), 3, 13),
-            ("paused", Some(1), 10, PlaybackState::Paused, Some(200), 3, 10),
-            ("buffering", Some(1), 10, PlaybackState::Buffering, Some(200), 3, 10),
-            ("loading", Some(1), 10, PlaybackState::Loading, Some(200), 3, 10),
-            ("stopped", Some(1), 10, PlaybackState::Stopped, Some(200), 3, 10),
-            ("capped at the duration", Some(1), 199, PlaybackState::Playing, Some(200), 5, 200),
-            ("unknown duration", Some(1), 199, PlaybackState::Playing, None, 5, 204),
-            ("no current entry", None, 10, PlaybackState::Stopped, None, 3, 0),
+            (
+                "playing",
+                Some(1),
+                10,
+                PlaybackState::Playing,
+                Some(200),
+                3,
+                13,
+            ),
+            (
+                "paused",
+                Some(1),
+                10,
+                PlaybackState::Paused,
+                Some(200),
+                3,
+                10,
+            ),
+            (
+                "buffering",
+                Some(1),
+                10,
+                PlaybackState::Buffering,
+                Some(200),
+                3,
+                10,
+            ),
+            (
+                "loading",
+                Some(1),
+                10,
+                PlaybackState::Loading,
+                Some(200),
+                3,
+                10,
+            ),
+            (
+                "stopped",
+                Some(1),
+                10,
+                PlaybackState::Stopped,
+                Some(200),
+                3,
+                10,
+            ),
+            (
+                "capped at the duration",
+                Some(1),
+                199,
+                PlaybackState::Playing,
+                Some(200),
+                5,
+                200,
+            ),
+            (
+                "unknown duration",
+                Some(1),
+                199,
+                PlaybackState::Playing,
+                None,
+                5,
+                204,
+            ),
+            (
+                "no current entry",
+                None,
+                10,
+                PlaybackState::Stopped,
+                None,
+                3,
+                0,
+            ),
         ];
         for (name, entry, reported, state, duration, later, want) in rows {
             let mut clock = PositionClock::new(t0);
-            clock.report(
-                entry.map(EntryId),
-                S(reported),
-                state,
-                duration.map(S),
-                t0,
-            );
+            clock.report(entry.map(EntryId), S(reported), state, duration.map(S), t0);
             assert_eq!(clock.position(t0 + S(later)), S(want), "{name}");
         }
         // A new report restarts the extrapolation.
         let mut clock = PositionClock::new(t0);
-        clock.report(Some(EntryId(1)), S(10), PlaybackState::Playing, Some(S(200)), t0);
-        clock.report(Some(EntryId(1)), S(40), PlaybackState::Playing, Some(S(200)), t0 + S(5));
+        clock.report(
+            Some(EntryId(1)),
+            S(10),
+            PlaybackState::Playing,
+            Some(S(200)),
+            t0,
+        );
+        clock.report(
+            Some(EntryId(1)),
+            S(40),
+            PlaybackState::Playing,
+            Some(S(200)),
+            t0 + S(5),
+        );
         assert_eq!(clock.position(t0 + S(7)), S(42));
         assert_eq!(clock.elapsed(t0 + S(7)), S(2));
     }
@@ -817,7 +1065,10 @@ mod tests {
                 invalid("Not a Tidal track, album or playlist: garbage"),
             ),
             (Call::SetShuffle(true), Ok(Some(Command::SetShuffle(true)))),
-            (Call::SetShuffle(false), Ok(Some(Command::SetShuffle(false)))),
+            (
+                Call::SetShuffle(false),
+                Ok(Some(Command::SetShuffle(false))),
+            ),
             (
                 Call::SetLoopStatus("None".into()),
                 Ok(Some(Command::SetRepeat(RepeatMode::Off))),

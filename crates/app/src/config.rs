@@ -168,6 +168,18 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
+            "mpris" => match value.as_bool() {
+                Some(on) => config.mpris = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "max_cover_arts" => {
+                config.max_cover_arts = Some(int_in(path, key, value, 0, 1000)? as u16);
+            }
             "release_paused_secs" => {
                 config.release_paused = Some(if value.as_str() == Some("never") {
                     None
@@ -352,10 +364,9 @@ mod tests {
     use super::*;
     use crate::play::{
         AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR,
-        PREVIOUS_RESTART_VAR,
-        QUALITY_VAR, RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR,
-        SEEK_STEP_VAR, VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
-        resolve_settings_with,
+        PREVIOUS_RESTART_VAR, QUALITY_VAR, RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR,
+        SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR, VOLUME_STEP_VAR, resolve_play_config_with,
+        resolve_player_config_with, resolve_settings_with,
     };
 
     const PATH: &str = "/c/app.toml";
@@ -1058,42 +1069,33 @@ mod tests {
                     ),
                 ],
             ),
-            (
-                "max_cover_arts",
-                |_, p| p.max_cover_arts.to_string(),
-                {
-                    let mut rows = ranged("max_cover_arts", MAX_COVER_ARTS_VAR, ("20", "10", "15"));
-                    rows.extend([
-                        Row::new("file 0", "max_cover_arts = 0", &[], Ok("0")),
-                        Row::new("file 1000", "max_cover_arts = 1000", &[], Ok("1000")),
-                        Row::new(
-                            "env 0 over file",
-                            "max_cover_arts = 10",
-                            &[(MAX_COVER_ARTS_VAR, "0")],
-                            Ok("0"),
-                        ),
-                        Row::new(
-                            "env 1000",
-                            "",
-                            &[(MAX_COVER_ARTS_VAR, "1000")],
-                            Ok("1000"),
-                        ),
-                        Row::new(
-                            "env 1001",
-                            "",
-                            &[(MAX_COVER_ARTS_VAR, "1001")],
-                            Err(MAX_COVER_ARTS_VAR),
-                        ),
-                        Row::new(
-                            "env -1",
-                            "",
-                            &[(MAX_COVER_ARTS_VAR, "-1")],
-                            Err(MAX_COVER_ARTS_VAR),
-                        ),
-                    ]);
-                    rows
-                },
-            ),
+            ("max_cover_arts", |_, p| p.max_cover_arts.to_string(), {
+                let mut rows = ranged("max_cover_arts", MAX_COVER_ARTS_VAR, ("20", "10", "15"));
+                rows.extend([
+                    Row::new("file 0", "max_cover_arts = 0", &[], Ok("0")),
+                    Row::new("file 1000", "max_cover_arts = 1000", &[], Ok("1000")),
+                    Row::new(
+                        "env 0 over file",
+                        "max_cover_arts = 10",
+                        &[(MAX_COVER_ARTS_VAR, "0")],
+                        Ok("0"),
+                    ),
+                    Row::new("env 1000", "", &[(MAX_COVER_ARTS_VAR, "1000")], Ok("1000")),
+                    Row::new(
+                        "env 1001",
+                        "",
+                        &[(MAX_COVER_ARTS_VAR, "1001")],
+                        Err(MAX_COVER_ARTS_VAR),
+                    ),
+                    Row::new(
+                        "env -1",
+                        "",
+                        &[(MAX_COVER_ARTS_VAR, "-1")],
+                        Err(MAX_COVER_ARTS_VAR),
+                    ),
+                ]);
+                rows
+            }),
             (
                 "release_paused_secs",
                 |_, p| format!("{:?}", p.release_paused.map(|d| d.as_secs())),

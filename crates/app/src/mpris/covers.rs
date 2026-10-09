@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use tidal_player_core::cover_url;
+use tokio::sync::watch;
 
 /// Overrides the cache directory.
 pub const CACHE_DIR_VAR: &str = "TIDAL_PLAYER_CACHE_DIR";
@@ -25,7 +26,13 @@ pub const IMAGES_BASE: &str = "https://resources.tidal.com";
 /// `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player`; an empty
 /// variable counts as unset.
 pub fn cache_dir(var: Option<&str>, xdg_cache_home: Option<&str>, home: Option<&Path>) -> PathBuf {
-    let _ = (var, xdg_cache_home);
+    let set = |v: Option<&str>| v.filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = set(var) {
+        return dir;
+    }
+    if let Some(xdg) = set(xdg_cache_home) {
+        return xdg.join("tidal-player");
+    }
     home.unwrap_or(Path::new("."))
         .join(".cache")
         .join("tidal-player")
@@ -53,25 +60,75 @@ pub enum Art {
     Failed,
 }
 
-/// The `mpris:artUrl` for `cover` in `art`'s state (spec 0010).
+/// The `mpris:artUrl` for `cover` in `art`'s state (spec 0010): the file
+/// once cached, nothing while it downloads, Tidal's URL otherwise.
 pub fn art_url(cover: Option<&str>, art: &Art) -> Option<String> {
     let cover = cover?;
-    let _ = art;
-    Some(cover_url(cover, SIZE))
+    match art {
+        Art::Cached(path) => Some(file_url(path)),
+        Art::Downloading => None,
+        Art::Off | Art::Failed => Some(cover_url(cover, SIZE)),
+    }
+}
+
+/// `file://` and the path, its bytes outside `[A-Za-z0-9/._~-]` escaped.
+fn file_url(path: &Path) -> String {
+    use std::fmt::Write;
+    use std::os::unix::ffi::OsStrExt;
+    let mut url = String::from("file://");
+    for &b in path.as_os_str().as_bytes() {
+        if b.is_ascii_alphanumeric() || b"/._~-".contains(&b) {
+            url.push(char::from(b));
+        } else {
+            let _ = write!(url, "%{b:02X}");
+        }
+    }
+    url
 }
 
 /// The covers to delete so that at most `max` remain, least recently used
 /// (oldest `SystemTime`) first, never one in `keep`.
 pub fn evict(files: &[(String, SystemTime)], max: usize, keep: &[&str]) -> Vec<String> {
-    let _ = (files, max, keep);
-    Vec::new()
+    let mut by_age: Vec<&(String, SystemTime)> = files.iter().collect();
+    by_age.sort_by_key(|(_, used)| *used);
+    let mut left = files.len();
+    let mut gone = Vec::new();
+    for (name, _) in by_age {
+        if left <= max {
+            break;
+        }
+        if keep.contains(&name.as_str()) {
+            continue;
+        }
+        gone.push(name.clone());
+        left -= 1;
+    }
+    gone
+}
+
+/// Whether `name` is `<uuid>.jpg` (lower-case hex, as Tidal gives them).
+fn is_cover_file(name: &str) -> bool {
+    name.strip_suffix(".jpg").is_some_and(is_cover_id)
+}
+
+/// A UUID in lower-case hex: `8-4-4-4-12`.
+fn is_cover_id(id: &str) -> bool {
+    let groups: Vec<&str> = id.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// The file names in `covers/` to delete at start: anything that is not
 /// `<uuid>.jpg`.
 pub fn start_cleanup(names: &[String]) -> Vec<String> {
-    let _ = names;
-    Vec::new()
+    names
+        .iter()
+        .filter(|name| !is_cover_file(name))
+        .cloned()
+        .collect()
 }
 
 /// The cache on disk and its downloads.
@@ -90,6 +147,7 @@ impl CoverCache {
         Self {
             covers: cache_dir.join("covers"),
             max,
+            // No credentials: covers are public (spec 0010 "Download").
             client: reqwest::Client::new(),
             base: IMAGES_BASE.to_owned(),
             timeout: TIMEOUT,
@@ -123,35 +181,136 @@ impl CoverCache {
         cover_url(cover, SIZE).replacen(IMAGES_BASE, &self.base, 1)
     }
 
-    /// At start: deletes what [`start_cleanup`] names and applies the limit.
+    /// At start: deletes what [`start_cleanup`] names and applies the
+    /// limit. A missing directory is an empty cache.
     pub fn start(&self) -> std::io::Result<()> {
+        let names: Vec<String> = match std::fs::read_dir(&self.covers) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        for name in start_cleanup(&names) {
+            remove(&self.covers.join(name));
+        }
+        self.apply_limit(&[]);
         Ok(())
+    }
+
+    /// Deletes the least recently used covers beyond the limit.
+    fn apply_limit(&self, keep: &[&str]) {
+        let Ok(entries) = std::fs::read_dir(&self.covers) else {
+            return;
+        };
+        let files: Vec<(String, SystemTime)> = entries
+            .filter_map(Result::ok)
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let id = name
+                    .strip_suffix(".jpg")
+                    .filter(|id| is_cover_id(id))?
+                    .to_owned();
+                let used = e.metadata().and_then(|m| m.modified()).ok()?;
+                Some((id, used))
+            })
+            .collect();
+        for id in evict(&files, self.max, keep) {
+            remove(&self.path(&id));
+        }
     }
 
     /// The cached file of `cover`, made the most recently used; `None`
     /// when it is not cached.
     pub fn lookup(&self, cover: &str) -> Option<PathBuf> {
-        let _ = cover;
-        None
+        if self.max == 0 || !is_cover_id(cover) {
+            return None;
+        }
+        let path = self.path(cover);
+        let file = std::fs::File::options().write(true).open(&path).ok()?;
+        let _ = file.set_modified(SystemTime::now());
+        Some(path)
     }
 
-    /// Downloads `cover` into the cache (then applies the limit, keeping
-    /// it and `current`): its file, or why not.
+    /// Downloads `cover` into the cache, then applies the limit, keeping
+    /// it and `current`: its file, or why not.
     pub async fn download(&self, cover: &str, current: Option<&str>) -> Result<PathBuf, String> {
-        let _ = current;
-        let bytes = self
+        if !is_cover_id(cover) {
+            return Err(format!("not a cover ID: {cover}"));
+        }
+        let bytes = tokio::time::timeout(self.timeout, self.get(cover))
+            .await
+            .map_err(|_| format!("no answer within {} s", self.timeout.as_secs()))??;
+        let path = self.path(cover);
+        self.write(&path, &bytes)
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        let mut keep = vec![cover];
+        keep.extend(current);
+        self.apply_limit(&keep);
+        Ok(path)
+    }
+
+    /// The image: a `200` with an `image/*` body of at most [`LIMIT`].
+    async fn get(&self, cover: &str) -> Result<Vec<u8>, String> {
+        let mut response = self
             .client
             .get(self.url(cover))
             .send()
             .await
-            .map_err(|e| e.to_string())?
-            .bytes()
+            .map_err(|e| e.without_url().to_string())?;
+        if response.status() != reqwest::StatusCode::OK {
+            return Err(format!("HTTP {}", response.status().as_u16()));
+        }
+        let kind = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        if !kind.starts_with("image/") {
+            return Err(format!("not an image: \"{kind}\""));
+        }
+        let too_big = || format!("larger than {} bytes", LIMIT);
+        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+            return Err(too_big());
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map_err(|e| e.to_string())?;
-        let path = self.path(cover);
-        std::fs::create_dir_all(&self.covers).map_err(|e| e.to_string())?;
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-        Ok(path)
+            .map_err(|e| e.without_url().to_string())?
+        {
+            if body.len() + chunk.len() > LIMIT {
+                return Err(too_big());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    }
+
+    /// Writes `<path>.tmp` (`0600`, in a `0700` `covers/`), then renames it,
+    /// so the cache never holds half a file.
+    fn write(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        use std::io::Write;
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.covers)?;
+        let tmp = path.with_extension("jpg.tmp");
+        let written = std::fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut file| file.write_all(bytes))
+            .and_then(|()| std::fs::rename(&tmp, path));
+        if written.is_err() {
+            remove(&tmp);
+        }
+        written
     }
 
     /// [`Self::lookup`], else [`Self::download`].
@@ -163,6 +322,14 @@ impl CoverCache {
     }
 }
 
+fn remove(path: &Path) {
+    if let Err(e) = std::fs::remove_file(path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!("cannot delete {}: {e}", path.display());
+    }
+}
+
 /// What a finished fetch reports: the cover and its file, or why not.
 pub type Done = Arc<dyn Fn(String, Result<PathBuf, String>) + Send + Sync>;
 
@@ -170,25 +337,30 @@ pub type Done = Arc<dyn Fn(String, Result<PathBuf, String>) + Send + Sync>;
 /// downloads replaces any waiting one (spec 0010 "When").
 #[derive(Debug)]
 pub struct CoverWorker {
-    wanted: tokio::sync::mpsc::UnboundedSender<String>,
+    wanted: watch::Sender<Option<String>>,
 }
 
 impl CoverWorker {
-    /// Starts the worker on `runtime`; `done` hears every fetch.
+    /// Starts the worker on `runtime`; `done` hears every fetch. It ends
+    /// when the worker is dropped.
     pub fn spawn(cache: CoverCache, runtime: &tokio::runtime::Handle, done: Done) -> Self {
-        let (wanted, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let (wanted, mut rx) = watch::channel::<Option<String>>(None);
         runtime.spawn(async move {
-            while let Some(cover) = rx.recv().await {
-                let result = cache.fetch(&cover).await;
-                done(cover, result);
+            while rx.changed().await.is_ok() {
+                // The newest wish only: the ones it replaced are skipped.
+                let cover = rx.borrow_and_update().clone();
+                if let Some(cover) = cover {
+                    let result = cache.fetch(&cover).await;
+                    done(cover, result);
+                }
             }
         });
         Self { wanted }
     }
 
-    /// Fetch `cover` next.
+    /// Fetch `cover` next (replacing any cover still waiting).
     pub fn want(&self, cover: &str) {
-        let _ = self.wanted.send(cover.to_owned());
+        self.wanted.send_replace(Some(cover.to_owned()));
     }
 }
 
@@ -222,9 +394,21 @@ mod tests {
         let rows: [(&str, Vec<(String, SystemTime)>, usize, &[&str], &[&str]); 7] = [
             ("21 at 20: the oldest", files(21), 20, &[], &["c0"]),
             ("in any order", shuffled, 20, &[], &["c0"]),
-            ("the current one oldest: the next oldest", files(21), 20, &["c0"], &["c1"]),
+            (
+                "the current one oldest: the next oldest",
+                files(21),
+                20,
+                &["c0"],
+                &["c1"],
+            ),
             ("20 at 20: none", files(20), 20, &[], &[]),
-            ("3 at 1, the newest current", files(3), 1, &["c2"], &["c0", "c1"]),
+            (
+                "3 at 1, the newest current",
+                files(3),
+                1,
+                &["c2"],
+                &["c0", "c1"],
+            ),
             ("two kept at 1", files(3), 1, &["c2", "c0"], &["c1"]),
             ("0: all but the kept", files(3), 0, &["c1"], &["c0", "c2"]),
         ];
@@ -242,7 +426,9 @@ mod tests {
             "https://resources.tidal.com/images/{}/640x640.jpg",
             A.replace('-', "/")
         );
-        let cached = Art::Cached(PathBuf::from(format!("/home/u/.cache/tidal-player/covers/{A}.jpg")));
+        let cached = Art::Cached(PathBuf::from(format!(
+            "/home/u/.cache/tidal-player/covers/{A}.jpg"
+        )));
         let spaced = Art::Cached(PathBuf::from(format!("/home/a b/c%d/{A}.jpg")));
         let rows: Vec<(&str, Option<&str>, Art, Option<String>)> = vec![
             (
@@ -287,6 +473,8 @@ mod tests {
         got.sort();
         let mut want = vec![
             format!("{A}.jpg.tmp"),
+            // Tidal's IDs are lower case: this name is never looked up.
+            format!("{}.jpg", A.to_uppercase()),
             "notes.txt".to_owned(),
             "x.jpg".into(),
             format!("{B}.png"),
@@ -303,10 +491,34 @@ mod tests {
         let home = Path::new("/home/u");
         let rows: [(&str, Option<&str>, Option<&str>, Option<&Path>, &str); 6] = [
             ("variable", Some("/v"), Some("/x"), Some(home), "/v"),
-            ("empty variable", Some(""), Some("/x"), Some(home), "/x/tidal-player"),
-            ("XDG_CACHE_HOME", None, Some("/x"), Some(home), "/x/tidal-player"),
-            ("empty XDG_CACHE_HOME", None, Some(""), Some(home), "/home/u/.cache/tidal-player"),
-            ("HOME", None, None, Some(home), "/home/u/.cache/tidal-player"),
+            (
+                "empty variable",
+                Some(""),
+                Some("/x"),
+                Some(home),
+                "/x/tidal-player",
+            ),
+            (
+                "XDG_CACHE_HOME",
+                None,
+                Some("/x"),
+                Some(home),
+                "/x/tidal-player",
+            ),
+            (
+                "empty XDG_CACHE_HOME",
+                None,
+                Some(""),
+                Some(home),
+                "/home/u/.cache/tidal-player",
+            ),
+            (
+                "HOME",
+                None,
+                None,
+                Some(home),
+                "/home/u/.cache/tidal-player",
+            ),
             ("nothing", None, None, None, "./.cache/tidal-player"),
         ];
         for (name, var, xdg, home, want) in rows {
@@ -322,7 +534,11 @@ mod tests {
         format!("/images/{}/640x640.jpg", cover.replace('-', "/"))
     }
 
-    async fn mount(server: &wiremock::MockServer, cover: &str, response: wiremock::ResponseTemplate) {
+    async fn mount(
+        server: &wiremock::MockServer,
+        cover: &str,
+        response: wiremock::ResponseTemplate,
+    ) {
         use wiremock::matchers::{method, path};
         wiremock::Mock::given(method("GET"))
             .and(path(image_path(cover)))
@@ -395,13 +611,19 @@ mod tests {
         let server = image_server().await;
         let over = vec![0u8; LIMIT + 1];
         let rows: Vec<(&str, wiremock::ResponseTemplate)> = vec![
-            ("404", wiremock::ResponseTemplate::new(404).set_body_raw(b"no".to_vec(), "image/jpeg")),
+            (
+                "404",
+                wiremock::ResponseTemplate::new(404).set_body_raw(b"no".to_vec(), "image/jpeg"),
+            ),
             (
                 "text/html",
                 wiremock::ResponseTemplate::new(200).set_body_raw(b"<html>".to_vec(), "text/html"),
             ),
             ("over 5 MB", jpeg(over)),
-            ("no content type", wiremock::ResponseTemplate::new(200).set_body_bytes(b"x".to_vec())),
+            (
+                "no content type",
+                wiremock::ResponseTemplate::new(200).set_body_bytes(b"x".to_vec()),
+            ),
         ];
         let covers = [A, B, C, "8b0c1a3e-3333-4c3a-a0ba-000000000004"];
         for ((name, response), cover) in rows.into_iter().zip(covers) {
@@ -440,7 +662,11 @@ mod tests {
             .await
             .expect("still waiting after three times the timeout");
         assert!(got.is_err(), "{got:?}");
-        assert!(started.elapsed() >= TIMEOUT, "gave up after {:?}", started.elapsed());
+        assert!(
+            started.elapsed() >= TIMEOUT,
+            "gave up after {:?}",
+            started.elapsed()
+        );
         assert_eq!(names(cache.dir()), Vec::<String>::new());
     }
 

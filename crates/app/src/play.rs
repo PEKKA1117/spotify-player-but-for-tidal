@@ -497,6 +497,12 @@ fn resolve_with(
     if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
         settings.remember_playback = on;
     }
+    if let Some(on) = on_off(get(MPRIS_VAR), MPRIS_VAR)? {
+        settings.mpris = on;
+    }
+    if let Some(value) = get(MAX_COVER_ARTS_VAR) {
+        settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
+    }
     if autoplay_flag {
         settings.player.autoplay = true;
         settings.autoplay_explicit = true;
@@ -537,6 +543,12 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(remember) = file.remember_playback {
         settings.remember_playback = remember;
+    }
+    if let Some(mpris) = file.mpris {
+        settings.mpris = mpris;
+    }
+    if let Some(max) = file.max_cover_arts {
+        settings.max_cover_arts = max;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;
