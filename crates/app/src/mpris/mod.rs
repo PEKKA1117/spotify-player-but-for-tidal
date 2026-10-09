@@ -106,6 +106,49 @@ pub fn start(
     runtime: &tokio::runtime::Handle,
     log: Log,
 ) -> Option<Mpris> {
-    let _ = (settings, inputs, runtime, log, bus::connect);
-    None
+    if !settings.enabled {
+        return None;
+    }
+    let cache = (settings.max_cover_arts > 0).then(|| {
+        let cache = covers::CoverCache::new(&settings.cache_dir, settings.max_cover_arts.into());
+        match &settings.images_base {
+            Some(base) => cache.with_base(base),
+            None => cache,
+        }
+    });
+    let adapter = hub::Adapter::new(
+        inputs,
+        hub::Options {
+            deadline: hub::DEADLINE,
+            covers: cache.clone().map(|c| (c, runtime.clone())),
+            log: Arc::clone(&log),
+        },
+    );
+    let connected = runtime.block_on(bus::connect(
+        adapter.clone(),
+        runtime.clone(),
+        Arc::clone(&log),
+    ));
+    match connected {
+        Ok((emitter, name)) => {
+            if let Some(cache) = cache
+                && let Err(e) = cache.start()
+            {
+                log(
+                    Level::Warn,
+                    &format!(
+                        "Cannot clean the cover cache {}: {e}",
+                        cache.dir().display()
+                    ),
+                );
+            }
+            adapter.set_bus(emitter);
+            adapter.attach();
+            Some(Mpris { adapter, name })
+        }
+        Err(e) => {
+            log(Level::Info, &format!("MPRIS is not available: {e}"));
+            None
+        }
+    }
 }

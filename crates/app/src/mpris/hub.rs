@@ -291,8 +291,19 @@ impl Adapter {
 impl Pending {
     /// The player's answer, within the deadline.
     pub async fn wait(self) -> Result<(), CallError> {
-        let _ = (self.id, self.reply, self.shared.deadline);
-        Ok(())
+        let deadline = self.shared.deadline;
+        match tokio::time::timeout(deadline, self.reply).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(message))) => Err(CallError::Failed(message)),
+            Ok(Err(_)) => Err(CallError::Failed(SHUTTING_DOWN.into())),
+            Err(_) => {
+                lock(&self.shared.calls).pending.remove(&self.id);
+                Err(CallError::Timeout(format!(
+                    "The player did not answer within {} s",
+                    deadline.as_secs()
+                )))
+            }
+        }
     }
 }
 
@@ -304,11 +315,7 @@ impl Shared {
             ServerMessage::Event(Event::Position { entry, position }) => {
                 self.on_position(entry, position);
             }
-            ServerMessage::Event(Event::ShuttingDown) => {
-                if let Some(bus) = self.bus() {
-                    bus.close();
-                }
-            }
+            ServerMessage::Event(Event::ShuttingDown) => self.shut(),
             ServerMessage::Event(_) | ServerMessage::LibraryReply { .. } => {}
             ServerMessage::Reply { id, result } => {
                 if let Some(tx) = lock(&self.calls).pending.remove(&id) {
@@ -382,7 +389,7 @@ impl Shared {
         let Some(cover) = current_cover(&view.snapshot) else {
             return;
         };
-        let art = match None::<&CoverCache> {
+        let art = match &self.cache {
             None => Art::Off,
             Some(cache) => match cache.lookup(&cover) {
                 Some(path) => Art::Cached(path),
