@@ -255,6 +255,11 @@ impl LibraryClient {
                 })
             }
             PageRequest::Search(query) => self.search(&query, size).await,
+            // Stub until spec 0011's API slice (AC2-AC4) lands.
+            PageRequest::Mixes
+            | PageRequest::Mix(_)
+            | PageRequest::TrackRadio(_)
+            | PageRequest::ArtistRadio(_) => Err(LibraryError::Malformed("page")),
         }
     }
 

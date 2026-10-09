@@ -230,7 +230,7 @@ mod tests {
     use super::*;
     use crate::library::{
         AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, ListItems, ListPage, ListRef,
-        PageData, PageRequest, PlaylistSummary, RoleCategory, TopHit,
+        MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed, RoleCategory, TopHit,
     };
     use crate::track::{AlbumRef, ArtistRef, TrackId};
     use serde::de::DeserializeOwned;
@@ -333,6 +333,11 @@ mod tests {
             PageRequest::Playlist(UUID.into()),
             PageRequest::Artist(2),
             PageRequest::Search("pierce the veil".into()),
+            // 0011 AC1.
+            PageRequest::Mixes,
+            PageRequest::Mix("016214541b7a008d226272cf9d0964".into()),
+            PageRequest::TrackRadio(145060431),
+            PageRequest::ArtistRadio(35361),
         ]
         .into_iter()
         .map(LibraryRequest::Page)
@@ -460,6 +465,41 @@ mod tests {
                 ))))),
                 search(Some(Box::new(TopHit::Playlist(playlist(false))))),
                 search(None),
+                // 0011 AC1: the mixes, a mix and both radios.
+                PageData::Mixes {
+                    mixes: list(
+                        vec![
+                            MixSummary {
+                                id: "016214541b7a008d226272cf9d0964".into(),
+                                title: "My Daily Discovery".into(),
+                                subtitle: Some("Songs by new and familiar artists".into()),
+                            },
+                            MixSummary {
+                                id: "00209e91224287130d9eb3ea64016b".into(),
+                                title: "My Mix 1".into(),
+                                subtitle: None,
+                            },
+                        ],
+                        0,
+                        2,
+                    ),
+                },
+                PageData::Mix {
+                    mix: MixSummary {
+                        id: "016214541b7a008d226272cf9d0964".into(),
+                        title: "My Daily Discovery".into(),
+                        subtitle: None,
+                    },
+                    tracks: list(vec![track(9)], 0, 1),
+                },
+                PageData::Radio {
+                    seed: RadioSeed::Track(track(9)),
+                    tracks: list(vec![track(9), track(10)], 0, 2),
+                },
+                PageData::Radio {
+                    seed: RadioSeed::Artist(artist(12, "The Wonders")),
+                    tracks: list(vec![], 0, 0),
+                },
             ])
             .collect();
         let mut responses: Vec<LibraryResponse> =

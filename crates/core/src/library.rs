@@ -122,6 +122,45 @@ pub enum PageRequest {
     Artist(u64),
     /// A search, by its trimmed query (spec 0007).
     Search(String),
+    /// The user's mixes (spec 0011).
+    Mixes,
+    /// A mix, by Tidal's mix ID (spec 0011).
+    Mix(String),
+    /// A track's radio, by track ID (spec 0011).
+    TrackRadio(u64),
+    /// An artist's radio, by artist ID (spec 0011).
+    ArtistRadio(u64),
+}
+
+/// A mix row and the mix page's header (spec 0011).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct MixSummary {
+    /// Tidal's mix ID (30 hex digits).
+    pub id: String,
+    pub title: String,
+    /// Tidal's `subTitle`, when not empty.
+    pub subtitle: Option<String>,
+}
+
+// Red stub (spec 0011 AC1): writes nothing useful.
+impl Serialize for MixSummary {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_unit()
+    }
+}
+
+/// What a radio page is the radio of (spec 0011).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum RadioSeed {
+    Track(Track),
+    Artist(ArtistRef),
+}
+
+// Red stub (spec 0011 AC1): writes nothing useful.
+impl Serialize for RadioSeed {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_unit()
+    }
 }
 
 /// Tidal's top hit of a search (spec 0007 decision 6): one item of any
@@ -171,6 +210,20 @@ pub enum PageData {
         albums: ListPage<AlbumSummary>,
         artists: ListPage<ArtistRef>,
         playlists: ListPage<PlaylistSummary>,
+    },
+    /// The user's mixes, all of them (spec 0011: `total` is the rows kept).
+    Mixes {
+        mixes: ListPage<MixSummary>,
+    },
+    /// A mix and all its tracks.
+    Mix {
+        mix: MixSummary,
+        tracks: ListPage<Track>,
+    },
+    /// A track's or an artist's radio, all its tracks.
+    Radio {
+        seed: RadioSeed,
+        tracks: ListPage<Track>,
     },
 }
 

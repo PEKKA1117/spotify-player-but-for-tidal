@@ -1,6 +1,6 @@
 # 0011 — Mixes and radio
 
-- **Status**: draft (2026-10-09); API shapes verified by the live probe (2026-10-09, "Facts"); decisions answered by the user (2026-10-09), folded into the body
+- **Status**: approved (2026-10-09); API shapes verified by the live probe (2026-10-09, "Facts"); decisions answered by the user (2026-10-09), folded into the body
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0004 (implemented: the queue, autoplay's track radio), 0006 (implemented: pages, the history, lists that load as you scroll, the actions popup, `Library`/`LibraryReply`), 0008 (implemented: the keymap, `[[actions]]`, the keys help)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Mixes" and "Radio" sections and the new keys; [`docs/config.md`](../config.md) gains `MixesPage` and `GoToRadio` (AC13)
