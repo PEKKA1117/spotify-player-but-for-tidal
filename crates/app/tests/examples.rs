@@ -38,6 +38,9 @@ fn ac18_example_app_toml_is_the_defaults() {
         ("page_size", file.page_size.is_none()),
         ("search_page_size", file.search_page_size.is_none()),
         ("hide_versions", file.hide_versions.is_none()),
+        // Spec 0010.
+        ("mpris", file.mpris.is_none()),
+        ("max_cover_arts", file.max_cover_arts.is_none()),
     ]
     .into_iter()
     .filter_map(|(key, missing)| missing.then_some(key))
