@@ -51,6 +51,10 @@ pub struct AppConfig {
     pub layout: LibraryLayout,
     /// Spec 0009 "Turning it off".
     pub remember_playback: Option<bool>,
+    /// Spec 0010 "Turning it off".
+    pub mpris: Option<bool>,
+    /// Spec 0010 "The cover cache".
+    pub max_cover_arts: Option<u16>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -347,7 +351,8 @@ fn line_column(text: &str, offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::play::{
-        AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR,
+        AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR,
+        PREVIOUS_RESTART_VAR,
         QUALITY_VAR, RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR,
         SEEK_STEP_VAR, VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
         resolve_settings_with,
@@ -463,6 +468,7 @@ mod tests {
             ("previous_restart_secs", 0, 60),
             ("page_size", 1, 10_000),
             ("search_page_size", 1, 1000),
+            ("max_cover_arts", 0, 1000),
         ] {
             rows.extend(bounds(key, min, max));
         }
@@ -522,6 +528,24 @@ mod tests {
                 "remember_playback = false",
                 |c| format!("{:?}", c.remember_playback),
                 "Some(false)",
+            ),
+            (
+                "mpris true",
+                "mpris = true",
+                |c| format!("{:?}", c.mpris),
+                "Some(true)",
+            ),
+            (
+                "mpris false",
+                "mpris = false",
+                |c| format!("{:?}", c.mpris),
+                "Some(false)",
+            ),
+            (
+                "max_cover_arts 20",
+                "max_cover_arts = 20",
+                |c| format!("{:?}", c.max_cover_arts),
+                "Some(20)",
             ),
             (
                 "quality hi-res",
@@ -671,6 +695,16 @@ mod tests {
                 "remember_playback type",
                 "remember_playback = \"off\"",
                 "/c/app.toml: invalid remember_playback: expected true or false, got \"off\"",
+            ),
+            (
+                "mpris type",
+                "mpris = \"off\"",
+                "/c/app.toml: invalid mpris: expected true or false, got \"off\"",
+            ),
+            (
+                "mpris number",
+                "mpris = 1",
+                "/c/app.toml: invalid mpris: expected true or false, got 1",
             ),
             (
                 "release over",
@@ -990,6 +1024,75 @@ mod tests {
                         Err(REMEMBER_PLAYBACK_VAR),
                     ),
                 ],
+            ),
+            (
+                "mpris",
+                |_, p| p.mpris.to_string(),
+                vec![
+                    Row::new("default", "", &[], Ok("true")),
+                    Row::new("file true", "mpris = true", &[], Ok("true")),
+                    Row::new("file false", "mpris = false", &[], Ok("false")),
+                    Row::new(
+                        "env off over file true",
+                        "mpris = true",
+                        &[(MPRIS_VAR, "off")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "env on over file false",
+                        "mpris = false",
+                        &[(MPRIS_VAR, "On")],
+                        Ok("true"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "mpris = false",
+                        &[(MPRIS_VAR, "")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "mpris = true",
+                        &[(MPRIS_VAR, "maybe")],
+                        Err(MPRIS_VAR),
+                    ),
+                ],
+            ),
+            (
+                "max_cover_arts",
+                |_, p| p.max_cover_arts.to_string(),
+                {
+                    let mut rows = ranged("max_cover_arts", MAX_COVER_ARTS_VAR, ("20", "10", "15"));
+                    rows.extend([
+                        Row::new("file 0", "max_cover_arts = 0", &[], Ok("0")),
+                        Row::new("file 1000", "max_cover_arts = 1000", &[], Ok("1000")),
+                        Row::new(
+                            "env 0 over file",
+                            "max_cover_arts = 10",
+                            &[(MAX_COVER_ARTS_VAR, "0")],
+                            Ok("0"),
+                        ),
+                        Row::new(
+                            "env 1000",
+                            "",
+                            &[(MAX_COVER_ARTS_VAR, "1000")],
+                            Ok("1000"),
+                        ),
+                        Row::new(
+                            "env 1001",
+                            "",
+                            &[(MAX_COVER_ARTS_VAR, "1001")],
+                            Err(MAX_COVER_ARTS_VAR),
+                        ),
+                        Row::new(
+                            "env -1",
+                            "",
+                            &[(MAX_COVER_ARTS_VAR, "-1")],
+                            Err(MAX_COVER_ARTS_VAR),
+                        ),
+                    ]);
+                    rows
+                },
             ),
             (
                 "release_paused_secs",

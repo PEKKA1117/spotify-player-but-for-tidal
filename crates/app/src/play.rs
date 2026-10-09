@@ -336,6 +336,10 @@ pub const AUTOPLAY_VAR: &str = "TIDAL_PLAYER_AUTOPLAY";
 pub const RELEASE_PAUSED_VAR: &str = "TIDAL_PLAYER_RELEASE_PAUSED";
 /// Remember the playback state between runs: `on` or `off` (spec 0009).
 pub const REMEMBER_PLAYBACK_VAR: &str = "TIDAL_PLAYER_REMEMBER_PLAYBACK";
+/// `on` or `off`: whether the player publishes itself over MPRIS (spec 0010).
+pub const MPRIS_VAR: &str = "TIDAL_PLAYER_MPRIS";
+/// The most album covers the cache keeps, 0 to 1000 (spec 0010).
+pub const MAX_COVER_ARTS_VAR: &str = "TIDAL_PLAYER_MAX_COVER_ARTS";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +383,10 @@ pub struct PlayerSettings {
     /// `player.autoplay` came from `--autoplay` or the environment, so it
     /// beats a remembered autoplay (spec 0009 "Precedence of autoplay").
     pub autoplay_explicit: bool,
+    /// Whether the player publishes itself over MPRIS (spec 0010).
+    pub mpris: bool,
+    /// The most covers the cover cache keeps; `0`: no cache (spec 0010).
+    pub max_cover_arts: u16,
 }
 
 impl Default for PlayerSettings {
@@ -391,6 +399,8 @@ impl Default for PlayerSettings {
             layout: LibraryLayout::default(),
             remember_playback: true,
             autoplay_explicit: false,
+            mpris: true,
+            max_cover_arts: 20,
         }
     }
 }
