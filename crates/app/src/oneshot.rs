@@ -126,11 +126,19 @@ pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
         PlaybackCommand::Seek { position } => seek(position)?,
         PlaybackCommand::Volume { level } => volume(level)?,
         PlaybackCommand::Mute => Command::ToggleMute,
-        PlaybackCommand::Play | PlaybackCommand::Pause | PlaybackCommand::Stop => {
-            Command::TogglePause
+        PlaybackCommand::Play => Command::Play,
+        PlaybackCommand::Pause => Command::Pause,
+        PlaybackCommand::Stop => Command::Stop,
+        PlaybackCommand::Shuffle { state: None } => Command::ToggleShuffle,
+        PlaybackCommand::Shuffle { state: Some(state) } => {
+            Command::SetShuffle(*state == Switch::On)
         }
-        PlaybackCommand::Shuffle { .. } => Command::ToggleShuffle,
-        PlaybackCommand::Repeat { .. } => Command::CycleRepeat,
+        PlaybackCommand::Repeat { mode: None } => Command::CycleRepeat,
+        PlaybackCommand::Repeat { mode: Some(mode) } => Command::SetRepeat(match mode {
+            RepeatArg::Off => RepeatMode::Off,
+            RepeatArg::Queue => RepeatMode::Queue,
+            RepeatArg::Track => RepeatMode::Track,
+        }),
         PlaybackCommand::Autoplay => Command::ToggleAutoplay,
         PlaybackCommand::Load { items } => Command::Open {
             items: items_of(items)?,
@@ -444,8 +452,14 @@ mod tests {
             (&["status"], Ok(Plan::Status { json: false })),
             (&["status", "--json"], Ok(Plan::Status { json: true })),
             // Refused.
-            (&["shuffle", "maybe"], Err("invalid value".into())),
-            (&["repeat", "all"], Err("invalid value".into())),
+            (
+                &["shuffle", "maybe"],
+                Err("one of the values isn't valid for an argument".into()),
+            ),
+            (
+                &["repeat", "all"],
+                Err("one of the values isn't valid for an argument".into()),
+            ),
             (
                 &["volume", "101"],
                 Err("Invalid volume \"101\": expected 0 to 100, +N or -N".into()),

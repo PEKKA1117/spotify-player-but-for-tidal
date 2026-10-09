@@ -751,8 +751,42 @@ impl PlayerState {
                 }
             }
             Command::TogglePause => self.toggle_pause(fx),
-            Command::Play | Command::Pause | Command::Stop => {}
-            Command::SetShuffle(_) | Command::SetRepeat(_) | Command::SetPosition { .. } => {}
+            Command::Play => {
+                if !self.toggle_would_pause() {
+                    self.toggle_pause(fx);
+                }
+            }
+            Command::Pause => {
+                if self.toggle_would_pause() {
+                    self.toggle_pause(fx);
+                }
+            }
+            Command::Stop => {
+                let idle = matches!(self.phase, Phase::Stopped) && self.position.is_zero();
+                if !idle {
+                    self.stop_on(self.queue.current, Duration::ZERO, fx);
+                }
+            }
+            Command::SetPosition { entry, position } => {
+                let within = self
+                    .queue
+                    .get(entry)
+                    .is_some_and(|e| e.track.duration.is_none_or(|duration| position <= duration));
+                if self.queue.current == Some(entry) && within {
+                    self.seek_to(position, fx);
+                }
+            }
+            Command::SetShuffle(on) => {
+                if on != self.shuffle {
+                    self.toggle_shuffle(fx);
+                }
+            }
+            Command::SetRepeat(mode) => {
+                if mode != self.repeat {
+                    self.repeat = mode;
+                    self.reconcile_preload(fx);
+                }
+            }
             Command::Next => {
                 let Some(current) = self.queue.current else {
                     return;
@@ -770,15 +804,7 @@ impl PlayerState {
                 self.seek_to(Duration::from_millis(target), fx);
             }
             Command::SeekTo(target) => self.seek_to(target, fx),
-            Command::ToggleShuffle => {
-                self.shuffle = !self.shuffle;
-                if self.shuffle {
-                    self.queue.shuffle(&mut self.rng);
-                } else {
-                    self.queue.unshuffle();
-                }
-                self.reconcile_preload(fx);
-            }
+            Command::ToggleShuffle => self.toggle_shuffle(fx),
             Command::CycleRepeat => {
                 self.repeat = self.repeat.cycled();
                 self.reconcile_preload(fx);
@@ -800,6 +826,16 @@ impl PlayerState {
                 fx.push(PlayerEffect::EngineSetGain(self.gain()));
             }
         }
+    }
+
+    fn toggle_shuffle(&mut self, fx: &mut Fx) {
+        self.shuffle = !self.shuffle;
+        if self.shuffle {
+            self.queue.shuffle(&mut self.rng);
+        } else {
+            self.queue.unshuffle();
+        }
+        self.reconcile_preload(fx);
     }
 
     fn set_volume(&mut self, volume: u8, fx: &mut Fx) {
@@ -887,6 +923,16 @@ impl PlayerState {
                 self.start(previous, Duration::ZERO, fx);
             }
             None => self.restart(fx),
+        }
+    }
+
+    /// Whether `toggle_pause` would pause (else it starts, resumes or does
+    /// nothing): playing, buffering, or loading and not held.
+    fn toggle_would_pause(&self) -> bool {
+        match &self.phase {
+            Phase::Playing { .. } => true,
+            Phase::Paused { .. } | Phase::Stopped => false,
+            Phase::Loading(load) => !load.held && !matches!(load.stage, Stage::Ready(_)),
         }
     }
 

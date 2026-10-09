@@ -593,11 +593,12 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         let before = self.persistence.is_some().then(|| self.snapshot());
         let seek = matches!(
             &input,
-            RuntimeInput::Command(Command::SeekBy(_) | Command::SeekTo(_))
-                | RuntimeInput::Client(ClientInput::Request {
-                    command: Command::SeekBy(_) | Command::SeekTo(_),
-                    ..
-                })
+            RuntimeInput::Command(
+                Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. }
+            ) | RuntimeInput::Client(ClientInput::Request {
+                command: Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. },
+                ..
+            })
         );
         let mut handled = self.handle_input(input);
         if handled.shutdown {
