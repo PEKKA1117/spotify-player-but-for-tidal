@@ -213,6 +213,11 @@ key_sequence = "g y"
 command = "SearchPage"
 key_sequence = "g s"
 
+# MixesPage: your mixes (everywhere)
+[[keymaps]]
+command = "MixesPage"
+key_sequence = "g m"
+
 # Search: back to the search input (the search page)
 [[keymaps]]
 command = "Search"
@@ -247,7 +252,15 @@ key_sequence = "q"
 command = "Quit"
 key_sequence = "C-c"
 
-# [[actions]] run an entry of the actions popup directly (none by default):
+# [[actions]] run an entry of the actions popup directly (one by default):
+
+# GoToRadio: the radio of the selected track or artist
+[[actions]]
+action = "GoToRadio"
+key_sequence = "r"
+target = "SelectedItem"
+
+# Another one, as an example (not a default):
 # [[actions]]
 # action = "GoToAlbum"
 # key_sequence = "g B"

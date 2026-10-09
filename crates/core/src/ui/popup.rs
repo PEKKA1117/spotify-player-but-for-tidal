@@ -3,7 +3,7 @@
 //! question and the role filter. Pure data and the actions per item.
 
 use crate::item::Item;
-use crate::library::{AlbumSummary, FavoriteKind, PlaylistSummary};
+use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::page::{PageKind, Rows, Window};
@@ -216,12 +216,22 @@ pub fn playlist_actions(playlist: &PlaylistSummary) -> Vec<MenuAction> {
 
 /// The actions on an artist row.
 pub fn artist_actions(artist: &ArtistRef) -> Vec<MenuAction> {
-    let mut actions = vec![MenuAction::Open(PageKind::Artist(artist.id))];
+    let mut actions = vec![
+        MenuAction::Open(PageKind::Artist(artist.id)),
+        MenuAction::GoToRadio(PageKind::ArtistRadio(artist.id)),
+    ];
     actions.extend(favorites(FavoriteKind::Artist, artist.id.to_string()));
     actions
 }
 
-/// *Go to album* (when the track has one) and *Go to artist* per artist.
+/// The actions on a mix row (spec 0011): a mix is not an item and is not
+/// favorited, so only *Open*.
+pub fn mix_actions(mix: &MixSummary) -> Vec<MenuAction> {
+    vec![MenuAction::Open(PageKind::Mix(mix.id.clone()))]
+}
+
+/// *Go to album* (when the track has one), *Go to artist* per artist and
+/// *Go to radio* (spec 0011).
 fn go_to(track: &Track) -> Vec<MenuAction> {
     track
         .album
@@ -229,6 +239,7 @@ fn go_to(track: &Track) -> Vec<MenuAction> {
         .map(|album| MenuAction::GoToAlbum(album.id))
         .into_iter()
         .chain(track.artists.iter().cloned().map(MenuAction::GoToArtist))
+        .chain([MenuAction::GoToRadio(PageKind::TrackRadio(track.id.0))])
         .collect()
 }
 

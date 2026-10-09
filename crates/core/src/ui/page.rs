@@ -262,7 +262,8 @@ impl<'a> Row<'a> {
     }
 
     /// What `Z` and the popup's queue actions send for this row; `None`
-    /// for an artist.
+    /// for an artist and a mix (spec 0011 decision 5: a mix is not an
+    /// item).
     pub fn item(self) -> Option<Item> {
         match self {
             Self::Track(t) => Some(Item::Track(t.id)),
@@ -280,8 +281,7 @@ impl<'a> Row<'a> {
             Self::Album(a) => Some(PageKind::Album(a.id)),
             Self::Playlist(p) => Some(PageKind::Playlist(p.uuid.clone())),
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
-            // Red stub (0011 AC6): a mix opens nothing yet.
-            Self::Mix(_) => None,
+            Self::Mix(m) => Some(PageKind::Mix(m.id.clone())),
         }
     }
 
@@ -445,8 +445,8 @@ impl Window {
 
     /// Whether every page of the list has been asked for and answered.
     pub fn complete(&self) -> bool {
-        // Red stub (0011 AC6): whole lists are not yet known to be whole.
-        self.total.is_some_and(|total| self.next_offset >= total)
+        self.total
+            .is_some_and(|total| self.whole || self.next_offset >= total)
     }
 
     /// The window's title: its name and Tidal's total, and for *All

@@ -1870,7 +1870,7 @@ fn ac6_mixes_pages() {
         assert!(window(&state, 0).rows.len() >= 6, "{name}");
         assert_eq!(press(&mut state, &[Char('G')]), vec![], "{name}: G");
         assert_eq!(
-            press(&mut state, &vec![Char('j'); 10]),
+            press(&mut state, &[Char('j'); 10]),
             vec![],
             "{name}: j at the end"
         );

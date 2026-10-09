@@ -475,9 +475,10 @@ pub enum ActionKind {
 }
 
 /// Every action, in the spec's order.
-pub const ACTIONS: [ActionKind; 10] = [
+pub const ACTIONS: [ActionKind; 11] = [
     ActionKind::GoToAlbum,
     ActionKind::GoToArtist,
+    ActionKind::GoToRadio,
     ActionKind::AddToQueue,
     ActionKind::PlayNext,
     ActionKind::AddToLiked,
@@ -581,8 +582,7 @@ pub const UNSUPPORTED_COMMANDS: [&str; 29] = [
 
 /// spotify-player actions without a counterpart here: skipped with a
 /// notice.
-pub const UNSUPPORTED_ACTIONS: [&str; 11] = [
-    "GoToRadio",
+pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
     "GoToShow",
     "AddToLibrary",
     "DeleteFromLibrary",
@@ -912,12 +912,22 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('l')], C::LibraryPage),
         (vec![g('y')], C::LikedTrackPage),
         (vec![g('s')], C::SearchPage),
+        (vec![g('m')], C::MixesPage),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),
         (vec![one(Char('?')), one(Ctrl('h'))], C::OpenCommandHelp),
         (vec![one(Char('q')), one(Ctrl('c'))], C::Quit),
     ];
+    // The default `[[actions]]` bindings (spec 0011): `r`, the radio of
+    // the selected track or artist.
+    let actions = [(
+        vec![one(Char('r'))],
+        ActionBinding {
+            action: ActionKind::GoToRadio,
+            target: Target::SelectedItem,
+        },
+    )];
     table
         .into_iter()
         .flat_map(|(sequences, command)| {
@@ -925,6 +935,11 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
                 .into_iter()
                 .map(move |s| (s, Binding::Command(command)))
         })
+        .chain(actions.into_iter().flat_map(|(sequences, action)| {
+            sequences
+                .into_iter()
+                .map(move |s| (s, Binding::Action(action)))
+        }))
         .collect()
 }
 
