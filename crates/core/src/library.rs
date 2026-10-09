@@ -133,7 +133,7 @@ pub enum PageRequest {
 }
 
 /// A mix row and the mix page's header (spec 0011).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MixSummary {
     /// Tidal's mix ID (30 hex digits).
     pub id: String,
@@ -142,25 +142,11 @@ pub struct MixSummary {
     pub subtitle: Option<String>,
 }
 
-// Red stub (spec 0011 AC1): writes nothing useful.
-impl Serialize for MixSummary {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
-}
-
 /// What a radio page is the radio of (spec 0011).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadioSeed {
     Track(Track),
     Artist(ArtistRef),
-}
-
-// Red stub (spec 0011 AC1): writes nothing useful.
-impl Serialize for RadioSeed {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
 }
 
 /// Tidal's top hit of a search (spec 0007 decision 6): one item of any
