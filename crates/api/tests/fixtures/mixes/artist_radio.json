@@ -1,0 +1,142 @@
+{
+  "limit": 100,
+  "offset": 0,
+  "totalNumberOfItems": 3,
+  "items": [
+    {
+      "id": 7001,
+      "title": "Artist Radio One",
+      "duration": 201,
+      "replayGain": -9.5,
+      "peak": 0.98,
+      "allowStreaming": true,
+      "streamReady": true,
+      "payToStream": false,
+      "version": null,
+      "trackNumber": 1,
+      "volumeNumber": 1,
+      "popularity": 50,
+      "isrc": "XX0000000001",
+      "explicit": false,
+      "audioQuality": "LOSSLESS",
+      "audioModes": [
+        "STEREO"
+      ],
+      "mediaMetadata": {
+        "tags": [
+          "LOSSLESS"
+        ]
+      },
+      "artist": {
+        "id": 3001,
+        "name": "Artist A",
+        "type": "MAIN"
+      },
+      "artists": [
+        {
+          "id": 3001,
+          "name": "Artist A",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 16001,
+        "title": "Album Artist Radio One",
+        "cover": "00000000-0000-4000-8000-000000007001"
+      },
+      "mixes": {
+        "TRACK_MIX": "000000000000000000000000001b59"
+      }
+    },
+    {
+      "id": 7002,
+      "title": "Artist Radio Two",
+      "duration": 202,
+      "replayGain": -9.5,
+      "peak": 0.98,
+      "allowStreaming": true,
+      "streamReady": true,
+      "payToStream": false,
+      "version": null,
+      "trackNumber": 1,
+      "volumeNumber": 1,
+      "popularity": 50,
+      "isrc": "XX0000000002",
+      "explicit": false,
+      "audioQuality": "LOSSLESS",
+      "audioModes": [
+        "STEREO"
+      ],
+      "mediaMetadata": {
+        "tags": [
+          "LOSSLESS"
+        ]
+      },
+      "artist": {
+        "id": 3002,
+        "name": "Artist B",
+        "type": "MAIN"
+      },
+      "artists": [
+        {
+          "id": 3002,
+          "name": "Artist B",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 16002,
+        "title": "Album Artist Radio Two",
+        "cover": "00000000-0000-4000-8000-000000007002"
+      },
+      "mixes": {
+        "TRACK_MIX": "000000000000000000000000001b5a"
+      }
+    },
+    {
+      "id": 7003,
+      "title": "Artist Radio Atmos",
+      "duration": 203,
+      "replayGain": -9.5,
+      "peak": 0.98,
+      "allowStreaming": true,
+      "streamReady": true,
+      "payToStream": false,
+      "version": null,
+      "trackNumber": 1,
+      "volumeNumber": 1,
+      "popularity": 50,
+      "isrc": "XX0000000003",
+      "explicit": false,
+      "audioQuality": "LOSSLESS",
+      "audioModes": [
+        "DOLBY_ATMOS"
+      ],
+      "mediaMetadata": {
+        "tags": [
+          "LOSSLESS"
+        ]
+      },
+      "artist": {
+        "id": 3001,
+        "name": "Artist A",
+        "type": "MAIN"
+      },
+      "artists": [
+        {
+          "id": 3001,
+          "name": "Artist A",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 16003,
+        "title": "Album Artist Radio Atmos",
+        "cover": "00000000-0000-4000-8000-000000007003"
+      },
+      "mixes": {
+        "TRACK_MIX": "000000000000000000000000001b5b"
+      }
+    }
+  ]
+}
