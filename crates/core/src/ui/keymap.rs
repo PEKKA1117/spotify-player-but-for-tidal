@@ -281,6 +281,7 @@ pub enum UiCommand {
     LibraryPage,
     LikedTrackPage,
     SearchPage,
+    MixesPage,
     Search,
     PreviousPage,
     ClosePopup,
@@ -289,7 +290,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 40] = [
+pub const COMMANDS: [UiCommand; 41] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -325,6 +326,7 @@ pub const COMMANDS: [UiCommand; 40] = [
     UiCommand::LibraryPage,
     UiCommand::LikedTrackPage,
     UiCommand::SearchPage,
+    UiCommand::MixesPage,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -371,6 +373,7 @@ impl UiCommand {
             Self::LibraryPage => "LibraryPage",
             Self::LikedTrackPage => "LikedTrackPage",
             Self::SearchPage => "SearchPage",
+            Self::MixesPage => "MixesPage",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
@@ -459,6 +462,8 @@ pub enum ActionKind {
     GoToAlbum,
     /// The first artist (the popup lists each).
     GoToArtist,
+    /// The radio of the selected track or artist (spec 0011).
+    GoToRadio,
     AddToQueue,
     PlayNext,
     AddToLiked,
@@ -489,6 +494,7 @@ impl ActionKind {
         match self {
             Self::GoToAlbum => "GoToAlbum",
             Self::GoToArtist => "GoToArtist",
+            Self::GoToRadio => "GoToRadio",
             Self::AddToQueue => "AddToQueue",
             Self::PlayNext => "PlayNext",
             Self::AddToLiked => "AddToLiked",

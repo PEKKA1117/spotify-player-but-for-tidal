@@ -510,6 +510,8 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
             }
             Row::Playlist(playlist) => (playlist.title.clone(), popup::playlist_actions(playlist)),
             Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
+            // Red stub (0011 AC7): no actions on a mix yet.
+            Row::Mix(mix) => (mix.title.clone(), Vec::new()),
         })
     }
 }
@@ -561,6 +563,7 @@ fn names(kind: ActionKind, action: &MenuAction) -> bool {
         (kind, action),
         (ActionKind::GoToAlbum, MenuAction::GoToAlbum(_))
             | (ActionKind::GoToArtist, MenuAction::GoToArtist(_))
+            | (ActionKind::GoToRadio, MenuAction::GoToRadio(_))
             | (ActionKind::AddToQueue, MenuAction::AddToQueue(_))
             | (ActionKind::PlayNext, MenuAction::PlayNext(_))
             | (ActionKind::AddToLiked, MenuAction::AddFavorite(..))
@@ -737,6 +740,7 @@ fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
         MenuAction::Open(kind) => open(state, kind),
         MenuAction::GoToAlbum(id) => open(state, PageKind::Album(id)),
         MenuAction::GoToArtist(artist) => open(state, PageKind::Artist(artist.id)),
+        MenuAction::GoToRadio(kind) => open(state, kind),
         MenuAction::AddToQueue(item) => queue(item, InsertAt::End),
         MenuAction::PlayNext(item) => queue(item, InsertAt::Next),
         MenuAction::AddFavorite(kind, id) => write(

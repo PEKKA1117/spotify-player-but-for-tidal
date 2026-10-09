@@ -138,6 +138,8 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::LibraryPage => return browse::open(state, PageKind::Library),
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
         C::SearchPage => return search::open(state),
+        // Red stub (0011 AC6): `g m` is not wired yet.
+        C::MixesPage => return Vec::new(),
         C::Search => return search::focus_input(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),

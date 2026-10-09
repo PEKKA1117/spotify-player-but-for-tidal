@@ -7,7 +7,8 @@ use std::time::Duration;
 use crate::item::Item;
 use crate::library::{
     AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, LibraryRequest, LibraryResponse,
-    ListItems, ListPage, ListRef, PageData, PageRequest, PlaylistSummary, RoleCategory,
+    ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed,
+    RoleCategory,
 };
 use crate::protocol::RepeatMode;
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
@@ -1009,6 +1010,7 @@ fn ac13_actions_popup() {
         let id = t.id.to_string();
         let mut actions: Vec<M> = t.album.iter().map(|a| M::GoToAlbum(a.id)).collect();
         actions.extend(t.artists.iter().cloned().map(M::GoToArtist));
+        actions.push(M::GoToRadio(PageKind::TrackRadio(t.id.0)));
         actions.extend([
             M::AddToQueue(Item::Track(t.id)),
             M::PlayNext(Item::Track(t.id)),
@@ -1029,6 +1031,7 @@ fn ac13_actions_popup() {
     let queue_entry = vec![
         M::GoToAlbum(10),
         M::GoToArtist(artist(20)),
+        M::GoToRadio(PageKind::TrackRadio(103)),
         M::PlayNext(Item::Track(TrackId(103))),
         M::RemoveFromQueue(EntryId(3)),
         fav_track("103".into()),
@@ -1036,7 +1039,7 @@ fn ac13_actions_popup() {
         M::AddToPlaylist(TrackSource::Tracks(vec![entry.clone()])),
     ];
     let mut playing = queue_entry.clone();
-    playing.remove(2);
+    playing.remove(3);
     let album_row = vec![
         M::Open(PageKind::Album(10)),
         M::GoToArtist(artist(20)),
@@ -1143,6 +1146,7 @@ fn ac13_actions_popup() {
                 "Ar20".into(),
                 vec![
                     M::Open(PageKind::Artist(20)),
+                    M::GoToRadio(PageKind::ArtistRadio(20)),
                     M::AddFavorite(FavoriteKind::Artist, "20".into()),
                     M::RemoveFavorite(FavoriteKind::Artist, "20".into()),
                 ],
@@ -1282,7 +1286,7 @@ fn ac13_actions_popup() {
     assert_eq!(press(&mut state, &[Char('k')]), vec![]);
     assert_eq!(cursor(&state), 0);
     press(&mut state, &[Char('j'); 20]);
-    assert_eq!(cursor(&state), 7);
+    assert_eq!(cursor(&state), 8);
     let before = state.clone();
     assert_eq!(
         press(
@@ -1706,4 +1710,470 @@ fn ac9_start_on_library() {
     // Backspace shows the queue.
     press(&mut state, &[Key::Backspace]);
     assert_eq!(state.page().kind, PageKind::Queue);
+}
+
+// --- spec 0011: mixes and radio ---------------------------------------------------
+
+const GM: [Key; 2] = [Key::Char('g'), Key::Char('m')];
+
+fn mix(n: u32) -> MixSummary {
+    MixSummary {
+        id: format!("m{n}"),
+        title: format!("Mix {n}"),
+        subtitle: Some(format!("Sub {n}")),
+    }
+}
+
+fn mixes_data(n: u32) -> PageData {
+    PageData::Mixes {
+        mixes: list((1..=n).map(mix).collect(), 0, n),
+    }
+}
+
+fn mix_data(n: u32, ids: &[u64]) -> PageData {
+    PageData::Mix {
+        mix: mix(n),
+        tracks: list(tracks(ids.iter().copied()), 0, ids.len() as u32),
+    }
+}
+
+fn radio_data(seed: RadioSeed, ids: &[u64]) -> PageData {
+    PageData::Radio {
+        seed,
+        tracks: list(tracks(ids.iter().copied()), 0, ids.len() as u32),
+    }
+}
+
+/// A state with a small page size and window, so that a list of six rows
+/// would be loaded in pages if it were not whole.
+fn small() -> State {
+    State {
+        page_size: 2,
+        list_height: 1,
+        ..State::default()
+    }
+}
+
+const SIX: [u64; 6] = [1, 2, 3, 4, 5, 6];
+
+/// The mixes page (six mixes) under the queue.
+fn mixes_page() -> State {
+    let mut state = small();
+    open(&mut state, &GM, mixes_data(6));
+    state
+}
+
+/// Mix 1's page (tracks 1 to 6) over the mixes page.
+fn mix_page() -> State {
+    let mut state = mixes_page();
+    open(&mut state, &[Key::Enter], mix_data(1, &SIX));
+    state
+}
+
+/// Track 1's radio page (tracks 1 to 6), opened with `r` on a favorite
+/// track.
+fn track_radio_page() -> State {
+    let mut state = small();
+    open(&mut state, &GY, fav_data(tracks(1..4), 3));
+    open(
+        &mut state,
+        &[Key::Char('r')],
+        radio_data(RadioSeed::Track(track(1)), &SIX),
+    );
+    state
+}
+
+/// Artist 20's radio page (tracks 1 to 6), opened with `r` on an artist
+/// row of the library.
+fn artist_radio_page() -> State {
+    let mut state = small();
+    open(&mut state, &GL, library_data());
+    press(&mut state, &[Key::Tab, Key::Tab]);
+    open(
+        &mut state,
+        &[Key::Char('r')],
+        radio_data(RadioSeed::Artist(artist(20)), &SIX),
+    );
+    state
+}
+
+/// The favorite tracks page, with a queue whose entry 3 is playing.
+fn fav_playing() -> State {
+    let mut state = fav_page();
+    update(
+        &mut state,
+        Action::Player(protocol::Event::Player(snapshot(&[7, 3, 9], Some(3)))),
+    );
+    state
+}
+
+/// AC6 (spec 0011): `g m` pushes the mixes page and asks for it (on top
+/// already: nothing); `Enter` on a mix pushes its page; going back shows
+/// kept rows with no request; scrolling to the end of any of the three
+/// pages asks for no more, and `Enter` on a track queues at once.
+#[test]
+fn ac6_mixes_pages() {
+    use Key::{Backspace, Char, Enter};
+    let mut state = small();
+    let (id, request) = one_request(&press(&mut state, &GM));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Mixes));
+    assert_eq!(kinds(&state), vec![PageKind::Queue, PageKind::Mixes]);
+    assert_eq!(state.page().load, Load::Loading { id });
+    reply(&mut state, id, LibraryResponse::Page(mixes_data(3)));
+    assert_eq!(state.page().load, Load::Idle);
+    assert_eq!(window(&state, 0).rows.len(), 3);
+    assert_eq!(press(&mut state, &GM), vec![], "on top already");
+    assert_eq!(state.history.len(), 2);
+
+    // `Enter` on the second mix.
+    press(&mut state, &[Char('j')]);
+    let (_, request) = one_request(&press(&mut state, &[Enter]));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Mix("m2".into())));
+    assert_eq!(
+        kinds(&state),
+        vec![PageKind::Queue, PageKind::Mixes, PageKind::Mix("m2".into())]
+    );
+    assert!(matches!(state.page().load, Load::Loading { .. }));
+    // Answered, then back: the mixes page as it was, nothing asked.
+    let mix_id = match state.page().load {
+        Load::Loading { id } => id,
+        ref other => panic!("{other:?}"),
+    };
+    reply(&mut state, mix_id, LibraryResponse::Page(mix_data(2, &SIX)));
+    assert_eq!(state.page().load, Load::Idle);
+    assert_eq!(press(&mut state, &[Backspace]), vec![]);
+    assert_eq!(state.page().kind, PageKind::Mixes);
+    assert_eq!(state.page().load, Load::Idle);
+    assert_eq!(window(&state, 0).rows.len(), 3);
+    assert_eq!(window(&state, 0).cursor, 1);
+
+    // `g m` from another page pushes it again.
+    let mut state = library();
+    let (_, request) = one_request(&press(&mut state, &GM));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Mixes));
+    assert_eq!(
+        kinds(&state),
+        vec![PageKind::Queue, PageKind::Library, PageKind::Mixes]
+    );
+
+    // Scrolling to the end of each page asks for no more; `Enter` on a
+    // track queues the whole list at once.
+    type Case = (&'static str, fn() -> State, bool);
+    let cases: [Case; 4] = [
+        ("mixes", mixes_page, false),
+        ("mix", mix_page, true),
+        ("track radio", track_radio_page, true),
+        ("artist radio", artist_radio_page, true),
+    ];
+    for (name, setup, tracks_page) in cases {
+        let mut state = setup();
+        assert!(window(&state, 0).rows.len() >= 6, "{name}");
+        assert_eq!(press(&mut state, &[Char('G')]), vec![], "{name}: G");
+        assert_eq!(
+            press(&mut state, &vec![Char('j'); 10]),
+            vec![],
+            "{name}: j at the end"
+        );
+        assert_eq!(window(&state, 0).load, Load::Idle, "{name}");
+        assert_eq!(window(&state, 0).cursor, 5, "{name}");
+        if tracks_page {
+            assert_eq!(
+                outs(&press(&mut state, &[Enter])),
+                send(Command::LoadQueue {
+                    tracks: tracks(SIX),
+                    start: 5,
+                }),
+                "{name}: Enter"
+            );
+            assert_eq!(state.whole_list, None, "{name}");
+        }
+    }
+}
+
+/// AC7 (spec 0011): `Enter` on track *i* of a mix or radio page sends
+/// `LoadQueue` of the whole list from *i*, with no `More` before it;
+/// `Z`/`C-z` on a mix emit nothing; a mix's popup lists *Open* only.
+#[test]
+fn ac7_mix_rows() {
+    use Key::{Char, Ctrl, Enter};
+    type Case = (&'static str, fn() -> State);
+    let pages: [Case; 3] = [
+        ("mix", mix_page),
+        ("track radio", track_radio_page),
+        ("artist radio", artist_radio_page),
+    ];
+    for (name, setup) in pages {
+        for i in [0usize, 2, 5] {
+            let mut state = setup();
+            let mut keys = vec![Char('j'); i];
+            keys.push(Enter);
+            assert_eq!(
+                outs(&press(&mut state, &keys)),
+                send(Command::LoadQueue {
+                    tracks: tracks(SIX),
+                    start: i,
+                }),
+                "{name}: track {i}"
+            );
+        }
+    }
+
+    // A mix row: not an item.
+    let mut state = mixes_page();
+    assert_eq!(press(&mut state, &[Char('Z'), Ctrl('z')]), vec![]);
+    assert_eq!(state.history.len(), 2);
+    assert_eq!(state.popup, None);
+    assert_eq!(press(&mut state, &GA), vec![]);
+    assert_eq!(labels(&state), vec!["Open".to_owned()]);
+    assert_eq!(press(&mut state, &[Key::Esc]), vec![]);
+    let effects = run_action(&mut state, &GA, "Open");
+    assert_eq!(
+        outs(&effects),
+        vec![Out::Library(LibraryRequest::Page(PageRequest::Mix(
+            "m1".into()
+        )))]
+    );
+    assert_eq!(state.page().kind, PageKind::Mix("m1".into()));
+}
+
+/// AC8 (spec 0011): *Go to radio* is listed after the *Go to artist*
+/// entries for a track (browse page, queue entry, playing track) and
+/// after *Open* for an artist, and absent for albums, playlists and
+/// mixes; running it, or `r` on a track or artist row, opens the radio
+/// page; `r` elsewhere does nothing; the queue never changes.
+#[test]
+fn ac8_go_to_radio() {
+    use Key::{Char, Ctrl, Tab};
+    let queue = || with_queue(&[7, 3, 9], Some(3));
+    let strs = |labels: &[&str]| labels.iter().map(|l| l.to_string()).collect::<Vec<_>>();
+
+    // (name, state, keys, the first labels of the popup)
+    type Listed = (&'static str, State, Vec<Key>, Vec<&'static str>);
+    let listed: Vec<Listed> = vec![
+        (
+            "browse track",
+            fav_page(),
+            GA.to_vec(),
+            vec![
+                "Go to album",
+                "Go to artist: Ar20",
+                "Go to artist: Ar21",
+                "Go to radio",
+                "Add to queue",
+            ],
+        ),
+        (
+            "queue entry",
+            queue(),
+            GA.to_vec(),
+            vec![
+                "Go to album",
+                "Go to artist: Ar20",
+                "Go to radio",
+                "Play next",
+            ],
+        ),
+        (
+            "playing track",
+            fav_playing(),
+            vec![Char('a')],
+            vec![
+                "Go to album",
+                "Go to artist: Ar20",
+                "Go to radio",
+                "Remove from queue",
+            ],
+        ),
+        (
+            "artist",
+            library(),
+            vec![Tab, Tab, Ctrl(' ')],
+            vec!["Open", "Go to radio", "Add to favorites"],
+        ),
+    ];
+    for (name, mut state, keys, want) in listed {
+        assert_eq!(press(&mut state, &keys), vec![], "{name}");
+        let got = labels(&state);
+        assert_eq!(got[..want.len()], strs(&want)[..], "{name}: {got:?}");
+    }
+    // Not for albums, playlists and mixes.
+    for (name, mut state, keys) in [
+        ("album", library(), vec![Tab, Ctrl(' ')]),
+        ("playlist", library(), vec![Ctrl(' ')]),
+        ("mix", mixes_page(), GA.to_vec()),
+    ] {
+        press(&mut state, &keys);
+        assert!(
+            !labels(&state).iter().any(|l| l == "Go to radio"),
+            "{name}: {:?}",
+            labels(&state)
+        );
+    }
+
+    // Running the entry, and `r`: (name, state, keys to the popup, the
+    // radio page).
+    let radio = |request: PageRequest, kind: PageKind| (request, kind);
+    type Run = (&'static str, State, Vec<Key>, (PageRequest, PageKind));
+    let runs: Vec<Run> = vec![
+        (
+            "browse track",
+            fav_page(),
+            GA.to_vec(),
+            radio(PageRequest::TrackRadio(1), PageKind::TrackRadio(1)),
+        ),
+        (
+            "queue entry",
+            queue(),
+            GA.to_vec(),
+            radio(PageRequest::TrackRadio(103), PageKind::TrackRadio(103)),
+        ),
+        (
+            "playing track",
+            fav_playing(),
+            vec![Char('a')],
+            radio(PageRequest::TrackRadio(103), PageKind::TrackRadio(103)),
+        ),
+        (
+            "artist",
+            {
+                let mut state = library();
+                press(&mut state, &[Tab, Tab]);
+                state
+            },
+            vec![Ctrl(' ')],
+            radio(PageRequest::ArtistRadio(20), PageKind::ArtistRadio(20)),
+        ),
+    ];
+    for (name, state, keys, (request, kind)) in runs {
+        let before = state.queue().to_vec();
+        let depth = state.history.len();
+        let mut by_popup = state.clone();
+        let effects = run_action(&mut by_popup, &keys, "Go to radio");
+        assert_eq!(
+            outs(&effects),
+            vec![Out::Library(LibraryRequest::Page(request.clone()))],
+            "{name}: popup"
+        );
+        assert_eq!(by_popup.page().kind, kind, "{name}: popup");
+        assert_eq!(by_popup.history.len(), depth + 1, "{name}: popup");
+        assert_eq!(by_popup.queue(), &before[..], "{name}: popup");
+
+        // `r` on the selected row (not for the playing track).
+        if keys != [Char('a')] {
+            let mut by_key = state.clone();
+            let effects = press(&mut by_key, &[Char('r')]);
+            assert_eq!(
+                outs(&effects),
+                vec![Out::Library(LibraryRequest::Page(request))],
+                "{name}: r"
+            );
+            assert_eq!(by_key.page().kind, kind, "{name}: r");
+            assert_eq!(by_key.history.len(), depth + 1, "{name}: r");
+            assert_eq!(by_key.queue(), &before[..], "{name}: r");
+            assert!(matches!(by_key.page().load, Load::Loading { .. }));
+        }
+    }
+
+    // `r` on rows with no radio, and on empty lists: nothing.
+    let mut empty_favorites = State::default();
+    open(&mut empty_favorites, &GY, fav_data(vec![], 0));
+    for (name, mut state) in [
+        ("album", {
+            let mut state = library();
+            press(&mut state, &[Tab]);
+            state
+        }),
+        ("playlist", library()),
+        ("mix", mixes_page()),
+        ("empty list", empty_favorites),
+        ("empty queue", State::default()),
+    ] {
+        let before = state.clone();
+        assert_eq!(press(&mut state, &[Char('r')]), vec![], "{name}");
+        assert_eq!(state, before, "{name}");
+    }
+}
+
+/// AC10 (spec 0011): disconnected and session expired, 0006 AC16's rows
+/// for the three new pages: failed with the connection's message and no
+/// request, re-fetched on the next `Welcome` when on top.
+#[test]
+fn ac10_disconnected() {
+    let welcome = || Action::Welcome {
+        snapshot: snapshot(&[1], Some(1)),
+        login_required: false,
+    };
+    // (name, a loaded state, the keys that open the page, its request)
+    type Case = (&'static str, fn() -> State, Vec<Key>, PageRequest);
+    let cases: Vec<Case> = vec![
+        ("mixes", State::default, GM.to_vec(), PageRequest::Mixes),
+        (
+            "mix",
+            mixes_page,
+            vec![Key::Enter],
+            PageRequest::Mix("m1".into()),
+        ),
+        (
+            "track radio",
+            fav_page,
+            vec![Key::Char('r')],
+            PageRequest::TrackRadio(1),
+        ),
+        (
+            "artist radio",
+            || {
+                let mut state = library();
+                press(&mut state, &[Key::Tab, Key::Tab]);
+                state
+            },
+            vec![Key::Char('r')],
+            PageRequest::ArtistRadio(20),
+        ),
+    ];
+    for (shut_down, message) in [(false, DISCONNECTED), (true, SHUT_DOWN)] {
+        for (name, setup, keys, request) in &cases {
+            // Opened while disconnected: failed, nothing asked.
+            let mut state = setup();
+            let depth = state.history.len();
+            update(&mut state, Action::Disconnected { shut_down });
+            assert_eq!(press(&mut state, keys), vec![], "{name}");
+            assert_eq!(state.history.len(), depth + 1, "{name}");
+            assert_eq!(state.page().load, Load::Failed(message.into()), "{name}");
+            // The first `Welcome` fetches the page on top again.
+            let (id, got) = one_request(&update(&mut state, welcome()));
+            assert_eq!(&got, &LibraryRequest::Page(request.clone()), "{name}");
+            assert_eq!(state.page().load, Load::Loading { id }, "{name}");
+            assert_eq!(update(&mut state, welcome()), vec![], "{name}: once");
+
+            // Pending when the connection goes: failed, the late reply
+            // dropped.
+            let mut state = setup();
+            let (id, got) = one_request(&press(&mut state, keys));
+            assert_eq!(&got, &LibraryRequest::Page(request.clone()), "{name}");
+            assert_eq!(
+                update(&mut state, Action::Disconnected { shut_down }),
+                vec![],
+                "{name}"
+            );
+            assert_eq!(state.page().load, Load::Failed(message.into()), "{name}");
+            reply(&mut state, id, LibraryResponse::Page(library_data()));
+            assert_eq!(state.page().load, Load::Failed(message.into()), "{name}");
+        }
+    }
+
+    // Session expired: the player's error shows in the page; once
+    // restored, opening the page again fetches it.
+    let expired = "Session expired: run \"tidal-player login\"";
+    let mut state = State::default();
+    let (id, _) = one_request(&press(&mut state, &GM));
+    update(&mut state, Action::Player(protocol::Event::LoginRequired));
+    fail(&mut state, id, expired);
+    assert_eq!(
+        state.page().load,
+        Load::Failed(format!("Could not load the mixes: {expired}"))
+    );
+    update(&mut state, Action::Player(protocol::Event::LoginRestored));
+    let (_, request) = one_request(&press(&mut state, &GM));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Mixes));
+    assert_eq!(state.history.len(), 2);
 }

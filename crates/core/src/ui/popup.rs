@@ -31,6 +31,8 @@ pub enum MenuAction {
     GoToAlbum(u64),
     /// *Go to artist: <name>*.
     GoToArtist(ArtistRef),
+    /// *Go to radio* (spec 0011): the page to open.
+    GoToRadio(PageKind),
     /// *Add to queue*: `Open { [item], Some(End) }`.
     AddToQueue(Item),
     /// *Play next*: `Open { [item], Some(Next) }`.
@@ -63,6 +65,7 @@ impl MenuAction {
             Self::Open(_) => "Open".into(),
             Self::GoToAlbum(_) => "Go to album".into(),
             Self::GoToArtist(artist) => format!("Go to artist: {}", artist.name),
+            Self::GoToRadio(_) => "Go to radio".into(),
             Self::AddToQueue(_) => "Add to queue".into(),
             Self::PlayNext(_) => "Play next".into(),
             Self::AddFavorite(..) => "Add to favorites".into(),

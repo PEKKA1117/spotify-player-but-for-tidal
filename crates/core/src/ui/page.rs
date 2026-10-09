@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use crate::item::Item;
 use crate::library::{
-    AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, PageData, PageRequest,
-    PlaylistSummary, RoleCategory, TopHit,
+    AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest,
+    PlaylistSummary, RadioSeed, RoleCategory, TopHit,
 };
 use crate::track::{ArtistRef, Track};
 
@@ -41,6 +41,14 @@ pub enum PageKind {
     /// The search page (spec 0007) and the query it last sent; empty
     /// until the first search.
     Search(String),
+    /// The user's mixes (spec 0011).
+    Mixes,
+    /// One mix, by Tidal's mix ID.
+    Mix(String),
+    /// A track's radio, by track ID.
+    TrackRadio(u64),
+    /// An artist's radio, by artist ID.
+    ArtistRadio(u64),
 }
 
 impl PageKind {
@@ -56,6 +64,10 @@ impl PageKind {
             Self::Artist(id) => PageRequest::Artist(*id),
             Self::Search(query) if query.is_empty() => return None,
             Self::Search(query) => PageRequest::Search(query.clone()),
+            Self::Mixes => PageRequest::Mixes,
+            Self::Mix(id) => PageRequest::Mix(id.clone()),
+            Self::TrackRadio(id) => PageRequest::TrackRadio(*id),
+            Self::ArtistRadio(id) => PageRequest::ArtistRadio(*id),
         })
     }
 }
@@ -83,6 +95,8 @@ pub enum Header {
         etag: Option<String>,
     },
     Artist(ArtistRef),
+    Mix(MixSummary),
+    Radio(RadioSeed),
 }
 
 /// Which list a window shows.
@@ -108,6 +122,14 @@ pub enum WindowKind {
     SearchAlbums,
     SearchArtists,
     SearchPlaylists,
+    /// The mixes page's list (spec 0011).
+    Mixes,
+    /// A mix page's tracks.
+    MixTracks,
+    /// A track radio page's tracks.
+    RadioTracks,
+    /// An artist radio page's tracks.
+    ArtistRadioTracks,
 }
 
 impl WindowKind {
@@ -118,7 +140,13 @@ impl WindowKind {
             Self::Albums | Self::ArtistAlbums | Self::SearchAlbums => "Albums",
             Self::Artists | Self::SearchArtists => "Artists",
             Self::FavoriteTracks => "Favorite tracks",
-            Self::AlbumTracks | Self::PlaylistTracks | Self::SearchTracks => "Tracks",
+            Self::AlbumTracks
+            | Self::PlaylistTracks
+            | Self::SearchTracks
+            | Self::MixTracks
+            | Self::RadioTracks
+            | Self::ArtistRadioTracks => "Tracks",
+            Self::Mixes => "Mixes",
             Self::TopTracks => "Top tracks",
             Self::AppearsOn => "Appears on",
             Self::AllTracks => "All tracks",
@@ -141,6 +169,10 @@ impl WindowKind {
             Self::SearchAlbums => "No albums found",
             Self::SearchArtists => "No artists found",
             Self::SearchPlaylists => "No playlists found",
+            Self::Mixes => "No mixes yet",
+            Self::MixTracks => "This mix has no tracks",
+            Self::RadioTracks => "No radio for this track",
+            Self::ArtistRadioTracks => "No radio for this artist",
         }
     }
 }
@@ -153,6 +185,7 @@ pub enum Rows {
     Playlists(Vec<PlaylistSummary>),
     Artists(Vec<ArtistRef>),
     Credits(Vec<CreditedTrack>),
+    Mixes(Vec<MixSummary>),
 }
 
 impl Rows {
@@ -164,6 +197,7 @@ impl Rows {
             Self::Playlists(v) => v.len(),
             Self::Artists(v) => v.len(),
             Self::Credits(v) => v.len(),
+            Self::Mixes(v) => v.len(),
         }
     }
 
@@ -179,6 +213,7 @@ impl Rows {
             Self::Playlists(v) => Row::Playlist(v.get(index)?),
             Self::Artists(v) => Row::Artist(v.get(index)?),
             Self::Credits(v) => Row::Credit(v.get(index)?),
+            Self::Mixes(v) => Row::Mix(v.get(index)?),
         })
     }
 
@@ -190,6 +225,7 @@ impl Rows {
             Self::Playlists(_) => Self::Playlists(Vec::new()),
             Self::Artists(_) => Self::Artists(Vec::new()),
             Self::Credits(_) => Self::Credits(Vec::new()),
+            Self::Mixes(_) => Self::Mixes(Vec::new()),
         }
     }
 }
@@ -202,6 +238,7 @@ pub enum Row<'a> {
     Album(&'a AlbumSummary),
     Playlist(&'a PlaylistSummary),
     Artist(&'a ArtistRef),
+    Mix(&'a MixSummary),
 }
 
 impl<'a> Row<'a> {
@@ -232,7 +269,7 @@ impl<'a> Row<'a> {
             Self::Credit(c) => Some(Item::Track(c.track.id)),
             Self::Album(a) => Some(Item::Album(a.id)),
             Self::Playlist(p) => Some(Item::Playlist(p.uuid.clone())),
-            Self::Artist(_) => None,
+            Self::Artist(_) | Self::Mix(_) => None,
         }
     }
 
@@ -243,6 +280,8 @@ impl<'a> Row<'a> {
             Self::Album(a) => Some(PageKind::Album(a.id)),
             Self::Playlist(p) => Some(PageKind::Playlist(p.uuid.clone())),
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
+            // Red stub (0011 AC6): a mix opens nothing yet.
+            Self::Mix(_) => None,
         }
     }
 
@@ -255,6 +294,7 @@ impl<'a> Row<'a> {
             Self::Album(a) => RowKey::Id(a.id),
             Self::Artist(a) => RowKey::Id(a.id),
             Self::Playlist(p) => RowKey::Uuid(p.uuid.clone()),
+            Self::Mix(m) => RowKey::Uuid(m.id.clone()),
         }
     }
 }
@@ -291,6 +331,9 @@ pub struct Window {
     /// The role filter (*All tracks* only), checked per
     /// [`ROLE_CATEGORIES`]; all checked by default.
     pub roles: [bool; 4],
+    /// Whether the list arrived whole (spec 0011: mixes, a mix's and a
+    /// radio's tracks): it is never asked for more.
+    pub whole: bool,
 }
 
 impl Window {
@@ -308,7 +351,11 @@ impl Window {
             | WindowKind::AlbumTracks
             | WindowKind::PlaylistTracks
             | WindowKind::TopTracks
-            | WindowKind::SearchTracks => Rows::Tracks(Vec::new()),
+            | WindowKind::SearchTracks
+            | WindowKind::MixTracks
+            | WindowKind::RadioTracks
+            | WindowKind::ArtistRadioTracks => Rows::Tracks(Vec::new()),
+            WindowKind::Mixes => Rows::Mixes(Vec::new()),
         };
         Self {
             kind,
@@ -321,6 +368,17 @@ impl Window {
             cursor: 0,
             load: Load::Idle,
             roles: [true; 4],
+            whole: false,
+        }
+    }
+
+    /// An empty window of `kind` over a list that arrives whole (spec
+    /// 0011). It has no list to ask `More` of: `list` is an inert
+    /// placeholder that is never sent.
+    pub fn whole(kind: WindowKind) -> Self {
+        Self {
+            whole: true,
+            ..Self::new(kind, ListRef::FavoriteTracks)
         }
     }
 
@@ -387,6 +445,7 @@ impl Window {
 
     /// Whether every page of the list has been asked for and answered.
     pub fn complete(&self) -> bool {
+        // Red stub (0011 AC6): whole lists are not yet known to be whole.
         self.total.is_some_and(|total| self.next_offset >= total)
     }
 
@@ -505,6 +564,29 @@ impl Window {
     }
 }
 
+impl Window {
+    /// Fills a mixes window with the whole list (spec 0011): a repeated
+    /// mix ID is skipped; the list is whole, so it is never asked for
+    /// more.
+    pub(super) fn append_mixes(&mut self, page: ListPage<MixSummary>) {
+        if let Rows::Mixes(rows) = &mut self.rows {
+            let mut known: std::collections::HashSet<RowKey> =
+                rows.iter().map(|m| Row::Mix(m).key()).collect();
+            for (i, mix) in page.items.iter().enumerate() {
+                if known.insert(Row::Mix(mix).key()) {
+                    rows.push(mix.clone());
+                    self.positions.push(page.offset + i as u32);
+                }
+            }
+            self.total = Some(page.total);
+            self.hidden += page.hidden;
+            self.next_offset = self.next_offset.max(page.total);
+            self.load = Load::Idle;
+            self.cursor = self.cursor.min(self.len().saturating_sub(1));
+        }
+    }
+}
+
 /// The largest page each list's endpoint accepts (spec 0006 "What the
 /// player fetches"): a request asks `min(page size, this)`.
 pub fn largest_page(list: &ListRef) -> u32 {
@@ -596,6 +678,10 @@ impl Page {
                     ListRef::SearchPlaylists(query.clone()),
                 ),
             ],
+            PageKind::Mixes => vec![Window::whole(WindowKind::Mixes)],
+            PageKind::Mix(_) => vec![Window::whole(WindowKind::MixTracks)],
+            PageKind::TrackRadio(_) => vec![Window::whole(WindowKind::RadioTracks)],
+            PageKind::ArtistRadio(_) => vec![Window::whole(WindowKind::ArtistRadioTracks)],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -760,6 +846,27 @@ impl Page {
                 .chain(playlist.duration.map(clock))
                 .collect(),
             (_, Some(Header::Artist(artist))) => vec![artist.name.clone()],
+            (_, Some(Header::Mix(mix))) => {
+                std::iter::once(mix.title.clone()).chain(tracks).collect()
+            }
+            (_, Some(Header::Radio(RadioSeed::Track(track)))) => {
+                let artists: Vec<&str> = track.artists.iter().map(|a| a.name.as_str()).collect();
+                std::iter::once(format!("{} Radio", track.title))
+                    .chain((!artists.is_empty()).then(|| artists.join(", ")))
+                    .collect()
+            }
+            (_, Some(Header::Radio(RadioSeed::Artist(artist)))) => {
+                vec![format!("{} Radio", artist.name)]
+            }
+            (PageKind::Mixes, _) => {
+                let mixes = total.map(|n| match n {
+                    1 => "1 mix".to_owned(),
+                    n => format!("{} mixes", group(n)),
+                });
+                std::iter::once("Mixes".into()).chain(mixes).collect()
+            }
+            (PageKind::Mix(_), None) => vec!["Mix".into()],
+            (PageKind::TrackRadio(_) | PageKind::ArtistRadio(_), None) => vec!["Radio".into()],
             (PageKind::Album(_), None) => vec!["Album".into()],
             (PageKind::Playlist(_), None) => vec!["Playlist".into()],
             (PageKind::Artist(_), None) => vec!["Artist".into()],
@@ -838,6 +945,25 @@ impl Page {
                     ListItems::Artists(artists),
                     ListItems::Playlists(playlists),
                 ]
+            }
+            (PageKind::Mixes, PageData::Mixes { mixes }) => {
+                self.load = Load::Idle;
+                for window in &mut self.windows {
+                    window.reset();
+                    window.append_mixes(mixes.clone());
+                }
+                return;
+            }
+            (PageKind::Mix(_), PageData::Mix { mix, tracks }) => {
+                self.header = Some(Header::Mix(mix));
+                vec![ListItems::Tracks(tracks)]
+            }
+            (
+                PageKind::TrackRadio(_) | PageKind::ArtistRadio(_),
+                PageData::Radio { seed, tracks },
+            ) => {
+                self.header = Some(Header::Radio(seed));
+                vec![ListItems::Tracks(tracks)]
             }
             _ => return,
         };

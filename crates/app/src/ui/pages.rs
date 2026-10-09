@@ -474,6 +474,8 @@ fn window_lines(
                     playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
+                // Slice C draws the mix rows (title and subtitle).
+                Row::Mix(mix) => fit(&mix.title, width),
             };
             Some((text, style))
         })
