@@ -2,7 +2,7 @@
 
 - **Status**: draft
 - **Owner**: tech-lead (primary session)
-- **Depends on**: 0004 (implemented: the player and its protocol), 0005 (implemented: one player per user, the hub of clients, one-shot commands), 0008 (implemented: `app.toml` and its precedence), 0009 (implemented: a restored player is stopped)
+- **Depends on**: 0002/0006 (implemented: the metadata and library clients that parse tracks), 0004 (implemented: the player and its protocol), 0005 (implemented: one player per user, the hub of clients, one-shot commands), 0008 (implemented: `app.toml` and its precedence), 0009 (implemented: a restored player is stopped)
 - **User docs**: a new [`docs/mpris.md`](../mpris.md) (desktop controls, media keys, `playerctl`); [`docs/daemon.md`](../daemon.md) (the new one-shot commands, "`playerctl` works"), [`docs/config.md`](../config.md) (`mpris`), [`docs/playback.md`](../playback.md) (link to the new page) and their zh-TW copies (AC17)
 
 ## Context
@@ -22,6 +22,7 @@ Read from tidalt's `internal/mpris/server.go`, `internal/ui/model.go` (`SetState
 - Properties: `PlaybackStatus`, `Metadata`, `CanPlay`/`CanPause`/`CanGoNext`/`CanGoPrevious` always `true`, `CanSeek` `false`, `Rate` 1.0. **Not implemented**: `Position`, `Seek`, `SetPosition`, `Seeked`, `Volume`, `Shuffle`, `LoopStatus`, `OpenUri`
 - `Metadata`: `mpris:trackid` `/org/mpris/MediaPlayer2/Track/<tidal track id>`, `xesam:title`, `xesam:artist` (the **first artist only**), `xesam:album`, `mpris:length`
 - `Set` answered `PropertyReadOnly` for everything, and **`PropertiesChanged` was never emitted**
+- No `mpris:artUrl`, although the TUI drew the album cover (Kitty graphics, later sixel: `internal/ui/coverart.go`, `becf508`) from `tidal.CoverURL(track.Album.Cover, "640x640")`: `https://resources.tidal.com/images/<cover UUID with each - replaced by />/<size>.jpg`
 
 ### What went wrong there, and the criterion that covers it here
 
@@ -30,7 +31,7 @@ Read from tidalt's `internal/mpris/server.go`, `internal/ui/model.go` (`SetState
 3. **Calls were dropped silently** (the non-blocking send) → each call reaches the player through the client hub like any client's request, is answered after the player handled it, and a call the player refuses or does not answer in time returns a D-Bus error (AC9)
 4. **Capabilities were lies** (`CanGoNext` with an empty queue, `CanSeek` false while seek existed in the TUI) → the `Can*` properties are derived from the state, and change with it (AC3)
 5. **Track IDs from Tidal IDs** (a track queued twice had one ID, and `/org/mpris` is reserved by the MPRIS spec for its own paths) → `mpris:trackid` is made from the **queue entry ID**, under our own path (AC2)
-6. **One artist**: `xesam:artist` lists every artist of the track (AC2)
+6. **One artist, no cover**: `xesam:artist` lists every artist of the track, and `mpris:artUrl` gives the album cover (AC4, AC18)
 7. **The bus name was the single-instance lock**: no session bus meant no player at all, and a stale name blocked a start → the player's lock stays 0005's file lock; MPRIS is optional: no session bus, or a name already taken, never stops a player (AC11, AC12)
 
 ## Behaviour
@@ -92,7 +93,17 @@ From the player's state (the snapshot every client gets, 0004):
 | `xesam:artist` | every artist, in Tidal's order |
 | `xesam:album` | the album title, omitted when none |
 | `xesam:url` | `https://tidal.com/browse/track/<track id>` |
-| `xesam:trackNumber`, `mpris:artUrl`, `xesam:albumArtist` | not provided (not in the queue's `Track`; cover art is out of scope) |
+| `mpris:artUrl` | the album cover, `https://resources.tidal.com/images/<cover with each - replaced by />/640x640.jpg`; omitted when the track has no album or Tidal gave no cover |
+| `xesam:trackNumber`, `xesam:albumArtist` | not provided (not in the queue's `Track`) |
+
+### Cover art
+
+Tidal returns the album's cover image ID with every track (`album.cover`, a UUID, in the v1 track objects of `/tracks`, album, playlist, favorites, search and mix pages). This spec carries it through:
+
+- `AlbumRef` gains `cover: Option<String>`, filled by the metadata and library clients wherever they build a track (0002's `MetadataClient`, 0006's `LibraryClient`); a missing or `null` cover is `None`
+- It travels with the queue (`PlayerSnapshot`, 0004) and is remembered in `playback.json` (0009): a file written before this spec, without the field, still loads (the field defaults to none; no `version` change), and its entries get no cover until they are queued again
+- The player never downloads the image: `mpris:artUrl` is Tidal's HTTPS URL, and the desktop fetches it (decision 6). Nothing is cached on disk (0009 decision 3 stands)
+- The image URL is built in one pure function (`tidal_player_core::track::cover_url(cover, size)`), so a later TUI cover (out of scope, below) uses the same one
 
 ### Signals
 
@@ -147,7 +158,7 @@ Core (`tidal_player_core::player`, pure):
 MPRIS model (`tidal-player::mpris::model`, pure, no D-Bus types: its own value enum):
 
 - **AC3** — `player_properties(&snapshot, last_position)` (table over snapshots: empty; stopped with a current entry; loading; held load; playing with shuffle and repeat queue; buffering; paused; released; muted at 40 %; last entry with repeat off; last entry with repeat track; unknown duration): every property of the `Player` table, the `Can*` rules included
-- **AC4** — `metadata(&snapshot)` (table): no current entry → `NoTrack` only; a track with a version, several artists, no album, unknown duration, and the same track queued twice (two trackids); `xesam:url`
+- **AC4** — `metadata(&snapshot)` (table): no current entry → `NoTrack` only; a track with a version, several artists, no album, unknown duration, and the same track queued twice (two trackids); `xesam:url`; `mpris:artUrl` for a track with a cover, none without
 - **AC5** — `changes(old, new)` (table): no change → none; a position change alone → none; one property → that one; volume and mute together → `Volume` once; a track change → `Metadata` and the `Can*` that changed; `Shuffle` from `ToggleShuffle`, `SetShuffle` and a client's toggle alike
 - **AC6** — `seeked(old, new, elapsed)` (table): forward by elapsed → none; backward → `Seeked`; forward by elapsed + 2 s → `Seeked`; another entry at `0` → none; another entry at a restored position → `Seeked`; no current entry → none
 - **AC7** — `Position` (table, fake clock): last reported + elapsed while `Playing`, frozen while paused, buffering, loading or stopped; capped at the duration
@@ -163,6 +174,11 @@ Adapter and runtime (`tidal-player`):
 - **AC14** — Clients never touch the bus: an attached TUI and `playback status` against a daemon with `mpris = false` leave the private bus with no new connection
 - **AC15** — One-shot setters: `playback play|pause|stop`, `shuffle on|off`, `repeat off|queue|track` send `Play`, `Pause`, `Stop`, `SetShuffle`, `SetRepeat` (0005's argument table gains the rows; `shuffle maybe` exits 2); `shuffle` and `repeat` alone still send the toggles
 - **AC16** — Shutdown order: on `Shutdown` the adapter stops taking calls (late calls get the shutting-down error) and the bus connection is closed after the clients got `ShuttingDown`
+
+Cover art (`tidal-player-core`, `tidal-player-api`):
+
+- **AC18** — The cover ID is parsed and kept (recorded fixtures, as 0002/0006): a track from `metadata/track.json`, an album page, a playlist page, favorite tracks and a search page has `album.cover == Some("…")`; a fixture row with `"cover": null` and one without the key → `None`. `cover_url` (table): a UUID → the URL with `/` for each `-` at `640x640`; other sizes as given. Every `Track` in `protocol::tests` gains a cover (JSON round-trip)
+- **AC19** — Old state files: a `playback.json` written by 0009 (a fixture without `cover`) loads with `cover: None` everywhere and no `.bad` rename; a saved state with covers round-trips them (0009 AC1/AC6 tables gain the rows)
 
 Docs:
 
@@ -208,28 +224,34 @@ Each test is named after its criterion (`ac3_…`). Red is a failing assertion a
 | AC14 | `crates/app/tests/mpris.rs` :: `ac14_clients_stay_off_the_bus` | no new bus connection from clients | stub client publishes too |
 | AC15 | `crates/app/src/oneshot.rs` :: the 0005 argument table (new rows) | parsed commands, exit 2 | stub parses only the toggles |
 | AC16 | `crates/app/src/mpris/hub.rs` :: `ac16_shutdown_order` | refusal after `Shutdown`; close after `ShuttingDown` | stub closes first |
+| AC18 | `crates/api/src/metadata.rs`, `crates/api/src/library.rs` :: `ac18_cover` (table, fixtures); `crates/core/src/track.rs` :: `ac18_cover_url` (table) | parsed covers; URLs | stub DTOs drop the field; stub `cover_url` returns `""` |
+| AC19 | `crates/app/src/persist.rs` :: `ac6_load` (new row); `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_round_trip` (new row) | old file loads; covers survive | stub `cover` without `#[serde(default)]` fails the old file |
 | AC17 | `crates/app/tests/docs.rs` :: `ac17_every_command_documented` (new rows) + reviewed at acceptance | docs | stub docs lack the rows |
 
-Checked by hand at acceptance on the user's machine (results in the PR description), because they need a real desktop: GNOME's (or KDE's) media widget shows the track, updates on track change, pause and seek without delay, and its buttons work; the keyboard's play/pause, next and previous keys control the daemon with no TUI open; `playerctl -p tidal_player metadata --follow` follows track changes; a Bluetooth headset's buttons control playback; the device is released after pausing from the widget (0005).
+Checked by hand at acceptance on the user's machine (results in the PR description), because they need a real desktop: GNOME's (or KDE's) media widget shows the track, updates on track change, pause and seek without delay, and its buttons work, and it shows the album cover; the keyboard's play/pause, next and previous keys control the daemon with no TUI open; `playerctl -p tidal_player metadata --follow` follows track changes; a Bluetooth headset's buttons control playback; the device is released after pausing from the widget (0005).
 
 CI: `dbus-daemon` comes with the `dbus` package; the CI job's `apt-get install` gains `dbus` so AC10–AC14 run there (they fail, never skip, without it).
 
 ## Crate placement
 
-- `tidal-player-core`: the new `Command` variants (`Play`, `Pause`, `Stop`, `SetShuffle(bool)`, `SetRepeat(RepeatMode)`, `SetPosition { entry, position }`) and their handling in `player`. No D-Bus, no new dependency
+- `tidal-player-core`: `AlbumRef::cover` (`#[serde(default)]`) and `track::cover_url`; the new `Command` variants (`Play`, `Pause`, `Stop`, `SetShuffle(bool)`, `SetRepeat(RepeatMode)`, `SetPosition { entry, position }`) and their handling in `player`. No D-Bus, no new dependency
+- `tidal-player-api`: the `cover` field in the metadata and library album DTOs, mapped into `AlbumRef`
 - `tidal-player` (binary): `mpris/model.rs` (pure: properties, metadata, changes, `Seeked`, position, call → command, with its own value type), `mpris/hub.rs` (the adapter as an in-process client of the hub: a `Peer` with no stream that subscribes and sends `Request`s with ids, waiting for each `Reply` with a deadline), `mpris/bus.rs` (the thin zbus layer: name, object, interfaces, signals; checked by AC10–AC14 and by hand), wired into the standalone, `daemon` and `play` players; `mpris` in `config`; the one-shot setters in `oneshot`. `zbus` is already a dependency (blocking API for 0003's reservation); the adapter may use its async API on the player's tokio runtime (a workspace feature change only)
 - `xtask layering`: no change (core and audio still have no D-Bus)
+- Adding a field to `AlbumRef` touches every test that builds one with a struct literal; the slice that adds it updates them (or they use a helper)
 
 ## Facts vs. assumptions
 
 Verified (2026-10-09, from code):
 
 - tidalt: as under "What tidalt did" (files and commits named there)
-- This repo: the hub accepts in-process peers (`Peer::new(outbox, None)`) and orders their `Subscribe`/`Request` with every other input (`crates/app/src/ipc/server.rs`); `TogglePause` on a stopped player starts the current entry at `position`; `Next` with repeat on wraps (`skip_target`), and with nothing after it stops; `SetVolume` unmutes; `zbus` 5 is a workspace dependency with `blocking-api` and `async-io`; 0005's daemon and CLI tests set `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus`; `dbus-daemon` is installed in this development container
+- This repo: the hub accepts in-process peers (`Peer::new(outbox, None)`) and orders their `Subscribe`/`Request` with every other input (`crates/app/src/ipc/server.rs`); `TogglePause` on a stopped player starts the current entry at `position`; `Next` with repeat on wraps (`skip_target`), and with nothing after it stops; `SetVolume` unmutes; `zbus` 5 is a workspace dependency with `blocking-api` and `async-io`; 0005's daemon and CLI tests set `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus`; `dbus-daemon` is installed in this development container; the recorded v1 track objects carry `album.cover` as a UUID next to `vibrantColor` and `videoCover` (`crates/api/tests/fixtures/metadata/track.json`, `album_page.json`, `playlist_page_with_video.json`, and three library fixtures), and our DTOs drop it (`metadata.rs` and `library.rs` `AlbumDto`)
 
 Assumptions, checked at acceptance:
 
 - The MPRIS2 specification (2.2): bus name `org.mpris.MediaPlayer2.<name>`, `.instance<pid>` for further instances; `/org/mpris` paths are reserved except `/org/mpris/MediaPlayer2/TrackList/NoTrack`; `Position` is not signalled by `PropertiesChanged` and `Seeked` covers jumps; `SetPosition` ignores a stale `trackid`; `Volume` below 0 is treated as 0; `Stop` then `Play` starts the track from the beginning. Re-read against the spec text before AC3–AC8 are written
+- The image URL `https://resources.tidal.com/images/<a/b/c/d/e>/640x640.jpg` (tidalt used it; sizes `80x80`, `160x160`, `320x320`, `640x640`, `1280x1280`) needs no authentication. `resources.tidal.com` is not reachable from the development container, so it is checked on the user's machine before AC18 is written (`curl -I` on a cover from a real track)
+- GNOME Shell's and KDE Plasma's media widgets load an `https://` `mpris:artUrl` themselves (some notification daemons only take `file://`; they show no cover)
 - `playerctl`, `gsd-media-keys` and KDE's media controller pick up a player from `PropertiesChanged` alone, with no `DesktopEntry`
 - `ubuntu-latest` runners can install `dbus` and run a private `dbus-daemon --session` without a system bus
 - spotify-player (from memory, re-check): MPRIS through the `souvlaki` crate behind its `media-control` feature, on by default on Linux, bus name `org.mpris.MediaPlayer2.spotify_player`
@@ -237,18 +259,19 @@ Assumptions, checked at acceptance:
 ## Decisions (proposed; to be answered by the user)
 
 1. **Bus name** `org.mpris.MediaPlayer2.tidal_player` (spotify-player's style: `playerctl -p tidal_player`). Alternative: `tidal-player` (hyphens are legal but discouraged in bus names)
-2. **Every player publishes**, `play` included, on by default with `mpris = false` to turn it off. Alternative: only the daemon and the standalone TUI
+2. **Every player publishes**, `play` included, on by default (`mpris = true`), `mpris = false` to turn it off. *Answered (the user, 2026-10-09): on by default, `mpris = true`*
 3. **Setters in core** (`Play`, `Pause`, `Stop`, `SetShuffle`, `SetRepeat`, `SetPosition`), decided against the player's real state, and the same setters as one-shot commands. Alternative: the adapter computes toggles from its copy (racy; tidalt's bug class)
 4. **The TUI does not read media keys**: the desktop routes them through MPRIS, and a terminal only sees them with the kitty keyboard protocol in a few terminals. Alternative: map crossterm's media key codes in `keymap.toml`
 5. **`Quit` does nothing** (`CanQuit = false`), so a widget cannot stop a daemon. Alternative: `CanQuit = true` for the standalone TUI only
-6. **No `TrackList` and no cover art** now: `HasTrackList = false`; `mpris:artUrl` needs the album's cover ID, which `Track` does not carry. Alternative: add the cover ID to `Track` and serve Tidal's image URL (a follow-up spec either way)
+6. **Cover art included, no `TrackList`**: *answered (the user, 2026-10-09): cover art included, a TUI cover may follow.* The cover ID is added to `Track`'s album and `mpris:artUrl` is Tidal's HTTPS URL at `640x640`, fetched by the desktop. Alternative: the player downloads the cover to the cache directory and gives a `file://` URL (works with notification daemons that take only files, but adds an image cache). `HasTrackList = false`
 7. **`Loading` reads as `Playing`** (the user asked to play; widgets show a pause button). Alternative: `Paused` until the stream starts
 8. **Muted reads as `Volume = 0.0`**, and a written `Volume` unmutes (as `SetVolume` does). Alternative: report the volume and ignore mute
 
 ## Out of scope
 
 - `org.mpris.MediaPlayer2.TrackList` and `Playlists` (decision 6)
-- Cover art (`mpris:artUrl`) and a `.desktop` file (`DesktopEntry`)
+- **The cover in the TUI** (spotify-player's `image` feature, tidalt's Kitty/sixel panel): its own spec, reusing this spec's `cover` and `cover_url`
+- Downloading or caching cover images; a `.desktop` file (`DesktopEntry`)
 - Media keys read by the TUI itself (decision 4)
 - Autoplay over MPRIS (no standard property)
 - MPRIS on macOS or Windows (the player is Linux-only, 0003)
