@@ -208,6 +208,10 @@ fn first_credits(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
 /// Asks for the next page of window `window` of page `page`.
 fn ask_more(state: &mut State, page: usize, window: usize, effects: &mut Vec<Effect>) {
     let w = &state.history[page].windows[window];
+    // Whole lists (spec 0011) have nothing more to ask for.
+    if w.whole {
+        return;
+    }
     let more = LibraryRequest::More {
         list: w.list.clone(),
         offset: w.next_offset,
@@ -510,6 +514,7 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
             }
             Row::Playlist(playlist) => (playlist.title.clone(), popup::playlist_actions(playlist)),
             Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
+            Row::Mix(mix) => (mix.title.clone(), popup::mix_actions(mix)),
         })
     }
 }
@@ -561,6 +566,7 @@ fn names(kind: ActionKind, action: &MenuAction) -> bool {
         (kind, action),
         (ActionKind::GoToAlbum, MenuAction::GoToAlbum(_))
             | (ActionKind::GoToArtist, MenuAction::GoToArtist(_))
+            | (ActionKind::GoToRadio, MenuAction::GoToRadio(_))
             | (ActionKind::AddToQueue, MenuAction::AddToQueue(_))
             | (ActionKind::PlayNext, MenuAction::PlayNext(_))
             | (ActionKind::AddToLiked, MenuAction::AddFavorite(..))
@@ -737,6 +743,7 @@ fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
         MenuAction::Open(kind) => open(state, kind),
         MenuAction::GoToAlbum(id) => open(state, PageKind::Album(id)),
         MenuAction::GoToArtist(artist) => open(state, PageKind::Artist(artist.id)),
+        MenuAction::GoToRadio(kind) => open(state, kind),
         MenuAction::AddToQueue(item) => queue(item, InsertAt::End),
         MenuAction::PlayNext(item) => queue(item, InsertAt::Next),
         MenuAction::AddFavorite(kind, id) => write(
@@ -934,6 +941,7 @@ fn page_error(kind: &PageKind, message: String) -> String {
         PageKind::Library => format!("Could not load the library: {message}"),
         PageKind::FavoriteTracks => format!("Could not load the favorite tracks: {message}"),
         PageKind::Search(_) => format!("Could not search: {message}"),
+        PageKind::Mixes => format!("Could not load the mixes: {message}"),
         _ => message,
     }
 }

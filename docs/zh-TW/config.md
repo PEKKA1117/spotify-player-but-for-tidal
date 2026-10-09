@@ -159,6 +159,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `LibraryPage` | `g l` | 所有地方 | the library（音樂庫） |
 | `LikedTrackPage` | `g y` | 所有地方 | favorite tracks（收藏的曲目） |
 | `SearchPage` | `g s` | 所有地方 | the search page (on one: its input)（搜尋頁面；已在搜尋頁面時：其輸入框） |
+| `MixesPage` | `g m` | 所有地方 | your mixes（你的 mix） |
 | `Search` | `/` | 搜尋頁面 | back to the search input（回到搜尋輸入框） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
 | `ClosePopup` | `esc` | 彈出視窗、提示、載入中 | close / cancel（關閉／取消） |
@@ -170,12 +171,13 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 <a id="actions"></a>
 ### 動作
 
-用於 `[[actions]]`；沒有任何動作有預設按鍵。
+用於 `[[actions]]`；只有 `GoToRadio` 有預設按鍵（`r`，作用於選取的列）。
 
 | 動作 | 作用 | 適用對象 |
 |---|---|---|
 | `GoToAlbum` | 前往專輯 | 有專輯的曲目 |
 | `GoToArtist` | 前往（第一位）藝人 | 曲目、專輯 |
+| `GoToRadio` | 前往電台（一個頁面；按 `Enter` 前不會播放任何東西） | 曲目、藝人 |
 | `AddToQueue` | 加到佇列末端 | 曲目、專輯、播放清單 |
 | `PlayNext` | 下一首播放 | 曲目（正在播放的除外）、專輯、播放清單 |
 | `AddToLiked` | 加入收藏 | 曲目、專輯、藝人、你追蹤的播放清單 |
@@ -191,7 +193,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SwitchTheme`。
 
 - 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`SwitchTheme`、`SwitchDevice`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
-- 動作：`GoToRadio`、`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
+- 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。
 

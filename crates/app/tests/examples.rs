@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tidal_player::config::{AppConfig, parse_app_toml, parse_keymap_toml};
 use tidal_player::play::{resolve_player_config_with, resolve_settings_with};
 use tidal_player_core::ui::Keymap;
-use tidal_player_core::ui::keymap::defaults;
+use tidal_player_core::ui::keymap::{Binding, defaults};
 
 fn example(name: &str) -> (PathBuf, String) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -68,34 +68,54 @@ fn ac18_example_app_toml_is_the_defaults() {
     assert_eq!(file.layout, defaults.layout, "library layout");
 }
 
-/// AC18: one `[[keymaps]]` entry per default binding, nothing else, and
-/// the file builds to the default keymap.
+/// AC18 (and spec 0011 AC9): one `[[keymaps]]` entry per default command
+/// binding and one `[[actions]]` entry per default action binding, nothing
+/// else, and the file builds to the default keymap.
 #[test]
 fn ac18_example_keymap_is_the_defaults() {
     let (path, text) = example("keymap.toml");
     let value: toml::Table = text.parse().expect("examples/keymap.toml is TOML");
-    let entries: Vec<(String, String)> = value
-        .get("keymaps")
-        .and_then(toml::Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|e| {
-                    let field =
-                        |k: &str| e.get(k).and_then(toml::Value::as_str).unwrap().to_owned();
-                    (field("command"), field("key_sequence"))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let listed: BTreeSet<(String, String)> = entries.iter().cloned().collect();
-    assert_eq!(listed.len(), entries.len(), "an entry is listed twice");
-    let expected: BTreeSet<(String, String)> = defaults()
-        .into_iter()
-        .map(|(sequence, binding)| (binding.name().to_owned(), sequence.to_string()))
-        .collect();
-    assert_eq!(listed, expected, "entries vs the default bindings");
-    assert!(value.get("actions").is_none(), "no default [[actions]]");
+    let entries_of = |section: &str, name: &str| -> Vec<(String, String, String)> {
+        value
+            .get(section)
+            .and_then(toml::Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| {
+                        let field = |k: &str| e.get(k).and_then(toml::Value::as_str);
+                        (
+                            field(name).unwrap().to_owned(),
+                            field("key_sequence").unwrap().to_owned(),
+                            field("target").unwrap_or("SelectedItem").to_owned(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for (section, name) in [("keymaps", "command"), ("actions", "action")] {
+        let entries = entries_of(section, name);
+        let listed: BTreeSet<(String, String, String)> = entries.iter().cloned().collect();
+        assert_eq!(listed.len(), entries.len(), "{section}: listed twice");
+        let expected: BTreeSet<(String, String, String)> = defaults()
+            .into_iter()
+            .filter_map(|(sequence, binding)| match (section, binding) {
+                ("keymaps", Binding::Command(command)) => Some((
+                    command.name().to_owned(),
+                    sequence.to_string(),
+                    "SelectedItem".to_owned(),
+                )),
+                ("actions", Binding::Action(action)) => Some((
+                    action.action.name().to_owned(),
+                    sequence.to_string(),
+                    format!("{:?}", action.target),
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(listed, expected, "{section} vs the default bindings");
+    }
 
     let keymap = parse_keymap_toml(&path, &text).expect("examples/keymap.toml builds");
     assert_eq!(keymap, Keymap::default());

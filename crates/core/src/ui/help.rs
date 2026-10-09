@@ -14,7 +14,7 @@
 //! - `Lists`: the six list-moving commands, on pages with a list and in
 //!   the popups that have one;
 //! - `Pages`: the page commands (`Queue`, `LibraryPage`, `LikedTrackPage`,
-//!   `SearchPage`, `PreviousPage`), the focus commands where the page has
+//!   `SearchPage`, `MixesPage`, `PreviousPage`), the focus commands where the page has
 //!   more than one pane and the tab commands where a pane has tabs;
 //! - `Playback`: playback, seek, volume, modes, the two prompts and
 //!   `ShowActionsOnCurrentTrack`;
@@ -235,7 +235,12 @@ fn is_app(command: UiCommand) -> bool {
 fn in_pages(page: &Page, command: UiCommand) -> bool {
     use UiCommand as C;
     match command {
-        C::Queue | C::LibraryPage | C::LikedTrackPage | C::SearchPage | C::PreviousPage => true,
+        C::Queue
+        | C::LibraryPage
+        | C::LikedTrackPage
+        | C::SearchPage
+        | C::MixesPage
+        | C::PreviousPage => true,
         C::FocusNextWindow | C::FocusPreviousWindow => {
             page.panes.len() > 1 || page.search.is_some()
         }
@@ -333,6 +338,9 @@ fn window_title(at: Where) -> String {
             | WindowKind::SearchAlbums
             | WindowKind::SearchArtists
             | WindowKind::SearchPlaylists => format!("Search · {}", kind.name()),
+            WindowKind::Mixes => "Mixes".into(),
+            WindowKind::MixTracks => "Mix".into(),
+            WindowKind::RadioTracks | WindowKind::ArtistRadioTracks => "Radio".into(),
         },
         Where::Popup | Where::Input => String::new(),
     }
@@ -465,6 +473,7 @@ fn action_text(action: ActionKind) -> &'static str {
     match action {
         ActionKind::GoToAlbum => "go to the album",
         ActionKind::GoToArtist => "go to the artist",
+        ActionKind::GoToRadio => "the radio of the selected track or artist",
         ActionKind::AddToQueue => "add to the end of the queue",
         ActionKind::PlayNext => "play next",
         ActionKind::AddToLiked => "add to favorites",
@@ -493,6 +502,7 @@ fn text(at: Where, command: UiCommand) -> String {
                 | WindowKind::AppearsOn
                 | WindowKind::SearchAlbums => "open the album",
                 WindowKind::Artists | WindowKind::SearchArtists => "open the artist",
+                WindowKind::Mixes => "open the mix",
                 _ => "play the track with its list",
             },
         }),
@@ -538,6 +548,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::LibraryPage => owned("the library"),
         C::LikedTrackPage => owned("favorite tracks"),
         C::SearchPage => owned("the search page (on one: its input)"),
+        C::MixesPage => owned("your mixes"),
         C::PreviousPage => owned("back"),
         C::ClosePopup => owned("close / cancel"),
         C::OpenCommandHelp => owned("this help"),
