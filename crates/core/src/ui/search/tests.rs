@@ -42,6 +42,7 @@ fn track(id: u64) -> Track {
         album: Some(AlbumRef {
             id: 10,
             title: "Al10".into(),
+            cover: None,
         }),
         duration: Some(Duration::from_secs(100)),
         streamable: true,

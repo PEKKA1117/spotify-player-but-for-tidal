@@ -231,6 +231,7 @@ impl From<TrackDto> for Track {
             album: dto.album.map(|a| AlbumRef {
                 id: a.id,
                 title: a.title,
+                cover: None,
             }),
             duration: dto.duration.map(Duration::from_secs),
             streamable: dto.allow_streaming && dto.stream_ready,

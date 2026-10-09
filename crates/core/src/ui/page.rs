@@ -901,6 +901,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: 10,
                 title: "Al".into(),
+                cover: None,
             }),
             duration: None,
             streamable: true,
