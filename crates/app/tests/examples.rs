@@ -41,6 +41,9 @@ fn ac18_example_app_toml_is_the_defaults() {
         // Spec 0010.
         ("mpris", file.mpris.is_none()),
         ("max_cover_arts", file.max_cover_arts.is_none()),
+        // Spec 0013.
+        ("key_hints", file.key_hints.is_none()),
+        ("key_hints_delay_ms", file.key_hints_delay_ms.is_none()),
     ]
     .into_iter()
     .filter_map(|(key, missing)| missing.then_some(key))

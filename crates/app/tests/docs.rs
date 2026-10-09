@@ -2,7 +2,8 @@
 //! the keymap, each command with its default keys, in the file's syntax.
 //! Spec 0010 AC17 adds rows: MPRIS's settings in `docs/config.md`, the new
 //! one-shot commands in `docs/daemon.md`, and `docs/mpris.md` with its
-//! zh-TW copy.
+//! zh-TW copy. Spec 0013 AC7: the key hints' settings and their section
+//! in `docs/tui.md`, in English and in the zh-TW copies.
 
 use std::path::Path;
 
@@ -121,4 +122,38 @@ fn ac17_mpris_documented() {
         zh.contains("<a id=\"media-keys\"></a>"),
         "docs/zh-TW/mpris.md: anchors"
     );
+}
+
+/// 0013 AC7: `key_hints` and `key_hints_delay_ms` in the `app.toml` table
+/// of `docs/config.md` (with their variables) and of its zh-TW copy; the
+/// "Key hints" section of `docs/tui.md` and its zh-TW copy.
+#[test]
+fn ac7_key_hints_documented() {
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        for (key, var) in [
+            ("key_hints", "TIDAL_PLAYER_KEY_HINTS"),
+            ("key_hints_delay_ms", "TIDAL_PLAYER_KEY_HINTS_DELAY_MS"),
+        ] {
+            let found = rows(&config, key);
+            assert!(
+                found.iter().any(|row| row.contains(var)),
+                "docs/{name}: {key}: no table row naming {var}: {found:?}"
+            );
+        }
+    }
+    let tui = doc("tui.md");
+    assert!(
+        tui.contains("## Key hints"),
+        "docs/tui.md: Key hints section"
+    );
+    for needed in ["key_hints", "key_hints_delay_ms", "g …"] {
+        assert!(tui.contains(needed), "docs/tui.md: {needed}");
+    }
+    let zh = doc("zh-TW/tui.md");
+    assert!(
+        zh.contains("<a id=\"key-hints\"></a>"),
+        "docs/zh-TW/tui.md: the key-hints anchor"
+    );
+    assert!(zh.contains("key_hints_delay_ms"), "docs/zh-TW/tui.md");
 }

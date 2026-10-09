@@ -12,7 +12,7 @@ use super::super::{
     Action, Confirmed, Connection, Effect, Header, Key, Page, PageKind, Popup, SearchFocus, State,
     TrackSource, Window, WindowKind, apply_keymap, update,
 };
-use super::{HelpRow, HelpSection, help, visible};
+use super::{HelpRow, HelpSection, HintEntry, Hints, help, hints, visible};
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -844,4 +844,309 @@ fn ac8_help_no_other_key_acts() {
     let before = state.clone();
     assert_eq!(press(&mut state, &[Key::Char('g'), Key::Char('l')]), vec![]);
     assert_eq!(state, before);
+}
+
+// --- spec 0013: key-sequence hints ---------------------------------------------
+
+use super::super::page::Rows;
+use super::super::{Purpose, WholeList, WholeListSource};
+
+/// A keymap of `keymaps` (sequence, command) and `actions` (sequence,
+/// action) over the defaults, on `state`.
+fn keyed(mut state: State, keymaps: &[(&str, &str)], actions: &[(&str, &str)]) -> State {
+    let file = KeymapFile {
+        keymaps: keymaps
+            .iter()
+            .map(|(sequence, command)| KeymapEntry {
+                command: CommandEntry::name(command),
+                key_sequence: (*sequence).into(),
+            })
+            .collect(),
+        actions: actions
+            .iter()
+            .map(|(sequence, action)| ActionEntry {
+                action: (*action).into(),
+                key_sequence: (*sequence).into(),
+                target: Target::PlayingTrack,
+            })
+            .collect(),
+    };
+    apply_keymap(&mut state, build(&file).expect("a valid keymap"));
+    state
+}
+
+/// The library, *Playlists* focused, with one playlist row (selected).
+fn library_with_row() -> State {
+    on_page(PageKind::Library, |p| {
+        p.focus = 0;
+        p.windows[0].rows = Rows::Playlists(vec![PlaylistSummary {
+            uuid: "p1".into(),
+            title: "Mine".into(),
+            tracks: Some(2),
+            duration: None,
+            own: true,
+        }]);
+        p.windows[0].total = Some(1);
+    })
+}
+
+/// The queue page with entries 1 and 2, the cursor on entry 1.
+fn queue_with_cursor() -> State {
+    let mut state = with_queue();
+    state.cursor = Some(EntryId(1));
+    state
+}
+
+fn entry(key: &str, text: &str, dim: bool) -> HintEntry {
+    HintEntry {
+        key: key.into(),
+        text: text.into(),
+        dim,
+        more: 0,
+    }
+}
+
+fn nested(key: &str, more: usize, dim: bool) -> HintEntry {
+    HintEntry {
+        key: key.into(),
+        text: String::new(),
+        dim,
+        more,
+    }
+}
+
+fn pressed(mut state: State, keys: &[Key]) -> State {
+    press(&mut state, keys);
+    state
+}
+
+/// AC1: after `g`, one entry per next key with the keys help's text, dim
+/// and order, only the bindings the help lists in this view; a custom
+/// keymap's bindings appear and an unbound one is gone.
+#[test]
+fn ac1_hints_entries() {
+    let g = [Key::Char('g')];
+    let pages = |a: HintEntry| {
+        vec![
+            a,
+            entry("g", "move to the top", false),
+            entry("l", "the library", false),
+            entry("y", "favorite tracks", false),
+            entry("s", "the search page (on one: its input)", false),
+            entry("m", "your mixes", false),
+        ]
+    };
+    let rows: Vec<(&str, State, Vec<HintEntry>)> = vec![
+        (
+            "library window, a row selected",
+            pressed(library_with_row(), &g),
+            pages(entry("a", "actions on the selected row", false)),
+        ),
+        (
+            "library window, no row",
+            pressed(focused(PageKind::Library, 0), &g),
+            pages(entry("a", "actions on the selected row", true)),
+        ),
+        (
+            "queue page",
+            pressed(queue_with_cursor(), &g),
+            pages(entry("a", "actions on the entry", false)),
+        ),
+        (
+            "actions popup",
+            pressed(with_popup(popups().remove(0).1), &g),
+            vec![entry("g", "move to the top", false)],
+        ),
+        (
+            "custom keymap",
+            pressed(
+                keyed(
+                    queue_with_cursor(),
+                    &[("g n", "NextTrack"), ("g l", "None")],
+                    &[("g B", "GoToAlbum")],
+                ),
+                &g,
+            ),
+            vec![
+                entry("a", "actions on the entry", false),
+                entry("g", "move to the top", false),
+                entry("y", "favorite tracks", false),
+                entry("s", "the search page (on one: its input)", false),
+                entry("m", "your mixes", false),
+                entry("n", "next track", false),
+                entry("B", "go to the album (playing track)", false),
+            ],
+        ),
+        (
+            "custom keymap, disconnected",
+            {
+                let mut state = keyed(queue_with_cursor(), &[("g n", "NextTrack")], &[]);
+                state.connection = Connection::Disconnected { shut_down: false };
+                pressed(state, &g)
+            },
+            {
+                let mut entries = pages(entry("a", "actions on the entry", false));
+                entries.push(entry("n", "next track", true));
+                entries
+            },
+        ),
+    ];
+    for (name, state, entries) in rows {
+        assert_eq!(
+            hints(&state),
+            Some(Hints {
+                prefix: "g".into(),
+                entries,
+            }),
+            "{name}"
+        );
+    }
+}
+
+/// AC2: a next key that starts longer sequences is one `+N` entry with no
+/// text, dim only when everything under it is; pressing it lists the next
+/// level.
+#[test]
+fn ac2_hints_nested_prefix() {
+    let s = Key::Char('s');
+    let state = keyed(
+        State::default(),
+        &[
+            ("s q", "Queue"),
+            ("s l a", "LikedTrackPage"),
+            ("s l b", "NextTrack"),
+        ],
+        &[],
+    );
+    let after_s = pressed(state.clone(), &[s]);
+    assert_eq!(
+        hints(&after_s),
+        Some(Hints {
+            prefix: "s".into(),
+            entries: vec![entry("q", "the queue page", false), nested("l", 2, false),],
+        }),
+        "after s"
+    );
+    let after_sl = pressed(state, &[s, Key::Char('l')]);
+    assert_eq!(
+        hints(&after_sl),
+        Some(Hints {
+            prefix: "s l".into(),
+            entries: vec![
+                entry("a", "favorite tracks", false),
+                // Empty queue: next track does nothing.
+                entry("b", "next track", true),
+            ],
+        }),
+        "after s l"
+    );
+    // Everything under `n` is dim on an empty queue.
+    let all_dim = keyed(
+        State::default(),
+        &[("s n a", "NextTrack"), ("s n b", "PreviousTrack")],
+        &[],
+    );
+    assert_eq!(
+        hints(&pressed(all_dim, &[s])),
+        Some(Hints {
+            prefix: "s".into(),
+            entries: vec![nested("n", 2, true)],
+        }),
+        "all dim"
+    );
+}
+
+/// AC3: no hints with nothing pending, over the keys help, during a
+/// whole-list load, with `key_hints` off, or when nothing under the
+/// pending keys acts here.
+#[test]
+fn ac3_no_hints() {
+    let g = Key::Char('g');
+    let rows: Vec<(&str, State)> = vec![
+        ("nothing pending", library_with_row()),
+        ("nothing pending, empty queue", State::default()),
+        (
+            "keys help open",
+            pressed(library_with_row(), &[Key::Char('?'), g]),
+        ),
+        ("whole-list load", {
+            let mut state = library_with_row();
+            state.whole_list = Some(WholeList {
+                source: WholeListSource::Window { page: 1, window: 0 },
+                purpose: Purpose::Play { start: 0 },
+            });
+            pressed(state, &[g])
+        }),
+        ("key_hints off", {
+            let mut state = library_with_row();
+            state.key_hints = false;
+            pressed(state, &[g])
+        }),
+        (
+            "nothing under the prefix acts here",
+            pressed(
+                keyed(library_with_row(), &[("x y", "RemoveFromQueue")], &[]),
+                &[Key::Char('x')],
+            ),
+        ),
+    ];
+    for (name, state) in rows {
+        assert_eq!(hints(&state), None, "{name}");
+    }
+    // The pending keys themselves are untouched (0008: no timeout).
+    let state = pressed(
+        keyed(library_with_row(), &[("x y", "RemoveFromQueue")], &[]),
+        &[Key::Char('x')],
+    );
+    assert_eq!(state.pending, vec![Key::Char('x')]);
+}
+
+/// AC4: the same keys give the same effects and state with `key_hints` on
+/// and off; the hints are gone once the sequence completes, mismatches or
+/// is cancelled.
+#[test]
+fn ac4_hints_do_not_change_keys() {
+    let k = Key::Char;
+    let nested_keymap = keyed(
+        queue_with_cursor(),
+        &[("s l a", "LibraryPage"), ("s l b", "NextTrack")],
+        &[],
+    );
+    let rows: Vec<(&str, State, Vec<Key>)> = vec![
+        ("complete g l", queue_with_cursor(), vec![k('g'), k('l')]),
+        ("mismatch g x", queue_with_cursor(), vec![k('g'), k('x')]),
+        ("mismatch g n", queue_with_cursor(), vec![k('g'), k('n')]),
+        ("cancel g esc", queue_with_cursor(), vec![k('g'), Key::Esc]),
+        ("nested s l a", nested_keymap, vec![k('s'), k('l'), k('a')]),
+        (
+            "over a popup g g",
+            pressed(with_popup(popups().remove(0).1), &[k('j')]),
+            vec![k('g'), k('g')],
+        ),
+        (
+            "over a popup g esc",
+            with_popup(popups().remove(0).1),
+            vec![k('g'), Key::Esc],
+        ),
+    ];
+    for (name, origin, keys) in rows {
+        let mut on = origin.clone();
+        on.key_hints = true;
+        let mut off = origin;
+        off.key_hints = false;
+        for (i, key) in keys.iter().enumerate() {
+            let effects_on = press(&mut on, &[*key]);
+            let effects_off = press(&mut off, &[*key]);
+            assert_eq!(effects_on, effects_off, "{name}: key {i}");
+            let mut same = off.clone();
+            same.key_hints = true;
+            assert_eq!(on, same, "{name}: key {i}");
+            if i + 1 < keys.len() {
+                assert!(hints(&on).is_some(), "{name}: no hints after key {i}");
+            }
+        }
+        assert!(on.pending.is_empty(), "{name}: still pending");
+        assert_eq!(hints(&on), None, "{name}: hints after the sequence");
+        assert_eq!(hints(&off), None, "{name}: hints with key_hints off");
+    }
 }
