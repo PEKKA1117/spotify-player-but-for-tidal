@@ -1624,6 +1624,7 @@ pub(crate) mod fakes {
             album: Some(AlbumRef {
                 id: 1,
                 title: "Album".into(),
+                cover: None,
             }),
             duration: duration.map(Duration::from_secs),
             streamable: true,

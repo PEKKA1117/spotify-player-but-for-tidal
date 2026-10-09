@@ -182,6 +182,9 @@ pub(crate) struct ArtistDto {
 struct AlbumDto {
     id: u64,
     title: String,
+    /// The cover image ID; `null` or absent for albums without one.
+    #[serde(default)]
+    cover: Option<String>,
 }
 
 impl From<ArtistDto> for ArtistRef {
@@ -231,6 +234,7 @@ impl From<TrackDto> for Track {
             album: dto.album.map(|a| AlbumRef {
                 id: a.id,
                 title: a.title,
+                cover: a.cover,
             }),
             duration: dto.duration.map(Duration::from_secs),
             streamable: dto.allow_streaming && dto.stream_ready,

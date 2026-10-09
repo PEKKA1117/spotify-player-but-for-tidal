@@ -256,6 +256,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: 20,
                 title: "Album".into(),
+                cover: Some("2e4a5d2d-9a0d-4c3a-a0ba-42b0bd16a6ec".into()),
             }),
             duration: Some(Duration::from_secs(212)),
             streamable: true,

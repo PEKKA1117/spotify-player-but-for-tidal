@@ -193,6 +193,7 @@ fn collide_ref() -> Option<AlbumRef> {
     Some(AlbumRef {
         id: 58758536,
         title: "Collide With The Sky".into(),
+        cover: Some("9cf0c416-8bb6-499c-b14f-fd4c00287658".into()),
     })
 }
 

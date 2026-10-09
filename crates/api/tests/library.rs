@@ -218,6 +218,7 @@ fn trk(id: u64, title: &str, version: Option<&str>) -> Track {
         album: Some(AlbumRef {
             id: 2001,
             title: "Album One".into(),
+            cover: Some("00000000-0000-4000-8000-000000000002".into()),
         }),
         duration: Some(Duration::from_secs(291)),
         streamable: true,

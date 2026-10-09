@@ -963,6 +963,7 @@ fn track(id: u64) -> tidal_player_core::Track {
         album: Some(AlbumRef {
             id: 2,
             title: "Album".into(),
+            cover: None,
         }),
         duration: Some(Duration::from_secs(296)),
         streamable: true,
