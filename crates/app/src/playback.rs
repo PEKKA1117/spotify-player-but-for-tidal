@@ -34,6 +34,8 @@ pub struct PlayRequest {
     pub player: PlayerConfig,
     /// The engine's release delay (spec 0005); `None`: never.
     pub release_paused: Option<Duration>,
+    /// Publishing on the session bus (spec 0010).
+    pub mpris: crate::mpris::Settings,
     pub options: PlayOptions,
 }
 
@@ -281,6 +283,12 @@ mod alsa_play {
         // Clients reach this player through its input channel, handled by
         // `play_queue` with everything else.
         server::forward_login(status, results.clone(), runtime.handle());
+        let mpris = crate::mpris::start(
+            &request.mpris,
+            results.clone(),
+            runtime.handle(),
+            crate::mpris::tracing_log(),
+        );
         let server = server::serve(listener, path, results.clone());
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
@@ -308,6 +316,9 @@ mod alsa_play {
         // the device before the process exits.
         drop(player);
         drop(server);
+        if let Some(mpris) = mpris {
+            mpris.close();
+        }
         drop(lock);
         runtime.shutdown_timeout(Duration::from_millis(100));
         ExitCode::from(code)

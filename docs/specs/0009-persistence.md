@@ -214,7 +214,7 @@ Assumptions, checked at acceptance: `rename(2)` within the state directory is at
 - Remembering the TUI's page history, cursors or search query (decision 4)
 - A recently-played history (tidalt had one; it would be its own spec, with its page)
 - Migrating anything from tidalt's `tidal-cache.db`
-- MPRIS (0010), mixes and radio (0011), filter and sort (0012)
+- MPRIS ([0010](0010-mpris.md), implemented; its cover cache is the one on-disk cache besides the state), mixes and radio (0011), filter and sort (0012)
 
 ## Implementation notes (choices made where the spec was silent, 2026-10-08)
 

@@ -5,7 +5,7 @@
 
 `tidal-player` 自行解碼 Tidal 的串流（FLAC 與 AAC，以純 Rust 實作），並寫入 ALSA 裝置：預設經由系統混音器，或在你要求時直接送到你的 DAC，位元完美（bit-perfect）。設計：[spec 0003](../specs/0003-playback-engine.md)（播放引擎）與 [spec 0004](../specs/0004-queue-and-controls.md)（佇列與控制）。
 
-三種播放方式：TUI（`tidal-player [ITEM]...`，見 [TUI](tui.md)）、從命令列以無介面方式播放（`tidal-player play <ITEM>...`，見下文），或常駐程式（daemon）（`tidal-player daemon`，以 `tidal-player playback …` 及連接上的 TUI 控制，見 [常駐程式與用戶端](daemon.md)）。三者都播放一個由[項目](#items)填入的**佇列**。
+三種播放方式：TUI（`tidal-player [ITEM]...`，見 [TUI](tui.md)）、從命令列以無介面方式播放（`tidal-player play <ITEM>...`，見下文），或常駐程式（daemon）（`tidal-player daemon`，以 `tidal-player playback …` 及連接上的 TUI 控制，見 [常駐程式與用戶端](daemon.md)）。三者都播放一個由[項目](#items)填入的**佇列**。每個播放器也會回應桌面的媒體控制、多媒體鍵與 `playerctl`：見[桌面控制與多媒體鍵](mpris.md)。
 
 <a id="items"></a>
 ## 項目
@@ -86,6 +86,8 @@ $ tidal-player devices
 | 超過此秒數後「上一首」改為重新播放目前曲目；`0`：「上一首」一律回到上一首 | `previous_restart_secs` | | `TIDAL_PLAYER_PREVIOUS_RESTART`（0–60） | `3` |
 | 啟動時開啟自動播放 | `autoplay`（`true`、`false`） | `--autoplay`（僅 `play`） | `TIDAL_PLAYER_AUTOPLAY`（`on`、`off`） | `off` |
 | 跨次執行記住佇列、位置、模式與音量；見[接續上次的工作階段](#resuming-the-last-session) | `remember_playback`（`true`、`false`） | | `TIDAL_PLAYER_REMEMBER_PLAYBACK`（`on`、`off`） | `true` |
+| 為桌面控制、多媒體鍵與 `playerctl` 發布播放器；見[桌面控制與多媒體鍵](mpris.md) | `mpris`（`true`、`false`） | | `TIDAL_PLAYER_MPRIS`（`on`、`off`） | `true` |
+| 快取中為桌面保留的專輯封面數（`0`：不保留，由桌面自行下載）；見[專輯封面](mpris.md#album-covers) | `max_cover_arts`（0–1000） | | `TIDAL_PLAYER_MAX_COVER_ARTS` | `20` |
 | 暫停多久（秒）後釋放裝置；見[暫停時釋放裝置](daemon.md#releasing-the-device-while-paused) | `release_paused_secs`（或 `"never"`） | | `TIDAL_PLAYER_RELEASE_PAUSED`（0–3600，或 `never`） | `10` |
 | TUI 中音樂庫清單每次取得的列數；見[清單隨捲動載入](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE`（1–10 000） | `100` |
 | TUI 中搜尋結果每次取得的列數；見[搜尋](tui.md#search) | `search_page_size` | | `TIDAL_PLAYER_SEARCH_PAGE_SIZE`（1–1000） | `20` |

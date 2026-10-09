@@ -93,17 +93,22 @@ WantedBy=default.target
 | 指令 | 作用 |
 |---|---|
 | `play-pause` | 播放／暫停 |
+| `play` | 播放或繼續播放；已在播放時不做任何事 |
+| `pause` | 暫停；已暫停時不做任何事 |
+| `stop` | 停止並釋放裝置；目前曲目保留，回到 `0:00` |
 | `next`, `previous` | 下一首／上一首曲目（與 TUI 中的 `n`／`p` 相同） |
 | `seek S`, `seek +S`, `seek -S` | 跳到曲目的第 `S` 秒，或向前／向後 `S` 秒（`seek 90`、`seek +5`、`seek -2.5`） |
 | `volume N`, `volume +N`, `volume -N` | 將音量設為 `N` %（0–100），或調整 `N` 點 |
 | `mute`, `shuffle`, `repeat`, `autoplay` | 切換靜音、隨機播放、自動播放；循環切換重複播放 off → queue → track |
+| `shuffle on`, `shuffle off` | 開啟或關閉隨機播放（已是該狀態時不做任何事） |
+| `repeat off`, `repeat queue`, `repeat track` | 設定重複播放模式 |
 | `load ITEM...` | 以這些[項目](playback.md#items)取代佇列，並播放第一個 |
 | `add ITEM...`, `add --next ITEM...` | 將項目加到佇列的最後，或加在目前曲目的正後方 |
 | `status`, `status --json` | 印出正在播放的內容 |
 
 當播放器完成指令時，它不印出任何內容並以 0 結束。否則：
 
-- 錯誤的參數或項目（`volume 101`、`seek x`、藝人連結）會以 2 結束，且不傳送任何東西
+- 錯誤的參數或項目（`volume 101`、`seek x`、`shuffle maybe`、藝人連結）會以 2 結束，且不傳送任何東西
 - 沒有播放器在執行時以 1 結束，並顯示 `No player is running: start "tidal-player" or "tidal-player daemon"`
 - 播放器的錯誤（`Album 123 was not found`）會印在 stderr，以 1 結束
 - 5 秒內沒有回應：`The player did not answer`，以 1 結束
@@ -120,6 +125,11 @@ Queue: 2 of 12
 沒有目前曲目時，只會顯示 `Nothing playing`。若播放器有訊息，第四行會顯示它（`Output hw:1,0 is busy …`），或是 `Session expired: run "tidal-player login"`。裝置已釋放時，第二行結尾會是 `· device released`。`status --json` 會以一行 JSON 印出播放器的完整狀態，供腳本使用。
 
 `playback add` 可以做成簡單的連結處理程式：例如 `tidal-player playback add --next "$1"`。
+
+<a id="desktop-controls-and-playerctl"></a>
+### 桌面控制與 `playerctl`
+
+常駐程式也是你工作階段匯流排上的 MPRIS 媒體播放器：GNOME 與 KDE 的媒體控制、鍵盤的多媒體鍵與 `playerctl -p tidal_player play-pause` 都能在沒有開啟 TUI 時控制它。請見[桌面控制與多媒體鍵](mpris.md)。
 
 <a id="stopping-the-daemon"></a>
 ### 停止常駐程式

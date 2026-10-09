@@ -34,6 +34,14 @@ autoplay = false
 # (TIDAL_PLAYER_REMEMBER_PLAYBACK)
 remember_playback = true
 
+# Publish the player on the session bus (MPRIS) for desktop media controls,
+# media keys and playerctl: true or false. (TIDAL_PLAYER_MPRIS, on/off)
+mpris = true
+
+# Album covers kept in the cache directory for the desktop, least recently
+# used deleted first: 0 to 1000; 0 keeps none. (TIDAL_PLAYER_MAX_COVER_ARTS)
+max_cover_arts = 20
+
 # Release the audio device after pausing for this many seconds: 0 to 3600,
 # or "never". (TIDAL_PLAYER_RELEASE_PAUSED)
 release_paused_secs = 10

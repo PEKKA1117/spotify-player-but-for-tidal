@@ -40,12 +40,14 @@ Flat keys, every one optional.
 | `autoplay` | `true`, `false` | `false` | `--autoplay`, `TIDAL_PLAYER_AUTOPLAY` | player |
 | `release_paused_secs` | integer 0–3600, or `"never"` | `10` | `TIDAL_PLAYER_RELEASE_PAUSED` | player |
 | `remember_playback` | `true`, `false` | `true` | `TIDAL_PLAYER_REMEMBER_PLAYBACK` (`on`, `off`) | player |
+| `mpris` | `true`, `false` | `true` | `TIDAL_PLAYER_MPRIS` (`on`, `off`) | player |
+| `max_cover_arts` | integer 0–1000 (`0`: no cover cache) | `20` | `TIDAL_PLAYER_MAX_COVER_ARTS` | player |
 | `page_size` | integer 1–10 000 | `100` | `TIDAL_PLAYER_PAGE_SIZE` | player, TUI |
 | `search_page_size` | integer 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | player, TUI |
 | `hide_versions` | array of strings (`[]` hides nothing) | the sixteen words of [Settings](playback.md#settings) | `TIDAL_PLAYER_HIDE_VERSIONS` | player |
 | `[layout] library = { playlist_percent, album_percent }` | integers 1–98 each, sum at most 99; *Artists* takes the rest | `40`, `40` | | TUI |
 
-What each setting does is described in [Settings](playback.md#settings); the library layout in [Windows](tui.md#windows).
+What each setting does is described in [Settings](playback.md#settings); the library layout in [Windows](tui.md#windows); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
 
 ```toml
 # ~/.config/tidal-player/app.toml
