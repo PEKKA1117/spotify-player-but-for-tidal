@@ -1,0 +1,71 @@
+{
+  "id": "my_collection_my_mixes",
+  "title": "My Mix",
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "MIX_LIST",
+          "title": "",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000aa",
+            "limit": 20,
+            "offset": 0,
+            "totalNumberOfItems": 6,
+            "items": [
+              {
+                "id": "0000000000000000000000000000d1",
+                "title": "My Daily Discovery",
+                "subTitle": "Songs by new and familiar artists inspired by your listening.",
+                "description": "Pop, Rock",
+                "mixType": "DISCOVERY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              },
+              {
+                "id": "0000000000000000000000000000a1",
+                "title": "My Mix 1",
+                "subTitle": "Artist A, Artist B, Artist C and more",
+                "description": "Pop, Rock",
+                "mixType": "DAILY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              },
+              {
+                "id": "0000000000000000000000000000c1",
+                "title": "My Video Mix 1",
+                "subTitle": "Artist A, Artist B and more",
+                "description": "Pop, Rock",
+                "mixType": "VIDEO_DAILY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              },
+              {
+                "id": "0000000000000000000000000000a1",
+                "title": "My Mix 1 (again)",
+                "subTitle": "Artist A, Artist B, Artist C and more",
+                "description": "Pop, Rock",
+                "mixType": "DAILY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              },
+              {
+                "id": "",
+                "title": "No ID",
+                "subTitle": "",
+                "description": "Pop, Rock",
+                "mixType": "DAILY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              },
+              {
+                "id": "0000000000000000000000000000a2",
+                "title": "My Mix 2",
+                "subTitle": "",
+                "description": "Pop, Rock",
+                "mixType": "DAILY_MIX",
+                "contentBehavior": "UNRESTRICTED"
+              }
+            ]
+          },
+          "supportsPaging": false
+        }
+      ]
+    }
+  ]
+}

@@ -1029,6 +1029,58 @@ fn ac4_search_reply_to_sender() {
     assert_eq!(library.seen(), want);
 }
 
+/// Spec 0011 AC5: the mixes, mix and radio pages are answered like any
+/// 0006 request (new rows of `ac8_reply_to_sender`): one reply, to the
+/// sender only, with the page size.
+#[test]
+fn ac8_reply_to_sender_mixes_and_radio() {
+    use tidal_player_core::library::PageRequest;
+
+    let library = Arc::new(FakeLibrary::default());
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    let requests = vec![
+        LibraryRequest::Page(PageRequest::Mixes),
+        LibraryRequest::Page(PageRequest::Mix("00a1b2c3d4e5f60718293a4b5c6d7e".into())),
+        LibraryRequest::Page(PageRequest::TrackRadio(5001)),
+        LibraryRequest::Page(PageRequest::ArtistRadio(3001)),
+    ];
+    for request in &requests {
+        let id = a.ask_library(request.clone());
+        assert_eq!(
+            a.library_reply(),
+            (id, Ok(LibraryResponse::Done)),
+            "{request:?}"
+        );
+    }
+    let got = b.request(NOOP);
+    assert_eq!(
+        library_replies(&got),
+        Vec::<&ServerMessage>::new(),
+        "{got:?}"
+    );
+    assert_eq!(library_replies(&b.drain()).len(), 0);
+    let got = a.request(NOOP);
+    assert_eq!(library_replies(&got).len(), 0, "{got:?}");
+
+    let settings = crate::player_runtime::LibrarySettings::default();
+    let want: Vec<_> = requests
+        .iter()
+        .map(|request| {
+            (
+                request.clone(),
+                settings.page_size,
+                settings.hidden_words.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(library.seen(), want);
+}
+
 /// AC8: a failing library's message is the `Err`, unchanged.
 #[test]
 fn ac8_errors() {
