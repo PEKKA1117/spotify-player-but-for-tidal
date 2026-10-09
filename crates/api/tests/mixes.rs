@@ -446,7 +446,8 @@ async fn ac3_mix_page() {
     drop(s);
 
     // (header answer, items answer) -> the page's error.
-    let table: Vec<(&str, (u16, &str), (u16, &str), &str)> = vec![
+    type Answer<'a> = (u16, &'a str);
+    let table: Vec<(&str, Answer, Answer, &str)> = vec![
         (
             "header not found",
             (404, MIX_NOT_FOUND),
