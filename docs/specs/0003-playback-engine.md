@@ -343,7 +343,7 @@ Assumed, checked at manual acceptance:
 
 - Queue, auto-advance policy, next/previous, shuffle, repeat, volume (0004). 0004 decides when to send `Preload`, and clears `bit_perfect` whenever gain ≠ 1
 - Releasing the device while paused, answering other applications' `RequestRelease`, daemon and clients (0005)
-- Config file (0008), remembering the device (0009 left it out: there is no picker yet), MPRIS (0010)
+- Config file (0008), remembering the device (0009 left it out: there is no picker yet), MPRIS ([0010](0010-mpris.md), implemented)
 - ReplayGain / loudness normalisation
 - Encrypted streams (incl. the Widevine-protected v2 `trackManifests`), Dolby Atmos / Sony 360, video
 - Gapless for lossy tracks (AAC delay trimming)

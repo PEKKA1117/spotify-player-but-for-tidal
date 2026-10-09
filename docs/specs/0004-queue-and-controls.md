@@ -117,7 +117,7 @@ The message stays in the snapshot until the next track starts or the next failur
 - `PlayerEffect`: `Resolve { entry, tag, purpose: Play | Preload }`, `EnginePlay { tag, start_at }`, `EnginePreload { tag }`, `EngineCancelPreload`, `EnginePause`, `EngineResume`, `EngineSeek`, `EngineStop`, `EngineSetGain(f32)`, `FetchSuggestions { seed, tag }`, `Broadcast(Event)`. The runtime keeps the resolved stream for a tag and hands it to the engine with `EnginePlay`/`EnginePreload`; core never sees a URL
 - Each `Resolve` gets a fresh tag. A resolution result or an engine event with any tag other than the current track's (or the pending preload's) changes nothing
 
-New `protocol::Command` variants (client → player): `LoadQueue { tracks, start }`, `AddToQueue { tracks, at: Next | End }`, `RemoveFromQueue(EntryId)`, `ClearQueue`, `PlayEntry(EntryId)`, `TogglePause`, `Next`, `Previous`, `SeekBy(milliseconds, signed)`, `SeekTo(Duration)`, `ToggleShuffle`, `CycleRepeat`, `ToggleAutoplay`, `ChangeVolume(i8)`, `SetVolume(u8)`, `ToggleMute`. Toggles rather than "set" variants, so two clients acting on a stale view (0005) cannot fight; MPRIS (0010) may add setters.
+New `protocol::Command` variants (client → player): `LoadQueue { tracks, start }`, `AddToQueue { tracks, at: Next | End }`, `RemoveFromQueue(EntryId)`, `ClearQueue`, `PlayEntry(EntryId)`, `TogglePause`, `Next`, `Previous`, `SeekBy(milliseconds, signed)`, `SeekTo(Duration)`, `ToggleShuffle`, `CycleRepeat`, `ToggleAutoplay`, `ChangeVolume(i8)`, `SetVolume(u8)`, `ToggleMute`. Toggles rather than "set" variants, so two clients acting on a stale view (0005) cannot fight; MPRIS ([0010](0010-mpris.md), implemented) added the setters `Play`, `Pause`, `Stop`, `SetShuffle`, `SetRepeat` and `SetPosition`, decided by the player against its own state.
 
 New `protocol::Event` variants (player → clients):
 
@@ -373,7 +373,7 @@ Not verified (the probe did not reach it):
 - Library and search pages, "add to queue" from them (0006, 0007); they will use `AddToQueue` from this spec
 - Configurable keys and settings in `app.toml`/`keymap.toml` (0008)
 - Remembering the queue, position and volume across runs (done in 0009)
-- MPRIS and media keys (0010); setter commands for it
+- MPRIS and media keys, and setter commands for it ([0010](0010-mpris.md), implemented)
 - Mixes and radio as pages to browse (0011); autoplay at the end of the queue is in this spec
 - Cover art (its placement rule is fixed here, under "TUI")
 - Switching the output device from the TUI (the engine supports it; a picker is a later spec; 0009 left it out)

@@ -307,7 +307,7 @@ Not covered by automated tests, on purpose, and checked by hand at acceptance on
 - The generated unit under systemd: `enable --now` starts it, `systemctl --user status` shows it active (ready notified), `stop` exits cleanly; with a standalone TUI open, `start` fails once with status 3 and is not restarted
 - Pause on a `hw:` DAC, wait past the release delay: another application (`speaker-test -D hw:1,0`, or a browser through PipeWire) can use the card; quit it, resume: the track continues where it was, with no audible skip or repeat
 - Paused, then a PipeWire client starts on that card: does WirePlumber send `RequestRelease` (and does it get the card at once)? Record what happens; the assumption below depends on it
-- `playerctl` is not expected to work yet (MPRIS is 0010)
+- `playerctl` was not expected to work here; it does since MPRIS ([0010](0010-mpris.md), implemented)
 
 ## Crate placement
 
@@ -335,16 +335,16 @@ Assumptions to check during implementation or at acceptance:
 
 ## Decisions (answered by the user, 2026-10-07: all as proposed)
 
-1. **Transport**: a Unix socket with JSON lines (*accepted*) rather than a private D-Bus interface as tidalt had. The `Command`/`Event` types already serialise to JSON; a socket needs no session bus (a headless box over SSH may have none), carries push events and a connection lifetime (attach/detach) for free, and is testable in-process. MPRIS (0010) is D-Bus and stays separate: a public adapter on top of the player, not the client channel
+1. **Transport**: a Unix socket with JSON lines (*accepted*) rather than a private D-Bus interface as tidalt had. The `Command`/`Event` types already serialise to JSON; a socket needs no session bus (a headless box over SSH may have none), carries push events and a connection lifetime (attach/detach) for free, and is testable in-process. MPRIS ([0010](0010-mpris.md), implemented) is D-Bus and stays separate: a public adapter on top of the player, not the client channel
 2. **Who is the player when no daemon runs**: the first `tidal-player` (standalone, as in 0004), which also serves the socket (*accepted*). Alternative: `tidal-player` always starts a background daemon and is only ever a client, so quitting the TUI never stops the music. Proposed keeps 0001's three modes and spotify-player's behaviour (quitting stops)
 3. **Item expansion in the player** (`Command::Open`, *accepted*): clients need no session, no passphrase and no API access, and one-shot commands are a single message. Alternative: clients expand and send tracks (needs a session in every client, which 0006's browsing will need anyway). Proposed for now; 0006 decides how its browsing pages fetch
 4. **Release delay**: 10 s by default, `0` for tidalt's release-at-once, `never` (*accepted*). `RequestRelease` is honoured while paused whatever the setting
 5. **systemd unit**: printed by `tidal-player daemon unit`, installed by the user (*accepted*), rather than tidalt's `setup --daemon` writing it and running `systemctl` itself
-6. **One-shot commands**: the table under "One-shot commands" (*accepted*): toggles only, as 0004's protocol has; explicit `play`/`pause`/`set` commands come with MPRIS's setters (0010)
+6. **One-shot commands**: the table under "One-shot commands" (*accepted*): toggles only, as 0004's protocol has; explicit `play`/`pause`/`set` commands came with MPRIS's setters ([0010](0010-mpris.md), implemented: `play`, `pause`, `stop`, `shuffle on|off`, `repeat off|queue|track`)
 
 ## Out of scope
 
-- MPRIS2, media keys, `playerctl` (0010)
+- MPRIS2, media keys, `playerctl` ([0010](0010-mpris.md), implemented)
 - Remembering the queue, position and volume across daemon restarts (done in 0009)
 - Socket activation, a system-wide (multi-user) daemon, remote clients over TCP
 - A `tidal://` URL handler and `.desktop` file (tidalt's `setup`)

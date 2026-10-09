@@ -86,7 +86,7 @@ The transport (D-Bus via `zbus`, as tidalt did and as MPRIS needs anyway, or a U
 | CLI                | `clap` 4 (derive)                              |
 | config / serde     | `serde`, `toml`, `directories`                 |
 | secrets            | `keyring` 4                                    |
-| MPRIS (later spec) | `zbus` 5 / `mpris-server`                      |
+| MPRIS ([0010](0010-mpris.md), implemented) | `zbus` 5 (plain; `mpris-server` not used) |
 | errors             | `thiserror` in libraries, `anyhow` in the binary |
 | logging            | `tracing` + `tracing-appender` to a file under the XDG state dir; never stdout/stderr while the TUI is up |
 | tests              | `insta` (snapshots), `wiremock` (HTTP fixtures), `assert_cmd` (CLI) |
@@ -156,7 +156,7 @@ Numbers are provisional; each is drafted and approved on its own.
 - 0007 — Search
 - 0008 — Keymap & config: spotify-player-compatible key sequences and `app.toml`/`keymap.toml`
 - 0009 — Persistence: last session, volume, device, metadata cache (implemented as the playback state only; the device and caches were left out, see 0009 "Decisions")
-- 0010 — MPRIS2 / media keys
+- 0010 — MPRIS2 / media keys ([implemented](0010-mpris.md))
 - 0011 — Mixes & radio
 
 ## Facts vs. assumptions
