@@ -1,10 +1,10 @@
 # 0013 — Key-sequence hints
 
-- **Status**: draft
+- **Status**: approved (2026-10-09, decisions below)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#17](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/17)
 - **Depends on**: 0004 (implemented: the screen), 0008 (implemented: the keymap, key sequences, the keys help and its texts, `app.toml`)
-- **User docs**: [`docs/tui.md`](../tui.md) gains "Key hints"; [`docs/config.md`](../config.md) gains `key_hints` (AC6)
+- **User docs**: [`docs/tui.md`](../tui.md) gains "Key hints"; [`docs/config.md`](../config.md) gains `key_hints` and `key_hints_delay_ms` (AC7)
 
 ## Context
 
@@ -16,7 +16,7 @@ tidalt had no multi-key bindings, so there is nothing to carry over.
 
 ### When the hint shows
 
-While a key sequence is pending (the keys pressed so far start a longer binding but are no binding themselves, 0008's rule) and at least one of the bindings it starts **acts where the user is**, a **hint** box is drawn. It goes away as soon as nothing is pending:
+When a key sequence has been pending for the **delay** (`key_hints_delay_ms`, default 1000 ms) without a further key (the keys pressed so far start a longer binding but are no binding themselves, 0008's rule), and at least one of the bindings it starts **acts where the user is**, a **hint** box is drawn. A sequence typed faster than the delay never shows one. Each further key that keeps a sequence pending (`s` then `l` of `s l a`) restarts the delay. The hint goes away as soon as nothing is pending:
 
 - the next key completes a binding (that binding runs, as today)
 - the next key starts nothing (collecting restarts with that key alone, as today: `g x` does what `x` does, `g esc` does what `esc` does, so `esc` cancels)
@@ -24,7 +24,7 @@ While a key sequence is pending (the keys pressed so far start a longer binding 
 
 It is not drawn while the keys help is open (the help is modal and already lists every key), during a whole-list load (only `esc`/`q` act there), when the page area is not drawn (terminals under 8 rows, 0004), or when `key_hints = false`.
 
-The hint does not change what keys do: dispatch reads the same pending keys whether a hint is drawn or not, and nothing waits on a timer (0008: sequences have no timeout).
+The hint does not change what keys do: dispatch reads the same pending keys whether a hint is drawn or not, and the delay only decides when the box is drawn (0008: sequences still have no timeout). The delay is measured by the TUI (it redraws at least every 100 ms), so the box appears within one frame after the delay.
 
 ### What it lists
 
@@ -56,7 +56,14 @@ The default keymap after `g`, on a library window with a row selected, at 80 × 
 
 ### Config
 
-`app.toml` gains `key_hints` (`true`/`false`, default `true`), overridden by `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`), read by the TUI only (as `volume_step`): the daemon accepts it and ignores it, and each attached TUI uses its own (0008 AC16's rule for the keymap).
+`app.toml` gains, read by the TUI only (as `volume_step`: the daemon accepts and ignores them, and each attached TUI uses its own, 0008 AC16's rule for the keymap):
+
+| Key | Accepted | Default | Overridden by |
+|---|---|---|---|
+| `key_hints` | `true`, `false` | `true` | `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`) |
+| `key_hints_delay_ms` | integer 0–10 000 (`0`: at once) | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` |
+
+The delay is in milliseconds, not 0008's `_secs`, because useful values are below a second.
 
 ## Acceptance criteria
 
@@ -64,14 +71,16 @@ The default keymap after `g`, on a library window with a row selected, at 80 × 
 - **AC2** — A next key that starts longer sequences gives one entry with `+N` and no text, dim only when everything under it is; after it is pressed the hints list the next level
 - **AC3** — No hints when: nothing is pending; the keys help is open; a whole-list load is shown; `key_hints` is off; the pending keys start only bindings that do not act in this view
 - **AC4** — The hint never changes what a key does: for a table of key sequences (complete `g l`, mismatch `g x`, cancel `g esc`, nested `s l a`, a sequence over a popup), the effects and the resulting state (hints aside) are the same with `key_hints` on and off, and the hints are gone once the sequence completes, mismatches or is cancelled
-- **AC5** — Rendering: the hint box is docked at the bottom of the page area, titled `g …`, with entries in columns as above; dim entries are dim; it truncates with `…` and `… +N more`; no hint under 3 × 12 or with no page area; drawing it at any terminal size from 1 × 1 to 200 × 60 does not panic. Snapshots at 80 × 24 (library, queue, actions popup), 40 × 12, 120 × 30 and with a nested prefix
-- **AC6** — `key_hints` in `app.toml` and `TIDAL_PLAYER_KEY_HINTS` set the TUI's state with 0008's precedence and errors (a non-boolean value is an error naming the key; exit 2); `examples/app.toml` lists it with its default; `docs/tui.md`, `docs/config.md` and their zh-TW copies describe the hint and the setting
+- **AC5** — Delay: the TUI's hint timer (`HintTimer`, fed the pending keys and the time after every update) says to draw the hint only once the same pending keys have been pending for the delay: not before (999 ms of 1000), yes at and after it, at once with a delay of 0, never with no pending keys; a further key that keeps a sequence pending restarts it; completing, cancelling or mismatching resets it
+- **AC6** — Rendering: the hint box is docked at the bottom of the page area, titled `g …`, with entries in columns as above; dim entries are dim; it truncates with `…` and `… +N more`; no hint under 3 × 12 or with no page area; drawing it at any terminal size from 1 × 1 to 200 × 60 does not panic. Snapshots at 80 × 24 (library, queue, actions popup), 40 × 12, 120 × 30 and with a nested prefix
+- **AC7** — `key_hints` and `key_hints_delay_ms` in `app.toml`, `TIDAL_PLAYER_KEY_HINTS` and `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` set the TUI's settings with 0008's precedence and errors (a non-boolean `key_hints`, a delay out of 0–10 000: an error naming the key; exit 2); `examples/app.toml` lists both with their defaults; `docs/tui.md`, `docs/config.md` and their zh-TW copies describe the hint and the setting
 
 ## Edge cases & errors
 
 - **A custom keymap binds a prefix alone** (`g` to a command): 0008 refuses it unless the longer sequences are unbound first, so a bound key never shows a hint
 - **No entry acts here** (e.g. a custom `x y` bound to `RemoveFromQueue`, `x` pressed on a library page): no hint is drawn, and the pending keys behave as today
 - **Very many entries** (a custom keymap with 30 bindings under one prefix): `… +N more` in the last cell; the keys help (`?`) lists them all
+- **Delay while the terminal is idle**: the main loop ticks every 100 ms without input, so the box appears without a key press
 - **Resize while pending**: the next frame lays the hint out for the new size
 - **Attached TUI**: hints are computed from that client's keymap and `key_hints`; nothing goes over the socket
 - **Connection lost while pending**: the dim rule follows the connection, as in the keys help
@@ -86,15 +95,16 @@ Each test is named after its criterion. Red is a failing assertion against stub 
 | AC2 | `crates/core/src/ui/help/tests.rs` :: `ac2_hints_nested_prefix` | `+N` entry, its dim, next level after the key | stub `hints` returns `None` |
 | AC3 | `crates/core/src/ui/help/tests.rs` :: `ac3_no_hints` (table) | `None` in each listed case | stub `hints` returns `Some` with every binding under the prefix whatever the state |
 | AC4 | `crates/core/src/ui/help/tests.rs` :: `ac4_hints_do_not_change_keys` (table) | same effects and state on/off; hints gone afterwards | stub `hints` ignores `pending` and keeps returning entries after the sequence ends |
-| AC5 | `crates/app/src/ui.rs` :: `ac5_key_hints` (snapshot per row), `ac5_key_hints_layout` (table: entries × area → columns, rows, `… +N more`), `ac17_no_panic_any_size` (new rows with a pending `g`) | position, columns, title, dim, truncation, sizes | stub render draws no hint |
-| AC6 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows), `crates/app/tests/examples.rs` :: `ac18_example_app_toml_is_the_defaults` (unchanged, fails until the example has the key), `crates/app/tests/docs.rs` :: `ac6_key_hints_documented` + zh-TW copies reviewed at acceptance | value per source, error message, example, docs mention `key_hints` | stub config ignores `key_hints` |
+| AC5 | `crates/app/src/ui.rs` :: `ac5_hint_timer` (table: key presses and instants → draw or not; fake instants, no sleeping) | delay, restart, reset, delay 0 | stub timer always says draw |
+| AC6 | `crates/app/src/ui.rs` :: `ac6_key_hints` (snapshot per row), `ac6_key_hints_layout` (table: entries × area → columns, rows, `… +N more`), `ac17_no_panic_any_size` (new rows with a pending `g`) | position, columns, title, dim, truncation, sizes | stub render draws no hint |
+| AC7 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows), `crates/app/tests/examples.rs` :: `ac18_example_app_toml_is_the_defaults` (unchanged, fails until the example has the key), `crates/app/tests/docs.rs` :: `ac7_key_hints_documented` + zh-TW copies reviewed at acceptance | value per source, error message, example, docs mention both keys | stub config ignores both keys |
 
-Checked by hand at acceptance: `g` in a real terminal shows the box and `l` opens the library; `key_hints = false` hides it.
+Checked by hand at acceptance: in a real terminal `g l` typed quickly opens the library with no box; `g` held for a second shows it and `l` then opens the library; `key_hints = false` hides it.
 
 ## Crate placement
 
-- `tidal-player-core::ui`: `help::hints(&State) -> Option<Hints>` (`Hints { prefix: String, entries: Vec<HintEntry> }`, `HintEntry { key: String, text: String, dim: bool, more: usize }`), built from `help::help` so the context and text rules stay in one place; `State` gains `key_hints: bool` (default `true`). No I/O, no new dependency
-- `tidal-player`: config (`key_hints`, `TIDAL_PLAYER_KEY_HINTS`), the pure layout function (entries and an area → the box and its cells) and the drawing in `ui/pages.rs`
+- `tidal-player-core::ui`: `help::hints(&State) -> Option<Hints>` (content only: no time) (`Hints { prefix: String, entries: Vec<HintEntry> }`, `HintEntry { key: String, text: String, dim: bool, more: usize }`), built from `help::help` so the context and text rules stay in one place; `State` gains `key_hints: bool` (default `true`). No I/O, no new dependency
+- `tidal-player`: config (both keys and variables), `HintTimer` in `ui.rs` (pending keys + an injected `Instant` → draw or not; the main loop feeds it `Instant::now()` after each batch of updates and passes its answer to `render`), the pure layout function (entries and an area → the box and its cells) and the drawing in `ui/pages.rs`
 - `xtask layering`: no change
 
 ## Facts vs. assumptions
@@ -103,12 +113,12 @@ Verified (2026-10-09, from code): pending keys live in `State::pending` (`crates
 
 Assumptions: none about external systems (no API, no audio, no terminal protocol involved).
 
-## Decisions (to be answered by the user)
+## Decisions (answered by the user, 2026-10-09)
 
-1. **Delay**: *proposed*: none; the hint shows on the first key. Neovim's which-key waits (`timeoutlen`), Helix does not. A delay needs a timer in the UI loop for a sequence that has none. Alternative: `key_hints_delay_ms`
-2. **Off switch**: *proposed*: `key_hints` in `app.toml` (+ environment), default on. Alternative: always on, no setting
-3. **Position**: *proposed*: docked at the bottom of the page area (the playback window is at the top here, so "above the now-playing bar" from the issue becomes "at the bottom of the screen", where Helix puts it). Alternative: bottom-right corner box, Helix's exact placement
-4. **Context**: *proposed*: only bindings that act in this view (the keys help's rule), so `g a` is not offered over a popup. Alternative: every binding under the prefix, those that do nothing here dim
+1. **Delay**: *answered: default 1 s*, configurable (`key_hints_delay_ms`, `0` for at once), measured by the TUI, not the core model (it has no clock)
+2. **Off switch**: *answered: yes*, `key_hints` in `app.toml` (+ environment), default on
+3. **Position**: *answered: as proposed*: docked at the bottom of the page area
+4. **Context**: *answered: only meaningful ones*: only bindings that act in this view (the keys help's rule)
 
 ## Out of scope
 
