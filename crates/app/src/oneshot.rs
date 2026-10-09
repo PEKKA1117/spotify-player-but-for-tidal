@@ -496,7 +496,7 @@ mod tests {
             assert_eq!(parse(args), want, "{args:?}");
         }
         // clap refuses these itself (exit 2): no item, an unknown command.
-        for args in [&["load"][..], &["add", "--next"], &["stop"], &["seek"]] {
+        for args in [&["load"][..], &["add", "--next"], &["nope"], &["seek"]] {
             assert!(parse(args).is_err(), "{args:?} accepted");
         }
     }
