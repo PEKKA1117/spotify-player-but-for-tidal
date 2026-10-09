@@ -391,7 +391,15 @@ mod tests {
             f.swap(3, 17);
             f
         };
-        let rows: [(&str, Vec<(String, SystemTime)>, usize, &[&str], &[&str]); 7] = [
+        // name, files, max, kept, deleted
+        type Row<'a> = (
+            &'a str,
+            Vec<(String, SystemTime)>,
+            usize,
+            &'a [&'a str],
+            &'a [&'a str],
+        );
+        let rows: [Row; 7] = [
             ("21 at 20: the oldest", files(21), 20, &[], &["c0"]),
             ("in any order", shuffled, 20, &[], &["c0"]),
             (
@@ -489,7 +497,15 @@ mod tests {
     #[test]
     fn ac20_cache_dir() {
         let home = Path::new("/home/u");
-        let rows: [(&str, Option<&str>, Option<&str>, Option<&Path>, &str); 6] = [
+        // name, variable, XDG_CACHE_HOME, home, want
+        type Row<'a> = (
+            &'a str,
+            Option<&'a str>,
+            Option<&'a str>,
+            Option<&'a Path>,
+            &'a str,
+        );
+        let rows: [Row; 6] = [
             ("variable", Some("/v"), Some("/x"), Some(home), "/v"),
             (
                 "empty variable",

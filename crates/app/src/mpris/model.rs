@@ -709,7 +709,8 @@ mod tests {
                 .filter(|(k, _)| !keys.contains(k))
                 .collect::<Vec<_>>()
         };
-        let rows: Vec<(&str, PlayerSnapshot, Vec<(&str, Value)>)> = vec![
+        type Row = (&'static str, PlayerSnapshot, Vec<(&'static str, Value)>);
+        let rows: Vec<Row> = vec![
             (
                 "no current entry",
                 snap(None, PlaybackState::Stopped),
@@ -773,7 +774,13 @@ mod tests {
             s
         };
         let keys = |p: Properties| p.into_iter().collect::<Vec<_>>();
-        let rows: Vec<(&str, PlayerSnapshot, u64, Vec<(&str, Value)>)> = vec![
+        type Row = (
+            &'static str,
+            PlayerSnapshot,
+            u64,
+            Vec<(&'static str, Value)>,
+        );
+        let rows: Vec<Row> = vec![
             ("no change", base.clone(), 10, vec![]),
             ("position alone", with(&|s| s.position = S(50)), 50, vec![]),
             (
@@ -883,7 +890,16 @@ mod tests {
     #[test]
     fn ac7_position() {
         let t0 = Instant::now();
-        let rows: [(&str, Option<u64>, u64, PlaybackState, Option<u64>, u64, u64); 8] = [
+        type Row = (
+            &'static str,
+            Option<u64>,
+            u64,
+            PlaybackState,
+            Option<u64>,
+            u64,
+            u64,
+        );
+        let rows: [Row; 8] = [
             // name, entry, reported, state, duration, seconds later, want
             (
                 "playing",
