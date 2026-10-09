@@ -27,6 +27,7 @@ fn track(id: u64) -> Track {
         album: Some(AlbumRef {
             id: 1,
             title: "Album".into(),
+            cover: Some("2e4a5d2d-9a0d-4c3a-a0ba-42b0bd16a6ec".into()),
         }),
         duration: Some(LEN),
         streamable: true,
@@ -2086,6 +2087,7 @@ fn ac22_released_flag() {
 
 // Spec 0009 AC1–AC3: saving and restoring the playback state.
 mod persistence;
+mod setters;
 
 /// Spec 0009 (AC6, AC7 through the runtime): a `Notice` becomes the
 /// player's message with one snapshot, changes nothing else, and is

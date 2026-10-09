@@ -336,6 +336,10 @@ pub const AUTOPLAY_VAR: &str = "TIDAL_PLAYER_AUTOPLAY";
 pub const RELEASE_PAUSED_VAR: &str = "TIDAL_PLAYER_RELEASE_PAUSED";
 /// Remember the playback state between runs: `on` or `off` (spec 0009).
 pub const REMEMBER_PLAYBACK_VAR: &str = "TIDAL_PLAYER_REMEMBER_PLAYBACK";
+/// `on` or `off`: whether the player publishes itself over MPRIS (spec 0010).
+pub const MPRIS_VAR: &str = "TIDAL_PLAYER_MPRIS";
+/// The most album covers the cache keeps, 0 to 1000 (spec 0010).
+pub const MAX_COVER_ARTS_VAR: &str = "TIDAL_PLAYER_MAX_COVER_ARTS";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +383,10 @@ pub struct PlayerSettings {
     /// `player.autoplay` came from `--autoplay` or the environment, so it
     /// beats a remembered autoplay (spec 0009 "Precedence of autoplay").
     pub autoplay_explicit: bool,
+    /// Whether the player publishes itself over MPRIS (spec 0010).
+    pub mpris: bool,
+    /// The most covers the cover cache keeps; `0`: no cache (spec 0010).
+    pub max_cover_arts: u16,
 }
 
 impl Default for PlayerSettings {
@@ -391,6 +399,8 @@ impl Default for PlayerSettings {
             layout: LibraryLayout::default(),
             remember_playback: true,
             autoplay_explicit: false,
+            mpris: true,
+            max_cover_arts: 20,
         }
     }
 }
@@ -487,6 +497,12 @@ fn resolve_with(
     if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
         settings.remember_playback = on;
     }
+    if let Some(on) = on_off(get(MPRIS_VAR), MPRIS_VAR)? {
+        settings.mpris = on;
+    }
+    if let Some(value) = get(MAX_COVER_ARTS_VAR) {
+        settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
+    }
     if autoplay_flag {
         settings.player.autoplay = true;
         settings.autoplay_explicit = true;
@@ -527,6 +543,12 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(remember) = file.remember_playback {
         settings.remember_playback = remember;
+    }
+    if let Some(mpris) = file.mpris {
+        settings.mpris = mpris;
+    }
+    if let Some(max) = file.max_cover_arts {
+        settings.max_cover_arts = max;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;

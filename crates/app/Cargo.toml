@@ -42,6 +42,8 @@ insta = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
+# The paused clock of the cover and MPRIS tests (spec 0010).
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

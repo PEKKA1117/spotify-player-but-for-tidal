@@ -39,13 +39,29 @@ pub enum Command {
     PlayEntry(EntryId),
     /// Play/pause.
     TogglePause,
+    /// Start or resume; nothing when already playing (spec 0010).
+    Play,
+    /// Pause; nothing when already paused (spec 0010).
+    Pause,
+    /// Stop the engine, keep the current entry at `0:00` (spec 0010).
+    Stop,
     Next,
     Previous,
     /// Seek relative to the current position, in signed milliseconds.
     SeekBy(i64),
     /// Seek to a position in the current track.
     SeekTo(Duration),
+    /// Seek to `position` in `entry`, only while it is the current entry
+    /// and the position is within its duration (spec 0010).
+    SetPosition {
+        entry: EntryId,
+        position: Duration,
+    },
     ToggleShuffle,
+    /// Set shuffle on or off (spec 0010).
+    SetShuffle(bool),
+    /// Set the repeat mode (spec 0010).
+    SetRepeat(RepeatMode),
     /// `off` → `queue` → `track` → `off`.
     CycleRepeat,
     ToggleAutoplay,
@@ -240,6 +256,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: 20,
                 title: "Album".into(),
+                cover: Some("2e4a5d2d-9a0d-4c3a-a0ba-42b0bd16a6ec".into()),
             }),
             duration: Some(Duration::from_secs(212)),
             streamable: true,
@@ -490,6 +507,15 @@ mod tests {
             Command::ClearQueue,
             Command::PlayEntry(EntryId(5)),
             Command::TogglePause,
+            Command::Play,
+            Command::Pause,
+            Command::Stop,
+            Command::SetShuffle(true),
+            Command::SetRepeat(RepeatMode::Track),
+            Command::SetPosition {
+                entry: EntryId(7),
+                position: Duration::from_millis(1500),
+            },
             Command::Next,
             Command::Previous,
             Command::SeekBy(-5000),

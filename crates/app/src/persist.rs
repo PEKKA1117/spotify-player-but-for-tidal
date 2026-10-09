@@ -414,6 +414,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: 1,
                 title: "Album".into(),
+                cover: Some("2e4a5d2d-9a0d-4c3a-a0ba-42b0bd16a6ec".into()),
             }),
             duration: Some(Duration::from_secs(296)),
             streamable: true,
@@ -757,6 +758,17 @@ mod tests {
         let mut no_field: serde_json::Value = serde_json::from_str(&valid).unwrap();
         no_field.as_object_mut().unwrap().remove("muted");
         let no_field = no_field.to_string();
+        // A file written before 0010: no `cover` on any album (AC19).
+        let mut old: serde_json::Value = serde_json::from_str(&valid).unwrap();
+        for e in old["entries"].as_array_mut().unwrap() {
+            e["track"]["album"].as_object_mut().unwrap().remove("cover");
+        }
+        let old = old.to_string();
+        assert!(!old.contains("cover") && valid.contains("cover"));
+        let mut sample_old = sample();
+        for e in &mut sample_old.entries {
+            e.track.album.as_mut().unwrap().cover = None;
+        }
         let v2 = valid.replace("\"version\":1", "\"version\":2");
         assert_ne!(v2, valid);
 
@@ -772,7 +784,7 @@ mod tests {
             Empty,
             Unreadable,
             Corrupt(&'static str),
-            Valid,
+            Valid(Box<SavedPlayback>),
         }
         let rows: Vec<(&str, File, Want)> = vec![
             ("missing", File::Missing, Want::Empty),
@@ -793,7 +805,16 @@ mod tests {
                 File::Text(v2),
                 Want::Corrupt("unsupported version 2"),
             ),
-            ("valid", File::Text(valid), Want::Valid),
+            (
+                "an old file without covers (AC19)",
+                File::Text(old),
+                Want::Valid(Box::new(sample_old)),
+            ),
+            (
+                "valid, with covers (AC19)",
+                File::Text(valid),
+                Want::Valid(Box::new(sample())),
+            ),
         ];
         for (name, file, want) in rows {
             let tmp = tempfile::tempdir().unwrap();
@@ -848,16 +869,20 @@ mod tests {
                     };
                     assert_eq!(&older(), text, "{name}: older .bad replaced");
                 }
-                Want::Valid => {
+                Want::Valid(want) => {
                     assert_eq!(
                         got,
                         Loaded {
-                            saved: Some(sample()),
+                            saved: Some(*want),
                             message: None
                         },
                         "{name}"
                     );
                     assert!(path.exists(), "{name}: kept");
+                    assert!(
+                        !bad.exists() || older() == "older evidence",
+                        "{name}: no .bad rename"
+                    );
                 }
             }
         }

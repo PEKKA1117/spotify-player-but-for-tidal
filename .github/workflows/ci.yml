@@ -13,8 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # dbus: the MPRIS tests start their own dbus-daemon (spec 0010).
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev dbus
       - name: Install toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2

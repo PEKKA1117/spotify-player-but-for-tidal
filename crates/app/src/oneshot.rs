@@ -21,11 +21,32 @@ pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// What a one-shot command says when the player is silent.
 pub const NO_ANSWER: &str = "The player did not answer";
 
+/// The argument of `shuffle`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Switch {
+    On,
+    Off,
+}
+
+/// The argument of `repeat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RepeatArg {
+    Off,
+    Queue,
+    Track,
+}
+
 /// The `playback` subcommands.
 #[derive(Debug, Clone, PartialEq, Eq, clap::Subcommand)]
 pub enum PlaybackCommand {
     /// Play or pause.
     PlayPause,
+    /// Start or resume playing.
+    Play,
+    /// Pause.
+    Pause,
+    /// Stop, keeping the current entry at 0:00.
+    Stop,
     /// Skip to the next entry.
     Next,
     /// Back to the start, or to the previous entry.
@@ -42,10 +63,16 @@ pub enum PlaybackCommand {
     },
     /// Mute or unmute.
     Mute,
-    /// Shuffle on or off.
-    Shuffle,
-    /// Repeat: off, queue, track.
-    Repeat,
+    /// Shuffle: on or off; without an argument, toggle.
+    Shuffle {
+        #[arg(value_enum, value_name = "on|off")]
+        state: Option<Switch>,
+    },
+    /// Repeat: off, queue, track; without an argument, cycle.
+    Repeat {
+        #[arg(value_enum, value_name = "off|queue|track")]
+        mode: Option<RepeatArg>,
+    },
     /// Autoplay on or off.
     Autoplay,
     /// Replace the queue with these items and play the first.
@@ -99,8 +126,19 @@ pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
         PlaybackCommand::Seek { position } => seek(position)?,
         PlaybackCommand::Volume { level } => volume(level)?,
         PlaybackCommand::Mute => Command::ToggleMute,
-        PlaybackCommand::Shuffle => Command::ToggleShuffle,
-        PlaybackCommand::Repeat => Command::CycleRepeat,
+        PlaybackCommand::Play => Command::Play,
+        PlaybackCommand::Pause => Command::Pause,
+        PlaybackCommand::Stop => Command::Stop,
+        PlaybackCommand::Shuffle { state: None } => Command::ToggleShuffle,
+        PlaybackCommand::Shuffle { state: Some(state) } => {
+            Command::SetShuffle(*state == Switch::On)
+        }
+        PlaybackCommand::Repeat { mode: None } => Command::CycleRepeat,
+        PlaybackCommand::Repeat { mode: Some(mode) } => Command::SetRepeat(match mode {
+            RepeatArg::Off => RepeatMode::Off,
+            RepeatArg::Queue => RepeatMode::Queue,
+            RepeatArg::Track => RepeatMode::Track,
+        }),
         PlaybackCommand::Autoplay => Command::ToggleAutoplay,
         PlaybackCommand::Load { items } => Command::Open {
             items: items_of(items)?,
@@ -352,6 +390,23 @@ mod tests {
         const ALBUM: &str = "https://tidal.com/browse/album/10";
         let rows: Vec<(&[&str], Result<Plan, String>)> = vec![
             (&["play-pause"], request(Command::TogglePause)),
+            (&["play"], request(Command::Play)),
+            (&["pause"], request(Command::Pause)),
+            (&["stop"], request(Command::Stop)),
+            (&["shuffle", "on"], request(Command::SetShuffle(true))),
+            (&["shuffle", "off"], request(Command::SetShuffle(false))),
+            (
+                &["repeat", "off"],
+                request(Command::SetRepeat(RepeatMode::Off)),
+            ),
+            (
+                &["repeat", "queue"],
+                request(Command::SetRepeat(RepeatMode::Queue)),
+            ),
+            (
+                &["repeat", "track"],
+                request(Command::SetRepeat(RepeatMode::Track)),
+            ),
             (&["next"], request(Command::Next)),
             (&["previous"], request(Command::Previous)),
             (
@@ -398,6 +453,14 @@ mod tests {
             (&["status", "--json"], Ok(Plan::Status { json: true })),
             // Refused.
             (
+                &["shuffle", "maybe"],
+                Err("one of the values isn't valid for an argument".into()),
+            ),
+            (
+                &["repeat", "all"],
+                Err("one of the values isn't valid for an argument".into()),
+            ),
+            (
                 &["volume", "101"],
                 Err("Invalid volume \"101\": expected 0 to 100, +N or -N".into()),
             ),
@@ -433,7 +496,7 @@ mod tests {
             assert_eq!(parse(args), want, "{args:?}");
         }
         // clap refuses these itself (exit 2): no item, an unknown command.
-        for args in [&["load"][..], &["add", "--next"], &["stop"], &["seek"]] {
+        for args in [&["load"][..], &["add", "--next"], &["nope"], &["seek"]] {
             assert!(parse(args).is_err(), "{args:?} accepted");
         }
     }
@@ -453,6 +516,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: 1,
                 title: album.into(),
+                cover: None,
             }),
             duration: secs.map(Duration::from_secs),
             streamable: true,

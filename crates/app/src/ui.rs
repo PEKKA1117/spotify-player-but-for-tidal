@@ -616,6 +616,7 @@ mod tests {
             album: Some(AlbumRef {
                 id: id + 2000,
                 title: album.into(),
+                cover: None,
             }),
             duration: secs.map(Duration::from_secs),
             streamable: true,

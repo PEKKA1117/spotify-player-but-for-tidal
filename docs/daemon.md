@@ -88,17 +88,22 @@ After `tidal-player login` in any terminal, a running daemon picks up the new se
 | Command | Does |
 |---|---|
 | `play-pause` | play/pause |
+| `play` | play, or resume; nothing when already playing |
+| `pause` | pause; nothing when already paused |
+| `stop` | stop and release the device; the current track stays, at `0:00` |
 | `next`, `previous` | next / previous track (as `n` / `p` in the TUI) |
 | `seek S`, `seek +S`, `seek -S` | seek to `S` seconds into the track, or `S` seconds forward / back (`seek 90`, `seek +5`, `seek -2.5`) |
 | `volume N`, `volume +N`, `volume -N` | set the volume to `N` % (0–100), or change it by `N` points |
 | `mute`, `shuffle`, `repeat`, `autoplay` | toggle mute, shuffle, autoplay; cycle repeat off → queue → track |
+| `shuffle on`, `shuffle off` | turn shuffle on or off (nothing when it already is) |
+| `repeat off`, `repeat queue`, `repeat track` | set the repeat mode |
 | `load ITEM...` | replace the queue with the [items](playback.md#items) and play the first |
 | `add ITEM...`, `add --next ITEM...` | add the items at the end of the queue, or right after the current track |
 | `status`, `status --json` | print what is playing |
 
 It prints nothing and exits 0 when the player did it. Otherwise:
 
-- a bad argument or item (`volume 101`, `seek x`, an artist link) exits 2 and sends nothing
+- a bad argument or item (`volume 101`, `seek x`, `shuffle maybe`, an artist link) exits 2 and sends nothing
 - no player running exits 1 with `No player is running: start "tidal-player" or "tidal-player daemon"`
 - the player's error (`Album 123 was not found`) is printed on stderr, exit 1
 - no answer within 5 s: `The player did not answer`, exit 1
@@ -115,6 +120,10 @@ Queue: 2 of 12
 `Nothing playing` alone when nothing is current. A fourth line shows the player's message, if any (`Output hw:1,0 is busy …`), or `Session expired: run "tidal-player login"`. While the device is released, the second line ends with `· device released`. `status --json` prints the player's whole state as one JSON line, for scripts.
 
 `playback add` makes a simple handler for links: for example `tidal-player playback add --next "$1"`.
+
+### Desktop controls and `playerctl`
+
+The daemon is also an MPRIS media player on your session bus: GNOME's and KDE's media controls, the keyboard's media keys and `playerctl -p tidal_player play-pause` control it with no TUI open. See [Desktop controls and media keys](mpris.md).
 
 ### Stopping the daemon
 

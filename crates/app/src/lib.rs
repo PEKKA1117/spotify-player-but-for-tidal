@@ -8,6 +8,7 @@ pub mod http_source;
 pub mod input;
 pub mod ipc;
 pub mod login;
+pub mod mpris;
 pub mod oneshot;
 pub mod panic_hook;
 pub mod passphrase;

@@ -30,6 +30,7 @@ use tidal_player::{
         server,
     },
     login::{LoginOutcome, run_login},
+    mpris,
     oneshot::PlaybackCommand,
     panic_hook::install_panic_hook,
     persist::Persister,
@@ -365,6 +366,14 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         Err(code) => return Ok(code),
     };
     let player = spawn_runtime(player_runtime, inputs, results);
+    // On the session bus before the socket serves (spec 0010); without a
+    // bus the daemon runs as before, its log says why.
+    let mpris = mpris::start(
+        &mpris::Settings::from_env(&player_settings),
+        player.inputs(),
+        runtime.handle(),
+        mpris::stderr_log(),
+    );
     server::forward_login(auth.status(), player.inputs(), runtime.handle());
     // Before READY=1: a SIGTERM from then on is a clean shutdown.
     forward_signals(runtime.handle(), player.inputs()).context("cannot handle signals")?;
@@ -377,8 +386,12 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
     // Until a `Shutdown` (a client's, or a signal's): every subscriber was
     // sent `ShuttingDown` and the engine is stopped and gone.
     player.wait();
-    // The clients get their last messages, then the socket goes.
+    // The clients get their last messages, then the socket goes; then the
+    // bus name (spec 0010 AC16).
     drop(server);
+    if let Some(mpris) = mpris {
+        mpris.close();
+    }
     drop(lock);
     runtime.shutdown_timeout(Duration::from_millis(100));
     Ok(ExitCode::SUCCESS)
@@ -592,6 +605,12 @@ fn standalone(
         Err(code) => return Ok(code),
     };
     let player = spawn_runtime(player_runtime, inputs, results);
+    let mpris = mpris::start(
+        &mpris::Settings::from_env(&player_settings),
+        player.inputs(),
+        runtime.handle(),
+        mpris::tracing_log(),
+    );
     // The login status reaches the TUI as it reaches any client (0002
     // AC14): in the `Welcome`, then as events.
     server::forward_login(auth.status(), player.inputs(), runtime.handle());
@@ -609,6 +628,9 @@ fn standalone(
     // clients are told it shut down.
     player.shutdown();
     drop(server);
+    if let Some(mpris) = mpris {
+        mpris.close();
+    }
     drop(lock);
     restore_terminal();
     result.map(|()| ExitCode::SUCCESS)
@@ -707,6 +729,7 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
         Ok(bound) => bound,
         Err(code) => return code,
     };
+    let mpris_settings = mpris::Settings::from_env(&player);
     play_items(
         auth,
         PlayerSocket {
@@ -719,6 +742,7 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
             settings,
             player: player.player,
             release_paused: player.release_paused,
+            mpris: mpris_settings,
             options: PlayOptions {
                 shuffle: args.shuffle,
                 repeat: args.repeat.into(),

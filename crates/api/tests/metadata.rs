@@ -144,6 +144,7 @@ fn track_one() -> Track {
         album: Some(AlbumRef {
             id: 2001,
             title: "Album One".into(),
+            cover: Some("00000000-0000-4000-8000-000000000002".into()),
         }),
         duration: Some(Duration::from_secs(291)),
         streamable: true,
@@ -224,6 +225,58 @@ async fn ac2_track_refs() {
             "album track {}",
             t.id
         );
+    }
+}
+
+const COVER: &str = "00000000-0000-4000-8000-000000000002";
+
+/// Spec 0010 AC18: the album's `cover` ID is kept on tracks from a single
+/// track, an album page and a playlist page (favorites and search are
+/// covered by the full-equality tables in `library.rs` and `search.rs`); a
+/// `null` or absent `cover` is `None`.
+#[tokio::test]
+async fn ac18_cover() {
+    let mut null = fixture(TRACK);
+    null["album"]["cover"] = Value::Null;
+    let mut absent = fixture(TRACK);
+    absent["album"].as_object_mut().unwrap().remove("cover");
+    let rows = [
+        ("a cover", TRACK.to_owned(), Some(COVER)),
+        ("cover null", null.to_string(), None),
+        ("no cover key", absent.to_string(), None),
+    ];
+    for (name, body, want) in rows {
+        let s = Setup::new().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/tracks/1001"))
+            .respond_with(json_body(200, &body))
+            .mount(&s.server)
+            .await;
+        let got = s.client.get_track(TrackId(1001)).await.unwrap();
+        let cover = got.album.and_then(|a| a.cover);
+        assert_eq!(cover.as_deref(), want, "{name}");
+    }
+
+    for (name, route, body) in [
+        ("album page", "/v1/albums/9/tracks", ALBUM_PAGE),
+        ("playlist page", "/v1/playlists/p/items", PLAYLIST_PAGE),
+    ] {
+        let s = Setup::new().await;
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(json_body(200, body))
+            .mount(&s.server)
+            .await;
+        let got = if route.contains("albums") {
+            s.client.get_album_tracks(9).await.unwrap()
+        } else {
+            s.client.get_playlist_tracks("p").await.unwrap()
+        };
+        assert!(!got.is_empty(), "{name}");
+        for t in &got {
+            let cover = t.album.as_ref().and_then(|a| a.cover.as_deref());
+            assert_eq!(cover, Some(COVER), "{name}: track {}", t.id);
+        }
     }
 }
 

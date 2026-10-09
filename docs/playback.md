@@ -4,7 +4,7 @@ English | [繁體中文](zh-TW/playback.md)
 
 `tidal-player` decodes Tidal's streams itself (FLAC and AAC, in pure Rust) and writes them to an ALSA device: through the system mixer by default, or straight to your DAC, bit-perfect, when you ask for it. Design: [spec 0003](specs/0003-playback-engine.md) (the engine) and [spec 0004](specs/0004-queue-and-controls.md) (the queue and the controls).
 
-Three ways to play: the TUI (`tidal-player [ITEM]...`, see [The TUI](tui.md)), headless from the command line (`tidal-player play <ITEM>...`, below), or the daemon (`tidal-player daemon`, controlled with `tidal-player playback …` and attached TUIs, see [The daemon and clients](daemon.md)). All play a **queue** filled from [items](#items).
+Three ways to play: the TUI (`tidal-player [ITEM]...`, see [The TUI](tui.md)), headless from the command line (`tidal-player play <ITEM>...`, below), or the daemon (`tidal-player daemon`, controlled with `tidal-player playback …` and attached TUIs, see [The daemon and clients](daemon.md)). All play a **queue** filled from [items](#items). Every player also answers the desktop's media controls, the media keys and `playerctl`: see [Desktop controls and media keys](mpris.md).
 
 ## Items
 
@@ -79,6 +79,8 @@ Every setting can be set in [`app.toml`](config.md#apptoml) (in the [config dire
 | Previous restarts the track after (s); `0`: previous always goes back | `previous_restart_secs` | | `TIDAL_PLAYER_PREVIOUS_RESTART` (0–60) | `3` |
 | Autoplay at start | `autoplay` (`true`, `false`) | `--autoplay` (`play` only) | `TIDAL_PLAYER_AUTOPLAY` (`on`, `off`) | `off` |
 | Remember the queue, position, modes and volume across runs; see [Resuming the last session](#resuming-the-last-session) | `remember_playback` (`true`, `false`) | | `TIDAL_PLAYER_REMEMBER_PLAYBACK` (`on`, `off`) | `true` |
+| Publish the player for desktop controls, media keys and `playerctl`; see [Desktop controls and media keys](mpris.md) | `mpris` (`true`, `false`) | | `TIDAL_PLAYER_MPRIS` (`on`, `off`) | `true` |
+| Album covers kept in the cache for the desktop (`0`: none, the desktop fetches them); see [Album covers](mpris.md#album-covers) | `max_cover_arts` (0–1000) | | `TIDAL_PLAYER_MAX_COVER_ARTS` | `20` |
 | Release the device after pausing for (s); see [Releasing the device](daemon.md#releasing-the-device-while-paused) | `release_paused_secs` (or `"never"`) | | `TIDAL_PLAYER_RELEASE_PAUSED` (0–3600, or `never`) | `10` |
 | Rows fetched at a time for the library's lists in the TUI; see [Lists load as you scroll](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE` (1–10 000) | `100` |
 | Rows fetched at a time for the search results in the TUI; see [Search](tui.md#search) | `search_page_size` | | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` (1–1000) | `20` |
