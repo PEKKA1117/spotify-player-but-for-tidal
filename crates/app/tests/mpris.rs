@@ -556,36 +556,61 @@ fn ac10_on_the_bus() {
     let (mut client, _) = subscribe(&machine.socket());
     wait_owner(&me, NAME, true);
 
-    // A loaded queue (it stays loading: streams never resolve).
-    let tracks = vec![track(1, Some(COVER)), track(2, None), track(3, None)];
-    let snapshot = request(
-        &mut client,
-        1,
-        PlayerCommand::LoadQueue { tracks, start: 0 },
-    )
-    .expect("the queue");
+    // A freshly loaded queue: it is loading until its stream resolves, which
+    // never happens here, but the resolver gives up after 10 s
+    // (`RESOLVE_TIMEOUT`). Each step that needs a loading track loads a
+    // fresh queue first: the new load makes the earlier one stale, so its
+    // time-out changes nothing, and no step depends on how long the test
+    // has been running.
+    let mut loads = 0;
+    let mut fresh = |client: &mut Connection| {
+        loads += 1;
+        request(
+            client,
+            loads,
+            PlayerCommand::LoadQueue {
+                tracks: vec![track(1, Some(COVER)), track(2, None), track(3, None)],
+                start: 0,
+            },
+        )
+        .expect("the queue")
+    };
+    fresh(&mut client);
     // The cover lands in the cache, then `Metadata` names the file.
     let file = format!(
         "file://{}/covers/{COVER}.jpg",
         machine.cache.path().display()
     );
     let deadline = Instant::now() + Duration::from_secs(10);
-    let player = loop {
-        let player = properties(&me, NAME, PLAYER);
-        let art = match &player["Metadata"] {
+    loop {
+        let art = match &properties(&me, NAME, PLAYER)["Metadata"] {
             Value::Metadata(m) => m.get("mpris:artUrl").cloned(),
             other => panic!("Metadata is {other:?}"),
         };
         if art == Some(Value::Str(file.clone())) {
-            break player;
+            break;
         }
         assert!(Instant::now() < deadline, "no cover file: {art:?}");
         std::thread::sleep(Duration::from_millis(20));
-    };
+    }
+    // `GetAll` of a fresh load (the cover cached now) is AC3/AC4's view of
+    // its snapshot, once the adapter has seen it.
+    let snapshot = fresh(&mut client);
     let art = |cover: &str| (cover == COVER).then(|| file.clone());
     let want = model::player_properties(&snapshot, snapshot.position, &art);
     let want: HashMap<String, Value> = want.into_iter().map(|(k, v)| (k.to_owned(), v)).collect();
-    assert_eq!(player, want);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let player = properties(&me, NAME, PLAYER);
+        if player == want {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "GetAll: {player:?}\nwant: {want:?}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let root = properties(&me, NAME, ROOT);
     let s = |v: &str| Value::Str(v.into());
     let want_root: HashMap<String, Value> = [
@@ -605,6 +630,7 @@ fn ac10_on_the_bus() {
     assert_eq!(root, want_root);
 
     // `Pause()` on a paused player leaves it paused (tidalt toggled).
+    fresh(&mut client);
     call(&me, "Pause", &());
     wait_snapshot(&mut client, "paused", |s| {
         s.state == tidal_player_core::protocol::PlaybackState::Paused
@@ -630,8 +656,9 @@ fn ac10_on_the_bus() {
     wait_snapshot(&mut client, "volume 50", |s| s.volume == 50);
 
     // A client's toggle: one `PropertiesChanged`, `Shuffle` alone.
+    fresh(&mut client);
     drain(&signals, Duration::from_millis(300));
-    request(&mut client, 2, PlayerCommand::ToggleShuffle);
+    request(&mut client, 100, PlayerCommand::ToggleShuffle);
     let got = drain(&signals, Duration::from_millis(500));
     assert_eq!(
         got,
@@ -641,9 +668,11 @@ fn ac10_on_the_bus() {
     );
 
     // A client's seek: `Seeked`.
+    fresh(&mut client);
+    drain(&signals, Duration::from_millis(300));
     request(
         &mut client,
-        3,
+        101,
         PlayerCommand::SeekTo(Duration::from_secs(60)),
     );
     let got = drain(&signals, Duration::from_millis(500));
