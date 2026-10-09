@@ -1,6 +1,6 @@
 # 0013 — Key-sequence hints
 
-- **Status**: approved (2026-10-09, decisions below)
+- **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#17](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/17)
 - **Depends on**: 0004 (implemented: the screen), 0008 (implemented: the keymap, key sequences, the keys help and its texts, `app.toml`)
@@ -126,3 +126,12 @@ Assumptions: none about external systems (no API, no audio, no terminal protocol
 - Showing the pending keys anywhere else (the playback window's header)
 - Mouse support on the hint; scrolling a hint that does not fit (the keys help does that)
 - Filter and sort (0012, issue #18)
+
+## Implementation notes (choices made where the spec was silent, 2026-10-09)
+
+- **A 3-row page area**: the box may take at most the page area's height less one row, so at exactly 3 rows it would be its two borders with no entry; no hint is drawn there either (the page area has 2 rows at the smallest terminal that draws one, 8 rows, so the hint needs a terminal of at least 10 rows)
+- **Drawing**: the title is bold, as the keys help's; the `… +N more` cell is plain (not dim). The hint is drawn after an open popup (over it, as the 80 × 24 actions-popup snapshot shows) and before the keys help (which suppresses it anyway). An entry is `key  text` and a nested prefix `key  +N`; both are cut to the column with `…`
+- **Wiring**: `render(state, frame, hint)` takes the timer's answer; the main loop builds a `HintTimer` from `key_hints_delay_ms` and feeds it `State::pending` and `Instant::now()` after each batch of updates (one terminal event per batch, so a cancelled and restarted `g` is seen as a reset). `PlayerSettings` carries `key_hints` and `key_hints_delay` (resolved like `volume_step`; the daemon resolves and ignores them); `tui_state` copies `key_hints` into `State` for both the standalone and the attached TUI (`ac7_tui_state_key_hints` in `crates/app/src/main.rs` checks it)
+- **Nested prefix counting**: `+N` counts the distinct listed bindings under the next key (a binding with two sequences under it counts once); a nested entry takes the place of the first listed binding it leads to in the keys help's order
+- **Red stub**: one stub served all four core tests: `hints` returned every binding under the prefix whatever the state (AC3's "Expected red"), so AC1 and AC2 failed on a wrong `Some` (no texts, no `+N`) rather than on `None`
+- **Docs**: "Key hints" is a `###` section under "Keys" in `docs/tui.md`; `docs/playback.md`'s settings table (and its zh-TW copy) also lists both keys. `ac7_key_hints_documented` checks the English and zh-TW `config.md` tables and both `tui.md` copies

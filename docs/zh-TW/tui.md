@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），以及 [spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），以及 [spec 0013](../specs/0013-key-hints.md)（按鍵提示）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -86,7 +86,7 @@
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
-`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
+`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
 彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱）會接收所有可列印的按鍵，不受按鍵對應影響。
 
@@ -114,6 +114,24 @@
 - `/` 開始**篩選**：輸入文字後，只保留按鍵、指令名稱或說明文字中包含所輸入內容的項目（不分大小寫）；`backspace` 刪除字元，`enter` 結束輸入並保留篩選，`esc` 清除篩選。沒有符合的項目時顯示：`No keys match "xyz"`
 - `enter` 關閉說明並**執行**反白的按鍵，效果如同在開啟說明的位置按下該鍵
 - `esc`（沒有篩選時）、`?` 或 `q` 關閉說明。說明開啟期間，其他按鍵都沒有作用
+
+<a id="key-hints"></a>
+### 按鍵提示
+
+按下按鍵序列的第一個鍵（`g`）後稍候，一秒後頁面底部會開啟一個**提示**框，標題是目前已按下的按鍵（`g …`），列出接下來可以按的按鍵，以及每個鍵在此處的作用：
+
+```
+│┌g …─────────────────────────────────────────────────────────────────────────┐│
+││a  actions on the selected row     y  favorite tracks                       ││
+││g  move to the top                 s  the search page (on one: its…         ││
+││l  the library                     m  your mixes                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+```
+
+- 只列出在目前位置有作用的按鍵，說明文字與順序都與[按鍵說明](#the-keys-help)相同；目前按下也不會有作用的按鍵會以淡色顯示。你在 `keymap.toml` 中設定的序列也會列出；若某個鍵是更長序列的開頭，會顯示它通往多少個綁定（`l  +2`）：按下它即可看到下一層
+- 提示不會改變任何按鍵的作用：無論提示是否出現，都照常按下一個鍵。若在延遲時間內就輸入完序列，提示不會出現。序列完成、按下不屬於任何序列的鍵（`esc` 可取消），或開啟按鍵說明時，提示就會關閉
+- 項目放不下時，最後一格顯示 `… +N more`；按 `?` 可看到全部。按鍵說明開啟時、整份清單載入期間，或終端機小到無法顯示頁面時，不會顯示提示
+- 在 `app.toml` 中設定 `key_hints = false`（或 `TIDAL_PLAYER_KEY_HINTS=off`）即可關閉；`key_hints_delay_ms`（0–10 000，預設 `1000`；`0` 表示立即顯示，或使用 `TIDAL_PLAYER_KEY_HINTS_DELAY_MS`）設定等待時間。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)
 
 <a id="pages"></a>
 ## 頁面
