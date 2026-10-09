@@ -2086,6 +2086,7 @@ fn ac22_released_flag() {
 
 // Spec 0009 AC1–AC3: saving and restoring the playback state.
 mod persistence;
+mod setters;
 
 /// Spec 0009 (AC6, AC7 through the runtime): a `Notice` becomes the
 /// player's message with one snapshot, changes nothing else, and is
