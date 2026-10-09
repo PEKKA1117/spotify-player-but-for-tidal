@@ -1673,11 +1673,247 @@ mod tests {
         let search = search_states();
         // 0008 AC14: the keys help, open over each kind of view.
         let help = help_states();
+        // 0011 AC11: the mixes and radio pages.
+        let mixes = mixes_states();
         for (width, height) in sizes {
-            for state in states.iter().chain(&search).chain(&help) {
+            for state in states.iter().chain(&search).chain(&help).chain(&mixes) {
                 draw(state, width, height);
             }
         }
+    }
+
+    // --- spec 0011 AC11: the mixes and radio pages --------------------------------
+
+    use tidal_player_core::library::{MixSummary, RadioSeed};
+
+    fn mix_summary(id: &str, title: &str, subtitle: Option<&str>) -> MixSummary {
+        MixSummary {
+            id: id.into(),
+            title: title.into(),
+            subtitle: subtitle.map(str::to_owned),
+        }
+    }
+
+    fn mixes_data() -> PageData {
+        PageData::Mixes {
+            mixes: list(
+                vec![
+                    mix_summary(
+                        "m1",
+                        "My Mix 1",
+                        Some("Pierce The Veil, Sleeping With Sirens"),
+                    ),
+                    mix_summary("m2", "My Mix 2", Some("Bring Me The Horizon and more")),
+                    mix_summary("m3", "Discovery Mix", None),
+                ],
+                3,
+                0,
+            ),
+        }
+    }
+
+    /// `g m`, answered.
+    fn mixes_page() -> State {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('m')]);
+        answer(&mut state, id, LibraryResponse::Page(mixes_data()));
+        state
+    }
+
+    /// The first mix, opened and answered.
+    fn mix_page(tracks: Vec<Track>) -> State {
+        let mut state = mixes_page();
+        let n = tracks.len() as u32;
+        let id = ask(&mut state, &[Key::Enter]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Mix {
+                mix: mix_summary(
+                    "m1",
+                    "My Mix 1",
+                    Some("Pierce The Veil, Sleeping With Sirens"),
+                ),
+                tracks: list(tracks, n, 0),
+            }),
+        );
+        state
+    }
+
+    /// `r` on the first favorite track, answered.
+    fn track_radio_page(tracks: Vec<Track>) -> State {
+        let mut state = favorites();
+        let n = tracks.len() as u32;
+        let seed = browse_tracks(1).remove(0);
+        let id = ask(&mut state, &[Key::Char('r')]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Radio {
+                seed: RadioSeed::Track(seed),
+                tracks: list(tracks, n, 0),
+            }),
+        );
+        state
+    }
+
+    /// `r` on the library's first artist, answered.
+    fn artist_radio_page(tracks: Vec<Track>) -> State {
+        let mut state = library();
+        let n = tracks.len() as u32;
+        let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Char('r')]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Radio {
+                seed: RadioSeed::Artist(artist_ref(7, "Pierce The Veil")),
+                tracks: list(tracks, n, 0),
+            }),
+        );
+        state
+    }
+
+    fn mixes_states() -> Vec<State> {
+        let mut loading = state_of(playing());
+        press(&mut loading, &[Key::Char('g'), Key::Char('m')]);
+        let mut failed = state_of(playing());
+        let id = ask(&mut failed, &[Key::Char('g'), Key::Char('m')]);
+        fail(&mut failed, id, "Could not reach Tidal: timed out");
+        let mut empty = state_of(playing());
+        let id = ask(&mut empty, &[Key::Char('g'), Key::Char('m')]);
+        answer(
+            &mut empty,
+            id,
+            LibraryResponse::Page(PageData::Mixes {
+                mixes: list(vec![], 0, 0),
+            }),
+        );
+        vec![
+            mixes_page(),
+            loading,
+            failed,
+            empty,
+            mix_page(browse_tracks(4)),
+            mix_page(vec![]),
+            track_radio_page(browse_tracks(3)),
+            track_radio_page(vec![]),
+            artist_radio_page(browse_tracks(3)),
+            artist_radio_page(vec![]),
+            track_actions_popup(),
+        ]
+    }
+
+    /// The actions popup over a favorite track.
+    fn track_actions_popup() -> State {
+        let mut state = favorites();
+        press(&mut state, &[Key::Ctrl(' ')]);
+        state
+    }
+
+    #[test]
+    fn ac11_mixes_80x24() {
+        // Mixes loaded: the title with the count, each row its title then
+        // its subtitle (none for the last), the first row highlighted.
+        let state = mixes_page();
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Mixes · 3 mixes",
+                "My Mix 1  Pierce The Veil, Sleeping With Sirens",
+                "My Mix 2  Bring Me The Horizon and more",
+                "Discovery Mix",
+            ],
+        );
+        assert!(
+            cell_at(&state, 80, 24, "Pierce The Veil, Sleeping")
+                .modifier
+                .contains(Mod::REVERSED),
+            "the cursor row is not highlighted"
+        );
+        insta::assert_snapshot!("ac11_mixes", text);
+
+        // A mix: its title and track count, the subtitle as a second,
+        // dim title row, then the tracks.
+        let state = mix_page(browse_tracks(4));
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "My Mix 1 · 4 tracks",
+                "Pierce The Veil, Sleeping With Sirens",
+                "Song 1",
+                "Song 4",
+            ],
+        );
+        let title = row_of(&text, "My Mix 1 · 4 tracks");
+        assert_eq!(
+            row_of(&text, "Pierce The Veil, Sleeping With Sirens"),
+            title + 1,
+            "the subtitle is not the second title row:\n{text}"
+        );
+        assert!(
+            cell_at(&state, 80, 24, "Pierce The Veil, Sleeping")
+                .modifier
+                .contains(Mod::DIM),
+            "the subtitle is not dim"
+        );
+        insta::assert_snapshot!("ac11_mix", text);
+        // Under 8 rows tall the subtitle row goes.
+        let text = draw(&state, 80, 7);
+        assert!(
+            !text.contains("Sleeping With Sirens"),
+            "subtitle on a short page:\n{text}"
+        );
+
+        // Track radio.
+        let text = draw(&track_radio_page(browse_tracks(3)), 80, 24);
+        assert_contains(&text, &["Song 1 Radio · Pierce The Veil", "Song 3"]);
+        insta::assert_snapshot!("ac11_track_radio", text);
+
+        // Artist radio.
+        let text = draw(&artist_radio_page(browse_tracks(3)), 80, 24);
+        assert_contains(&text, &["Pierce The Veil Radio", "Song 2"]);
+        insta::assert_snapshot!("ac11_artist_radio", text);
+
+        // Empty and failed.
+        let states = mixes_states();
+        let text = draw(&states[3], 80, 24);
+        assert_contains(&text, &["Mixes", "No mixes yet"]);
+        insta::assert_snapshot!("ac11_mixes_empty", text);
+        let text = draw(&states[7], 80, 24);
+        assert_contains(&text, &["No radio for this track"]);
+        insta::assert_snapshot!("ac11_track_radio_empty", text);
+        let text = draw(&states[2], 80, 24);
+        assert_contains(
+            &text,
+            &["Could not load the mixes: Could not reach Tidal: timed out"],
+        );
+        insta::assert_snapshot!("ac11_mixes_failed", text);
+
+        // The actions popup on a track offers the radio.
+        let text = draw(&states[10], 80, 24);
+        assert_contains(&text, &["Go to radio"]);
+        insta::assert_snapshot!("ac11_track_actions_radio", text);
+    }
+
+    #[test]
+    fn ac11_mixes_narrow_50x20() {
+        let text = draw(&mix_page(browse_tracks(4)), 50, 20);
+        assert_contains(
+            &text,
+            &[
+                "My Mix 1 · 4 tracks",
+                "Pierce The Veil, Sleeping With Sirens",
+                "Song 1",
+            ],
+        );
+        insta::assert_snapshot!("ac11_mix_narrow", text);
+        let text = draw(&mixes_page(), 50, 20);
+        assert_contains(
+            &text,
+            &["Mixes · 3 mixes", "My Mix 1  Pierce The Veil, Sleeping"],
+        );
     }
 
     // --- spec 0007 AC12: the search page ------------------------------------------
