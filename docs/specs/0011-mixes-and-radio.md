@@ -1,6 +1,6 @@
 # 0011 — Mixes and radio
 
-- **Status**: approved (2026-10-09); API shapes verified by the live probe (2026-10-09, "Facts"); decisions answered by the user (2026-10-09), folded into the body
+- **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-10-09, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0004 (implemented: the queue, autoplay's track radio), 0006 (implemented: pages, the history, lists that load as you scroll, the actions popup, `Library`/`LibraryReply`), 0008 (implemented: the keymap, `[[actions]]`, the keys help)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Mixes" and "Radio" sections and the new keys; [`docs/config.md`](../config.md) gains `MixesPage` and `GoToRadio` (AC13)
@@ -262,3 +262,16 @@ Not verified:
 - Changing autoplay (0004): it keeps the track radio
 - One-shot `playback radio …`
 - Mix links as items, and queueing a mix whole from its row (decision 5)
+
+## Implementation notes (choices made where the spec was silent, 2026-10-09)
+
+- **API**: `Subject::Mix(id)` renders `Mix <id>`; an internal `Subject::Radio` marks a radio `404`/`2001`, turned into an empty list. The mixes list reads only `MIX_LIST` modules; its `dataApiPath` walk asks the module's own `limit` (or the first page's item count when `0`) at the player's own offset, sends `deviceType`/`locale`, and stops on an empty answer. An empty or all-space `subTitle` is `None`. Track items that cannot be read are skipped, as in search. The track radio's header track is not filtered by audio mode. A body without the expected module is `malformed mixes/mix response from Tidal`
+- **Player**: no change: `page_size_for` falls back to `page_size`, unused by these pages
+- **Client model**: `PageKind::{Mixes, Mix, TrackRadio, ArtistRadio}`, `Header::{Mix, Radio}`, `WindowKind::{Mixes, MixTracks, RadioTracks, ArtistRadioTracks}` (the last only for its empty message). A window over a whole list has `whole: true` and an inert placeholder `ListRef` that is never sent: `ask_more` returns early and the window is complete once its total is known. Only the mixes page prefixes its failure (`Could not load the mixes: …`); mix and radio pages show the player's message as is. An empty mixes page is titled `Mixes · 0 mixes`. *Go to radio* on the playing track uses its track ID. The default `r` → `GoToRadio` is a `Binding::Action` in `defaults()`; `GoToRadio` follows `GoToArtist` in `ACTIONS`; the keys help gains an "Actions" section
+- **TUI**: a mix row is one line, `title  subtitle`, truncated as a whole (rows are styled per line, so the subtitle is not dimmed separately). "At least 8 rows tall" is measured on the page area below the playback window
+- **Build**: worktrees sharing one `CARGO_TARGET_DIR` reused each other's test binaries (an audio test binary kept the removed worktree's fixture path); parallel slices need their own target directories
+
+## Bugs
+
+- **Test plan errors, red reasons (found at acceptance, 2026-10-09).** The plan named per-test red failures that the shared stub did not produce. AC2–AC4: the red stub answered every new page with `Malformed("page")`, so each test failed on its first assertion with that error, not on "keeps video mixes", "pages with `offset`" or "fails the page on a radio `404`". AC7: its red failed on the stub `g m` that builds the mix page, before reaching the `Enter`/`Z` rows. AC5 and AC12 have no red: the server tests' fake library answers any request, and the daemon `g m` step passed as soon as slices A and B were in. Both stay as regression guards. The tests were right; this entry corrects the plan
+
