@@ -2,7 +2,7 @@ English | [繁體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help).
 
 ## The screen
 
@@ -68,6 +68,8 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g l` | `LibraryPage` | open the library |
 | `g y` | `LikedTrackPage` | open your favorite tracks |
 | `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
+| `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
+| `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
 | `/` | `Search` | on a search page: back to its input |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
 | `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | focus the next, previous pane of a page (on the artist page, the left or right half) |
@@ -79,7 +81,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; `g l`, `g y`, `g s` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
 While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name) take every printable key whatever the keymap says.
 
@@ -117,11 +119,14 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Library | `g l`; the page at start | Playlists, Albums, Artists |
 | Favorite tracks | `g y` | the tracks |
 | Search | `g s` | the input, the top hit, Tracks, Albums, Artists, Playlists (see [Search](#search)) |
+| Mixes | `g m` | your mixes (see [Mixes and radio](#mixes-and-radio)) |
+| Mix | `Enter` on a mix | the mix's tracks |
+| Radio | `r` on a track or an artist; *Go to radio* | the radio's tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
 | Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
 
-Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
+Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, `Mixes · 7 mixes`, `<mix> · 10 tracks`, `<track> Radio · <artists>`, `<artist> Radio`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -194,16 +199,24 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 Nothing matches: `No tracks found`, `No albums found`, `No artists found`, `No playlists found`. A failed search shows `Could not search: <reason>` in the page.
 
+## Mixes and radio
+
+`g m` opens your **mixes**: the daily mixes, *My Daily Discovery* and the others Tidal builds for you, in Tidal's order, each row its title and then its subtitle (`My Mix 1  Pierce The Veil, Sleeping With Sirens and more`), cut with `…` when it does not fit. `Enter` on a mix opens its page: the mix's title in the title row, its subtitle under it in dim (when the page is at least 8 rows tall), and its tracks. A mix is a list of tracks like an album's: `Enter` on a track plays it with the rest of the mix queued; `Z` on a mix does nothing (open it first), and its actions popup has *Open* only.
+
+`r` on a selected track or artist (on any page, the queue included) opens its **radio**: `<track> Radio · <artists>` or `<artist> Radio`, up to 100 tracks Tidal suggests. Nothing plays and the queue stays as it is until you press `Enter` on a track (it plays with the rest of the radio queued) or `Z`. *Go to radio* in the [actions](#actions) popup does the same, and so does an `[[actions]]` entry bound to another key (see [config](config.md#actions)); albums, playlists and mixes have no radio.
+
+The pages arrive whole, so they have no scroll loading, and each is fetched fresh when opened; `Backspace` goes back to a page as you left it. Messages in the page: `No mixes yet`, `This mix has no tracks`, `No radio for this track`, `No radio for this artist` (Tidal has none for it, not a failure), and for failures `Could not load the mixes: <reason>`, `Mix <id> was not found`, `Track 1 was not found`, `Artist 1 was not found`. Track rows are the usual ones, a track you cannot stream dimmed.
+
 ## Playing and queueing from a page
 
 | Key | On | Does |
 |---|---|---|
 | `Enter` | a track on a page | Replaces the queue with **every track of that list**, in the order shown, and plays the one you chose, so the queue goes on after it |
 | `Enter` | a track in the queue | Plays that entry |
-| `Enter` | an album, playlist or artist | Opens its page (nothing plays) |
+| `Enter` | an album, playlist, artist or mix | Opens its page (nothing plays) |
 | `Z`, `Ctrl-z` | a track | Adds it to the end of the queue; with nothing playing it starts |
 | `Z`, `Ctrl-z` | an album or playlist | Adds all its tracks to the end of the queue |
-| `Z`, `Ctrl-z` | an artist | Nothing |
+| `Z`, `Ctrl-z` | an artist or a mix | Nothing |
 | `d` | an entry in the queue | Removes it (removing the playing one moves on) |
 
 `Enter` on a track needs the whole list, so a list that is only partly loaded is first fetched to its end: the playback window's message row says `Loading 300 of 1 234…`, and `Esc` cancels it with nothing sent. A list of more than 40 000 tracks is refused (`Too many tracks to queue at once (N)`).
@@ -214,11 +227,12 @@ Nothing matches: `No tracks found`, `No albums found`, `No artists found`, `No p
 
 | On | Actions, in this order |
 |---|---|
-| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
-| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Play next* (not for the playing track), *Remove from queue*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
+| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Go to radio*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
+| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Go to radio*, *Play next* (not for the playing track), *Remove from queue*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
 | An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
 | A playlist | *Open*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites* (not your own playlists), *Delete playlist* (your own only) |
-| An artist | *Open*, *Add to favorites*, *Remove from favorites* |
+| An artist | *Open*, *Go to radio*, *Add to favorites*, *Remove from favorites* |
+| A mix | *Open* |
 
 *Go to album* is left out for a track without an album. Tidal's favorites cannot be queried for one item yet, so both *Add to favorites* and *Remove from favorites* are offered; the one that does not apply is harmless.
 
