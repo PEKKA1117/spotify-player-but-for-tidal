@@ -74,8 +74,11 @@ pub struct AlbumRef {
 
 /// The URL of a cover image of `size` (`640x640`, ...): the UUID's dashes
 /// become slashes (spec 0010 "Cover art").
-pub fn cover_url(_cover: &str, _size: &str) -> String {
-    String::new()
+pub fn cover_url(cover: &str, size: &str) -> String {
+    format!(
+        "https://resources.tidal.com/images/{}/{size}.jpg",
+        cover.replace('-', "/")
+    )
 }
 
 /// Identifies one queue entry for the life of the player, so the same track
