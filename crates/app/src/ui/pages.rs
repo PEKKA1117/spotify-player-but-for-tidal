@@ -964,9 +964,61 @@ pub(super) struct HintBox {
 /// Lays `hints` out in the page area `area`; `None` when the area is too
 /// small for one.
 pub(super) fn hint_layout(hints: &Hints, area: Rect) -> Option<HintBox> {
-    // Red stub: no hint.
-    let _ = (hints, area, HINT_COLUMN, HINT_GAP);
-    None
+    if area.height < 3 || area.width < 12 || hints.entries.is_empty() {
+        return None;
+    }
+    // At most the page area less its title row, borders included.
+    let room = usize::from(area.height - 1).saturating_sub(2);
+    if room == 0 {
+        return None;
+    }
+    let inner = usize::from(area.width - 2);
+    let texts: Vec<(String, bool)> = hints
+        .entries
+        .iter()
+        .map(|entry| {
+            let text = if entry.more > 0 {
+                format!("{}  +{}", entry.key, entry.more)
+            } else {
+                format!("{}  {}", entry.key, entry.text)
+            };
+            (text, entry.dim)
+        })
+        .collect();
+    let widest = texts.iter().map(|(t, _)| text_width(t)).max().unwrap_or(0);
+    let width = widest.min(HINT_COLUMN).min(inner);
+    let columns = ((inner + HINT_GAP) / (width + HINT_GAP)).max(1);
+    let count = texts.len();
+    let rows = count.div_ceil(columns).min(room);
+    let capacity = rows * columns;
+    // What does not fit gives its place to `… +N more` in the last cell.
+    let mut cells: Vec<(String, bool)> = if count > capacity {
+        let shown = capacity - 1;
+        let mut cells = texts[..shown].to_vec();
+        cells.push((format!("… +{} more", count - shown), false));
+        cells
+    } else {
+        texts
+    };
+    for cell in &mut cells {
+        cell.0 = fit(&cell.0, width);
+    }
+    // Column by column: cell `i` is in column `i / rows`, row `i % rows`.
+    let mut grid: Vec<Vec<(String, bool)>> = vec![Vec::new(); rows];
+    for (i, cell) in cells.into_iter().enumerate() {
+        grid[i % rows].push(cell);
+    }
+    let height = u16::try_from(rows + 2).unwrap_or(area.height);
+    Some(HintBox {
+        rect: Rect {
+            y: area.bottom() - height,
+            height,
+            ..area
+        },
+        title: fit(&format!("{} …", hints.prefix), inner),
+        width,
+        rows: grid,
+    })
 }
 
 /// Draws the hint for the pending keys, if the state has one and the page

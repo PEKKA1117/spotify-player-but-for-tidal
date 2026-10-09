@@ -1,0 +1,16 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────┐
+│▶ Hell Above · Pierce The Veil     80%│
+│  Collide With The Sky                │
+│  not bit-perfect: volume below 100%  │
+│  ━━━━━━━━━──────────────  1:23 / 3:32│
+│Library                               │
+│┌g …─────────────────────────────────┐│
+││a  actions on the selected row      ││
+││g  move to the top                  ││
+││… +4 more                           ││
+│└────────────────────────────────────┘│
+└──────────────────────────────────────┘

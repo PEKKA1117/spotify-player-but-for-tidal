@@ -181,8 +181,18 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
-            // Red stub (spec 0013): accepted and ignored.
-            "key_hints" | "key_hints_delay_ms" => {}
+            "key_hints" => match value.as_bool() {
+                Some(on) => config.key_hints = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "key_hints_delay_ms" => {
+                config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
+            }
             "max_cover_arts" => {
                 config.max_cover_arts = Some(int_in(path, key, value, 0, 1000)? as u16);
             }

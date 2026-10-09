@@ -515,6 +515,13 @@ fn resolve_with(
     if let Some(on) = on_off(get(MPRIS_VAR), MPRIS_VAR)? {
         settings.mpris = on;
     }
+    if let Some(on) = on_off(get(KEY_HINTS_VAR), KEY_HINTS_VAR)? {
+        settings.key_hints = on;
+    }
+    if let Some(value) = get(KEY_HINTS_DELAY_VAR) {
+        settings.key_hints_delay =
+            Duration::from_millis(int_in(&value, KEY_HINTS_DELAY_VAR, 0, 10_000)?);
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -561,6 +568,12 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(mpris) = file.mpris {
         settings.mpris = mpris;
+    }
+    if let Some(on) = file.key_hints {
+        settings.key_hints = on;
+    }
+    if let Some(ms) = file.key_hints_delay_ms {
+        settings.key_hints_delay = Duration::from_millis(ms);
     }
     if let Some(max) = file.max_cover_arts {
         settings.max_cover_arts = max;

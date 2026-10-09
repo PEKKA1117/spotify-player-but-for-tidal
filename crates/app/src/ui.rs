@@ -98,9 +98,17 @@ impl HintTimer {
 
     /// Whether the hint is drawn at `now` with `pending` keys collected.
     pub fn update(&mut self, pending: &[Key], now: Instant) -> bool {
-        // Red stub: always draw.
-        let _ = (pending, now, self.delay, &self.pending, self.since);
-        true
+        if pending.is_empty() {
+            self.pending.clear();
+            self.since = None;
+            return false;
+        }
+        if self.since.is_none() || self.pending != pending {
+            self.pending = pending.to_vec();
+            self.since = Some(now);
+        }
+        self.since
+            .is_some_and(|since| now.saturating_duration_since(since) >= self.delay)
     }
 }
 

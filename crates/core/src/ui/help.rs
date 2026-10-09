@@ -232,23 +232,57 @@ pub struct HintEntry {
 /// nothing is pending, the keys help or a whole-list load is open, hints
 /// are off, or no binding under the pending keys acts in this view.
 pub fn hints(state: &State) -> Option<Hints> {
-    // Red stub: every binding under the prefix, whatever the state.
-    let pending = &state.pending;
-    let entries = state
-        .keymap
-        .bindings()
-        .iter()
-        .filter(|(s, _)| s.0.len() > pending.len() && s.0.starts_with(pending))
-        .map(|(s, _)| HintEntry {
-            key: s.0[pending.len()].to_string(),
-            text: String::new(),
-            dim: false,
-            more: 0,
-        })
-        .collect();
+    let pending = state.pending.as_slice();
+    if !state.key_hints || pending.is_empty() || state.help.is_some() || state.whole_list.is_some()
+    {
+        return None;
+    }
+    // Per next key, in the help's order: the entry, and for a nested
+    // prefix the rows it leads to (each counted once).
+    let mut found: Vec<(Key, HintEntry, Vec<usize>)> = Vec::new();
+    let rows = help(state).into_iter().flat_map(|section| section.rows);
+    for (index, row) in rows.enumerate() {
+        if row.binding.is_none() {
+            continue;
+        }
+        for sequence in &row.sequences {
+            let keys = sequence.keys();
+            if keys.len() <= pending.len() || !keys.starts_with(pending) {
+                continue;
+            }
+            let next = keys[pending.len()];
+            let deeper = keys.len() > pending.len() + 1;
+            match found.iter_mut().find(|(key, _, _)| *key == next) {
+                Some((_, entry, leads)) => {
+                    if deeper && !leads.contains(&index) {
+                        leads.push(index);
+                        entry.more = leads.len();
+                        entry.dim &= row.dim;
+                    }
+                }
+                None => {
+                    let entry = HintEntry {
+                        key: next.to_string(),
+                        text: if deeper {
+                            String::new()
+                        } else {
+                            row.text.clone()
+                        },
+                        dim: row.dim,
+                        more: usize::from(deeper),
+                    };
+                    let leads = if deeper { vec![index] } else { Vec::new() };
+                    found.push((next, entry, leads));
+                }
+            }
+        }
+    }
+    if found.is_empty() {
+        return None;
+    }
     Some(Hints {
-        prefix: KeySequence(pending.clone()).to_string(),
-        entries,
+        prefix: KeySequence(pending.to_vec()).to_string(),
+        entries: found.into_iter().map(|(_, entry, _)| entry).collect(),
     })
 }
 

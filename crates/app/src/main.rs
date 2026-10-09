@@ -512,6 +512,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     state.page_size = player_settings.library.page_size;
     state.search_page_size = player_settings.library.search_page_size;
     state.library_layout = player_settings.layout;
+    state.key_hints = player_settings.key_hints;
     tui_model::start_on_library(&mut state);
     state
 }
