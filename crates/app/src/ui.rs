@@ -3048,8 +3048,8 @@ mod tests {
         assert_contains(
             &text,
             &[
-                "│● plughw:1,0  not found",
-                "│  default     shared, through the system mixer",
+                "│● plughw:1,0   not found",
+                "│  default      shared, through the system mixer",
             ],
         );
         insta::assert_snapshot!("ac9_devices_missing", text);

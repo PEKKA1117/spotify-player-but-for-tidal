@@ -49,6 +49,9 @@ use crate::play::{
     PlayerSettings, engine_failure, output_description, source_description, start_autoplay,
 };
 
+/// The reply to a `SetDevice` with an empty name (spec 0014).
+pub const EMPTY_DEVICE_NAME: &str = "Device name is empty";
+
 /// How long the runtime thread waits for an engine event before it looks at
 /// its other inputs again (the latency of a key press, at worst).
 pub const POLL: Duration = Duration::from_millis(10);
@@ -706,10 +709,6 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 return handled;
             }
             RuntimeInput::Command(command) => PlayerInput::Command(command),
-            // 0014 slice C: map the device switch events into the player.
-            RuntimeInput::Engine(
-                audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. }, // 0014 slice C
-            ) => return handled, // 0014 slice C
             RuntimeInput::Engine(event) => {
                 let (input, n) = self.engine_input(event, &mut handled);
                 notice = n;
@@ -836,9 +835,32 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 handled.failures.push(failure.clone());
                 (EngineEvent::ResumeFailed { failure }, Notice::None)
             }
-            // 0014 slice C: filtered out in `apply` until slice C maps them.
-            audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. } => {
-                unreachable!("filtered out in apply") // 0014 slice C
+            audio::Event::OutputChanged(output) => {
+                // The source line is the player's (it keeps it).
+                let details = TrackDetails {
+                    source: String::new(),
+                    output: output_description(&output),
+                    bit_perfect: output.bit_perfect,
+                    reason: output.not_bit_perfect_reason.clone(),
+                };
+                (EngineEvent::OutputChanged(details), Notice::None)
+            }
+            audio::Event::DeviceFallback {
+                tried,
+                error,
+                device,
+            } => {
+                // 0003's message for the failed open (not a failure: the
+                // track carries on on `device`).
+                let message = engine_failure(0, &audio::EngineError::Output(error)).message;
+                (
+                    EngineEvent::DeviceFallback {
+                        tried,
+                        message,
+                        device,
+                    },
+                    Notice::None,
+                )
             }
             audio::Event::Error { tag, error } => {
                 let track = sent(tag).map_or(0, |s| s.track.0);
@@ -905,8 +927,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             PlayerEffect::EngineSeek(position) => self.engine.send(audio::Command::Seek(position)),
             PlayerEffect::EngineStop => self.engine.send(audio::Command::Stop),
             PlayerEffect::EngineSetGain(gain) => self.engine.send(audio::Command::SetGain(gain)),
-            // 0014 slice C
-            PlayerEffect::EngineSetDevice(_) => {}
+            PlayerEffect::EngineSetDevice(device) => {
+                self.engine.send(audio::Command::SetDevice(device));
+            }
             PlayerEffect::FetchSuggestions { seed, tag } => {
                 self.suggesting.insert(tag);
                 self.jobs.suggest(tag, seed);
@@ -954,12 +977,17 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 }
             }
             ClientInput::Devices { client, id } => {
-                // 0014 slice C (stub)
-                let default = DeviceEntry {
-                    name: "default".into(),
-                    description: String::new(),
-                };
-                self.hub.reply_devices(client, id, Ok(vec![default]));
+                // Read now: a card plugged in since shows up (spec 0014).
+                let result = self.devices.list();
+                self.hub.reply_devices(client, id, result);
+            }
+            ClientInput::Request {
+                client,
+                id,
+                command: Command::SetDevice(name),
+            } if name.is_empty() => {
+                self.hub
+                    .reply(client, id, Err(EMPTY_DEVICE_NAME.to_owned()));
             }
             ClientInput::Request {
                 client,
@@ -3180,7 +3208,7 @@ mod tests {
                 list: ui::DeviceList::Loaded(devices),
                 cursor,
             }) => {
-                assert_eq!(devices.len(), 5, "{devices:?}");
+                assert_eq!(devices.len(), 4, "{devices:?}");
                 assert_eq!(devices[*cursor].name, "hw:0,0");
             }
             other => panic!("expected the loaded devices popup, got {other:?}"),

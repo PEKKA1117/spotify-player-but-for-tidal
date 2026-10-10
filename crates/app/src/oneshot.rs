@@ -10,9 +10,13 @@ use tidal_player_core::protocol::{
     ClientMessage, Command, InsertAt, PlaybackState, PlayerSnapshot, RepeatMode, ServerMessage,
 };
 
+use tidal_player_audio::devices::{PlaybackDevice, format_devices};
+use tidal_player_core::protocol::DeviceEntry;
+use tidal_player_core::ui::{DeviceList, device_rows};
+
 use crate::client::{Link, find};
 use crate::ipc::codec::encode;
-use crate::player_runtime::parse_items;
+use crate::player_runtime::{EMPTY_DEVICE_NAME, parse_items};
 use crate::ui::clock;
 
 /// How long a one-shot command waits for the player's answer.
@@ -124,6 +128,8 @@ pub enum UsageError {
     Volume(String),
     #[error("{0}")]
     Item(String),
+    #[error("{EMPTY_DEVICE_NAME}")]
+    EmptyDevice,
 }
 
 /// The message `command` sends.
@@ -158,8 +164,11 @@ pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
             at: Some(if *next { InsertAt::Next } else { InsertAt::End }),
         },
         PlaybackCommand::Status { json } => return Ok(Plan::Status { json: *json }),
-        // 0014 slice C (stub)
-        PlaybackCommand::Device { .. } => return Ok(Plan::Devices),
+        PlaybackCommand::Device { name: None } => return Ok(Plan::Devices),
+        PlaybackCommand::Device { name: Some(name) } if name.is_empty() => {
+            return Err(UsageError::EmptyDevice);
+        }
+        PlaybackCommand::Device { name: Some(name) } => Command::SetDevice(name.clone()),
     };
     Ok(Plan::Request(command))
 }
@@ -259,6 +268,9 @@ pub fn status_lines(snapshot: &PlayerSnapshot, login_required: bool) -> String {
             } else {
                 format!("{}%", snapshot.volume)
             });
+            if !snapshot.device.is_empty() {
+                second.push(snapshot.device.clone());
+            }
             if snapshot.now_playing.as_ref().is_some_and(|np| np.released) {
                 second.push("device released".to_owned());
             }
@@ -282,20 +294,24 @@ pub fn execute<L: Link>(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let message = match plan {
-        Plan::Request(command) => ClientMessage::Request {
+    let messages = match plan {
+        Plan::Request(command) => vec![ClientMessage::Request {
             id: 0,
             command: command.clone(),
-        },
-        Plan::Status { .. } => ClientMessage::Subscribe,
-        // 0014 slice C (stub)
-        Plan::Devices => return 0,
+        }],
+        Plan::Status { .. } => vec![ClientMessage::Subscribe],
+        // The list, and the snapshot for the player's device.
+        Plan::Devices => vec![ClientMessage::Devices { id: 0 }, ClientMessage::Subscribe],
     };
-    if let Err(e) = link.send(&message) {
-        let _ = writeln!(err, "{e}");
-        return 1;
+    for message in &messages {
+        if let Err(e) = link.send(message) {
+            let _ = writeln!(err, "{e}");
+            return 1;
+        }
     }
     let deadline = Instant::now() + timeout;
+    let mut devices: Option<Vec<DeviceEntry>> = None;
+    let mut selected: Option<String> = None;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         let answer = match link.recv(Some(left)) {
@@ -333,10 +349,38 @@ pub fn execute<L: Link>(
                 };
                 return u8::from(written.and_then(|()| out.flush()).is_err());
             }
+            (Plan::Devices, ServerMessage::DevicesReply { id: 0, result }) => match result {
+                Ok(list) => devices = Some(list),
+                Err(message) => {
+                    let _ = writeln!(err, "Cannot list devices: {message}");
+                    return 1;
+                }
+            },
+            (Plan::Devices, ServerMessage::Welcome { snapshot, .. }) => {
+                selected = Some(snapshot.device);
+            }
             // Anything else (an event before the `Welcome`) is not the answer.
             _ => {}
         }
+        if let (Some(list), Some(selected)) = (&devices, &selected) {
+            let written = out.write_all(device_lines(list, selected).as_bytes());
+            return u8::from(written.and_then(|()| out.flush()).is_err());
+        }
     }
+}
+
+/// `playback device`: the player's list as `tidal-player devices` prints
+/// it, `*` on the player's `selected` device, which comes first as `not
+/// found` when the list does not have it (spec 0014 "Listing devices").
+pub fn device_lines(list: &[DeviceEntry], selected: &str) -> String {
+    let rows: Vec<PlaybackDevice> = device_rows(&DeviceList::Loaded(list.to_vec()), Some(selected))
+        .into_iter()
+        .map(|row| PlaybackDevice {
+            name: row.name,
+            description: row.description,
+        })
+        .collect();
+    format_devices(&rows, selected)
 }
 
 /// `tidal-player playback <command>`.

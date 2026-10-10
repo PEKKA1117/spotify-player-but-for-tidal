@@ -115,8 +115,10 @@ pub fn configured_device_with(file: &AppConfig, env: impl Fn(&str) -> Option<Str
 /// device of `settings` (flag, environment, `app.toml`, `default`), the
 /// same one the engine is started with.
 pub fn with_device(player: PlayerConfig, settings: &Settings) -> PlayerConfig {
-    let _ = settings;
-    player
+    PlayerConfig {
+        device: settings.device.clone(),
+        ..player
+    }
 }
 
 /// Where the device list is read from: `TIDAL_PLAYER_ASOUND_DIR`, else

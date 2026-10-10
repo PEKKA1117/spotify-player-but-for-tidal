@@ -171,8 +171,7 @@ impl Link for InProcessLink {
                 id,
                 request,
             },
-            // 0014 slice C
-            ClientMessage::Devices { .. } => return Ok(()),
+            ClientMessage::Devices { id } => ClientInput::Devices { client, id },
         };
         self.inputs
             .send(RuntimeInput::Client(input))
@@ -447,8 +446,9 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::LibraryReply { id, result })) => {
                     actions.push(Action::LibraryReply { id, result })
                 }
-                // 0014 slice C
-                Ok(Some(ServerMessage::DevicesReply { .. })) => {}
+                Ok(Some(ServerMessage::DevicesReply { id, result })) => {
+                    actions.push(Action::DevicesReply { id, result })
+                }
                 Err(_) => self.lost = true,
             }
         }
