@@ -13,8 +13,11 @@ use crate::sink::SinkError;
 /// How long the owner has to answer `RequestRelease` before the card is
 /// reported busy (never stolen from a slow owner).
 pub const REPLY_TIMEOUT: Duration = Duration::from_millis(500);
-/// Wait after the owner agreed to release, before claiming the name.
-pub const SETTLE: Duration = Duration::from_millis(200);
+/// Wait after the owner agreed to release, before claiming the name and
+/// opening the device. A USB DAC opened sooner after PipeWire let it go may
+/// never lock its clock feedback, and bips (spec 0003 AC30: 200 ms failed,
+/// 400 ms held, on a MOONRIVER 3).
+pub const SETTLE: Duration = Duration::from_secs(1);
 
 /// What the current owner of `org.freedesktop.ReserveDevice1.Audio{card}`
 /// answered to `RequestRelease`.
@@ -147,7 +150,7 @@ mod tests {
                 Ok(Some(1)),
                 vec![
                     rr.clone(),
-                    Call::Sleep(Duration::from_millis(200)),
+                    Call::Sleep(Duration::from_secs(1)),
                     Call::Claim(1),
                 ],
             ),
@@ -181,6 +184,26 @@ mod tests {
             assert_eq!(got, want, "{name}");
             assert_eq!(log.calls(), calls, "{name}");
         }
+    }
+
+    /// Bug (issue #6): a USB DAC opened within ~200-400 ms of PipeWire
+    /// releasing it never locks its clock feedback and bips. The engine waits
+    /// 1 s after the owner replies `true`, before claiming and opening.
+    #[test]
+    fn ac30_settle_after_release() {
+        let log = Log::default();
+        let mut reserver = FakeReserver::new(&log, ReleaseReply::Released, Ok(()));
+        let clock = FakeClock::new(&log);
+        assert_eq!(reserve(&mut reserver, &clock, 1, DEVICE), Ok(Some(1)));
+        let calls = log.calls();
+        let sleep = calls.iter().position(|c| matches!(c, Call::Sleep(_)));
+        let claim = calls.iter().position(|c| matches!(c, Call::Claim(1)));
+        assert!(sleep < claim, "settle before the claim: {calls:?}");
+        assert_eq!(
+            sleep.map(|i| &calls[i]),
+            Some(&Call::Sleep(Duration::from_secs(1))),
+            "settle duration: {calls:?}"
+        );
     }
 
     const SOURCE: SourceFormat = SourceFormat {
