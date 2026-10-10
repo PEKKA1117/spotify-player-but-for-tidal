@@ -125,6 +125,7 @@ fn snapshot(ids: &[u64], current: Option<u64>) -> PlayerSnapshot {
         muted: false,
         now_playing: None,
         message: None,
+        device: "default".into(),
     }
 }
 
@@ -175,6 +176,7 @@ enum Out {
     Quit,
     Send(Command),
     Library(LibraryRequest),
+    Devices,
 }
 
 fn outs(effects: &[Effect]) -> Vec<Out> {
@@ -184,6 +186,7 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
             Effect::Quit => Out::Quit,
             Effect::Send(c) => Out::Send(c.clone()),
             Effect::Library { request, .. } => Out::Library(request.clone()),
+            Effect::Devices { .. } => Out::Devices,
         })
         .collect()
 }

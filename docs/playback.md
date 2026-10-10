@@ -54,7 +54,7 @@ Exit codes: `0` the queue ran out and at least one track played to its end; `1` 
 
 ### `tidal-player devices`
 
-Lists the devices `--device` accepts: `default` first, then every ALSA hardware device (`hw:CARD,DEVICE`) that can play, with the card's name. The device `play` would use is marked `*`:
+Lists this machine's devices, the ones `--device` accepts: `default` first, then every ALSA hardware device (`hw:CARD,DEVICE`) that can play, with the card's name. With no player running, the configured device (the one `play` would use, from `--device`, `TIDAL_PLAYER_DEVICE` or `output_device`) is marked `*`:
 
 ```
 $ tidal-player devices
@@ -65,6 +65,18 @@ $ tidal-player devices
 ```
 
 It reads `/proc/asound/cards` and `/proc/asound/pcm`; capture-only devices (microphones) are not listed.
+
+When a player runs (standalone TUI, daemon or `play`) and answers within a second, `*` marks the device **the player uses**, even one chosen while it runs, and the configured device, when it is another one, ends with `(configured)`. A device the player uses that this list lacks comes first as `not found`:
+
+```
+$ tidal-player devices
+  default  shared, through the system mixer  (configured)
+  hw:0,0   HDA Intel PCH: ALC892 Analog
+  hw:0,1   HDA Intel PCH: ALC892 Digital
+* hw:1,0   E30 II: USB Audio
+```
+
+A player that does not answer in time counts as none, so `devices` never hangs. It always exits 0. The list stays this machine's; [`tidal-player playback device`](#choosing-the-output-device) gets the list from the player instead, and fails when none runs.
 
 ## Settings
 
@@ -94,11 +106,22 @@ The quality is the **highest** to ask for. Tidal answers with what the track and
 
 To make a DAC the default, put `output_device = "hw:1,0"` in `~/.config/tidal-player/app.toml` (or `export TIDAL_PLAYER_DEVICE=hw:1,0` in your shell profile).
 
+### Choosing the output device
+
+A player (the standalone TUI, the daemon, `play`) starts on the **configured device**: `--device` (`play` only), else `TIDAL_PLAYER_DEVICE`, else `output_device` in `app.toml`, else `default`. While it runs you can move it to another device, from any client: `D` in the TUI (the [Devices popup](tui.md#output-device)) or `tidal-player playback device hw:1,0` from a shell. A playing track moves to the new device at its position, with nothing lost or repeated; a device that cannot be opened leaves the player on the one it was using, with a message. Design: [spec 0014](specs/0014-device-selection.md).
+
+| Command | Lists | `*` marks |
+|---|---|---|
+| `tidal-player devices` | this machine's devices, read here | the running player's device (the configured one ends with `(configured)` when it differs); with no player, the configured device |
+| `tidal-player playback device` | the running player's machine's devices, read when asked | the device the player uses now, even one chosen at runtime |
+
+A device chosen at runtime lasts for the run: it is not remembered with the queue, so a restarted player (or daemon) starts on the configured device again. To keep a device, set `output_device` (or `TIDAL_PLAYER_DEVICE`, `--device`).
+
 ## Resuming the last session
 
 The player (the standalone TUI, or the daemon) remembers what it was playing and starts from it the next time, **stopped** at the same position: nothing plays, and nothing is fetched or opened, until you press `Space` (or `tidal-player playback play-pause`), which plays from that position. Design: [spec 0009](specs/0009-persistence.md).
 
-- **Remembered**: the queue (with its `Suggested` tracks and its shuffled order), the current track and the position in it, shuffle, repeat, autoplay, the volume and mute. Not remembered: whether it was playing, the output device (it comes from the settings), and anything a TUI shows on its own (the page, the cursor, the search)
+- **Remembered**: the queue (with its `Suggested` tracks and its shuffled order), the current track and the position in it, shuffle, repeat, autoplay, the volume and mute. Not remembered: whether it was playing, the output device (it comes from the settings, even after one was [chosen while it ran](#choosing-the-output-device)), and anything a TUI shows on its own (the page, the cursor, the search)
 - **Autoplay**: the remembered mode beats `autoplay` in `app.toml` (the file sets it for a fresh queue); `TIDAL_PLAYER_AUTOPLAY` and `--autoplay` beat the remembered mode
 - **`tidal-player ITEM…`** starting a player replaces the remembered queue with the items and plays them; shuffle, repeat, autoplay and volume stay as remembered. `tidal-player play ITEM…` neither reads nor writes the remembered state
 - **When it is saved**: a change is saved within 2 seconds (many changes in a row are saved once); the position while playing at most every 30 seconds; a pause, a stop, a seek, a track change and quitting (`q`, `tidal-player daemon stop`, `systemctl --user stop`) save at once. A crash or a power loss loses at most the last 30 seconds of position

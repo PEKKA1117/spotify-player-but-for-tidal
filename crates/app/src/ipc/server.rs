@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
 use tidal_player_core::library::{LibraryRequest, LibraryResponse};
-use tidal_player_core::protocol::{ClientMessage, Command, Event, PlayerSnapshot, ServerMessage};
+use tidal_player_core::protocol::{
+    ClientMessage, Command, DeviceEntry, Event, PlayerSnapshot, ServerMessage,
+};
 use tokio::sync::watch;
 
 use super::codec::{Decoder, encode, greeting};
@@ -87,6 +89,12 @@ pub enum ClientInput {
         client: ClientId,
         id: u64,
         request: LibraryRequest,
+    },
+    /// A device list request (spec 0014 AC7), answered by one
+    /// `DevicesReply` to this client only.
+    Devices {
+        client: ClientId,
+        id: u64,
     },
     /// The client left, or was dropped for a bad line.
     Detach(ClientId),
@@ -179,6 +187,16 @@ impl Hub {
         result: Result<LibraryResponse, String>,
     ) {
         self.send(client, ServerMessage::LibraryReply { id, result });
+    }
+
+    /// Answers device list request `id` of `client` (it alone gets it).
+    pub fn reply_devices(
+        &mut self,
+        client: ClientId,
+        id: u64,
+        result: Result<Vec<DeviceEntry>, String>,
+    ) {
+        self.send(client, ServerMessage::DevicesReply { id, result });
     }
 
     /// Whether `client` is connected.
@@ -290,6 +308,7 @@ fn attach(
                             id,
                             request,
                         },
+                        Ok(ClientMessage::Devices { id }) => ClientInput::Devices { client, id },
                         Err(e) => {
                             tracing::warn!(client = client.0, "dropped: {e}");
                             break 'read;

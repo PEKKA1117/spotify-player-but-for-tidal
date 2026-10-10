@@ -134,6 +134,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let send = match command {
         C::Quit => return vec![Effect::Quit],
         C::ClosePopup | C::OpenCommandHelp => return Vec::new(),
+        C::SwitchDevice => return browse::open_devices(state),
         C::Queue => return browse::open(state, PageKind::Queue),
         C::LibraryPage => return browse::open(state, PageKind::Library),
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),

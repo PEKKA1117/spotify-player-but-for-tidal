@@ -61,6 +61,11 @@ key_sequence = "C-r"
 command = "ToggleAutoplay"
 key_sequence = "A"
 
+# SwitchDevice: choose the output device (everywhere)
+[[keymaps]]
+command = "SwitchDevice"
+key_sequence = "D"
+
 # VolumeUp: volume up by volume_step (everywhere)
 [[keymaps]]
 command = "VolumeUp"
