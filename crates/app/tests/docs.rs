@@ -157,3 +157,40 @@ fn ac7_key_hints_documented() {
     );
     assert!(zh.contains("key_hints_delay_ms"), "docs/zh-TW/tui.md");
 }
+
+/// 0012 AC10: the filter in `docs/tui.md` ("Filtering a list", the `/`
+/// row of the keys table) and its zh-TW copy (the section's anchor), and
+/// `Search`'s new text in the command table of `docs/config.md` and its
+/// zh-TW copy.
+#[test]
+fn ac10_filter_documented() {
+    let tui = doc("tui.md");
+    assert!(
+        tui.contains("## Filtering a list"),
+        "docs/tui.md: Filtering a list section"
+    );
+    let slash = rows(&tui, "/");
+    assert!(
+        slash.iter().any(|row| row.contains("filter")),
+        "docs/tui.md: the `/` row: {slash:?}"
+    );
+    for needed in ["No rows match", "matches)", "Loading more…"] {
+        assert!(tui.contains(needed), "docs/tui.md: {needed}");
+    }
+    let zh = doc("zh-TW/tui.md");
+    assert!(
+        zh.contains("<a id=\"filtering-a-list\"></a>"),
+        "docs/zh-TW/tui.md: the filtering-a-list anchor"
+    );
+    assert!(zh.contains("No rows match"), "docs/zh-TW/tui.md");
+    for (name, text) in [("config.md", "filter the rows"), ("zh-TW/config.md", "/")] {
+        let config = doc(name);
+        let found = rows(&config, "Search");
+        assert!(
+            found
+                .iter()
+                .any(|row| row.contains(text) && !row.contains("search input")),
+            "docs/{name}: the Search row: {found:?}"
+        );
+    }
+}

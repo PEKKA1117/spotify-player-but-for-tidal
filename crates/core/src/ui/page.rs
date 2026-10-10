@@ -11,6 +11,7 @@ use crate::library::{
 };
 use crate::track::{ArtistRef, Track};
 
+use super::filter::{self, Filter};
 use super::search::{Search, SearchFocus};
 
 /// The history keeps at most this many pages above the queue (the queue at
@@ -334,6 +335,13 @@ pub struct Window {
     /// Whether the list arrived whole (spec 0011: mixes, a mix's and a
     /// radio's tracks): it is never asked for more.
     pub whole: bool,
+    /// The text filter (spec 0012); set through [`Window::set_filter`]
+    /// so the rows shown follow.
+    pub filter: Filter,
+    /// The rows shown while the text filter is active (indices into
+    /// `rows`, both filters applied), matched once per filter edit or
+    /// page arrival rather than per drawn row; `None` without one.
+    shown: Option<Vec<usize>>,
 }
 
 impl Window {
@@ -369,6 +377,8 @@ impl Window {
             load: Load::Idle,
             roles: [true; 4],
             whole: false,
+            filter: Filter::default(),
+            shown: None,
         }
     }
 
@@ -387,33 +397,89 @@ impl Window {
         self.roles.iter().any(|checked| !checked)
     }
 
-    /// The indices (into `rows`) of the rows shown: all of them, or in
-    /// *All tracks* those with a checked role category.
-    pub fn visible(&self) -> Vec<usize> {
+    /// Whether the text filter (spec 0012) narrows the window.
+    pub fn filtering(&self) -> bool {
+        self.filter.active()
+    }
+
+    /// Whether row `index` (into `rows`) has a checked role category (every
+    /// row but in a role-filtered *All tracks*).
+    fn role_shown(&self, index: usize) -> bool {
         match &self.rows {
-            Rows::Credits(credits) if self.filtered() => credits
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| {
-                    c.roles.iter().any(|role| {
-                        ROLE_CATEGORIES
-                            .iter()
-                            .zip(self.roles)
-                            .any(|(category, checked)| checked && category == role)
-                    })
+            Rows::Credits(credits) if self.filtered() => credits.get(index).is_some_and(|c| {
+                c.roles.iter().any(|role| {
+                    ROLE_CATEGORIES
+                        .iter()
+                        .zip(self.roles)
+                        .any(|(category, checked)| checked && category == role)
                 })
-                .map(|(i, _)| i)
-                .collect(),
-            rows => (0..rows.len()).collect(),
+            }),
+            _ => true,
+        }
+    }
+
+    /// The indices (into `rows`) of the rows shown: all of them, or those
+    /// with a checked role category (*All tracks*) and matching the text
+    /// filter.
+    pub fn visible(&self) -> Vec<usize> {
+        if let Some(shown) = &self.shown {
+            return shown.clone();
+        }
+        (0..self.rows.len())
+            .filter(|&i| self.role_shown(i))
+            .collect()
+    }
+
+    /// Recomputes the rows shown (after the rows, the role filter or the
+    /// text filter changed).
+    pub(super) fn refilter(&mut self) {
+        self.shown = self.filtering().then(|| {
+            (0..self.rows.len())
+                .filter(|&i| {
+                    self.role_shown(i)
+                        && self
+                            .rows
+                            .get(i)
+                            .is_some_and(|row| filter::matches(row, &self.filter.text))
+                })
+                .collect()
+        });
+    }
+
+    /// Sets the text filter's text: the cursor stays on its row when it is
+    /// still shown, else goes to the first row shown (spec 0012 AC4).
+    pub(super) fn set_filter(&mut self, text: String) {
+        let under = self.index(self.cursor);
+        self.filter.text = text;
+        self.refilter();
+        self.cursor = under
+            .and_then(|row| self.visible().iter().position(|&i| i == row))
+            .unwrap_or(0);
+    }
+
+    /// Sets the role filter (*All tracks*); the cursor is clamped to the
+    /// rows shown.
+    pub(super) fn set_roles(&mut self, roles: [bool; 4]) {
+        self.roles = roles;
+        self.refilter();
+        self.cursor = self.cursor.min(self.len().saturating_sub(1));
+    }
+
+    /// The index into `rows` of shown row `index`.
+    pub fn index(&self, index: usize) -> Option<usize> {
+        match &self.shown {
+            Some(shown) => shown.get(index).copied(),
+            None if self.filtered() => self.visible().get(index).copied(),
+            None => (index < self.rows.len()).then_some(index),
         }
     }
 
     /// The number of visible rows.
     pub fn len(&self) -> usize {
-        if self.filtered() {
-            self.visible().len()
-        } else {
-            self.rows.len()
+        match &self.shown {
+            Some(shown) => shown.len(),
+            None if self.filtered() => self.visible().len(),
+            None => self.rows.len(),
         }
     }
 
@@ -423,11 +489,7 @@ impl Window {
 
     /// Visible row `index`.
     pub fn row(&self, index: usize) -> Option<Row<'_>> {
-        if self.filtered() {
-            self.rows.get(*self.visible().get(index)?)
-        } else {
-            self.rows.get(index)
-        }
+        self.rows.get(self.index(index)?)
     }
 
     /// The row under the cursor.
@@ -449,13 +511,18 @@ impl Window {
             .is_some_and(|total| self.whole || self.next_offset >= total)
     }
 
-    /// The window's title: its name and Tidal's total, and for *All
-    /// tracks* the role filter and the hidden count (`All tracks (548 ·
-    /// Performer, Songwriter · 37 hidden)`).
+    /// The window's title: its name and Tidal's total, for *All tracks*
+    /// the role filter and the hidden count (`All tracks (548 · Performer,
+    /// Songwriter · 37 hidden)`), and the text filter with its match count
+    /// (`Favorite tracks (548 · /love · 12 matches)`, spec 0012).
     pub fn title(&self) -> String {
         let name = self.kind.name();
+        let filter = self.filter.title_parts(self.len());
         let Some(total) = self.total else {
-            return name.to_owned();
+            if filter.is_empty() {
+                return name.to_owned();
+            }
+            return format!("{name} ({})", filter.join(" · "));
         };
         let mut parts = vec![group(total)];
         if self.filtered() {
@@ -470,6 +537,7 @@ impl Window {
         if self.hidden > 0 {
             parts.push(format!("{} hidden", group(self.hidden)));
         }
+        parts.extend(filter);
         format!("{name} ({})", parts.join(" · "))
     }
 
@@ -486,7 +554,7 @@ impl Window {
     }
 
     /// Forgets the loaded rows (before a page is fetched again); the
-    /// cursor and the role filter stay.
+    /// cursor, the role filter and the text filter stay.
     pub(super) fn reset(&mut self) {
         self.rows = self.rows.emptied();
         self.positions.clear();
@@ -494,6 +562,7 @@ impl Window {
         self.hidden = 0;
         self.next_offset = 0;
         self.load = Load::Idle;
+        self.refilter();
     }
 
     /// Appends one list page asked with `limit`: rows already loaded are
@@ -560,6 +629,7 @@ impl Window {
         self.hidden += hidden;
         self.next_offset = self.next_offset.max(offset.saturating_add(limit));
         self.load = Load::Idle;
+        self.refilter();
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
     }
 }
@@ -582,6 +652,7 @@ impl Window {
             self.hidden += page.hidden;
             self.next_offset = self.next_offset.max(page.total);
             self.load = Load::Idle;
+            self.refilter();
             self.cursor = self.cursor.min(self.len().saturating_sub(1));
         }
     }
@@ -630,6 +701,9 @@ pub struct Page {
     /// The search page's input, top hit and focus (spec 0007); `None` on
     /// every other page.
     pub search: Option<Search>,
+    /// The queue page's filter (spec 0012: it has no window); unused on
+    /// the other pages, whose windows have their own.
+    pub filter: Filter,
 }
 
 impl Page {
@@ -699,6 +773,7 @@ impl Page {
             panes,
             tabs,
             windows,
+            filter: Filter::default(),
         }
     }
 

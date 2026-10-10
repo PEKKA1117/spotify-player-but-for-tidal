@@ -9,8 +9,8 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
 use super::super::keymap::{ActionEntry, CommandEntry, KeymapEntry, KeymapFile, Target, build};
 use super::super::{
-    Action, Confirmed, Connection, Effect, Header, Key, Page, PageKind, Popup, SearchFocus, State,
-    TrackSource, Window, WindowKind, apply_keymap, update,
+    Action, Confirmed, Connection, Effect, Header, Key, Load, Page, PageKind, Popup, SearchFocus,
+    State, TrackSource, Window, WindowKind, apply_keymap, update,
 };
 use super::{HelpRow, HelpSection, HintEntry, Hints, help, hints, visible};
 
@@ -282,13 +282,11 @@ fn page_sections(window: (&'static str, Vec<&'static str>), focus: bool, tabs: b
 /// commands (and nothing else).
 #[test]
 fn ac7_help_sections() {
-    let browse = ROWS.to_vec();
-    let search_rows = vec![
-        "ChooseSelected",
-        "AddSelectedItemToQueue",
-        "ShowActionsOnSelectedItem",
-        "Search",
-    ];
+    // Spec 0012: `Search` (`/`) filters every window and the queue; on
+    // *Top hit* it does nothing, so it is not listed there.
+    let browse = [ROWS.to_vec(), vec!["Search"]].concat();
+    let search_rows = browse.clone();
+    let top_hit_rows = ROWS.to_vec();
     let mut cases: Vec<(String, State, Expected)> = vec![
         (
             "queue".into(),
@@ -300,6 +298,7 @@ fn ac7_help_sections() {
                         "ChooseSelected",
                         "RemoveFromQueue",
                         "ShowActionsOnSelectedItem",
+                        "Search",
                     ],
                 ),
                 false,
@@ -344,10 +343,11 @@ fn ac7_help_sections() {
         (2, "Artist · Appears on"),
         (3, "Artist · All tracks"),
     ] {
-        let mut rows = browse.clone();
+        let mut rows = ROWS.to_vec();
         if window == 3 {
             rows.push("RoleFilter");
         }
+        rows.push("Search");
         cases.push((
             title.into(),
             focused(PageKind::Artist(20), window),
@@ -370,7 +370,7 @@ fn ac7_help_sections() {
         "search top hit".into(),
         search_on(SearchFocus::TopHit, 0),
         vec![
-            ("Search · Top hit", search_rows.clone()),
+            ("Search · Top hit", top_hit_rows),
             ("Pages", pages(true, false)),
             ("Playback", PLAYBACK.to_vec()),
             ("Actions", vec!["GoToRadio"]),
@@ -570,6 +570,113 @@ fn ac8_help_text_inputs() {
     press(&mut name, &[Key::Char('?')]);
     assert!(name.help.is_none());
     assert!(matches!(name.popup, Some(Popup::NewPlaylist { name: ref n, .. }) if n == "?"));
+}
+
+/// Spec 0012 AC8: `/` is listed as "filter the rows" in every window
+/// section and `Queue` (a rebound `Search`: its key), dim on a loading or
+/// failed page; while typing a filter, the window's section lists the
+/// filter's fixed keys instead.
+#[test]
+fn ac8_filter_in_help() {
+    let search = |state: &State| {
+        row(&help(state), "Search")
+            .map(|r| (r.keys.clone(), r.text.clone(), r.dim))
+            .unwrap_or_else(|| panic!("no Search row: {:?}", help(state)))
+    };
+    let filter = || ("/".to_owned(), "filter the rows".to_owned(), false);
+    let mut states: Vec<(String, State)> = vec![
+        ("queue".into(), with_queue()),
+        (
+            "favorite tracks".into(),
+            on_page(PageKind::FavoriteTracks, |_| {}),
+        ),
+        ("album".into(), on_page(PageKind::Album(10), |_| {})),
+        ("playlist".into(), playlist_page(true)),
+        ("mixes".into(), on_page(PageKind::Mixes, |_| {})),
+        ("mix".into(), on_page(PageKind::Mix("m".into()), |_| {})),
+        ("radio".into(), on_page(PageKind::TrackRadio(1), |_| {})),
+    ];
+    states.extend((0..3).map(|w| (format!("library {w}"), focused(PageKind::Library, w))));
+    states.extend((0..4).map(|w| (format!("artist {w}"), focused(PageKind::Artist(20), w))));
+    states.extend((0..4).map(|w| (format!("search {w}"), search_on(SearchFocus::Windows, w))));
+    for (name, state) in &states {
+        assert_eq!(search(state), filter(), "{name}");
+        // The window's own section lists it.
+        let sections = help(state);
+        assert!(
+            sections[0].rows.iter().any(|r| r.command == "Search"),
+            "{name}: not in {:?}",
+            sections[0].title
+        );
+    }
+    // Not on *Top hit*, where `/` does nothing.
+    assert!(row(&help(&search_on(SearchFocus::TopHit, 0)), "Search").is_none());
+
+    // Rebound: the moved key shown.
+    let key = |command: &str, sequence: &str| KeymapEntry {
+        command: CommandEntry::name(command),
+        key_sequence: sequence.into(),
+    };
+    let file = KeymapFile {
+        keymaps: vec![key("Search", "F"), key("None", "/")],
+        actions: vec![],
+    };
+    let mut rebound = on_page(PageKind::FavoriteTracks, |_| {});
+    apply_keymap(&mut rebound, build(&file).expect("a valid keymap"));
+    assert_eq!(search(&rebound).0, "F");
+
+    // Dim on a loading or a failed page.
+    for (name, load) in [
+        ("loading", Load::Loading { id: 3 }),
+        ("failed", Load::Failed("timed out".into())),
+        ("loaded", Load::Idle),
+    ] {
+        let state = on_page(PageKind::FavoriteTracks, |p| p.load = load.clone());
+        assert_eq!(search(&state).2, name != "loaded", "{name}");
+    }
+
+    // While typing: the window's section, with the filter's fixed keys.
+    let typing = |state: State| {
+        let mut state = state;
+        press(&mut state, &[Key::Char('/')]);
+        help(&state)
+            .into_iter()
+            .map(|s| {
+                (
+                    s.title,
+                    s.rows
+                        .iter()
+                        .map(|r| (r.keys.clone(), r.command.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let fixed = |title: &str| {
+        vec![(
+            title.to_owned(),
+            [
+                "enter",
+                "esc",
+                "backspace",
+                "C-u",
+                "up  down  page_up  page_down",
+                "C-c",
+            ]
+            .iter()
+            .map(|k| (k.to_string(), String::new()))
+            .collect::<Vec<_>>(),
+        )]
+    };
+    assert_eq!(
+        typing(on_page(PageKind::FavoriteTracks, |_| {})),
+        fixed("Favorite tracks")
+    );
+    assert_eq!(typing(with_queue()), fixed("Queue"));
+    assert_eq!(
+        typing(focused(PageKind::Library, 1)),
+        fixed("Library · Albums")
+    );
 }
 
 /// AC8: list commands move the highlight over binding rows only

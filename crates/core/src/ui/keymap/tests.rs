@@ -1151,9 +1151,15 @@ fn ac6_text_inputs_first() {
     assert_eq!(input(&state), Some((String::new(), SearchFocus::Input)));
     assert_eq!(press(&mut state, &[Key::Tab]), vec![]);
     assert_eq!(input(&state), Some((String::new(), SearchFocus::Windows)));
+    // `g s` back to the input (spec 0012: `/` filters the window).
     let effects = press(
         &mut state,
-        &[vec![Key::Char('/')], typed("qj"), vec![Key::Enter]].concat(),
+        &[
+            vec![Key::Char('g'), Key::Char('s')],
+            typed("qj"),
+            vec![Key::Enter],
+        ]
+        .concat(),
     );
     assert_eq!(
         effects,

@@ -562,7 +562,9 @@ fn ac7_send_and_reply() {
     );
     press(&mut state, &[Tab, Char('j'), Char('j')]);
     assert_eq!(window(&state, 0).cursor, 2);
-    press(&mut state, &[Char('/'), Char('d')]);
+    // `g s` back to the input (spec 0012: `/` filters the window).
+    press(&mut state, &GS);
+    press(&mut state, &[Char('d')]);
     let (id, request) = one_request(&press(&mut state, &[Enter]));
     assert_eq!(request, search_request("abcd"));
     assert!(state.page().windows.iter().all(|w| w.rows.is_empty()));
@@ -640,8 +642,9 @@ fn ac7_send_and_reply() {
 // --- AC8 ------------------------------------------------------------------------
 
 /// AC8: `Tab`/`BackTab` cycle input → Top hit (when shown) → Tracks →
-/// Albums → Artists → Playlists → input; `/` on a window focuses the
-/// input; `Esc` on the input focuses what a reply would when there are
+/// Albums → Artists → Playlists → input; `g s` focuses the input (spec
+/// 0012: `/` on a window filters it, the focus stays; on *Top hit* it
+/// does nothing); `Esc` on the input focuses what a reply would when there are
 /// results; scrolling a window asks for the next page of its search list
 /// at the search page size (0006 AC10's rules).
 #[test]
@@ -674,19 +677,26 @@ fn ac8_windows_and_scroll() {
     ];
     for (top_hit, key, sequence) in cases {
         let mut state = searched(with_queue(), "abc", data(top_hit.clone(), [3, 3, 3, 3], 3));
-        // `/` gives the input the focus.
-        assert_eq!(press(&mut state, &[Char('/')]), vec![]);
+        // `g s` gives the input the focus.
+        assert_eq!(press(&mut state, &GS), vec![]);
         assert_eq!(focus(&state), F::Input);
         for expected in sequence {
             assert_eq!(press(&mut state, &[key]), vec![], "{key:?}");
             assert_eq!(focus(&state), expected, "{top_hit:?} {key:?}");
-            // `/` from here focuses the input; `Tab` order goes on from
+            // `g s` from here focuses the input; `/` filters a window
+            // and leaves the focus (spec 0012); `Tab` order goes on from
             // where it was.
             if expected != F::Input {
                 let mut other = state.clone();
+                assert_eq!(press(&mut other, &GS), vec![]);
+                assert_eq!(focus(&other), F::Input, "g s from {expected:?}");
+                assert_eq!(input(&other), "abc", "g s types nothing");
+                let mut other = state.clone();
                 assert_eq!(press(&mut other, &[Char('/')]), vec![]);
-                assert_eq!(focus(&other), F::Input, "/ from {expected:?}");
+                assert_eq!(focus(&other), expected, "/ from {expected:?}");
                 assert_eq!(input(&other), "abc", "/ types nothing");
+                let typing = other.page().windows.iter().any(|w| w.filter.typing);
+                assert_eq!(typing, expected != F::TopHit, "/ from {expected:?}: filter");
             }
         }
     }
@@ -700,7 +710,7 @@ fn ac8_windows_and_scroll() {
     ];
     for (top_hit, n, expected) in cases {
         let mut state = searched(with_queue(), "abc", data(top_hit.clone(), n, 3));
-        press(&mut state, &[Char('/')]);
+        press(&mut state, &GS);
         assert_eq!(press(&mut state, &[Esc]), vec![]);
         assert_eq!(focus(&state), expected, "{top_hit:?} {n:?}");
     }

@@ -755,6 +755,12 @@ mod tests {
         state
     }
 
+    fn press_keys(state: &mut State, keys: &[tidal_player_core::ui::Key]) {
+        for key in keys {
+            update(state, Action::Key(*key));
+        }
+    }
+
     fn assert_contains(text: &str, parts: &[&str]) {
         for part in parts {
             assert!(text.contains(part), "{part:?} missing:\n{text}");
@@ -971,11 +977,23 @@ mod tests {
         });
         let mut login = state_of(playing());
         login.login_required = true;
+        // Spec 0012 AC9: the queue filtered, kept and while typing.
+        let mut filtered = state_of(playing());
+        press_keys(&mut filtered, &[Key::Char('/')]);
+        press_keys(
+            &mut filtered,
+            &"you".chars().map(Key::Char).collect::<Vec<_>>(),
+        );
+        let mut none = filtered.clone();
+        press_keys(&mut none, &"xyz".chars().map(Key::Char).collect::<Vec<_>>());
+        press_keys(&mut filtered, &[Key::Enter]);
         let states = [
             State::default(),
             state_of(playing()),
             prompt,
             login,
+            filtered,
+            none,
             state_of(PlayerSnapshot {
                 message: Some("Output hw:1,0 was lost".into()),
                 ..playing()
@@ -1718,6 +1736,9 @@ mod tests {
         let mixes = mixes_states();
         // 0013 AC6: a pending sequence's hint over each kind of view.
         let hints = hint_states();
+        // 0012 AC9: a filter set (kept, typing, no match) on each kind of
+        // window and the queue.
+        let filters = filter_states();
         let sizes = sizes.chain(
             (1..=200)
                 .step_by(13)
@@ -1730,6 +1751,7 @@ mod tests {
                 .chain(&help)
                 .chain(&mixes)
                 .chain(&hints)
+                .chain(&filters)
             {
                 draw(state, width, height);
             }
@@ -2946,5 +2968,221 @@ mod tests {
         // No page area (under 8 rows): no hint.
         let text = draw(&pending(library(), &g), 80, 7);
         assert!(!text.contains("g …"), "{text}");
+    }
+
+    // --- spec 0012 AC9: filtering a window ----------------------------------------
+
+    /// `state` after `/`, `text` typed, and `Enter` when `keep`.
+    fn with_filter(mut state: State, text: &str, keep: bool) -> State {
+        let mut keys = vec![Key::Char('/')];
+        keys.extend(typed_keys(text));
+        if keep {
+            keys.push(Key::Enter);
+        }
+        press(&mut state, &keys);
+        state
+    }
+
+    /// *All tracks* with only Performer checked.
+    fn performer_only() -> State {
+        let mut state = all_tracks(false);
+        let keys = [
+            Key::Char('f'),
+            Key::Char('j'),
+            Key::Char(' '),
+            Key::Char('j'),
+            Key::Char(' '),
+            Key::Char('j'),
+            Key::Char(' '),
+            Key::Enter,
+        ];
+        press(&mut state, &keys);
+        state
+    }
+
+    /// The search page's *Tracks* window focused.
+    fn search_tracks_window() -> State {
+        let mut state = search_artist_hit();
+        press(&mut state, &[Key::Tab]);
+        state
+    }
+
+    /// Every filter state, for the no-panic sweep.
+    fn filter_states() -> Vec<State> {
+        let long = "pierce the veil ".repeat(6);
+        vec![
+            with_filter(favorites(), "song", true),
+            with_filter(favorites(), "so", false),
+            with_filter(favorites(), "", false),
+            with_filter(favorites(), "xyz", true),
+            with_filter(favorites(), &long, false),
+            with_filter(state_of(playing()), "you", true),
+            with_filter(state_of(playing()), "xyz", false),
+            with_filter(performer_only(), "hell", true),
+            with_filter(search_tracks_window(), "hell", true),
+            with_filter(library(), "late", true),
+            with_filter(album_page(vec![]), "x", false),
+            with_filter(mixes_page(), "mix 2", true),
+        ]
+    }
+
+    /// AC9: the titles with a filter, kept and while typing, in each kind
+    /// of window and the queue.
+    #[test]
+    fn ac9_filter_titles() {
+        let cases: Vec<(&str, State, &str)> = vec![
+            (
+                "kept",
+                with_filter(favorites(), "song", true),
+                "Favorite tracks (362 · /song · 2 matches)",
+            ),
+            (
+                "typing",
+                with_filter(favorites(), "so", false),
+                "Favorite tracks (362 · /so▏ · 2 matches)",
+            ),
+            (
+                "typing, empty",
+                with_filter(favorites(), "", false),
+                "Favorite tracks (362 · /▏)",
+            ),
+            (
+                "one match",
+                with_filter(favorites(), "here", true),
+                "Favorite tracks (362 · /here · 1 match)",
+            ),
+            (
+                "no match",
+                with_filter(favorites(), "xyz", true),
+                "Favorite tracks (362 · /xyz · 0 matches)",
+            ),
+            (
+                "the queue",
+                with_filter(state_of(playing()), "you", true),
+                "Queue (12 · /you · 5 matches)",
+            ),
+            (
+                "the library",
+                with_filter(library(), "late", true),
+                "Playlists (22 · /late · 1 match)",
+            ),
+            (
+                "role and text filters",
+                with_filter(performer_only(), "hell", true),
+                "All tracks (548 · Performer · 37 hidden · /hell · 1 match)",
+            ),
+            (
+                "a search window",
+                with_filter(search_tracks_window(), "hell", true),
+                "/hell · 1 match)",
+            ),
+        ];
+        for (name, state, title) in cases {
+            let text = draw(&state, 200, 40);
+            assert!(text.contains(title), "{name}: {title:?} missing:\n{text}");
+        }
+        // The title is bold while typing (the focused window's is anyway).
+        let state = with_filter(state_of(playing()), "you", false);
+        let cell = cell_at(&state, 80, 24, "Queue (12 · /you▏");
+        assert!(cell.modifier.contains(Mod::BOLD), "{cell:?}");
+        let state = with_filter(state_of(playing()), "you", true);
+        let cell = cell_at(&state, 80, 24, "Queue (12 · /you ·");
+        assert!(!cell.modifier.contains(Mod::BOLD), "{cell:?}");
+    }
+
+    /// AC9: 80 × 24: favorite tracks with a kept filter, while typing, no
+    /// match; the queue filtered (positions and `Suggested`); *All tracks*
+    /// with a role filter and a text filter; a search window filtered.
+    #[test]
+    fn ac9_filter_80x24() {
+        // Kept: the matches only, `Loading more…` under them.
+        let text = draw(&with_filter(favorites(), "song", true), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Favorite tracks (362 · /song · 2 matches)",
+                "Song 1",
+                "Song 2",
+                "Loading more…",
+            ],
+        );
+        assert!(!text.contains("Not Streamable Here"), "{text}");
+        insta::assert_snapshot!("ac9_filter_kept", text);
+
+        // Typing: the cursor block after the text.
+        let text = draw(&with_filter(favorites(), "so", false), 80, 24);
+        assert_contains(&text, &["/so▏ · 2 matches", "Song 1", "Song 2"]);
+        insta::assert_snapshot!("ac9_filter_typing", text);
+
+        // No match.
+        let text = draw(&with_filter(favorites(), "xyz", true), 80, 24);
+        assert_contains(&text, &["No rows match \"xyz\"", "Loading more…"]);
+        assert!(
+            row_of(&text, "No rows match") < row_of(&text, "Loading more…"),
+            "{text}"
+        );
+        assert!(!text.contains("Song 1"), "{text}");
+        insta::assert_snapshot!("ac9_filter_no_match", text);
+
+        // The queue: queue positions, `Suggested` over the matching
+        // suggestions.
+        let text = draw(&with_filter(state_of(playing()), "you", true), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Queue (12 · /you · 5 matches)",
+                "Suggested",
+                "Can You Feel My Heart",
+            ],
+        );
+        let line = |part: &str| line_with(&text, part).to_owned();
+        assert!(line("May These Noises").contains(" 1 "), "{text}");
+        assert!(line("Low On Gas").contains(" 9 "), "{text}");
+        assert!(line("James Dean").contains("10 "), "{text}");
+        assert!(!text.contains("Hell Above  "), "{text}");
+        assert!(
+            row_of(&text, "Low On Gas") < row_of(&text, "Suggested"),
+            "{text}"
+        );
+        assert!(
+            row_of(&text, "Suggested") < row_of(&text, "James Dean"),
+            "{text}"
+        );
+        insta::assert_snapshot!("ac9_filter_queue", text);
+        // No suggestion matching: no `Suggested` row.
+        let text = draw(&with_filter(state_of(playing()), "veil", true), 80, 24);
+        assert_contains(&text, &["/veil · 9 matches", "Hell Above"]);
+        assert!(!text.contains("Suggested"), "{text}");
+        // No match on the queue.
+        let text = draw(&with_filter(state_of(playing()), "xyz", true), 80, 24);
+        assert_contains(&text, &["No rows match \"xyz\""]);
+
+        // *All tracks*: the role filter and the text filter.
+        let text = draw(&with_filter(performer_only(), "hell", true), 120, 24);
+        assert_contains(
+            &text,
+            &["Performer · 37 hidden · /hell · 1 match", "Hell Above"],
+        );
+        assert!(!text.contains("Caraphernelia"), "{text}");
+        let text80 = draw(&with_filter(performer_only(), "hell", true), 80, 24);
+        insta::assert_snapshot!("ac9_filter_all_tracks", text80);
+
+        // A search window.
+        let text = draw(&with_filter(search_tracks_window(), "hell", true), 80, 24);
+        assert_contains(&text, &["/hell · 1 match", "Hell Above"]);
+        insta::assert_snapshot!("ac9_filter_search", text);
+    }
+
+    /// AC9: 40 × 12: a filtered window; a long filter is cut with `…` in
+    /// the title and in the no-match row.
+    #[test]
+    fn ac9_filter_40x12() {
+        let text = draw(&with_filter(favorites(), "song", true), 40, 12);
+        assert_contains(&text, &["/song", "Song 1"]);
+        insta::assert_snapshot!("ac9_filter_40x12", text);
+        let long = "pierce the veil ".repeat(6);
+        let text = draw(&with_filter(favorites(), &long, true), 40, 12);
+        assert_contains(&text, &["No rows match \"pierce", "…"]);
+        assert!(line_with(&text, "Favorite tracks").contains('…'), "{text}");
     }
 }

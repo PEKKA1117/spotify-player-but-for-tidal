@@ -27,9 +27,13 @@
 //!
 //! Spec 0008: keys are looked up in [`State::keymap`] ([`keymap`]); which
 //! command acts where is decided in `dispatch`.
+//!
+//! Spec 0012: each window's filter (and the queue page's) and its typing
+//! keys live in [`filter`].
 
 mod browse;
 mod dispatch;
+pub mod filter;
 pub mod help;
 pub mod keymap;
 pub mod page;
@@ -43,6 +47,7 @@ use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, Qu
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use filter::{Filter, MAX_FILTER};
 pub use help::{
     Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
 };
