@@ -746,6 +746,7 @@ mod tests {
             muted: false,
             now_playing: Some(now_playing(Some("volume below 100%"))),
             message: None,
+            device: "default".into(),
         }
     }
 

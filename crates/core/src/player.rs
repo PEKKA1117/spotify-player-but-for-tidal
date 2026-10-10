@@ -30,6 +30,10 @@
 //! - A failed reacquire's message (spec 0005) is cleared by the engine's
 //!   next `Resumed`; `released` is cleared by `Resumed` and by any track
 //!   start or stop
+//! - A device fallback (spec 0014) that arrives while the track opens
+//!   keeps its message through that track's `Started`; the next track
+//!   start clears it like any message. `OutputChanged` keeps the source
+//!   line of the track and takes the output line and verdict
 
 mod queue;
 mod saved;
@@ -67,6 +71,9 @@ pub struct PlayerConfig {
     /// The session's country, for the "not available in <country>" message
     /// of a track that is not streamable.
     pub country: Option<String>,
+    /// The output device the player starts on (spec 0014: the configured
+    /// one, 0008's precedence); `SetDevice` changes it for the run.
+    pub device: String,
 }
 
 impl Default for PlayerConfig {
@@ -75,6 +82,7 @@ impl Default for PlayerConfig {
             previous_restart: Duration::from_secs(3),
             autoplay: false,
             country: None,
+            device: "default".to_owned(),
         }
     }
 }
@@ -146,6 +154,17 @@ pub enum EngineEvent {
     ResumeFailed {
         failure: Failure,
     },
+    /// The engine reopened the output after a `SetDevice` (spec 0014): the
+    /// new output line and verdict (`details.source` is not used).
+    OutputChanged(TrackDetails),
+    /// Opening `tried` failed and the engine went back to `device`, the
+    /// last device that opened (spec 0014): `message` is 0003's message
+    /// for the failure.
+    DeviceFallback {
+        tried: String,
+        message: String,
+        device: String,
+    },
 }
 
 /// An input to the player.
@@ -205,6 +224,8 @@ pub enum PlayerEffect {
     EngineStop,
     /// Software gain, `0.0..=1.0`.
     EngineSetGain(f32),
+    /// Engine `SetDevice` (spec 0014).
+    EngineSetDevice(String),
     /// Fetch autoplay suggestions seeded by `seed`; answer with
     /// `PlayerInput::Suggestions { tag, .. }`.
     FetchSuggestions {
@@ -245,6 +266,11 @@ pub struct PlayerState {
     released: bool,
     /// The message shown is a failed reacquire's (cleared on `Resumed`).
     resume_failed: bool,
+    /// The selected output device (spec 0014).
+    device: String,
+    /// The message shown is a device fallback's that came while the track
+    /// opened: the track's start keeps it.
+    fallback_on_start: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -317,6 +343,8 @@ impl PlayerState {
     pub fn new(config: PlayerConfig, seed: u64) -> Self {
         Self {
             autoplay: config.autoplay,
+            device: config.device.clone(),
+            fallback_on_start: false,
             config,
             rng: Rng::new(seed),
             queue: Queue::default(),
@@ -381,6 +409,7 @@ impl PlayerState {
                 }
             }),
             message: self.message.clone(),
+            device: self.device.clone(),
         }
     }
 
@@ -415,6 +444,7 @@ pub fn update(state: &mut PlayerState, input: PlayerInput) -> Vec<PlayerEffect> 
             state.message = Some(message);
             // No longer a failed reacquire's: `Resumed` leaves it.
             state.resume_failed = false;
+            state.fallback_on_start = false;
         }
     }
     let after = state.snapshot();
@@ -498,6 +528,7 @@ impl PlayerState {
         self.now_playing = None;
         self.released = false;
         self.resume_failed = false;
+        self.fallback_on_start = false;
         self.position = start_at;
         if self.engine_busy {
             fx.push(PlayerEffect::EngineStop);
@@ -560,6 +591,7 @@ impl PlayerState {
         self.now_playing = None;
         self.released = false;
         self.resume_failed = false;
+        self.fallback_on_start = false;
     }
 
     /// Handles a failure of `entry` per the "Failures" table.
@@ -737,6 +769,14 @@ impl PlayerState {
             // Both are the runtime's: it stops the engine, or expands the
             // items and sends `LoadQueue`/`AddToQueue` (spec 0005).
             Command::Shutdown | Command::Open { .. } => {}
+            Command::SetDevice(name) => {
+                // Refused when empty (the runtime replies why); the same
+                // device is not reopened.
+                if !name.is_empty() && name != self.device {
+                    fx.push(PlayerEffect::EngineSetDevice(name.clone()));
+                    self.device = name;
+                }
+            }
             Command::LoadQueue { tracks, start } => self.load(tracks, start, fx),
             Command::AddToQueue { tracks, at } => self.add(tracks, at, fx),
             Command::RemoveFromQueue(id) => self.remove(id, fx),
@@ -1077,13 +1117,36 @@ impl PlayerState {
                 }
             }
             EngineEvent::Paused | EngineEvent::Stopped => {}
+            EngineEvent::OutputChanged(details) => {
+                if let Some(started) = self.now_playing.as_mut() {
+                    started.details = TrackDetails {
+                        source: std::mem::take(&mut started.details.source),
+                        ..details
+                    };
+                }
+            }
+            EngineEvent::DeviceFallback {
+                tried,
+                message,
+                device,
+            } => {
+                // Not a failure: the phase, position and queue stay.
+                self.message = Some(format!(
+                    "Cannot switch to {tried}: {message}; staying on {device}"
+                ));
+                self.resume_failed = false;
+                self.fallback_on_start = matches!(self.phase, Phase::Loading(_));
+                self.device = device;
+            }
         }
     }
 
     /// A track started (or the engine moved into the preload).
     fn track_started(&mut self, quality: AudioQuality, details: TrackDetails, fx: &mut Fx) {
         self.now_playing = Some(Started { quality, details });
-        self.message = None;
+        if !std::mem::take(&mut self.fallback_on_start) {
+            self.message = None;
+        }
         self.failures = 0;
         // Unknown duration: the preload point is the start.
         self.armed = self.current_duration().is_none();

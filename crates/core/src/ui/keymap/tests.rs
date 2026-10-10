@@ -118,6 +118,7 @@ fn snapshot(ids: &[u64], current: Option<u64>) -> PlayerSnapshot {
         muted: false,
         now_playing: None,
         message: None,
+        device: "default".into(),
     }
 }
 
@@ -340,7 +341,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 41] = [
+const DEFAULTS: [(&[&str], &str); 42] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -350,6 +351,8 @@ const DEFAULTS: [(&[&str], &str); 41] = [
     (&["C-s"], "Shuffle"),
     (&["C-r"], "Repeat"),
     (&["A"], "ToggleAutoplay"),
+    // Spec 0014.
+    (&["D"], "SwitchDevice"),
     (&["+"], "VolumeUp"),
     (&["-"], "VolumeDown"),
     (&["_"], "Mute"),
@@ -1402,4 +1405,52 @@ fn ac9_mixes_and_radio_keys() {
     );
     let moved = keymap(vec![entry("r", "None"), entry("r x", "NextTrack")], vec![]);
     assert_eq!(bound(&moved, "r x"), Some(Binding::Command(C::NextTrack)));
+}
+
+// --- spec 0014 AC8 ------------------------------------------------------------
+
+/// Spec 0014 AC8: `SwitchDevice` is a command of the keymap, no longer a
+/// skipped spotify-player name, bound to `D` by default; a spotify-player
+/// `keymap.toml` that binds it builds without a notice, and the key opens
+/// the devices popup.
+#[test]
+fn ac8_switch_device_supported() {
+    assert!(
+        !UNSUPPORTED_COMMANDS.contains(&"SwitchDevice"),
+        "still skipped"
+    );
+    assert!(
+        super::COMMANDS.contains(&UiCommand::SwitchDevice),
+        "not a command"
+    );
+    assert_eq!(
+        bound(&Keymap::default(), "D"),
+        Some(Binding::Command(UiCommand::SwitchDevice)),
+        "the default key"
+    );
+
+    let built = keymap(vec![entry("C-d", "SwitchDevice")], vec![]);
+    assert!(built.unsupported().is_empty(), "{:?}", built.unsupported());
+    assert_eq!(built.notice(), None);
+    assert_eq!(
+        bound(&built, "C-d"),
+        Some(Binding::Command(UiCommand::SwitchDevice))
+    );
+
+    for (keymap, keys) in [
+        (Keymap::default(), vec![Key::Char('D')]),
+        (built, vec![Key::Ctrl('d')]),
+    ] {
+        let mut state = with_keymap(queue(), keymap);
+        let effects = press(&mut state, &keys);
+        assert!(
+            matches!(effects.as_slice(), [Effect::Devices { .. }]),
+            "{keys:?}: {effects:?}"
+        );
+        assert!(
+            matches!(state.popup, Some(Popup::Devices { .. })),
+            "{keys:?}: {:?}",
+            state.popup
+        );
+    }
 }

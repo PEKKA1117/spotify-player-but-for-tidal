@@ -856,6 +856,8 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             PlayerEffect::EngineSeek(position) => self.engine.send(audio::Command::Seek(position)),
             PlayerEffect::EngineStop => self.engine.send(audio::Command::Stop),
             PlayerEffect::EngineSetGain(gain) => self.engine.send(audio::Command::SetGain(gain)),
+            // 0014 slice C
+            PlayerEffect::EngineSetDevice(_) => {}
             PlayerEffect::FetchSuggestions { seed, tag } => {
                 self.suggesting.insert(tag);
                 self.jobs.suggest(tag, seed);

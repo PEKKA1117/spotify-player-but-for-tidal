@@ -231,6 +231,8 @@ impl View {
             ServerMessage::Event(Event::ShuttingDown)
             | ServerMessage::Reply { .. }
             | ServerMessage::LibraryReply { .. } => {}
+            // 0014 slice C
+            ServerMessage::DevicesReply { .. } => {}
         }
     }
 
@@ -496,6 +498,8 @@ impl ModelClient {
                 }
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
                 ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
+                // 0014 slice C
+                ServerMessage::DevicesReply { id, .. } => panic!("unasked devices reply {id}"),
             }
         }
     }

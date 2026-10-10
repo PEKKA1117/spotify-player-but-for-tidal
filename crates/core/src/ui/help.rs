@@ -16,7 +16,8 @@
 //! - `Pages`: the page commands (`Queue`, `LibraryPage`, `LikedTrackPage`,
 //!   `SearchPage`, `MixesPage`, `PreviousPage`), the focus commands where the page has
 //!   more than one pane and the tab commands where a pane has tabs;
-//! - `Playback`: playback, seek, volume, modes, the two prompts and
+//! - `Playback`: playback, seek, volume, modes, the devices popup
+//!   (`SwitchDevice`, spec 0014), the two prompts and
 //!   `ShowActionsOnCurrentTrack`;
 //! - `Actions`: the `[[actions]]` bindings;
 //! - `App`: `OpenCommandHelp` and `Quit`.
@@ -128,6 +129,13 @@ pub fn help(state: &State) -> Vec<HelpSection> {
         (Where::Popup, Some(popup)) => {
             let mut rows = popup_fixed_rows(popup);
             rows.extend(command_rows(state, at, |c| popup_acts(popup, c)));
+            if matches!(popup, Popup::Devices { .. }) {
+                for row in &mut rows {
+                    if row.binding == Some(Binding::Command(UiCommand::ChooseSelected)) {
+                        row.text = "switch to the selected device".to_owned();
+                    }
+                }
+            }
             add(popup_title(popup), rows);
             if popup_has_list(popup) {
                 add("Lists", command_rows(state, at, UiCommand::is_list_move));
@@ -301,6 +309,7 @@ fn is_playback(command: UiCommand) -> bool {
             | C::Shuffle
             | C::Repeat
             | C::ToggleAutoplay
+            | C::SwitchDevice
             | C::VolumeUp
             | C::VolumeDown
             | C::VolumeChange { .. }
@@ -374,7 +383,10 @@ fn is_search(kind: WindowKind) -> bool {
 /// prompts take their keys themselves).
 fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
     match popup {
-        Popup::Actions { .. } | Popup::AddToPlaylist { .. } | Popup::Roles { .. } => {
+        Popup::Actions { .. }
+        | Popup::AddToPlaylist { .. }
+        | Popup::Roles { .. }
+        | Popup::Devices { .. } => {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
@@ -385,7 +397,10 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
 fn popup_has_list(popup: &Popup) -> bool {
     matches!(
         popup,
-        Popup::Actions { .. } | Popup::AddToPlaylist { .. } | Popup::Roles { .. }
+        Popup::Actions { .. }
+            | Popup::AddToPlaylist { .. }
+            | Popup::Roles { .. }
+            | Popup::Devices { .. }
     )
 }
 
@@ -401,6 +416,7 @@ fn popup_title(popup: &Popup) -> &'static str {
         Popup::NewPlaylist { .. } => "Popup · New playlist",
         Popup::Confirm { .. } => "Popup · Confirm",
         Popup::Roles { .. } => "Popup · Role filter",
+        Popup::Devices { .. } => "Popup · Devices",
     }
 }
 
@@ -455,6 +471,7 @@ fn popup_fixed_rows(popup: &Popup) -> Vec<HelpRow> {
         Popup::Roles { .. } => &[("space", "check / uncheck")],
         Popup::Confirm { .. } => &[("y", "yes"), ("n", "no")],
         Popup::NewPlaylist { .. } => &[("enter", "create the playlist"), ("esc", "cancel")],
+        Popup::Devices { .. } => &[("r", "read the list again"), ("q", "close")],
         _ => &[],
     };
     rows.iter().map(|(k, t)| fixed_row(k, t)).collect()
@@ -638,6 +655,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::ClosePopup => owned("close / cancel"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
+        C::SwitchDevice => owned("choose the output device"),
     }
 }
 
@@ -672,7 +690,8 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
         | C::VolumeUp
         | C::VolumeDown
         | C::VolumeChange { .. }
-        | C::Mute => offline,
+        | C::Mute
+        | C::SwitchDevice => offline,
         C::ShowActionsOnCurrentTrack => state.current().is_none(),
         C::ChooseSelected | C::AddSelectedItemToQueue | C::RemoveFromQueue => {
             offline || no_selection(state, at)
