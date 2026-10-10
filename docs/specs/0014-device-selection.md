@@ -1,8 +1,8 @@
 # 0014 — Choosing the output device while the player runs
 
-- **Status**: draft
+- **Status**: draft (decisions answered 2026-10-10; awaiting approval)
 - **Owner**: tech-lead (primary session)
-- **Depends on**: 0003 (implemented: the engine's `SetDevice`, `tidal-player devices`), 0004 (implemented: the player and its effects), 0005 (implemented: the protocol, clients, `playback`, releasing while paused), 0008 (implemented: `output_device`, the keymap, the keys help), 0009 (implemented: `playback.json`)
+- **Depends on**: 0003 (implemented: the engine's `SetDevice`, `tidal-player devices`), 0004 (implemented: the player and its effects), 0005 (implemented: the protocol, clients, `playback`, releasing while paused), 0008 (implemented: `output_device`, the keymap, the keys help)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Output device"; [`docs/daemon.md`](../daemon.md) gains `playback device`; [`docs/playback.md`](../playback.md) and [`docs/config.md`](../config.md) explain which device is used (AC12)
 
 ## Context
@@ -17,12 +17,7 @@ tidalt had a device picker in its TUI. Choosing a device in a client called the 
 
 ### The player's device
 
-The player has a **selected device**: an ALSA PCM name, as `--device` accepts. At start it is, from highest to lowest precedence:
-
-1. `--device` or `TIDAL_PLAYER_DEVICE` (explicit for this run)
-2. the device last chosen at runtime, from `playback.json` (decision 2), when `remember_playback` is on
-3. `output_device` in `app.toml`
-4. `default`
+The player has a **selected device**: an ALSA PCM name, as `--device` accepts. At start it is the configured device, as today: `--device`, `TIDAL_PLAYER_DEVICE`, `output_device` in `app.toml`, `default` (0008's precedence). A device chosen at runtime lasts for the run: a restarted player starts on the configured device again (decision 2).
 
 The snapshot carries it (`PlayerSnapshot.device`), so every client shows the same device.
 
@@ -34,7 +29,15 @@ The snapshot carries it (`PlayerSnapshot.device`), so every client shows the sam
 - **The same device as selected**: nothing happens (no reopen)
 - An empty name is refused (`Reply` error `Device name is empty`). Any other name is accepted as given. A name that does not exist fails when it is opened, like a wrong `--device`
 
-Opening the new device can fail (busy, missing, refused reservation). The player then handles it as any output failure (0004 "Failures": stop, never skip, the queue is kept, the message names the device: `Output hw:1,0 is busy (used by …)`). The new device **stays selected**, so the user can pick another or retry with `space`. There is no automatic return to the old device (decision 3).
+### A failed switch falls back
+
+Opening the new device can fail (busy, missing, refused reservation, format refused with no fallback). The engine then **goes back to the last device that opened successfully** and carries on there (decision 3):
+
+- The engine remembers the **last good device**: the last one it opened successfully (the configured device has none until it first opens)
+- When opening the selected device fails and it is not the last good device, the engine makes the last good device current again, reopens it in the same state (playing at the position with nothing lost or repeated, or paused), and reports `DeviceFallback { tried, error, device }`. Then the player's selected device is the last good one again, and its message is `Cannot switch to hw:1,0: <0003's message for the error>; staying on default`. Nothing is skipped and the queue is unchanged
+- This applies wherever the new device is first opened: at once (playing, buffering, paused), or later (the next track start or resume, when the switch happened while stopped, loading or released)
+- When the last good device fails too, or there is none (the configured device never opened), it is an ordinary output failure (0004 "Failures": stop, never skip, the queue is kept, 0003's message)
+- A busy device is still never downgraded to `plughw:` (0003): falling back means the previous device, not another kind of output on the same one
 
 ### Listing devices
 
@@ -66,35 +69,36 @@ Opening the new device can fail (busy, missing, refused reservation). The player
 | `tidal-player playback device` | Asks the running player for its devices and prints them like `tidal-player devices`, with `*` on the **player's** selected device. Exit 1 with 0005's message when no player runs |
 | `tidal-player playback device NAME` | Sends `SetDevice(NAME)` and exits 0 once the player has applied it, or 1 with the player's error. It does not wait for the device to open: a failure to open shows in `playback status` and the TUI, like any output failure |
 | `tidal-player playback status` | The second line gains ` · hw:1,0` (the selected device) after the volume. `--json` carries it in the snapshot |
-| `tidal-player devices` | Unchanged: the local list with `*` on the configured device (`--device`/environment/`app.toml`). It reads no remembered choice and contacts no player. Its help line says so and points to `playback device` |
-| `tidal-player play --device PCM` | Unchanged; `--device` beats a remembered choice for that run (precedence above) |
+| `tidal-player devices` | Unchanged: the local list with `*` on the configured device (`--device`/environment/`app.toml`). It contacts no player, so it does not show a device chosen at runtime. Its help line says so and points to `playback device` |
+| `tidal-player play --device PCM` | Unchanged: the device it starts on |
 
-### Remembering the choice
+### Not remembered
 
-The selected device is saved in `playback.json` (0009) as `device`, only when it was chosen at runtime (`SetDevice`). It is not saved when it came from the flag, the environment or `app.toml`, so editing `app.toml` still takes effect unless the user has since picked a device in the player. `logout` and `remember_playback = false` forget it (0009). A file without `device` (written by an older version) reads as "nothing chosen". `version` stays 1: the field is optional.
+The selected device is not saved in `playback.json` (0009). To make a device permanent, set `output_device` in `app.toml` (or `--device`/`TIDAL_PLAYER_DEVICE`). This updates 0009's decision 2, which expected a picker's choice to be remembered.
 
 ## Acceptance criteria
 
 - **AC1** — Protocol: `Command::SetDevice(String)`, `ClientMessage::Devices { id }`, `ServerMessage::DevicesReply { id, result: Result<Vec<DeviceEntry>, String> }` (`DeviceEntry { name, description }`) and `PlayerSnapshot.device: String` round-trip through the codec. No version field changes: 0005's greeting already refuses a client of another build
 - **AC2** — Player: `SetDevice` emits `EngineSetDevice(name)` and a snapshot with the new `device` in every phase (stopped, loading, playing, buffering, paused, released). The same name as selected emits nothing. An empty name is refused and changes nothing (table over phase × name)
-- **AC3** — Player: an output failure after `SetDevice` stops without skipping, keeps the queue and the new selected device, and shows 0003's message. `TogglePause` then plays the current entry on the new device. An `OutputChanged` updates `now_playing.output` and the bit-perfect verdict (volume and mute rules from 0004 still apply)
+- **AC3** — Player: `DeviceFallback { tried, error, device }` sets the selected device back to `device`, keeps the phase, the position and the queue, skips nothing, and sets the message `Cannot switch to <tried>: <0003's message>; staying on <device>`. An ordinary output `Error` after `SetDevice` (no fallback possible) stops as in 0004 with the new device selected. An `OutputChanged` updates `now_playing.output` and the bit-perfect verdict (volume and mute rules from 0004 still apply)
 - **AC4** — Engine: `SetDevice` while paused opens the new device paused: the sink receives no frame until `Resume`, and then the frame from the paused position, nothing lost or repeated. `OutputChanged(OutputInfo)` is emitted after every reopen caused by `SetDevice` (playing or paused) and never on a track start (which has `Started`). `SetDevice` to the device already open does not reopen it
-- **AC5** — Start precedence: flag/environment > remembered > `app.toml` > `default`, for the standalone TUI, `daemon` and `play` (table). `PlayerSnapshot.device` and the engine's first device agree
-- **AC6** — Persistence: `saved()` holds `device` only after a `SetDevice`; a restored player starts with it (below a flag or the environment); a v1 file without `device` restores as before; `logout` and `remember_playback = false` leave no device behind (0009's AC rows extended)
+- **AC5** — Engine fallback: with a fake device that refuses to open (busy, missing, lost on open), `SetDevice` while playing reopens the last good device and the sink there receives every frame exactly once from the position (byte for byte against an unswitched run), and `DeviceFallback` is emitted once; while paused it reopens paused; while stopped or released the fallback happens at the next `Play` or `Resume`; with no last good device, or the last good one failing too, the track fails with `Error(Output(..))` as today; a busy device is never opened as `plughw:` (table over phase × error)
+- **AC6** — Start and persistence: the player's selected device at start is the configured device (0008's precedence, unchanged tests) for the standalone TUI, `daemon` and `play`, and `PlayerSnapshot.device` agrees with the engine's first device; `SavedPlayback` has no device, so a `SetDevice` followed by a save and a restore starts on the configured device
 - **AC7** — Listing: the player answers `Devices` with the list parsed from `/proc/asound` (`TIDAL_PLAYER_ASOUND_DIR` in tests) at request time. Changing the fixture between two requests changes the answer. A read error is the `Err` of the reply. The reply goes to the asking client only
 - **AC8** — TUI model: `D` opens the Devices popup and sends `Devices`; the reply fills it, the cursor on the selected device; the selected device missing from the list is shown first as `not found`; `Enter` emits `SetDevice` for the row and closes (nothing when it is already selected); `esc`/`q` close without effect; `r` asks again; a failed reply shows its message. `SwitchDevice` is a supported keymap command (no longer in the skipped list) with default `D`, and the keys help lists the popup's keys
 - **AC9** — TUI rendering: snapshots of the popup at 80 × 24 (loading, list with the selected device, a missing selected device, failure) and at 40 × 12; drawing at any size from 1 × 1 to 200 × 60 does not panic
 - **AC10** — CLI: `playback device` prints the player's list with `*` on its selected device; `playback device NAME` sends `SetDevice(NAME)` and exits 0, 1 with the player's error (empty name: exit 2 before sending), 1 with 0005's message when no player runs; `playback status` shows the selected device on its second line (integration against a real daemon with fixture `asound` files and the fake engine)
 - **AC11** — End to end: in a daemon with the fake engine, a TUI-side `SetDevice` reaches the engine as `SetDevice`, every subscribed client receives the snapshot with the new `device`, and an `OutputChanged` from the engine reaches them as an updated `now_playing.output`
-- **AC12** — `docs/tui.md` (Output device: `D`, the popup, its keys), `docs/daemon.md` (`playback device`), `docs/playback.md` (which device is used and the precedence, `devices` vs `playback device`), `docs/config.md` (`SwitchDevice` supported; `output_device` and the remembered choice), their zh-TW copies, `examples/keymap.toml` (`D`), `README.md` and its zh-TW copy are updated; `CLAUDE.md` "Features" gains the entry
+- **AC12** — `docs/tui.md` (Output device: `D`, the popup, its keys), `docs/daemon.md` (`playback device`), `docs/playback.md` (which device is used and the precedence, `devices` vs `playback device`), `docs/config.md` (`SwitchDevice` supported; a runtime choice lasts for the run; `output_device` makes it permanent), their zh-TW copies, `examples/keymap.toml` (`D`), `README.md` and its zh-TW copy are updated; `CLAUDE.md` "Features" gains the entry
 
 ## Edge cases & errors
 
 | Case | Behaviour |
 |---|---|
-| The new device is busy (another app holds the `hw:` card) | Stopped, `Output hw:1,0 is busy (used by <app>): …`; the queue and the new selection are kept; `space` retries; pick another device with `D` |
-| The new device does not exist (typo through `playback device`) | Accepted; opening it fails with 0003's `No such output device hw:5,0: …`. Nothing is opened while stopped, so the error shows at the next play |
-| The selected DAC is unplugged | Unchanged from 0004 (`Output hw:1,0 was lost`, stopped). It stays selected and is shown `not found` in the popup |
+| The new device is busy (another app holds the `hw:` card) | Back on the last good device, still playing: `Cannot switch to hw:1,0: Output hw:1,0 is busy (used by <app>): …; staying on default` |
+| The new device does not exist (typo through `playback device`) | Accepted; opening it fails and the engine falls back. Nothing is opened while stopped, so the fallback and its message happen at the next play |
+| The selected DAC is unplugged while playing | Unchanged from 0004 (`Output hw:1,0 was lost`, stopped): losing an open device is not a failed switch. It stays selected and is shown `not found` in the popup |
+| Switch to a device while the configured one never opened (fresh start, nothing played yet) | No last good device: a failure to open is an ordinary output failure |
 | `SetDevice` while released (paused, device given back) | Nothing is opened now; `space` opens the new device at the position (0005 AC19's rule: nothing opened or released twice) |
 | `SetDevice` during a load | The track opens on the new device when it starts |
 | Gapless preload pending | Kept: the preload plays on the new device (the engine's preload is not tied to a device) |
@@ -113,10 +117,10 @@ Each automated test is named after its criterion. Red is a failing assertion aga
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/protocol.rs` :: `ac1_device_messages_round_trip` | the new messages and snapshot field round-trip | stub serialises `device` as empty |
 | AC2 | `crates/core/src/player/tests.rs` :: `ac2_set_device` (table: phase × name) | effects and snapshot `device` per row | stub ignores `SetDevice` (no effect, device unchanged) |
-| AC3 | `crates/core/src/player/tests.rs` :: `ac3_set_device_failure`, `ac3_output_changed` | stopped, queue and device kept, message, retry plays; output and verdict updated | stub keeps the old output line |
+| AC3 | `crates/core/src/player/tests.rs` :: `ac3_device_fallback`, `ac3_set_device_failure`, `ac3_output_changed` | device reverted, phase/position/queue kept, message; plain failure stops; output and verdict updated | stub ignores `DeviceFallback` and keeps the old output line |
 | AC4 | `crates/audio/tests/engine.rs` :: `ac4_set_device_while_paused`, `ac4_output_changed`, `ac4_set_same_device` | no frame before `Resume`, continuity byte for byte; event emitted once per reopen; no reopen for the same device | stub engine starts writing on the new device while paused / emits no `OutputChanged` |
-| AC5 | `crates/app/src/play.rs` :: `ac5_device_precedence` (table) | the chosen device per source combination | stub ignores the remembered device |
-| AC6 | `crates/core/src/player/tests/persistence.rs` :: `ac6_device_saved_only_when_chosen`, `ac6_restore_device`, `crates/app/src/persist.rs` :: `ac6_v1_file_without_device` | saved field; restore; old file | stub never saves `device` |
+| AC5 | `crates/audio/tests/engine.rs` :: `ac5_device_fallback` (table: phase × error, no last good device, both failing) | reopen order, frames byte for byte, event once, plain failure rows | stub engine fails the track on the new device's error |
+| AC6 | `crates/app/src/player_runtime.rs` :: `ac6_snapshot_device_is_configured` + `crates/core/src/player/tests/persistence.rs` :: `ac6_device_not_remembered` | snapshot device equals the engine's first device; restore after `SetDevice` uses the configured device | stub snapshot device is empty |
 | AC7 | `crates/app/src/ipc/server/tests.rs` :: `ac7_devices_reply` (fixture dir changed between requests; unreadable dir) | fresh list per request; error; only the asker gets it | stub answers `default` only |
 | AC8 | `crates/core/src/ui/browse/tests.rs` :: `ac8_devices_popup` (table: key → effects, state) + `crates/core/src/ui/keymap/tests.rs` :: `ac8_switch_device_supported` + `crates/core/src/ui/help/tests.rs` :: `ac8_devices_popup_help` | popup state, cursor, `SetDevice`, close; keymap; help section | stub `D` does nothing; `SwitchDevice` still skipped |
 | AC9 | `crates/app/src/ui.rs` :: `ac9_devices_popup` (snapshots), `ac17_no_panic_any_size` (new rows) | layout; no panic | stub draws no popup |
@@ -124,13 +128,13 @@ Each automated test is named after its criterion. Red is a failing assertion aga
 | AC11 | `crates/app/src/player_runtime.rs` :: `ac11_set_device_reaches_engine` (fake engine, two subscribers) | engine call; both snapshots; output update | stub runtime drops `EngineSetDevice` |
 | AC12 | `crates/app/tests/docs.rs` :: `ac12_device_selection_documented` + zh-TW copies, README and `CLAUDE.md` reviewed at acceptance; `crates/app/tests/examples.rs` (example keymap is the default keymap, existing test) | docs mention `D`, `SwitchDevice`, `playback device`; example keymap matches | docs lack the terms; example lacks `D` |
 
-Checked by hand at acceptance on the user's machine (results in the PR description): playing on `default`, `D` → the DAC (`hw:`) moves the track with no audible gap beyond the reopen and the output line says `bit-perfect`; `playback device hw:0,0` from another terminal moves it again; a DAC plugged in while the popup is closed shows up on the next `D`; a busy `hw:` reports busy and `space` after closing the other app plays; restarting the daemon keeps the chosen device; a `TIDAL_PLAYER_DEVICE` in the unit beats it.
+Checked by hand at acceptance on the user's machine (results in the PR description): playing on `default`, `D` → the DAC (`hw:`) moves the track with no audible gap beyond the reopen and the output line says `bit-perfect`; `playback device hw:0,0` from another terminal moves it again; a DAC plugged in while the popup is closed shows up on the next `D`; a busy `hw:` reports busy and `space` after closing the other app plays; a busy `hw:` keeps playing on the previous device with the fallback message; restarting the daemon starts on the configured device.
 
 ## Crate placement
 
-- `tidal-player-core`: `Command::SetDevice`, `ClientMessage::Devices`, `ServerMessage::DevicesReply`, `DeviceEntry`, `PlayerSnapshot.device`; `PlayerState` gains the selected device, `PlayerEffect::EngineSetDevice`, `EngineEvent::OutputChanged(TrackDetails)`; `SavedPlayback.device: Option<String>`; the Devices popup and `SwitchDevice` in `ui`. No I/O
-- `tidal-player-audio`: `Event::OutputChanged(OutputInfo)`; `SetDevice` while paused opens paused; same-device no-op
-- `tidal-player`: the runtime maps `EngineSetDevice` and `OutputChanged`; the server answers `Devices` through a device-lister seam (reads `/proc/asound` or `TIDAL_PLAYER_ASOUND_DIR`); start precedence; `playback device`; the popup's drawing
+- `tidal-player-core`: `Command::SetDevice`, `ClientMessage::Devices`, `ServerMessage::DevicesReply`, `DeviceEntry`, `PlayerSnapshot.device`; `PlayerState` gains the selected device, `PlayerEffect::EngineSetDevice`, `EngineEvent::OutputChanged(TrackDetails)`, `EngineEvent::DeviceFallback`; the Devices popup and `SwitchDevice` in `ui`. No I/O
+- `tidal-player-audio`: `Event::OutputChanged(OutputInfo)`, `Event::DeviceFallback { tried, error, device }` and the last good device; `SetDevice` while paused opens paused; same-device no-op
+- `tidal-player`: the runtime maps `EngineSetDevice` and `OutputChanged`; the server answers `Devices` through a device-lister seam (reads `/proc/asound` or `TIDAL_PLAYER_ASOUND_DIR`); the snapshot's device at start; `playback device`; the popup's drawing
 - `xtask layering`: no change (core still knows nothing of the audio crate: `DeviceEntry` is its own type)
 
 ## Facts vs. assumptions
@@ -139,12 +143,12 @@ Verified (2026-10-10, from code): the engine's `SetDevice` moves a playing track
 
 Assumptions (checked at acceptance): reading `/proc/asound` reflects a USB DAC plugged in after start without anything else (it is kernel state); switching between two `hw:` cards releases the first card's reservation before claiming the second (0003 AC13 covers release on device switch).
 
-## Decisions (to be answered by the user)
+## Decisions (answered by the user, 2026-10-10)
 
-1. **Scope of the CLI**: proposed `playback device [NAME]` (list from the running player, or switch), `devices` unchanged. Alternative: `devices` asks the running player when there is one
-2. **Remembering**: proposed to remember a runtime choice in `playback.json`, above `app.toml` but below `--device`/the environment (0009 decision 2 promised this). Alternative: never remember (the choice lasts for the run); or write the choice into `app.toml`
-3. **A failed switch**: proposed to stop with the message and keep the new device selected. Alternative: go back to the previous device and keep playing there, with the message
-4. **Key**: proposed `D` / `SwitchDevice` (spotify-player's). Alternative: also an *Output device…* entry in an actions popup
+1. **CLI**: *answered: as proposed*: `playback device [NAME]` lists from the running player or switches; `devices` unchanged
+2. **Remembering**: *answered: only for this run*. A restart starts on the configured device; `output_device` makes a choice permanent
+3. **A failed switch**: *answered: fall back to the old device* and keep playing there, with a message
+4. **Key**: *answered: as proposed*: `D` / `SwitchDevice` only
 
 ## Out of scope
 
