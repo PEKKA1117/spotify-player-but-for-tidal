@@ -618,6 +618,8 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
         return;
     };
     match popup {
+        // 0014 slice C
+        Popup::Devices { .. } => {}
         Popup::Actions {
             title,
             actions,

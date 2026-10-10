@@ -378,7 +378,7 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
-        Popup::NewPlaylist { .. } => false,
+        Popup::NewPlaylist { .. } | Popup::Devices { .. } => false,
     }
 }
 
@@ -401,6 +401,7 @@ fn popup_title(popup: &Popup) -> &'static str {
         Popup::NewPlaylist { .. } => "Popup · New playlist",
         Popup::Confirm { .. } => "Popup · Confirm",
         Popup::Roles { .. } => "Popup · Role filter",
+        Popup::Devices { .. } => "Popup · Devices",
     }
 }
 
@@ -638,6 +639,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::ClosePopup => owned("close / cancel"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
+        C::SwitchDevice => owned("choose the output device"),
     }
 }
 

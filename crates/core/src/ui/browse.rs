@@ -704,7 +704,7 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
             });
         }
         // Their keys are fixed: only `ClosePopup` acts on them.
-        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. }) => {
+        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. } | Popup::Devices { .. }) => {
             state.popup = Some(popup);
         }
     }

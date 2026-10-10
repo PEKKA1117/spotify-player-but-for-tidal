@@ -77,6 +77,9 @@ pub enum Command {
         items: Vec<Item>,
         at: Option<InsertAt>,
     },
+    /// Make `name` (an ALSA PCM name) the selected output device (spec
+    /// 0014); an empty name is refused.
+    SetDevice(String),
 }
 
 /// What a client sends over the socket (spec 0005 "Messages").
@@ -91,6 +94,10 @@ pub enum ClientMessage {
     /// player"); answered to this client alone with one
     /// [`ServerMessage::LibraryReply`] carrying the same `id`.
     Library { id: u64, request: LibraryRequest },
+    /// Ask the player for its output devices (spec 0014); answered to this
+    /// client alone with one [`ServerMessage::DevicesReply`] carrying the
+    /// same `id`.
+    Devices { id: u64 },
 }
 
 /// What the player sends over the socket (spec 0005 "Messages").
@@ -114,6 +121,22 @@ pub enum ServerMessage {
         id: u64,
         result: Result<LibraryResponse, String>,
     },
+    /// The answer to a `Devices` request, sent to the asking client only:
+    /// the player's devices right now, or why not (spec 0014).
+    DevicesReply {
+        id: u64,
+        result: Result<Vec<DeviceEntry>, String>,
+    },
+}
+
+/// One output device of the player's machine (spec 0014 "Listing
+/// devices"): its ALSA PCM name and what it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceEntry {
+    /// The PCM name, as `--device` takes it (`default`, `hw:1,0`).
+    pub name: String,
+    /// The card's description (`E30 II: USB Audio`).
+    pub description: String,
 }
 
 /// Where `AddToQueue` inserts its tracks.
@@ -162,6 +185,10 @@ pub struct PlayerSnapshot {
     /// A failure or autoplay message, kept until the next track starts or
     /// another message replaces it.
     pub message: Option<String>,
+    /// The selected output device (spec 0014): the configured one at
+    /// start, then the last `SetDevice` (or the fallback's device).
+    #[serde(skip, default)]
+    pub device: String,
 }
 
 /// One queue entry.
@@ -582,6 +609,9 @@ mod tests {
                 items: vec![],
                 at: Some(InsertAt::Next),
             },
+            // 0014 AC1.
+            Command::SetDevice("hw:1,0".into()),
+            Command::SetDevice(String::new()),
         ]
     }
 
@@ -642,6 +672,9 @@ mod tests {
             id: u64::MAX,
             result: Err("Artist 1 was not found".into()),
         });
+        // 0014 AC1: the device list.
+        client.push(ClientMessage::Devices { id: 7 });
+        server.extend(device_replies());
         (client, server)
     }
 
@@ -682,6 +715,7 @@ mod tests {
                 released: false,
             }),
             message: Some("Track 2 was not found".into()),
+            device: "hw:1,0".into(),
         };
         let mut events = vec![
             Event::ShuttingDown,
@@ -724,6 +758,64 @@ mod tests {
             ..snapshot.clone()
         }));
         events
+    }
+
+    /// Every shape of `DevicesReply` (spec 0014 AC1).
+    fn device_replies() -> Vec<ServerMessage> {
+        vec![
+            ServerMessage::DevicesReply {
+                id: 7,
+                result: Ok(vec![
+                    DeviceEntry {
+                        name: "default".into(),
+                        description: "shared, through the system mixer".into(),
+                    },
+                    DeviceEntry {
+                        name: "hw:1,0".into(),
+                        description: "E30 II: USB Audio".into(),
+                    },
+                ]),
+            },
+            ServerMessage::DevicesReply {
+                id: 8,
+                result: Ok(vec![]),
+            },
+            ServerMessage::DevicesReply {
+                id: u64::MAX,
+                result: Err("cannot read /proc/asound/cards: permission denied".into()),
+            },
+        ]
+    }
+
+    /// 0014 AC1: `SetDevice`, `Devices`, `DevicesReply` and the snapshot's
+    /// `device` round-trip through the codec.
+    #[test]
+    fn ac1_device_messages_round_trip() {
+        for name in ["hw:1,0", "default", "plughw:0,0", ""] {
+            round_trip(&Command::SetDevice(name.into()));
+            round_trip(&ClientMessage::Request {
+                id: 3,
+                command: Command::SetDevice(name.into()),
+            });
+        }
+        round_trip(&ClientMessage::Devices { id: 0 });
+        round_trip(&ClientMessage::Devices { id: u64::MAX });
+        device_replies().iter().for_each(round_trip);
+        let snapshot = match &all_events()[3] {
+            Event::Player(snapshot) => snapshot.clone(),
+            other => panic!("expected a snapshot, got {other:?}"),
+        };
+        for device in ["hw:1,0", "default", "a custom PCM"] {
+            let snapshot = PlayerSnapshot {
+                device: device.into(),
+                ..snapshot.clone()
+            };
+            round_trip(&Event::Player(snapshot.clone()));
+            round_trip(&ServerMessage::Welcome {
+                snapshot,
+                login_required: false,
+            });
+        }
     }
 
     #[test]

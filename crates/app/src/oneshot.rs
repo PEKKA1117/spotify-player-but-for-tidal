@@ -561,6 +561,7 @@ mod tests {
                 released: false,
             }),
             message: None,
+            device: "default".into(),
         }
     }
 

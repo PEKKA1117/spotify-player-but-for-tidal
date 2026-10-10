@@ -1720,6 +1720,8 @@ mod tests {
                             previous_restart: Duration::from_secs(*previous),
                             autoplay: *autoplay,
                             country: None,
+                            // 0014 slice C
+                            device: "default".into(),
                         },
                         "{name}"
                     );

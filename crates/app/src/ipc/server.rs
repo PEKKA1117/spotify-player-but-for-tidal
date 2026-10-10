@@ -290,6 +290,8 @@ fn attach(
                             id,
                             request,
                         },
+                        // 0014 slice C
+                        Ok(ClientMessage::Devices { .. }) => continue,
                         Err(e) => {
                             tracing::warn!(client = client.0, "dropped: {e}");
                             break 'read;

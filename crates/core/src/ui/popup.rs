@@ -4,6 +4,7 @@
 
 use crate::item::Item;
 use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
+use crate::protocol::DeviceEntry;
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::page::{PageKind, Rows, Window};
@@ -118,6 +119,54 @@ pub enum Popup {
     /// The *All tracks* role filter: check boxes per
     /// [`super::page::ROLE_CATEGORIES`].
     Roles { checked: [bool; 4], cursor: usize },
+    /// The output devices (spec 0014): the player's list, and the cursor
+    /// over [`device_rows`].
+    Devices { list: DeviceList, cursor: usize },
+}
+
+/// The device list of [`Popup::Devices`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceList {
+    /// Asked with this request ID (`Loading devices…`).
+    Loading { id: u64 },
+    /// The player's answer.
+    Loaded(Vec<DeviceEntry>),
+    /// Why there is no list (`Cannot list devices: <reason>`).
+    Failed(String),
+}
+
+/// The text shown while the list is asked for.
+pub const LOADING_DEVICES: &str = "Loading devices…";
+/// The description of a selected device the list does not have.
+pub const DEVICE_NOT_FOUND: &str = "not found";
+
+impl DeviceList {
+    /// What the popup shows instead of rows: `Loading devices…`, or
+    /// `Cannot list devices: <reason>`; `None` once loaded.
+    pub fn status(&self) -> Option<String> {
+        match self {
+            Self::Loading { .. } => Some(LOADING_DEVICES.to_owned()),
+            Self::Loaded(_) => None,
+            Self::Failed(reason) => Some(format!("Cannot list devices: {reason}")),
+        }
+    }
+}
+
+/// One row of [`Popup::Devices`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceRow {
+    pub name: String,
+    pub description: String,
+    /// The player's selected device (`●`).
+    pub selected: bool,
+}
+
+/// The rows of the devices popup for `list` (spec 0014 "Listing
+/// devices"): the selected device first as [`DEVICE_NOT_FOUND`] when the
+/// list does not have it, then the list in its order; none until loaded.
+pub fn device_rows(list: &DeviceList, selected: Option<&str>) -> Vec<DeviceRow> {
+    let _ = (list, selected);
+    Vec::new()
 }
 
 impl Popup {

@@ -39,7 +39,9 @@ pub mod search;
 use std::time::Duration;
 
 use crate::library::{LibraryRequest, LibraryResponse};
-use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
+use crate::protocol::{
+    self, Command, DeviceEntry, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry,
+};
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
@@ -51,7 +53,10 @@ pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
     Row, Rows, Window, WindowKind, clock, group, largest_page,
 };
-pub use popup::{Confirmed, MenuAction, NEW_PLAYLIST, PLAYLIST_NAME, Popup, TrackSource};
+pub use popup::{
+    Confirmed, DEVICE_NOT_FOUND, DeviceList, DeviceRow, LOADING_DEVICES, MenuAction, NEW_PLAYLIST,
+    PLAYLIST_NAME, Popup, TrackSource, device_rows,
+};
 pub use search::{DEFAULT_SEARCH_PAGE_SIZE, MAX_QUERY, Search, SearchFocus};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
@@ -331,6 +336,12 @@ pub enum Action {
     /// The terminal was resized: a list window now shows `list_height`
     /// rows.
     Resize { list_height: usize },
+    /// The player's answer to [`Effect::Devices`] with the same `id`
+    /// (spec 0014).
+    DevicesReply {
+        id: u64,
+        result: Result<Vec<DeviceEntry>, String>,
+    },
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -343,6 +354,9 @@ pub enum Effect {
     /// Ask the player about the library; its answer comes back as
     /// [`Action::LibraryReply`] with the same `id`.
     Library { id: u64, request: LibraryRequest },
+    /// Ask the player for its output devices (spec 0014); its answer comes
+    /// back as [`Action::DevicesReply`] with the same `id`.
+    Devices { id: u64 },
 }
 
 /// Puts the library over the queue as the start page (spec 0006 "Pages"),
@@ -377,7 +391,12 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             let mut effects = dispatch::key(state, key);
             // Nothing reaches a player that is not there (spec 0005).
             if state.connection != Connection::Connected {
-                effects.retain(|e| !matches!(e, Effect::Send(_) | Effect::Library { .. }));
+                effects.retain(|e| {
+                    !matches!(
+                        e,
+                        Effect::Send(_) | Effect::Library { .. } | Effect::Devices { .. }
+                    )
+                });
             }
             effects
         }
@@ -417,6 +436,7 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             browse::reconnected(state)
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),
+        Action::DevicesReply { .. } => Vec::new(),
         Action::Resize { list_height } => {
             state.list_height = list_height.max(1);
             Vec::new()
@@ -621,6 +641,7 @@ mod tests {
             muted: false,
             now_playing: None,
             message: None,
+            device: "default".into(),
         }
     }
 

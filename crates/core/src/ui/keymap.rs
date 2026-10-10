@@ -287,6 +287,8 @@ pub enum UiCommand {
     ClosePopup,
     OpenCommandHelp,
     Quit,
+    /// The devices popup (spec 0014).
+    SwitchDevice,
 }
 
 /// Every command, with its default parameters, in the table's order.
@@ -379,6 +381,7 @@ impl UiCommand {
             Self::ClosePopup => "ClosePopup",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
+            Self::SwitchDevice => "SwitchDevice",
         }
     }
 

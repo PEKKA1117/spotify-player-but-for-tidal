@@ -55,6 +55,7 @@ fn snapshot(ids: &[u64]) -> PlayerSnapshot {
         muted: false,
         now_playing: None,
         message: None,
+        device: "default".into(),
     }
 }
 
@@ -217,7 +218,7 @@ const LISTS: [&str; 6] = [
     "SelectFirstOrScrollToTop",
     "SelectLastOrScrollToBottom",
 ];
-const PLAYBACK: [&str; 15] = [
+const PLAYBACK: [&str; 16] = [
     "ResumePause",
     "NextTrack",
     "PreviousTrack",
@@ -230,6 +231,8 @@ const PLAYBACK: [&str; 15] = [
     "VolumeUp",
     "VolumeDown",
     "Mute",
+    // Spec 0014.
+    "SwitchDevice",
     "AddToQueuePrompt",
     "PlayNextPrompt",
     "ShowActionsOnCurrentTrack",
@@ -496,6 +499,8 @@ fn ac7_help_dim_rows() {
         ("Shuffle", false, false, true),
         ("VolumeUp", false, false, true),
         ("Mute", false, false, true),
+        // Spec 0014: the devices popup asks the player.
+        ("SwitchDevice", false, false, true),
         ("LibraryPage", false, false, false),
         ("Queue", false, false, false),
         ("OpenCommandHelp", false, false, false),
@@ -1149,4 +1154,89 @@ fn ac4_hints_do_not_change_keys() {
         assert_eq!(hints(&on), None, "{name}: hints after the sequence");
         assert_eq!(hints(&off), None, "{name}: hints with key_hints off");
     }
+}
+
+// --- spec 0014 AC8 ------------------------------------------------------------
+
+/// Spec 0014 AC8: the devices popup's section lists its keys (`r`, `q`,
+/// `Enter`, `esc`) with `Lists` and `?`; `D` is in `Playback` everywhere,
+/// dim while disconnected, and runs from the help like any row.
+#[test]
+fn ac8_devices_popup_help() {
+    use super::super::DeviceList;
+    use crate::protocol::DeviceEntry;
+
+    let lists = [
+        DeviceList::Loading { id: 1 },
+        DeviceList::Loaded(vec![DeviceEntry {
+            name: "default".into(),
+            description: "shared, through the system mixer".into(),
+        }]),
+        DeviceList::Failed("permission denied".into()),
+    ];
+    for list in lists {
+        let state = with_popup(Popup::Devices {
+            list: list.clone(),
+            cursor: 0,
+        });
+        let sections = help(&state);
+        assert_eq!(
+            titles(&sections),
+            vec!["Popup · Devices", "Lists", "App"],
+            "{list:?}"
+        );
+        assert_eq!(
+            names(&sections, "Popup · Devices"),
+            vec!["", "", "ChooseSelected", "ClosePopup"],
+            "{list:?}"
+        );
+        let own: Vec<(&str, &str)> = sections[0]
+            .rows
+            .iter()
+            .map(|r| (r.keys.as_str(), r.text.as_str()))
+            .collect();
+        assert_eq!(
+            own,
+            vec![
+                ("r", "read the list again"),
+                ("q", "close"),
+                ("enter", "switch to the selected device"),
+                ("esc", "close / cancel"),
+            ],
+            "{list:?}"
+        );
+        assert_eq!(names(&sections, "Lists"), LISTS.to_vec(), "{list:?}");
+        assert_eq!(names(&sections, "App"), vec!["OpenCommandHelp"]);
+    }
+
+    // `D` in `Playback`, with its key and text; dim while disconnected.
+    let state = with_queue();
+    let switch = row(&help(&state), "SwitchDevice").cloned();
+    let switch = switch.expect("SwitchDevice is listed");
+    assert_eq!(
+        (switch.keys.as_str(), switch.text.as_str(), switch.dim),
+        ("D", "choose the output device", false)
+    );
+    assert!(names(&help(&state), "Playback").contains(&"SwitchDevice"));
+    let mut offline = with_queue();
+    offline.connection = Connection::Disconnected { shut_down: false };
+    assert!(
+        row(&help(&offline), "SwitchDevice").is_some_and(|r| r.dim),
+        "dim while disconnected"
+    );
+
+    // `Enter` on its row opens the popup, as `D` does.
+    let mut via = with_queue();
+    press(&mut via, &[Key::Char('?')]);
+    let index = flat(&via)
+        .iter()
+        .position(|c| c == "SwitchDevice")
+        .expect("listed");
+    via.help.as_mut().expect("open").cursor = index;
+    let effects = press(&mut via, &[Key::Enter]);
+    assert!(
+        matches!(effects.as_slice(), [Effect::Devices { .. }]),
+        "{effects:?}"
+    );
+    assert!(matches!(via.popup, Some(Popup::Devices { .. })));
 }

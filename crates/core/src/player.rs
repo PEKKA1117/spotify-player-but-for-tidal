@@ -67,6 +67,9 @@ pub struct PlayerConfig {
     /// The session's country, for the "not available in <country>" message
     /// of a track that is not streamable.
     pub country: Option<String>,
+    /// The output device the player starts on (spec 0014: the configured
+    /// one, 0008's precedence); `SetDevice` changes it for the run.
+    pub device: String,
 }
 
 impl Default for PlayerConfig {
@@ -75,6 +78,7 @@ impl Default for PlayerConfig {
             previous_restart: Duration::from_secs(3),
             autoplay: false,
             country: None,
+            device: "default".to_owned(),
         }
     }
 }
@@ -146,6 +150,17 @@ pub enum EngineEvent {
     ResumeFailed {
         failure: Failure,
     },
+    /// The engine reopened the output after a `SetDevice` (spec 0014): the
+    /// new output line and verdict (`details.source` is not used).
+    OutputChanged(TrackDetails),
+    /// Opening `tried` failed and the engine went back to `device`, the
+    /// last device that opened (spec 0014): `message` is 0003's message
+    /// for the failure.
+    DeviceFallback {
+        tried: String,
+        message: String,
+        device: String,
+    },
 }
 
 /// An input to the player.
@@ -205,6 +220,8 @@ pub enum PlayerEffect {
     EngineStop,
     /// Software gain, `0.0..=1.0`.
     EngineSetGain(f32),
+    /// Engine `SetDevice` (spec 0014).
+    EngineSetDevice(String),
     /// Fetch autoplay suggestions seeded by `seed`; answer with
     /// `PlayerInput::Suggestions { tag, .. }`.
     FetchSuggestions {
@@ -245,6 +262,8 @@ pub struct PlayerState {
     released: bool,
     /// The message shown is a failed reacquire's (cleared on `Resumed`).
     resume_failed: bool,
+    /// The selected output device (spec 0014).
+    device: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -317,6 +336,7 @@ impl PlayerState {
     pub fn new(config: PlayerConfig, seed: u64) -> Self {
         Self {
             autoplay: config.autoplay,
+            device: config.device.clone(),
             config,
             rng: Rng::new(seed),
             queue: Queue::default(),
@@ -381,6 +401,7 @@ impl PlayerState {
                 }
             }),
             message: self.message.clone(),
+            device: self.device.clone(),
         }
     }
 
@@ -737,6 +758,7 @@ impl PlayerState {
             // Both are the runtime's: it stops the engine, or expands the
             // items and sends `LoadQueue`/`AddToQueue` (spec 0005).
             Command::Shutdown | Command::Open { .. } => {}
+            Command::SetDevice(_) => {}
             Command::LoadQueue { tracks, start } => self.load(tracks, start, fx),
             Command::AddToQueue { tracks, at } => self.add(tracks, at, fx),
             Command::RemoveFromQueue(id) => self.remove(id, fx),
@@ -1077,6 +1099,7 @@ impl PlayerState {
                 }
             }
             EngineEvent::Paused | EngineEvent::Stopped => {}
+            EngineEvent::OutputChanged(_) | EngineEvent::DeviceFallback { .. } => {}
         }
     }
 

@@ -224,6 +224,8 @@ fn run<C: Connector>(
                     Effect::Quit => return Ok(()),
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
+                    // 0014 slice C
+                    Effect::Devices { .. } => {}
                 }
             }
         }
