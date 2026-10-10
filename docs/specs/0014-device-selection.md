@@ -1,6 +1,6 @@
 # 0014 — Choosing the output device while the player runs
 
-- **Status**: draft (decisions answered 2026-10-10; awaiting approval)
+- **Status**: approved (2026-10-10)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0003 (implemented: the engine's `SetDevice`, `tidal-player devices`), 0004 (implemented: the player and its effects), 0005 (implemented: the protocol, clients, `playback`, releasing while paused), 0008 (implemented: `output_device`, the keymap, the keys help)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Output device"; [`docs/daemon.md`](../daemon.md) gains `playback device`; [`docs/playback.md`](../playback.md) and [`docs/config.md`](../config.md) explain which device is used (AC12)
