@@ -86,7 +86,11 @@ pub enum Command {
     Resume,
     /// Continue from this position (accurate to the frame).
     Seek(Duration),
-    /// Use this device from now on; a playing track moves to it.
+    /// Use this device from now on; a playing or paused track moves to it
+    /// in the same state, with `OutputChanged` (spec 0014). Nothing open:
+    /// the next track start or resume opens it. The device already in use:
+    /// nothing happens. A device that refuses to open falls back to the
+    /// last good one (`DeviceFallback`).
     SetDevice(String),
     /// Stop, close the device, forget any preload.
     Stop,
@@ -493,6 +497,9 @@ enum Flow {
 struct EngineThread {
     factory: Box<dyn SinkFactory>,
     device: String,
+    /// The last device a sink opened successfully on (spec 0014): where a
+    /// failed switch falls back. `None` until the first successful open.
+    last_good: Option<String>,
     clock: Arc<dyn Clock>,
     events: Sender<Event>,
     underruns: Arc<AtomicU64>,
@@ -531,6 +538,7 @@ impl EngineThread {
         Self {
             factory,
             device: config.device,
+            last_good: None,
             clock: config.clock,
             events,
             underruns,
@@ -655,7 +663,7 @@ impl EngineThread {
     /// not and stay paused with nothing open.
     fn reacquire(&mut self, format: SourceFormat) -> bool {
         match self.open_output(format) {
-            Ok(()) => {
+            Ok(_) => {
                 self.released = None;
                 true
             }
@@ -782,6 +790,10 @@ impl EngineThread {
     }
 
     fn set_device(&mut self, device: String) {
+        if device == self.device {
+            // Already the device (open or to be opened): nothing to do.
+            return;
+        }
         self.device = device;
         let Some((format, _)) = self.open.take() else {
             // Nothing open: the next track opens the new device.
@@ -801,8 +813,9 @@ impl EngineThread {
         };
         track.unshift(replay);
         let format = track.format.unwrap_or(format);
-        if let Err(error) = self.open_output(format) {
-            self.fail(EngineError::Output(error));
+        match self.open_output(format) {
+            Ok(output) => self.emit(Event::OutputChanged(output)),
+            Err(error) => self.fail(EngineError::Output(error)),
         }
     }
 
@@ -846,21 +859,56 @@ impl EngineThread {
 
     /// Open the device for `format`, draining and closing it first when it
     /// is open for another output format.
-    fn open_output(&mut self, format: SourceFormat) -> Result<(), SinkError> {
+    ///
+    /// When the device refuses to open and it is not the last good device,
+    /// the last good device is opened instead and becomes the device again,
+    /// with `DeviceFallback` (spec 0014). When that fails too, or there is
+    /// none, the device's own error is returned and it stays the device.
+    fn open_output(&mut self, format: SourceFormat) -> Result<OutputInfo, SinkError> {
         if self.open.is_some() {
             if let Some(sink) = self.sink.as_mut() {
                 sink.drain()?;
             }
             self.close_output();
         }
+        let error = match self.open_sink(format) {
+            Ok(output) => return Ok(output),
+            Err(error) => error,
+        };
+        let Some(good) = self.last_good.clone().filter(|good| *good != self.device) else {
+            return Err(error);
+        };
+        let tried = std::mem::replace(&mut self.device, good.clone());
+        self.sink = None;
+        match self.open_sink(format) {
+            Ok(output) => {
+                self.emit(Event::DeviceFallback {
+                    tried,
+                    error,
+                    device: good,
+                });
+                Ok(output)
+            }
+            Err(_) => {
+                self.device = tried;
+                self.sink = None;
+                Err(error)
+            }
+        }
+    }
+
+    /// Open `self.device` for `format` (nothing is open), paused if the
+    /// engine is.
+    fn open_sink(&mut self, format: SourceFormat) -> Result<OutputInfo, SinkError> {
         let device = self.device.clone();
         let factory = &mut self.factory;
         let sink = self.sink.get_or_insert_with(|| factory.create(&device));
         let output = sink.open(&format)?;
-        self.open = Some((format, output));
+        self.last_good = Some(device);
+        self.open = Some((format, output.clone()));
         self.sink_paused = false;
         self.sync_pause();
-        Ok(())
+        Ok(output)
     }
 
     /// The track failed: report it once, and go idle.

@@ -1853,7 +1853,8 @@ fn ac5_device_fallback() {
                     assert_samples(&rig.sinks.heard(), &expected, &what);
                 }
                 Phase::Paused => {
-                    assert_eq!(rig.next(), fallback, "{what}");
+                    events.push(rig.next());
+                    assert_eq!(events, std::slice::from_ref(&fallback), "{what}");
                     assert!(is_output_changed(&rig.next()), "{what}");
                     let written = rig.sinks.frames_written();
                     rig.sinks.release();
@@ -1888,7 +1889,8 @@ fn ac5_device_fallback() {
                     assert_eq!(rig.sinks.open_attempts(), ["a"], "{what}");
                     rig.sinks.release();
                     rig.send(Command::Resume);
-                    assert_eq!(rig.next(), fallback, "{what}");
+                    events.push(rig.next());
+                    assert_eq!(events, std::slice::from_ref(&fallback), "{what}");
                     assert_eq!(rig.next(), Event::Resumed, "{what}");
                     assert_eq!(rig.next(), Event::Position(at_pause.unwrap()), "{what}");
                     events.extend(rig.until_end());
