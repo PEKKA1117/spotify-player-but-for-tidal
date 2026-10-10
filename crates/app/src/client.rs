@@ -386,6 +386,12 @@ impl<C: Connector> Session<C> {
         self.write(&ClientMessage::Library { id, request });
     }
 
+    /// Asks the player for its output devices (spec 0014); the answer
+    /// comes back as `Action::DevicesReply` with `id`.
+    pub fn send_devices(&mut self, id: u64) {
+        self.write(&ClientMessage::Devices { id });
+    }
+
     fn write(&mut self, message: &ClientMessage) {
         if let Some(link) = self.link.as_mut()
             && link.send(message).is_err()

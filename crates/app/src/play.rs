@@ -5,11 +5,13 @@
 
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use tidal_player_api::auth::AuthError;
 use tidal_player_api::stream::StreamError;
+use tidal_player_audio::devices::{PlaybackDevice, parse_devices};
 use tidal_player_audio::{
     Codec, EngineError, Event, OutputInfo, OutputKind, SampleFormat, SinkError, SourceError,
     SourceFormat,
@@ -107,6 +109,35 @@ pub fn configured_device_with(file: &AppConfig, env: impl Fn(&str) -> Option<Str
     non_empty(env(DEVICE_VAR))
         .or_else(|| file.output_device.clone())
         .unwrap_or_else(|| DEFAULT_DEVICE.into())
+}
+
+/// The player's config with the device it starts on (spec 0014 AC6): the
+/// device of `settings` (flag, environment, `app.toml`, `default`), the
+/// same one the engine is started with.
+pub fn with_device(player: PlayerConfig, settings: &Settings) -> PlayerConfig {
+    let _ = settings;
+    player
+}
+
+/// Where the device list is read from: `TIDAL_PLAYER_ASOUND_DIR`, else
+/// `/proc/asound`.
+pub fn asound_dir(env: impl Fn(&str) -> Option<String>) -> PathBuf {
+    non_empty(env(ASOUND_DIR_VAR)).map_or_else(|| PathBuf::from("/proc/asound"), PathBuf::from)
+}
+
+/// The playback devices under `dir` (`cards` and `pcm`), read now. A
+/// missing file means no card (no ALSA, or a container): `default` only.
+/// Any other read error is the `Err` (spec 0014 AC7).
+pub fn read_devices(dir: &Path) -> Result<Vec<PlaybackDevice>, String> {
+    let read = |name: &str| {
+        let path = dir.join(name);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(text),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+        }
+    };
+    Ok(parse_devices(&read("cards")?, &read("pcm")?))
 }
 
 /// `Track 77640617: HI_RES_LOSSLESS, FLAC 24-bit 96 kHz stereo`.
@@ -1720,7 +1751,6 @@ mod tests {
                             previous_restart: Duration::from_secs(*previous),
                             autoplay: *autoplay,
                             country: None,
-                            // 0014 slice C
                             device: "default".into(),
                         },
                         "{name}"

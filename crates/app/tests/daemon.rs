@@ -1264,3 +1264,96 @@ fn ac10_client_leaves_playback_file() {
     assert_eq!(daemon.finish(Duration::from_secs(5)).0, Some(0));
     assert_eq!(std::fs::read(&file).unwrap(), bytes, "nothing changed");
 }
+
+/// A fixture directory of `/proc/asound` contents (crates/audio/tests/fixtures/asound).
+fn asound_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../audio/tests/fixtures/asound")
+        .join(name)
+}
+
+/// 0014 AC10 (and AC6, AC7 through the binary): `playback device` prints
+/// the daemon's list (its `asound` directory) with `*` on its device;
+/// `playback device NAME` switches it (exit 0) and every subscriber and
+/// `playback status` show the new one; an empty name is exit 2 before
+/// anything is sent; no player is exit 1 with 0005's message. The daemon
+/// starts on the configured device. No audio device is opened: the
+/// restored queue is stopped, so the engine only records the name.
+#[test]
+fn ac10_playback_device() {
+    use tidal_player_core::protocol::QueueEntry;
+    use tidal_player_core::{EntryId, SavedPlayback};
+
+    let machine = Machine::new();
+    assert_eq!(
+        machine.run_client(&["playback", "device"]),
+        (Some(1), String::new(), format!("{NO_PLAYER}\n"))
+    );
+    // `devices` is the local list and points to `playback device`.
+    let (_, help, _) = machine.run_client(&["--help"]);
+    let line = help
+        .lines()
+        .find(|l| l.trim_start().starts_with("devices"))
+        .unwrap_or_default();
+    assert!(line.contains("playback device"), "{help}");
+    let (code, stdout, stderr) = machine.run_client(&["playback", "device", ""]);
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(2), "", "Device name is empty\n")
+    );
+
+    // A stopped queue with a current entry, so `status` has its second line.
+    let saved = SavedPlayback {
+        entries: vec![QueueEntry {
+            id: EntryId(4),
+            track: track(11),
+            suggested: false,
+        }],
+        play_order: vec![EntryId(4)],
+        current: Some(EntryId(4)),
+        position_ms: 83_000,
+        volume: 70,
+        ..SavedPlayback::default()
+    };
+    std::fs::write(
+        machine.state.path().join("playback.json"),
+        serde_json::to_vec_pretty(&saved).unwrap(),
+    )
+    .unwrap();
+    let mut cmd = machine.command(&["daemon"]);
+    cmd.env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env("TIDAL_PLAYER_DEVICE", "hw:0,0");
+    let _daemon = Running(cmd.spawn().unwrap());
+    let (mut watcher, welcome) = subscribe(&machine.socket());
+    assert_eq!(welcome.device, "hw:0,0", "the configured device");
+
+    // The client's own environment is not the player's: its list and `*`
+    // come from the daemon.
+    let mut list = machine.client(&["playback", "device"]);
+    list.env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("no_cards"))
+        .env("TIDAL_PLAYER_DEVICE", "default");
+    let (code, stdout, stderr) = Running(list.spawn().unwrap()).output(Duration::from_secs(20));
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    assert_eq!(
+        stdout,
+        "  default  shared, through the system mixer\n\
+         * hw:0,0   HDA Intel PCH: ALC892 Analog\n  \
+         hw:0,1   HDA Intel PCH: ALC892 Digital\n  \
+         hw:1,0   E30 II: USB Audio\n"
+    );
+    let second_line = || {
+        let (code, stdout, stderr) = machine.run_client(&["playback", "status"]);
+        assert_eq!((code, stderr.as_str()), (Some(0), ""), "{stdout}");
+        stdout.lines().nth(1).unwrap_or_default().to_owned()
+    };
+    assert_eq!(second_line(), "1:23 / 4:56 · 70% · hw:0,0");
+
+    assert_eq!(
+        machine.run_client(&["playback", "device", "hw:1,0"]),
+        (Some(0), String::new(), String::new())
+    );
+    wait_snapshot(&mut watcher, "device hw:1,0", |s| s.device == "hw:1,0");
+    assert_eq!(second_line(), "1:23 / 4:56 · 70% · hw:1,0");
+    let (_, stdout, _) = machine.run_client(&["playback", "device"]);
+    assert!(stdout.contains("* hw:1,0   E30 II: USB Audio"), "{stdout}");
+}
