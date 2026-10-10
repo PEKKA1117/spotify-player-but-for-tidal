@@ -111,8 +111,9 @@ enum Command {
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
     Play(PlayArgs),
-    /// List this machine's playback devices; `*` marks the configured one
-    /// (a device chosen in a running player: "tidal-player playback device").
+    /// List this machine's playback devices; `*` marks a running player's
+    /// device, else the configured one (the player's own list: "tidal-player
+    /// playback device").
     Devices,
 }
 

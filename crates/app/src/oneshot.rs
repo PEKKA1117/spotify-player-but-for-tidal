@@ -14,7 +14,8 @@ use tidal_player_audio::devices::{PlaybackDevice, format_devices};
 use tidal_player_core::protocol::DeviceEntry;
 use tidal_player_core::ui::{DeviceList, device_rows};
 
-use crate::client::{Link, find};
+use crate::client::{Link, find, locate};
+use crate::ipc::client::Connection;
 use crate::ipc::codec::encode;
 use crate::player_runtime::{EMPTY_DEVICE_NAME, parse_items};
 use crate::ui::clock;
@@ -396,15 +397,78 @@ pub fn local_device_lines(
     player: Option<&str>,
     configured: &str,
 ) -> String {
-    let _ = player;
-    format_devices(list, configured)
+    let Some(player) = player else {
+        return format_devices(list, configured);
+    };
+    let player = normalise(player);
+    let configured = normalise(configured);
+    let entries: Vec<DeviceEntry> = list
+        .iter()
+        .map(|d| DeviceEntry {
+            name: d.name.clone(),
+            description: d.description.clone(),
+        })
+        .collect();
+    let rows: Vec<PlaybackDevice> = device_rows(&DeviceList::Loaded(entries), Some(&player))
+        .into_iter()
+        .map(|row| PlaybackDevice {
+            name: row.name,
+            description: row.description,
+        })
+        .collect();
+    let text = format_devices(&rows, &player);
+    rows.iter()
+        .zip(text.lines())
+        .map(|(row, line)| {
+            if row.name == configured && configured != player {
+                format!("{line}  (configured)\n")
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect()
+}
+
+/// `hw:C` names the card's first device, `hw:C,0`, as `format_devices`
+/// compares names.
+fn normalise(device: &str) -> String {
+    match device.strip_prefix("hw:") {
+        Some(card) if !card.contains(',') => format!("hw:{card},0"),
+        _ => device.to_owned(),
+    }
 }
 
 /// The running player's selected device, when one answers with its
 /// `Welcome` within `timeout`; `None` otherwise (spec 0014 AC13).
+/// The whole exchange runs on its own thread so a socket that accepts but
+/// never greets cannot hold `devices` past `timeout`.
 pub fn player_device(timeout: Duration) -> Option<String> {
-    let _ = timeout;
-    None
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(ask_player_device(timeout));
+    });
+    rx.recv_timeout(timeout).ok().flatten()
+}
+
+/// One connection attempt (no lock probe, no retry): `Subscribe`, then the
+/// `Welcome`'s device.
+fn ask_player_device(timeout: Duration) -> Option<String> {
+    let deadline = Instant::now() + timeout;
+    let (_, socket) = locate(|key| std::env::var(key).ok()).ok()?;
+    let mut link = Connection::connect(&socket).ok()?;
+    let device = (|| {
+        Link::send(&mut link, &ClientMessage::Subscribe).ok()?;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if let ServerMessage::Welcome { snapshot, .. } =
+                Link::recv(&mut link, Some(left)).ok()??
+            {
+                return Some(snapshot.device);
+            }
+        }
+    })();
+    Link::close(&mut link);
+    device
 }
 
 /// `tidal-player playback <command>`.
