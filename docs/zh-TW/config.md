@@ -135,6 +135,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `Shuffle` | `C-s` | 所有地方 | shuffle on / off（隨機播放開／關） |
 | `Repeat` | `C-r` | 所有地方 | repeat: off → queue → track（重複播放：關 → 佇列 → 曲目） |
 | `ToggleAutoplay` | `A` | 所有地方 | autoplay on / off（自動播放開／關） |
+| `SwitchDevice` | `D` | 所有地方 | choose the output device（選擇輸出裝置，開啟裝置彈出視窗） |
 | `VolumeUp` | `+` | 所有地方 | volume up by `volume_step`（音量增加 `volume_step`） |
 | `VolumeDown` | `-` | 所有地方 | volume down by `volume_step`（音量減少 `volume_step`） |
 | `VolumeChange`（`offset`：−25…25，不可為 0） | 無 | 所有地方 | volume by `offset` %（音量調整 `offset` %） |
@@ -194,7 +195,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 
 這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SwitchTheme`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`SwitchTheme`、`SwitchDevice`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`SwitchTheme`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
 - 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。

@@ -436,7 +436,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             browse::reconnected(state)
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),
-        Action::DevicesReply { .. } => Vec::new(),
+        Action::DevicesReply { id, result } => {
+            browse::devices_reply(state, id, result);
+            Vec::new()
+        }
         Action::Resize { list_height } => {
             state.list_height = list_height.max(1);
             Vec::new()

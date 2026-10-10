@@ -252,6 +252,8 @@ pub enum UiCommand {
     Shuffle,
     Repeat,
     ToggleAutoplay,
+    /// The devices popup (spec 0014).
+    SwitchDevice,
     VolumeUp,
     VolumeDown,
     /// Percent, −25…25, not 0.
@@ -287,12 +289,10 @@ pub enum UiCommand {
     ClosePopup,
     OpenCommandHelp,
     Quit,
-    /// The devices popup (spec 0014).
-    SwitchDevice,
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 41] = [
+pub const COMMANDS: [UiCommand; 42] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -302,6 +302,7 @@ pub const COMMANDS: [UiCommand; 41] = [
     UiCommand::Shuffle,
     UiCommand::Repeat,
     UiCommand::ToggleAutoplay,
+    UiCommand::SwitchDevice,
     UiCommand::VolumeUp,
     UiCommand::VolumeDown,
     UiCommand::VolumeChange { offset: 1 },
@@ -349,6 +350,7 @@ impl UiCommand {
             Self::Shuffle => "Shuffle",
             Self::Repeat => "Repeat",
             Self::ToggleAutoplay => "ToggleAutoplay",
+            Self::SwitchDevice => "SwitchDevice",
             Self::VolumeUp => "VolumeUp",
             Self::VolumeDown => "VolumeDown",
             Self::VolumeChange { .. } => "VolumeChange",
@@ -381,7 +383,6 @@ impl UiCommand {
             Self::ClosePopup => "ClosePopup",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
-            Self::SwitchDevice => "SwitchDevice",
         }
     }
 
@@ -551,12 +552,11 @@ impl Binding {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 29] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 28] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
     "SwitchTheme",
-    "SwitchDevice",
     "ShowActionsOnCurrentContext",
     "JumpToHighlightTrackInContext",
     "JumpToCurrentTrackInContext",
@@ -872,6 +872,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Ctrl('s'))], C::Shuffle),
         (vec![one(Ctrl('r'))], C::Repeat),
         (vec![one(Char('A'))], C::ToggleAutoplay),
+        (vec![one(Char('D'))], C::SwitchDevice),
         (vec![one(Char('+'))], C::VolumeUp),
         (vec![one(Char('-'))], C::VolumeDown),
         (vec![one(Char('_'))], C::Mute),

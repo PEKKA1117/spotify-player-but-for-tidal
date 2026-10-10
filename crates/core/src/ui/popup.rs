@@ -165,8 +165,23 @@ pub struct DeviceRow {
 /// devices"): the selected device first as [`DEVICE_NOT_FOUND`] when the
 /// list does not have it, then the list in its order; none until loaded.
 pub fn device_rows(list: &DeviceList, selected: Option<&str>) -> Vec<DeviceRow> {
-    let _ = (list, selected);
-    Vec::new()
+    let DeviceList::Loaded(devices) = list else {
+        return Vec::new();
+    };
+    let missing = selected.filter(|s| !devices.iter().any(|d| d.name == *s));
+    missing
+        .map(|name| DeviceRow {
+            name: name.to_owned(),
+            description: DEVICE_NOT_FOUND.to_owned(),
+            selected: true,
+        })
+        .into_iter()
+        .chain(devices.iter().map(|d| DeviceRow {
+            name: d.name.clone(),
+            description: d.description.clone(),
+            selected: Some(d.name.as_str()) == selected,
+        }))
+        .collect()
 }
 
 impl Popup {

@@ -341,7 +341,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 41] = [
+const DEFAULTS: [(&[&str], &str); 42] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -351,6 +351,8 @@ const DEFAULTS: [(&[&str], &str); 41] = [
     (&["C-s"], "Shuffle"),
     (&["C-r"], "Repeat"),
     (&["A"], "ToggleAutoplay"),
+    // Spec 0014.
+    (&["D"], "SwitchDevice"),
     (&["+"], "VolumeUp"),
     (&["-"], "VolumeDown"),
     (&["_"], "Mute"),

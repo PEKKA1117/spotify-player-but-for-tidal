@@ -228,11 +228,11 @@ const PLAYBACK: [&str; 16] = [
     "Shuffle",
     "Repeat",
     "ToggleAutoplay",
+    // Spec 0014.
+    "SwitchDevice",
     "VolumeUp",
     "VolumeDown",
     "Mute",
-    // Spec 0014.
-    "SwitchDevice",
     "AddToQueuePrompt",
     "PlayNextPrompt",
     "ShowActionsOnCurrentTrack",

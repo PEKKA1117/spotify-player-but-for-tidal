@@ -187,7 +187,6 @@ pub struct PlayerSnapshot {
     pub message: Option<String>,
     /// The selected output device (spec 0014): the configured one at
     /// start, then the last `SetDevice` (or the fallback's device).
-    #[serde(skip, default)]
     pub device: String,
 }
 
