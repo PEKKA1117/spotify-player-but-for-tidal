@@ -13,8 +13,11 @@ use crate::sink::SinkError;
 /// How long the owner has to answer `RequestRelease` before the card is
 /// reported busy (never stolen from a slow owner).
 pub const REPLY_TIMEOUT: Duration = Duration::from_millis(500);
-/// Wait after the owner agreed to release, before claiming the name.
-pub const SETTLE: Duration = Duration::from_millis(200);
+/// Wait after the owner agreed to release, before claiming the name and
+/// opening the device. A USB DAC opened sooner after PipeWire let it go may
+/// never lock its clock feedback, and bips (spec 0003 AC30: 200 ms failed,
+/// 400 ms held, on a MOONRIVER 3).
+pub const SETTLE: Duration = Duration::from_secs(1);
 
 /// What the current owner of `org.freedesktop.ReserveDevice1.Audio{card}`
 /// answered to `RequestRelease`.
