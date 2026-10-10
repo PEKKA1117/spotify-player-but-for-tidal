@@ -224,7 +224,7 @@ fn ask_more(state: &mut State, page: usize, window: usize, effects: &mut Vec<Eff
 
 /// Asks for the next page when the window's cursor is within one window
 /// height of its last loaded row, nothing is pending and the list goes on.
-fn near_end(state: &mut State, page: usize, window: usize, effects: &mut Vec<Effect>) {
+pub(super) fn near_end(state: &mut State, page: usize, window: usize, effects: &mut Vec<Effect>) {
     let w = &state.history[page].windows[window];
     if matches!(w.load, Load::Loading { .. }) || w.total.is_none() || w.complete() {
         return;
