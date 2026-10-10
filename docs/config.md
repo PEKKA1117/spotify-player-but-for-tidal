@@ -113,7 +113,7 @@ Pressed keys collect: when what you pressed is no binding's start, collecting re
 
 A binding acts only where its command does (the "Acts in" column below); elsewhere it does nothing. In a popup only its own keys act: the list commands, `ChooseSelected`, `ClosePopup` and `OpenCommandHelp`.
 
-Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the search input, the playlist-name prompt) take every printable character and paste before the keymap, with their editing keys `backspace`, `C-u`, `enter`, `esc` (in the search input also `tab`/`backtab`, `C-c` quits and `C-q` goes back); the role filter's `space`; the questions' `y` and `n`; the keys help's `/` filter.
+Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the search input, the playlist-name prompt, a window's filter while you type it) take every printable character and paste before the keymap, with their editing keys `backspace`, `C-u`, `enter`, `esc` (in the search input also `tab`/`backtab`, `C-c` quits and `C-q` goes back; in a filter `up`, `down`, `page_up`, `page_down` move over the matching rows and `C-c` quits); the role filter's `space`; the questions' `y` and `n`; the keys help's `/` filter.
 
 ### Commands
 
@@ -155,9 +155,9 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `LikedTrackPage` | `g y` | everywhere | favorite tracks |
 | `SearchPage` | `g s` | everywhere | the search page (on one: its input) |
 | `MixesPage` | `g m` | everywhere | your mixes |
-| `Search` | `/` | the search page | back to the search input |
+| `Search` | `/` | lists | filter the rows (see [Filtering a list](tui.md#filtering-a-list)) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
-| `ClosePopup` | `esc` | popups, prompts, loads | close / cancel |
+| `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter) |
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
 

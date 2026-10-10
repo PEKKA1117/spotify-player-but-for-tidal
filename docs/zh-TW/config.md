@@ -119,7 +119,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 
 綁定只在其命令有作用的地方生效（下表的「作用範圍」欄）；在其他地方什麼都不做。在彈出視窗中只有它自己的按鍵有作用：清單命令、`ChooseSelected`、`ClosePopup` 和 `OpenCommandHelp`。
 
-有些按鍵是**固定的**，不在按鍵對應中：文字輸入（`o`/`O` 提示、搜尋輸入框、播放清單名稱提示）會在按鍵對應之前接收所有可列印字元和貼上內容，其編輯按鍵為 `backspace`、`C-u`、`enter`、`esc`（在搜尋輸入框中還有 `tab`/`backtab`，`C-c` 結束程式，`C-q` 返回）；角色篩選器的 `space`；詢問中的 `y` 和 `n`；按鍵說明的 `/` 篩選。
+有些按鍵是**固定的**，不在按鍵對應中：文字輸入（`o`/`O` 提示、搜尋輸入框、播放清單名稱提示、正在輸入的視窗篩選）會在按鍵對應之前接收所有可列印字元和貼上內容，其編輯按鍵為 `backspace`、`C-u`、`enter`、`esc`（在搜尋輸入框中還有 `tab`/`backtab`，`C-c` 結束程式，`C-q` 返回；在篩選中 `up`、`down`、`page_up`、`page_down` 在符合的列之間移動，`C-c` 結束程式）；角色篩選器的 `space`；詢問中的 `y` 和 `n`；按鍵說明的 `/` 篩選。
 
 <a id="commands"></a>
 ### 命令
@@ -162,9 +162,9 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `LikedTrackPage` | `g y` | 所有地方 | favorite tracks（收藏的曲目） |
 | `SearchPage` | `g s` | 所有地方 | the search page (on one: its input)（搜尋頁面；已在搜尋頁面時：其輸入框） |
 | `MixesPage` | `g m` | 所有地方 | your mixes（你的 mix） |
-| `Search` | `/` | 搜尋頁面 | back to the search input（回到搜尋輸入框） |
+| `Search` | `/` | 清單 | filter the rows（篩選列；見[篩選清單](tui.md#filtering-a-list)） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
-| `ClosePopup` | `esc` | 彈出視窗、提示、載入中 | close / cancel（關閉／取消） |
+| `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選） |
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help（此說明） |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches)（結束；連接中的 TUI 會中斷連接） |
 

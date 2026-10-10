@@ -70,20 +70,20 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
 | `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
 | `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
-| `/` | `Search` | on a search page: back to its input |
+| `/` | `Search` | [filter](#filtering-a-list) the rows of the focused window or the queue |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
 | `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | focus the next, previous pane of a page (on the artist page, the left or right half) |
 | `[`, `]` | `PreviousTab`, `NextTab` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
-| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; does nothing otherwise |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's [filter](#filtering-a-list) |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
 `g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
-While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name) take every printable key whatever the keymap says.
+While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name, a [filter](#filtering-a-list) while you type it) take every printable key whatever the keymap says.
 
 The steps are `volume_step` (1–25 %, default 5) and `seek_duration_secs` (1–600 s, default 5) in `app.toml`, or `TIDAL_PLAYER_VOLUME_STEP` and `TIDAL_PLAYER_SEEK_STEP`; see [Settings](playback.md#settings). An attached TUI uses its own `keymap.toml` and steps, not the daemon's.
 
@@ -188,6 +188,37 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 `f` in *All tracks* opens a popup with the four role categories (Performer, Songwriter, Producer, Engineer) as check boxes, all checked at first. `j`/`k` move, `Space` toggles one, `Enter` applies, `Esc` cancels. Only tracks where the artist has a checked role are shown, and the title says which are (`All tracks (548 · Performer, Songwriter · 37 hidden)`). More rows load as usual while you scroll. The filter lasts as long as the page is in the history.
 
+## Filtering a list
+
+`/` filters the focused window, or the queue: type, and the window keeps only the rows that contain what you typed, ignoring case. It works on every list: the library's windows, favorite tracks, an album's or a playlist's tracks, the artist page's four windows, the search page's results, mixes, a mix and a radio.
+
+```
+│┌Favorite tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
+││  1    Love Song               The Cure           Disintegration      3:29││
+││  2    Lovely                  Billie Eilish      Lovely              3:20││
+│…                                                                           │
+```
+
+**Typing.** After `/` every key types into the filter (`q`, `n`, `g` and `?` included, whatever `keymap.toml` binds them to), and the rows narrow as you type. Paste works too.
+
+| Key | While typing |
+|---|---|
+| characters, `space`, paste | add to the filter (at most 100 characters) |
+| `backspace` | delete the last character |
+| `C-u` | clear the text (you keep typing) |
+| `enter` | stop typing; the filter stays |
+| `esc` | stop typing and clear the filter |
+| `up`, `down`, `page_up`, `page_down` | move over the matching rows |
+| `C-c` | quit |
+
+**What matches.** What you typed, spaces included, must appear as it is in one of the row's fields: a track's title, version, artists or album; an album's title, artists or year; a playlist's title; an artist's name; a mix's title or subtitle. Case does not matter (`RÓS` finds `Rós`), accents do (`ros` does not). So `hell ab` finds *Hell Above* and `the veil` every *Pierce The Veil* track, but `pierce hell` finds nothing, as no single field holds it.
+
+**A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d` on the queue and the actions act on the selected row. `esc` clears the filter and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
+
+**The title** shows the filter and how many rows match: `Favorite tracks (548 · /love · 12 matches)`, `Queue (40 · /veil · 9 matches)`; while you type, a cursor follows the text. When nothing matches, the window says `No rows match "xyz"`. On the queue the entries keep their queue positions, and `Suggested` shows only when a suggested entry matches.
+
+**Lists that load as you scroll.** A filter looks at the rows loaded so far, and loads more on its own: while fewer matches than a window's height lie below the cursor, the next page is fetched, one at a time, until enough rows match or the list is complete (`Loading more…` under the matches meanwhile). `esc` stops it.
+
 ## Search
 
 `g s` opens the search page: a one-row input (`Search: `) with the cursor in it, a **top hit** row, and four windows, *Tracks* and *Albums* over *Artists* and *Playlists*.
@@ -208,7 +239,7 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 **Searching.** `Enter` searches (an empty input does nothing). The windows say `Loading…`, then show Tidal's results with their totals, and the cursor moves to the top hit (else the first window with results). A new search on the same page replaces the results. Tidal's **top hit** is its best match, of any kind: `Pierce The Veil · artist`, `Collide With The Sky · album`, a track or a playlist; there is no top-hit row when Tidal names none.
 
-**Moving around.** `Tab` and `Shift-Tab` go input → top hit → Tracks → Albums → Artists → Playlists → input. On a window every key works as on any page (cursor keys, `Enter`, `Z`, `g a`, `Backspace`, …); `/` goes back to the input, and so does `g s`. `Esc` in the input moves to the results. Going back to a search page through the history shows its query and results as you left them; `g s` from another page opens a new, empty search page.
+**Moving around.** `Tab` and `Shift-Tab` go input → top hit → Tracks → Albums → Artists → Playlists → input. On a window every key works as on any page (cursor keys, `Enter`, `Z`, `g a`, `Backspace`, …), `/` [filters](#filtering-a-list) the window's results, and `g s` goes back to the input. `Esc` in the input moves to the results. Going back to a search page through the history shows its query and results as you left them; `g s` from another page opens a new, empty search page.
 
 **Results load as you scroll**, 20 at a time (`TIDAL_PLAYER_SEARCH_PAGE_SIZE`, 1–1000; see [Settings](playback.md#settings)), until the window holds all of Tidal's results (Tidal has a few hundred at most for a query). Tracks that exist only in Dolby Atmos are left out, as the player cannot play them, so a title's total can be a little higher than its rows.
 

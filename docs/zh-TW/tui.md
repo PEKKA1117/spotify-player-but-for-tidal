@@ -75,20 +75,20 @@
 | `g s` | `SearchPage` | 開啟[搜尋](#search)頁面（在搜尋頁面上：回到輸入框） |
 | `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
 | `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
-| `/` | `Search` | 在搜尋頁面上：回到輸入框 |
+| `/` | `Search` | [篩選](#filtering-a-list)焦點視窗或佇列的列 |
 | `backspace`, `C-q` | `PreviousPage` | 回到上一個頁面 |
 | `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | 將焦點移到頁面的下一個、上一個窗格（在藝人頁面上為左半或右半） |
 | `[`, `]` | `PreviousTab`, `NextTab` | 顯示焦點窗格的上一個、下一個分頁（藝人頁面的 *Top tracks* / *All tracks* 與 *Albums* / *Appears on*） |
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | 對選取列的[動作](#actions) |
 | `a` | `ShowActionsOnCurrentTrack` | 對正在播放曲目的動作 |
 | `f` | `RoleFilter` | 在藝人的 *All tracks* 中：[角色篩選](#the-role-filter) |
-| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；其他情況下沒有作用 |
+| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗的[篩選](#filtering-a-list) |
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
 `g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
-彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱）會接收所有可列印的按鍵，不受按鍵對應影響。
+彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱、正在輸入的[篩選](#filtering-a-list)）會接收所有可列印的按鍵，不受按鍵對應影響。
 
 間隔設定為 `app.toml` 中的 `volume_step`（1–25 %，預設 5）與 `seek_duration_secs`（1–600 秒，預設 5），或環境變數 `TIDAL_PLAYER_VOLUME_STEP` 與 `TIDAL_PLAYER_SEEK_STEP`；見[設定項目](playback.md#settings)。連上播放器的 TUI 使用自己的 `keymap.toml` 與間隔設定，而非常駐程式的。
 
@@ -200,6 +200,38 @@
 
 在 *All tracks* 中按 `f` 會開啟彈出視窗，以核取方塊列出四種角色類別（Performer、Songwriter、Producer、Engineer），預設全部勾選。`j`/`k` 移動，`Space` 切換勾選，`Enter` 套用，`Esc` 取消。只會顯示藝人具有已勾選角色的曲目，標題會註明勾選了哪些（`All tracks (548 · Performer, Songwriter · 37 hidden)`）。捲動時仍會照常載入更多列。只要該頁面還在歷史紀錄中，篩選就會持續有效。
 
+<a id="filtering-a-list"></a>
+## 篩選清單
+
+`/` 會篩選焦點視窗或佇列：開始輸入，視窗就只保留包含輸入內容的列，不分大小寫。所有清單都適用：音樂庫的視窗、收藏的曲目、專輯或播放清單的曲目、藝人頁面的四個視窗、搜尋頁面的結果、mix 列表、單一 mix 與電台。
+
+```
+│┌Favorite tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
+││  1    Love Song               The Cure           Disintegration      3:29││
+││  2    Lovely                  Billie Eilish      Lovely              3:20││
+│…                                                                           │
+```
+
+**輸入。** 按下 `/` 後，每個按鍵都會輸入到篩選中（包括 `q`、`n`、`g` 與 `?`，不論 `keymap.toml` 如何對應），列會隨著輸入即時縮減。也可以貼上。
+
+| 按鍵 | 輸入時 |
+|---|---|
+| 字元、`space`、貼上 | 加入篩選（最多 100 個字元） |
+| `backspace` | 刪除最後一個字元 |
+| `C-u` | 清空文字（繼續輸入） |
+| `enter` | 停止輸入；保留篩選 |
+| `esc` | 停止輸入並清除篩選 |
+| `up`、`down`、`page_up`、`page_down` | 在符合的列之間移動 |
+| `C-c` | 離開 |
+
+**比對方式。** 輸入的內容（包括空白）必須原樣出現在該列的某一個欄位中：曲目的曲名、版本、藝人或專輯；專輯的名稱、藝人或年份；播放清單的名稱；藝人的名字；mix 的標題或副標題。不分大小寫（`RÓS` 找得到 `Rós`），但區分重音符號（`ros` 找不到）。因此 `hell ab` 找得到 *Hell Above*，`the veil` 找得到所有 *Pierce The Veil* 的曲目，而 `pierce hell` 什麼也找不到，因為沒有單一欄位同時包含兩者。
+
+**保留的篩選。** 按 `enter` 後，按鍵照常作用於顯示的列：在曲目上按 `enter` 會從該曲開始播放**符合的曲目**（清單尚未完整載入時，會像沒有篩選時一樣先載入整份清單）；`Z`、`g a`、`r`、佇列上的 `d` 與動作都作用於選取的列。`esc` 清除篩選，`/` 編輯篩選。每個視窗有自己的篩選，切換視窗、透過歷史紀錄返回或頁面重新載入時都會保留；新開啟的頁面與新的搜尋則沒有篩選。在 *All tracks* 中，角色篩選與文字篩選會同時套用。
+
+**標題**會顯示篩選與符合的列數：`Favorite tracks (548 · /love · 12 matches)`、`Queue (40 · /veil · 9 matches)`；輸入時，文字後面會有游標。沒有符合的列時，視窗會顯示 `No rows match "xyz"`。在佇列上，項目保留它們在佇列中的位置編號，且只有在有推薦項目符合時才會顯示 `Suggested`。
+
+**隨捲動載入的清單。** 篩選只比對目前已載入的列，但會自動載入更多：只要游標下方符合的列少於一個視窗的高度，就會一次一頁地載入下一頁，直到符合的列足夠或清單已完整（期間符合的列下方會顯示 `Loading more…`）。`esc` 會停止載入。
+
 <a id="search"></a>
 ## 搜尋
 
@@ -221,7 +253,7 @@
 
 **搜尋。** `Enter` 執行搜尋（輸入框為空時沒有作用）。各視窗先顯示 `Loading…`，接著顯示 Tidal 的結果與總數，游標移到最佳結果（若無，則移到第一個有結果的視窗）。在同一頁面上再次搜尋會取代原有結果。Tidal 的**最佳結果**是它認為最符合的項目，可以是任何類型：`Pierce The Veil · artist`、`Collide With The Sky · album`、一首曲目或一個播放清單；Tidal 沒有提供時就不顯示最佳結果列。
 
-**移動。** `Tab` 與 `Shift-Tab` 依序在輸入框 → 最佳結果 → Tracks → Albums → Artists → Playlists → 輸入框之間移動。在視窗上，每個按鍵的作用都和其他頁面相同（游標按鍵、`Enter`、`Z`、`g a`、`Backspace`……）；`/` 會回到輸入框，`g s` 也是。在輸入框中按 `Esc` 會移到結果。透過歷史紀錄回到搜尋頁面時，查詢字串與結果都保持離開時的樣子；從其他頁面按 `g s` 則會開啟一個新的空白搜尋頁面。
+**移動。** `Tab` 與 `Shift-Tab` 依序在輸入框 → 最佳結果 → Tracks → Albums → Artists → Playlists → 輸入框之間移動。在視窗上，每個按鍵的作用都和其他頁面相同（游標按鍵、`Enter`、`Z`、`g a`、`Backspace`……），`/` 會[篩選](#filtering-a-list)該視窗的結果，`g s` 則回到輸入框。在輸入框中按 `Esc` 會移到結果。透過歷史紀錄回到搜尋頁面時，查詢字串與結果都保持離開時的樣子；從其他頁面按 `g s` 則會開啟一個新的空白搜尋頁面。
 
 **結果隨捲動載入**，一次 20 筆（`TIDAL_PLAYER_SEARCH_PAGE_SIZE`，1–1000；見[設定項目](playback.md#settings)），直到視窗載入 Tidal 的所有結果為止（每個查詢 Tidal 最多只有幾百筆）。只有 Dolby Atmos 版本的曲目會被排除，因為播放器無法播放，所以標題中的總數可能略多於實際的列數。
 

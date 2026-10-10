@@ -1,6 +1,6 @@
 # 0012 — Filter the focused window
 
-- **Status**: approved (2026-10-10: the user answered every decision below and asked to implement)
+- **Status**: implemented (2026-10-10); approved 2026-10-10 (the user answered every decision below and asked to implement)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#18](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/18)
 - **Depends on**: 0004 (implemented: the queue page), 0006 (implemented: pages, windows that load as you scroll, the whole-list load, the role filter), 0007 (implemented: the search page and its `/`), 0008 (implemented: the keymap, the `Search` command, fixed keys of text inputs, the keys help and its filter), 0013 (implemented: key hints)
@@ -166,6 +166,20 @@ Assumptions: none about external systems (no API change: the filter is local, `M
 2. **What `enter` on a filtered track queues**: *answered: as proposed*: the matching tracks, from the selected one (what you see is what plays; the role filter's precedent). Alternative: the whole list, from the selected track (spotify-player plays the whole context)
 3. **Lists that load as you scroll**: *answered: as proposed*: the filter covers the loaded rows and loads more pages while too few rows match, page by page, until enough match or the list is complete. Alternative: the filter covers the loaded rows only and loads nothing on its own (scrolling to the end of the matches loads as today)
 4. **Matching**: *answered: the alternative*: the whole filter as one substring of one field, ignoring case (the keys help's rule); accents not folded. (Proposed was: words ANDed, each in any field)
+
+## Implementation notes (choices made where the spec was silent, 2026-10-10)
+
+- **The rows shown are cached** on the `Window` (a private `shown`, both filters applied), recomputed by `Window::refilter` when the text filter is edited (`set_filter`, which also applies AC4's cursor rule), the role filter is applied (`set_roles`), and when rows arrive or are forgotten (`append`, `append_mixes`, `reset`). Without an active text filter nothing is cached and `visible()` is the role filter's as before. `row`, `len`, `index` and the title read the cache in O(1), so drawing does not match per row. `Window` keeps deriving `Clone`/`PartialEq` (the cache is a function of the other fields)
+- **The queue's filter** lives on the queue `Page` (`Page::filter`, unused on other pages). Its matches are not cached (`filter::queue_shown` per call: once per key and once per frame); the cursor stays an entry ID, `filter::queue_selected` is the cursor only while its entry matches (what `enter`, `d`, the actions popup and the keys help's dimming read), and a new snapshot runs AC4's cursor rule when the queue is filtered
+- **Where it sits in the keys**: `dispatch::fixed_key` checks the popup, the prompt, the search input, then a filter being typed (never during a whole-list load). The typing state is the focused window's `filter.typing` (or the queue's), so `?` cannot open the help while typing; `help::help` still shows the typing section for such a state (title: the window's section title, rows: `enter`, `esc`, `backspace`, `C-u`, `up  down  page_up  page_down`, `C-c`)
+- **Keys help**: `/` (`Search`) sits after `RoleFilter` in each window section (the command table's order) and in `Queue`; *Top hit* no longer lists it. `esc`'s new meaning on a page is documented in `docs/tui.md` and `docs/config.md`, but `ClosePopup` is not added to the window sections (its help text stays "close / cancel")
+- **`enter` with an all-space filter** stops typing and clears it (it is no filter, so nothing is kept in the title)
+- **Row numbers**: a filtered browse window numbers the rows shown from 1, as the role filter already did; the queue keeps queue positions (spec)
+- **Loading for a filter**: a filter edit does not retry a window whose last `More` failed (the edge case's "until the cursor moves"; a cursor move retries as before). A page arrival checks the rule for a filtered window on any page of the history; the arrival that completes a whole-list load does not (the load acts instead). `esc` leaves a request in flight to arrive, and its arrival asks nothing more
+- **The search page**: `Enter` on the *Top hit* track queues the rows *Tracks* shows, so a filter kept on *Tracks* applies there too (what you see is what plays)
+- **Drawing**: the no-match row is `No rows match "<text>"`, the text cut with `…` so the row fits, then the row itself cut to the width; under it `Loading more…` or the window's failure. The queue's title is cut with `…` too and is bold while typing; a browse window's title was already bold when focused
+- **Tests**: the plan's 0007 test is `ac8_windows_and_scroll` and 0008's `ac7_help_sections` (their names in code); `ac9_titles_in_model` (in `filter/tests.rs`) checks the titles' text in the model beside the app's `ac9_filter_titles`. Spec-driven test changes: 0007's `ac7_*` new-search case and 0008's `ac6_text_inputs_first` reach the search input with `g s` instead of `/`; 0008's `ac8_help_moves` counts the queue section's new row. Snapshots changed: `ac14_help_queue`, `ac14_help_library_albums`, `ac14_help_custom_keymap`, `ac14_help_40x12` (the new `/  filter the rows` row)
+- **Red stub**: one stub `filter.rs` served every test: `matches` kept every row, `title_parts` returned nothing, `/` still called the old `search::focus_input`, and the typing keys were not wired
 
 ## Out of scope
 
