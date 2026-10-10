@@ -166,6 +166,7 @@ Choices made where the spec was silent:
   - `playback status`: the device comes after the volume and before `device released`, and is left out when the snapshot has none (an older player)
   - `playback device` sends `Devices` and `Subscribe` and prints once it has both (in either order), through `format_devices`, with the player's selected device first as `not found` when the list lacks it (as in the popup). A failed list prints `Cannot list devices: <reason>` on stderr, exit 1
   - The popup's rows have no leading space: `●` or a space, the name padded to the longest name, three spaces, the description (as in the drawing); the box is the widest row plus 6 columns (at most 50), and `Loading devices…` / `Cannot list devices: …` is one dimmed row
+- **`devices` marks (AC13)**: `devices` connects to the socket once (no lock probe, no retry), sends `Subscribe` and takes the `Welcome`'s device; the whole exchange runs on a helper thread bounded to 1 s, so a socket that accepts but never greets cannot hold it (a stale socket fails at once). The player's and the configured names are compared after `hw:C` → `hw:C,0`, as `format_devices` does, so `hw:0` configured and `hw:0,0` in use are the same device and get no `(configured)`. `(configured)` is only shown on a row of the list: a configured device the list lacks is not added
 
 ## Out of scope
 

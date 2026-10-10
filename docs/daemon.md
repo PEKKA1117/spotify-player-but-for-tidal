@@ -121,7 +121,7 @@ Queue: 2 of 12
 
 `Nothing playing` alone when nothing is current. A fourth line shows the player's message, if any (`Output hw:1,0 is busy …`), or `Session expired: run "tidal-player login"`. The second line ends with the output device the player uses (`hw:1,0`), then `· device released` while the device is released. `status --json` prints the player's whole state as one JSON line, for scripts.
 
-`playback device` asks the running player, so it lists the devices of the player's machine and marks the player's device, even one chosen at runtime; it prints like [`tidal-player devices`](playback.md#tidal-player-devices), which reads this machine's list and marks the configured device without asking any player. `playback device hw:1,0` exits 0 once the player has taken the new device; it does not wait for the device to open: a device that cannot be opened shows in `playback status` and the TUI like any output failure, and the player stays on the previous one (see [Output device](tui.md#output-device)).
+`playback device` asks the running player, so it lists the devices of the player's machine and marks the player's device, even one chosen at runtime; it prints like [`tidal-player devices`](playback.md#tidal-player-devices), which reads this machine's list and takes only its marks from the running player (the configured device, when no player answers). `playback device hw:1,0` exits 0 once the player has taken the new device; it does not wait for the device to open: a device that cannot be opened shows in `playback status` and the TUI like any output failure, and the player stays on the previous one (see [Output device](tui.md#output-device)).
 
 `playback add` makes a simple handler for links: for example `tidal-player playback add --next "$1"`.
 
