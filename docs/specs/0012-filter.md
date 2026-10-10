@@ -1,6 +1,6 @@
 # 0012 — Filter the focused window
 
-- **Status**: draft
+- **Status**: approved (2026-10-10: the user answered every decision below and asked to implement)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#18](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/18)
 - **Depends on**: 0004 (implemented: the queue page), 0006 (implemented: pages, windows that load as you scroll, the whole-list load, the role filter), 0007 (implemented: the search page and its `/`), 0008 (implemented: the keymap, the `Search` command, fixed keys of text inputs, the keys help and its filter), 0013 (implemented: key hints)
@@ -59,7 +59,7 @@ After `enter` the window keeps its filter, and every key acts as usual on the ro
 
 ### What matches
 
-A row **matches** when every word of the filter (split on spaces; an empty or all-space filter is no filter) is contained, ignoring case, in at least one of the row's fields:
+A row **matches** when the filter's text, as typed (spaces included, as one string: the keys help's rule, decision 4), is contained, ignoring case, in at least one of the row's fields. An empty or all-space filter is no filter: every row is shown. The fields:
 
 | Row | Fields |
 |---|---|
@@ -69,7 +69,7 @@ A row **matches** when every word of the filter (split on spaces; an empty or al
 | artist | name |
 | mix | title, subtitle |
 
-Case is folded with Unicode lower-casing (`RÓS` matches `rós`); accents are not folded (`ros` does not match `Rós`, see "Out of scope"). So `pierce hell` matches *Hell Above · Pierce The Veil*, and `veil 2012` matches an album of that year. In *All tracks* the role filter and the text filter both apply: a row is shown when it has a checked role **and** matches.
+Case is folded with Unicode lower-casing (`RÓS` matches `rós`); accents are not folded (`ros` does not match `Rós`, see "Out of scope"). So `hell ab` matches *Hell Above* and `the veil` matches every *Pierce The Veil* track, but `pierce hell` matches nothing (no single field holds it), and an album's year matches as `2012`. In *All tracks* the role filter and the text filter both apply: a row is shown when it has a checked role **and** matches.
 
 ### Rows, cursor and actions
 
@@ -101,7 +101,7 @@ A filter narrows the **loaded** rows, and more are loaded on its behalf (decisio
 
 ## Acceptance criteria
 
-- **AC1** — Matching (`filter::matches(row, filter) -> bool`, table): every row kind with the fields above; case folded (`LOVE` ~ `love`, `RÓS` ~ `rós`); words ANDed in any field (`pierce hell`); an empty and an all-space filter match everything; accents not folded; a word found in no field fails
+- **AC1** — Matching (`filter::matches(row, filter) -> bool`, table): every row kind with each of its fields above; case folded (`LOVE` ~ `love`, `RÓS` ~ `rós`); the filter is one substring of one field (`hell ab` matches the title *Hell Above*, `the veil` the artist, `pierce hell` across two fields does not match); an empty and an all-space filter match everything; accents not folded
 - **AC2** — Typing keys (table): `/` starts typing on each window kind and on the queue, and does nothing where "Where it acts" says so (loading/failed page, the search input, *Top hit*, a popup, the prompt, a whole-list load); printable characters, paste, `backspace`, `C-u`, the 100-character limit; `enter` keeps, `esc` clears, both stop typing; `up`/`down`/`page_up`/`page_down` move over the matches; with `q`→`NextTrack`, `j`→`Quit` and `?` bound, typing `qj?` types it and emits nothing; `C-c` quits; `/` on a kept filter resumes it with its text
 - **AC3** — Kept filter (table): keys act on the shown rows; `esc` clears it (and nothing else); `/` edits it; `tab`/`backtab`/`[`/`]` keep each window's filter; back and forward through the history keep it; a page refetch keeps it; a new page has none; a new search clears the search windows' filters
 - **AC4** — Rows and cursor: the shown rows are the matches in list order (with the role filter, both apply); the cursor stays on a still-matching row after an edit, else goes to the first match; no match → no selected row (`enter`, `Z`, `g a`, `r`, `d` emit nothing); on the queue the cursor stays an entry ID and moves over matching entries only
@@ -133,7 +133,7 @@ Each test is named after its criterion. Red is a failing assertion against stub 
 
 | AC | Test (file :: name) | What it asserts | Expected red |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/ui/filter/tests.rs` :: `ac1_matches` (table: row × filter → bool) | fields, case, words, empty, accents | stub `matches` returns `true` for every row |
+| AC1 | `crates/core/src/ui/filter/tests.rs` :: `ac1_matches` (table: row × filter → bool) | fields, case, one substring, empty, accents | stub `matches` returns `true` for every row |
 | AC2 | `crates/core/src/ui/filter/tests.rs` :: `ac2_typing_keys` (table), `ac2_typing_ignores_keymap`, `ac2_slash_where_it_does_nothing` | typing, editing, enter/esc, moving, rebinding, resume | stub `/` does what it does today (nothing off a search page) |
 | AC3 | `crates/core/src/ui/filter/tests.rs` :: `ac3_kept_filter` (table) | esc clears, `/` edits, per window, history, refetch, new page, new search | stub: no filter is ever kept |
 | AC4 | `crates/core/src/ui/filter/tests.rs` :: `ac4_rows_and_cursor` (table, a browse window and the queue) | shown rows, role + text filter, cursor rule, no match | stub `matches` returns `true` |
@@ -160,17 +160,17 @@ Verified (2026-10-10, spotify-player's README "Commands"): `Search` is "open a p
 
 Assumptions: none about external systems (no API change: the filter is local, `More` is 0006's request).
 
-## Decisions (open: for the user)
+## Decisions (answered by the user, 2026-10-10)
 
-1. **What `/` does on a search page**: *proposed*: filter the focused result window, as everywhere (spotify-player's meaning of `Search`); `g s` and `tab` go back to the input. Alternative: keep "back to the search input" on search pages and filter only elsewhere
-2. **What `enter` on a filtered track queues**: *proposed*: the matching tracks, from the selected one (what you see is what plays; the role filter's precedent). Alternative: the whole list, from the selected track (spotify-player plays the whole context)
-3. **Lists that load as you scroll**: *proposed*: the filter covers the loaded rows and loads more pages while too few rows match, page by page, until enough match or the list is complete. Alternative: the filter covers the loaded rows only and loads nothing on its own (scrolling to the end of the matches loads as today)
-4. **Matching**: *proposed*: words ANDed, each contained in any field, case folded, accents not folded. Alternative: the whole filter as one substring (the keys help's rule)
+1. **What `/` does on a search page**: *answered: as proposed*: filter the focused result window, as everywhere (spotify-player's meaning of `Search`); `g s` and `tab` go back to the input. Alternative: keep "back to the search input" on search pages and filter only elsewhere
+2. **What `enter` on a filtered track queues**: *answered: as proposed*: the matching tracks, from the selected one (what you see is what plays; the role filter's precedent). Alternative: the whole list, from the selected track (spotify-player plays the whole context)
+3. **Lists that load as you scroll**: *answered: as proposed*: the filter covers the loaded rows and loads more pages while too few rows match, page by page, until enough match or the list is complete. Alternative: the filter covers the loaded rows only and loads nothing on its own (scrolling to the end of the matches loads as today)
+4. **Matching**: *answered: the alternative*: the whole filter as one substring of one field, ignoring case (the keys help's rule); accents not folded. (Proposed was: words ANDed, each in any field)
 
 ## Out of scope
 
 - Sorting a window (spotify-player's `Sort*` commands)
 - Accent-insensitive matching (needs Unicode normalization, a new dependency)
-- Searching Tidal from the filter (the search page does that), regular expressions, fuzzy matching
+- Searching Tidal from the filter (the search page does that), word-by-word matching across fields, regular expressions, fuzzy matching
 - Filtering the popups (the actions popup, the playlist picker) and the playback window
 - Remembering filters across runs (pages are not persisted, 0009)
