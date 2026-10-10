@@ -1,6 +1,6 @@
 # 0014 — Choosing the output device while the player runs
 
-- **Status**: approved (2026-10-10)
+- **Status**: implemented (2026-10-10; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0003 (implemented: the engine's `SetDevice`, `tidal-player devices`), 0004 (implemented: the player and its effects), 0005 (implemented: the protocol, clients, `playback`, releasing while paused), 0008 (implemented: `output_device`, the keymap, the keys help)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Output device"; [`docs/daemon.md`](../daemon.md) gains `playback device`; [`docs/playback.md`](../playback.md) and [`docs/config.md`](../config.md) explain which device is used (AC12)
@@ -149,6 +149,21 @@ Assumptions (checked at acceptance): reading `/proc/asound` reflects a USB DAC p
 2. **Remembering**: *answered: only for this run*. A restart starts on the configured device; `output_device` makes a choice permanent
 3. **A failed switch**: *answered: fall back to the old device* and keep playing there, with a message
 4. **Key**: *answered: as proposed*: `D` / `SwitchDevice` only
+
+## Implementation notes
+
+Choices made where the spec was silent:
+
+- **Engine (slice A)**: a fallback during a switch while playing or paused emits `DeviceFallback` then `OutputChanged` (the last good device's info); on a track start or resume only `DeviceFallback` then `Started`/`Resumed`. When both devices fail, the error reported is the tried device's and it stays selected. Both failing on a resume after a release gives `ResumeFailed` (stays paused, as 0005 AC21). `SetDevice` to the selected device is a no-op in every phase. `SinkScript::open_errors` counts per device across sinks
+- **Core (slice B)**: an empty name is ignored by core (the `Reply` error comes from the runtime). A `DeviceFallback` during loading keeps its message through `Started`. `OutputChanged` keeps the source line and is ignored with nothing started. `SwitchDevice` sits in the keys help's Playback section ("choose the output device"), after `ToggleAutoplay`. In the popup `q` and `r` are fixed keys (`q` closes, does not quit); `Enter` does nothing while loading or failed; `D` over another popup does nothing. Disconnected: `D` opens the popup as failed with the connection message; a stale reply ID is dropped
+- **App (slice C)**:
+  - The runtime answers a client's `SetDevice("")` with `Reply` error `Device name is empty` without passing it to the player; `playback device ""` exits 2 with the same text before connecting
+  - `Devices` is answered on the player thread through a `DeviceLister` seam (`AsoundDevices`: `TIDAL_PLAYER_ASOUND_DIR`, else `/proc/asound`), reading `cards` and `pcm` at each request. A missing file means no card (`default` alone, as in the edge-case table); any other read error is the reply's `Err` (`cannot read <path>: <error>`). `tidal-player devices` keeps listing `default` alone on an unreadable list (unchanged)
+  - The device a player starts on is `Settings.device` (flag, environment, `app.toml`, `default`), copied into `PlayerConfig.device` by `play::with_device`; the engine is started with that same `PlayerConfig.device`
+  - `DeviceFallback`'s message is 0003's output message for the error (`engine_error_message` with `EngineError::Output`); `OutputChanged` is mapped to `TrackDetails` with the output description and verdict as on `Started` and an empty source (the player keeps its own)
+  - `playback status`: the device comes after the volume and before `device released`, and is left out when the snapshot has none (an older player)
+  - `playback device` sends `Devices` and `Subscribe` and prints once it has both (in either order), through `format_devices`, with the player's selected device first as `not found` when the list lacks it (as in the popup). A failed list prints `Cannot list devices: <reason>` on stderr, exit 1
+  - The popup's rows have no leading space: `●` or a space, the name padded to the longest name, three spaces, the description (as in the drawing); the box is the widest row plus 6 columns (at most 50), and `Loading devices…` / `Cannot list devices: …` is one dimmed row
 
 ## Out of scope
 

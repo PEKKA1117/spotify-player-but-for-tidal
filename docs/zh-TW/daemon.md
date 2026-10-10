@@ -104,11 +104,13 @@ WantedBy=default.target
 | `repeat off`, `repeat queue`, `repeat track` | 設定重複播放模式 |
 | `load ITEM...` | 以這些[項目](playback.md#items)取代佇列，並播放第一個 |
 | `add ITEM...`, `add --next ITEM...` | 將項目加到佇列的最後，或加在目前曲目的正後方 |
+| `device` | 列出播放器的輸出裝置，以 `*` 標示它正在使用的裝置（見[選擇輸出裝置](playback.md#choosing-the-output-device)） |
+| `device NAME` | 將播放器切換到輸出裝置 `NAME`（ALSA PCM 名稱：`hw:1,0`、`default`…），與 TUI 中的 `D` 相同 |
 | `status`, `status --json` | 印出正在播放的內容 |
 
 當播放器完成指令時，它不印出任何內容並以 0 結束。否則：
 
-- 錯誤的參數或項目（`volume 101`、`seek x`、`shuffle maybe`、藝人連結）會以 2 結束，且不傳送任何東西
+- 錯誤的參數或項目（`volume 101`、`seek x`、`shuffle maybe`、藝人連結、空的裝置名稱）會以 2 結束，且不傳送任何東西
 - 沒有播放器在執行時以 1 結束，並顯示 `No player is running: start "tidal-player" or "tidal-player daemon"`
 - 播放器的錯誤（`Album 123 was not found`）會印在 stderr，以 1 結束
 - 5 秒內沒有回應：`The player did not answer`，以 1 結束
@@ -118,11 +120,13 @@ WantedBy=default.target
 ```
 $ tidal-player playback status
 ▶ Hell Above · Pierce The Veil · Collide With The Sky
-1:23 / 3:32 · shuffle · repeat: queue · 80%
+1:23 / 3:32 · shuffle · repeat: queue · 80% · hw:1,0
 Queue: 2 of 12
 ```
 
-沒有目前曲目時，只會顯示 `Nothing playing`。若播放器有訊息，第四行會顯示它（`Output hw:1,0 is busy …`），或是 `Session expired: run "tidal-player login"`。裝置已釋放時，第二行結尾會是 `· device released`。`status --json` 會以一行 JSON 印出播放器的完整狀態，供腳本使用。
+沒有目前曲目時，只會顯示 `Nothing playing`。若播放器有訊息，第四行會顯示它（`Output hw:1,0 is busy …`），或是 `Session expired: run "tidal-player login"`。第二行結尾是播放器使用中的輸出裝置（`hw:1,0`），裝置已釋放時再接著 `· device released`。`status --json` 會以一行 JSON 印出播放器的完整狀態，供腳本使用。
+
+`playback device` 會詢問正在執行的播放器，因此列出的是播放器所在機器的裝置，並標示播放器的裝置，即使是執行期間才選擇的；它的輸出格式與 [`tidal-player devices`](playback.md#tidal-player-devices) 相同，而後者讀取的是本機的清單，標示設定的裝置，不會詢問任何播放器。`playback device hw:1,0` 在播放器接受新裝置後即以 0 結束，不會等待裝置開啟：無法開啟的裝置會像其他輸出失敗一樣顯示在 `playback status` 與 TUI 中，播放器則留在原本的裝置（見[輸出裝置](tui.md#output-device)）。
 
 `playback add` 可以做成簡單的連結處理程式：例如 `tidal-player playback add --next "$1"`。
 
