@@ -9,7 +9,7 @@ use crate::item::parse_item;
 use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, UiCommand};
-use super::{Effect, Key, PageKind, Prompt, State, browse, help, search};
+use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
@@ -27,8 +27,9 @@ pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
 }
 
 /// The keys the keymap never sees (spec 0008 decision 6): text inputs take
-/// every key, a question its `y`/`n`, the role filter its `Space`. `None`:
-/// the key goes to the keymap.
+/// every key (a window's filter while typing too, spec 0012), a question
+/// its `y`/`n`, the role filter its `Space`. `None`: the key goes to the
+/// keymap.
 fn fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
     if state.popup.is_some() {
         return browse::popup_fixed_key(state, key);
@@ -38,6 +39,9 @@ fn fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
     }
     if state.whole_list.is_none() && search::input_focused(state) {
         return Some(search::input_key(state, key));
+    }
+    if state.whole_list.is_none() && filter::typing(state) {
+        return Some(filter::key(state, key));
     }
     None
 }
@@ -133,13 +137,15 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     // load too); the lists; playback (it needs a queue).
     let send = match command {
         C::Quit => return vec![Effect::Quit],
-        C::ClosePopup | C::OpenCommandHelp => return Vec::new(),
+        // `Esc` on a page clears the focused window's filter (spec 0012).
+        C::ClosePopup => return filter::clear(state),
+        C::OpenCommandHelp => return Vec::new(),
         C::Queue => return browse::open(state, PageKind::Queue),
         C::LibraryPage => return browse::open(state, PageKind::Library),
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
         C::SearchPage => return search::open(state),
         C::MixesPage => return browse::open(state, PageKind::Mixes),
-        C::Search => return search::focus_input(state),
+        C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
         C::ShowActionsOnCurrentTrack => return browse::actions_on_playing(state),
@@ -210,15 +216,16 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     vec![Effect::Send(send)]
 }
 
-/// A list command on the queue page: the cursor (by entry ID), `Enter`
-/// plays the entry, `d` removes it.
+/// A list command on the queue page: the cursor (by entry ID, over the
+/// entries its filter shows), `Enter` plays the entry, `d` removes it.
 fn queue_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let height = state.list_height;
+    let selected = filter::queue_selected(state);
     let send = match command {
-        UiCommand::ChooseSelected => state.cursor.map(Command::PlayEntry),
-        UiCommand::RemoveFromQueue => state.cursor.map(Command::RemoveFromQueue),
+        UiCommand::ChooseSelected => selected.map(Command::PlayEntry),
+        UiCommand::RemoveFromQueue => selected.map(Command::RemoveFromQueue),
         _ if command.is_list_move() => {
-            move_cursor(state, |i, len| step(command, i, len, height));
+            filter::move_queue_cursor(state, |i, len| step(command, i, len, height));
             None
         }
         // `Z` and `f` act on browse pages only.
@@ -228,22 +235,6 @@ fn queue_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         Some(send) if !state.queue().is_empty() => vec![Effect::Send(send)],
         _ => Vec::new(),
     }
-}
-
-/// Moves the cursor to `to(index, len)` (a non-empty queue), and keeps it
-/// in view.
-fn move_cursor(state: &mut State, to: impl Fn(usize, usize) -> usize) {
-    let queue = state.queue();
-    if queue.is_empty() {
-        return;
-    }
-    let index = state
-        .cursor
-        .and_then(|id| queue.iter().position(|e| e.id == id))
-        .unwrap_or(0);
-    let id = queue[to(index, queue.len()).min(queue.len() - 1)].id;
-    state.cursor = Some(id);
-    state.anchor = Some(id);
 }
 
 /// A key while the prompt is open: it edits the prompt, nothing else.

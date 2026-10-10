@@ -1,0 +1,28 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│Search · "pierce the veil"                                                    │
+│Search: pierce the veil                                                       │
+│Top hit: Pierce The Veil · artist                                             │
+│┌Tracks (300 · /hell · 1 match)───────┐┌Albums (41)──────────────────────────┐│
+││  1    Hell Above    Pierce T…   3:32││Collide With The…  Pierce The…   2012││
+││Loading more…                        ││Misadventures      Pierce The…   2016││
+││                                     ││                                     ││
+││                                     ││                                     ││
+││                                     ││                                     ││
+││                                     ││                                     ││
+│└─────────────────────────────────────┘└─────────────────────────────────────┘│
+│┌Artists (6)──────────────────────────┐┌Playlists (300)──────────────────────┐│
+││Pierce The Veil                      ││  This Is Pierce The Veil          50││
+││Sleeping With Sirens                 ││                                     ││
+││                                     ││                                     ││
+││                                     ││                                     ││
+││                                     ││                                     ││
+│└─────────────────────────────────────┘└─────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

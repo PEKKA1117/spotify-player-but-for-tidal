@@ -283,6 +283,16 @@ fn search_focus(state: &State) -> (SearchFocus, usize) {
     (page.search.as_ref().unwrap().focus, page.focus)
 }
 
+/// (name, keys after the page opened, paste after them, text, typing).
+type TypingCase<'a> = (&'a str, Vec<Key>, Option<&'a str>, &'a str, bool);
+/// (name, keys after the page opened, rows shown, selected row).
+type RowsCase = (
+    &'static str,
+    Vec<Key>,
+    Vec<&'static str>,
+    Option<&'static str>,
+);
+
 // --- AC1 ---------------------------------------------------------------------
 
 /// AC1: every row kind with each of its fields; case folded; the filter is
@@ -368,7 +378,7 @@ fn ac2_typing_keys() {
     use Key::{Backspace, Ctrl, Down, End, Enter, Esc, PageDown, PageUp, Tab, Up};
     let long = "x".repeat(MAX_FILTER + 5);
     // (name, keys after the page opened, paste after them, text, typing)
-    let cases: Vec<(&str, Vec<Key>, Option<&str>, &str, bool)> = vec![
+    let cases: Vec<TypingCase<'_>> = vec![
         ("slash", slash(""), None, "", true),
         ("typed", slash("lov"), None, "lov", true),
         ("space", slash("a b"), None, "a b", true),
@@ -722,7 +732,7 @@ fn ac3_kept_filter() {
 fn ac4_rows_and_cursor() {
     use Key::{Backspace, Char, Down, Enter};
     // (keys after the page opened, rows shown, selected)
-    let cases: Vec<(&str, Vec<Key>, Vec<&str>, Option<&str>)> = vec![
+    let cases: Vec<RowsCase> = vec![
         (
             "matches in order",
             slash("lo"),

@@ -403,7 +403,9 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             } else if let Some(Popup::NewPlaylist { name, .. }) = state.popup.as_mut() {
                 name.extend(text);
             } else if state.popup.is_none() {
-                search::paste(state, &text.collect::<String>());
+                let text: String = text.collect();
+                search::paste(state, &text);
+                return filter::paste(state, &text);
             }
             Vec::new()
         }
@@ -506,6 +508,11 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
 
     state.position = snapshot.position;
     state.player = Some(snapshot);
+    // A filtered queue: the cursor keeps its entry while it matches, else
+    // goes to the first match (spec 0012).
+    if filter::queue_filter(state).active() {
+        filter::keep_queue_cursor(state);
+    }
 }
 
 #[cfg(test)]

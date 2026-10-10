@@ -110,15 +110,6 @@ pub(super) fn input_key(state: &mut State, key: Key) -> Vec<Effect> {
     Vec::new()
 }
 
-/// `Search` (`/`) on a search page: back to its input; elsewhere nothing
-/// (spec 0008: the in-page search of other pages is out of scope).
-pub(super) fn focus_input(state: &mut State) -> Vec<Effect> {
-    if let Some(search) = search_mut(state) {
-        search.focus = SearchFocus::Input;
-    }
-    Vec::new()
-}
-
 /// `Enter` on the input: the trimmed query, sent with a fresh ID; the page
 /// starts over (no results, cursors at the top). Failed with the
 /// connection's message while disconnected.

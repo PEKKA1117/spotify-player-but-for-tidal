@@ -18,7 +18,7 @@ use tidal_player_core::ui::{
     Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
 };
 
-use super::{Columns, draw_prompt, fit, pad, tail, text_width};
+use super::{Columns, draw_prompt, fit, no_match_row, pad, tail, text_width};
 
 /// From this many columns inside the frame a page draws its windows side
 /// by side; below, only the focused one.
@@ -447,6 +447,17 @@ fn window_lines(
     if fill == Fill::Loading || (window.total.is_none() && !matches!(window.load, Load::Failed(_)))
     {
         return message_lines("Loading…", width, dim);
+    }
+    // A filter matching nothing (spec 0012 "Drawing"): `Loading more…` or
+    // the failure under it while the list loads on its behalf.
+    if window.is_empty() && window.filtering() {
+        let mut lines = vec![Line::styled(no_match_row(&window.filter.text, width), dim)];
+        match &window.load {
+            Load::Idle => {}
+            Load::Loading { .. } => lines.push(Line::styled("Loading more…", dim)),
+            Load::Failed(message) => lines.push(Line::styled(fit(message, width), red)),
+        }
+        return lines.into_iter().take(height).collect();
     }
     if window.is_empty() {
         return match &window.load {

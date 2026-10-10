@@ -14,6 +14,7 @@ use ratatui::{
 };
 use tidal_player_core::Track;
 use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
+use tidal_player_core::ui::filter::{self, no_match};
 use tidal_player_core::ui::{Key, PageKind, State};
 
 mod pages;
@@ -328,15 +329,40 @@ enum Row<'a> {
 
 fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
     let queue = state.queue();
-    let block = Block::bordered().title(format!("Queue ({})", queue.len()));
+    let filter = filter::queue_filter(state);
+    let width = usize::from(area.width.saturating_sub(2));
+    // Bold while its filter is typed (spec 0012 "Drawing").
+    let title_style = if filter.typing {
+        Style::new().add_modifier(Modifier::BOLD)
+    } else {
+        Style::new()
+    };
+    let block = Block::bordered().title(Line::styled(
+        fit(&filter::queue_title(state), width),
+        title_style,
+    ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let mut rows = Vec::with_capacity(queue.len() + 1);
-    for (i, entry) in queue.iter().enumerate() {
-        if entry.suggested && (i == 0 || !queue[i - 1].suggested) {
+    // The entries shown (all, or the filter's matches) with their queue
+    // positions; `Suggested` over the first suggestion shown.
+    let shown = filter::queue_shown(state);
+    if shown.is_empty() && filter.active() {
+        let line = Line::styled(
+            no_match_row(&filter.text, usize::from(inner.width)),
+            Style::new().add_modifier(Modifier::DIM),
+        );
+        frame.render_widget(Paragraph::new(vec![line]), inner);
+        return;
+    }
+    let mut rows = Vec::with_capacity(shown.len() + 1);
+    let mut suggested = false;
+    for i in shown {
+        let entry = &queue[i];
+        if entry.suggested && !suggested {
             rows.push(Row::Suggested);
         }
+        suggested = entry.suggested;
         rows.push(Row::Entry(i, entry));
     }
 
@@ -383,6 +409,13 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `No rows match "xyz"` across `width`, the filter's text cut with `…`
+/// to fit (spec 0012 "Drawing").
+fn no_match_row(text: &str, width: usize) -> String {
+    let frame = text_width(&no_match(""));
+    fit(&no_match(&fit(text, width.saturating_sub(frame))), width)
 }
 
 /// `  ── Suggested ─────…`, across `width`.
@@ -3183,6 +3216,9 @@ mod tests {
         let long = "pierce the veil ".repeat(6);
         let text = draw(&with_filter(favorites(), &long, true), 40, 12);
         assert_contains(&text, &["No rows match \"pierce", "…"]);
-        assert!(line_with(&text, "Favorite tracks").contains('…'), "{text}");
+        assert!(
+            line_with(&text, "Favorite tracks (").contains('…'),
+            "{text}"
+        );
     }
 }

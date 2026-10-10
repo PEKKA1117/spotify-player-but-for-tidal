@@ -10,7 +10,8 @@
 //!   Tracks`, …, or the open popup's): the commands that act on the rows of
 //!   that window, with a text that names what they do there
 //!   (`ChooseSelected`, `AddSelectedItemToQueue`, `RemoveFromQueue`,
-//!   `ShowActionsOnSelectedItem`, `RoleFilter`, `Search`, `ClosePopup`);
+//!   `ShowActionsOnSelectedItem`, `RoleFilter`, `Search` (the filter, spec
+//!   0012), `ClosePopup`);
 //! - `Lists`: the six list-moving commands, on pages with a list and in
 //!   the popups that have one;
 //! - `Pages`: the page commands (`Queue`, `LibraryPage`, `LikedTrackPage`,
@@ -24,15 +25,16 @@
 //! A key that does nothing where the help was opened is not listed (over a
 //! popup only the popup's own keys act, so only its section, `Lists` and
 //! `OpenCommandHelp` are listed; in a text input no keymap key acts, so
-//! the section lists the input's fixed keys). A row whose binding would do
+//! the section lists the input's fixed keys, a window's filter while it is
+//! typed included). A row whose binding would do
 //! nothing right now is dim, not hidden.
 
 use super::dispatch;
 use super::keymap::{ActionKind, Binding, COMMANDS, KeySequence, Target, UiCommand};
-use super::page::{Page, WindowKind};
+use super::page::{Load, Page, WindowKind};
 use super::popup::Popup;
 use super::search::SearchFocus;
-use super::{Connection, Effect, Key, PageKind, State};
+use super::{Connection, Effect, Key, PageKind, State, filter};
 
 /// The help popup's state: the filter and the highlighted row. What it
 /// lists is computed from the rest of the [`State`] ([`help`],
@@ -89,6 +91,9 @@ enum Where {
     TopHit,
     /// A text input (the search input).
     Input,
+    /// A filter being typed (spec 0012): the queue's (`None`) or a
+    /// window's.
+    Typing(Option<WindowKind>),
 }
 
 fn context(state: &State) -> Where {
@@ -96,6 +101,9 @@ fn context(state: &State) -> Where {
         return Where::Popup;
     }
     let page = state.page();
+    if filter::typing(state) {
+        return Where::Typing(page.windows.get(page.focus).map(|w| w.kind));
+    }
     if page.kind == PageKind::Queue {
         return Where::Queue;
     }
@@ -140,6 +148,10 @@ pub fn help(state: &State) -> Vec<HelpSection> {
             }
         }
         (Where::Popup | Where::Input, _) => add("Search · Input", input_rows()),
+        (Where::Typing(kind), _) => {
+            let inner = kind.map_or(Where::Queue, Where::Window);
+            add(&window_title(inner), filter_rows());
+        }
         (Where::Queue | Where::Window(_) | Where::TopHit, _) => {
             add(
                 &window_title(at),
@@ -340,33 +352,22 @@ fn in_window(at: Where, command: UiCommand) -> bool {
     match at {
         Where::Queue => matches!(
             command,
-            C::ChooseSelected | C::RemoveFromQueue | C::ShowActionsOnSelectedItem
+            C::ChooseSelected | C::RemoveFromQueue | C::ShowActionsOnSelectedItem | C::Search
         ),
         Where::TopHit => matches!(
             command,
-            C::ChooseSelected
-                | C::AddSelectedItemToQueue
-                | C::ShowActionsOnSelectedItem
-                | C::Search
+            C::ChooseSelected | C::AddSelectedItemToQueue | C::ShowActionsOnSelectedItem
         ),
         Where::Window(kind) => match command {
-            C::ChooseSelected | C::AddSelectedItemToQueue | C::ShowActionsOnSelectedItem => true,
+            C::ChooseSelected
+            | C::AddSelectedItemToQueue
+            | C::ShowActionsOnSelectedItem
+            | C::Search => true,
             C::RoleFilter => kind == WindowKind::AllTracks,
-            C::Search => is_search(kind),
             _ => false,
         },
-        Where::Popup | Where::Input => false,
+        Where::Popup | Where::Input | Where::Typing(_) => false,
     }
-}
-
-fn is_search(kind: WindowKind) -> bool {
-    matches!(
-        kind,
-        WindowKind::SearchTracks
-            | WindowKind::SearchAlbums
-            | WindowKind::SearchArtists
-            | WindowKind::SearchPlaylists
-    )
 }
 
 /// The commands that act in `popup` (spec 0008: the list commands,
@@ -427,6 +428,7 @@ fn window_title(at: Where) -> String {
             WindowKind::MixTracks => "Mix".into(),
             WindowKind::RadioTracks | WindowKind::ArtistRadioTracks => "Radio".into(),
         },
+        Where::Typing(kind) => window_title(kind.map_or(Where::Queue, Where::Window)),
         Where::Popup | Where::Input => String::new(),
     }
 }
@@ -442,6 +444,25 @@ fn input_rows() -> Vec<HelpRow> {
         ("esc", "to the results"),
         ("C-u", "clear the input"),
         ("C-q", "back"),
+        ("C-c", "quit"),
+    ]
+    .into_iter()
+    .map(|(keys, text)| fixed_row(keys, text))
+    .collect()
+}
+
+/// A window's filter's own keys while it is typed (spec 0012 "Typing"),
+/// which the keymap never sees.
+fn filter_rows() -> Vec<HelpRow> {
+    [
+        ("enter", "keep the filter"),
+        ("esc", "clear the filter"),
+        ("backspace", "delete a character"),
+        ("C-u", "clear the text"),
+        (
+            "up  down  page_up  page_down",
+            "move over the matching rows",
+        ),
         ("C-c", "quit"),
     ]
     .into_iter()
@@ -579,7 +600,7 @@ fn text(at: Where, command: UiCommand) -> String {
             Where::Queue => "play the entry",
             Where::TopHit => "open or play the top hit",
             Where::Popup => "run the selected entry",
-            Where::Input => "search",
+            Where::Input | Where::Typing(_) => "search",
             Where::Window(kind) => match kind {
                 WindowKind::Playlists | WindowKind::SearchPlaylists => "open the playlist",
                 WindowKind::Albums
@@ -596,7 +617,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::AddSelectedItemToQueue => owned("add to the end of the queue"),
         C::RemoveFromQueue => owned("remove from the queue"),
         C::RoleFilter => owned("the role filter"),
-        C::Search => owned("back to the search input"),
+        C::Search => owned("filter the rows"),
         C::ResumePause => owned("play / pause"),
         C::NextTrack => owned("next track"),
         C::PreviousTrack => owned("previous track"),
@@ -644,11 +665,11 @@ fn text(at: Where, command: UiCommand) -> String {
 /// Whether nothing is selected where the row-bound commands act.
 fn no_selection(state: &State, at: Where) -> bool {
     match at {
-        Where::Queue => state
-            .cursor
-            .is_none_or(|id| !state.queue().iter().any(|e| e.id == id)),
+        Where::Queue => filter::queue_selected(state).is_none(),
         Where::Popup => false,
-        Where::Window(_) | Where::TopHit | Where::Input => state.page().selected().is_none(),
+        Where::Window(_) | Where::TopHit | Where::Input | Where::Typing(_) => {
+            state.page().selected().is_none()
+        }
     }
 }
 
@@ -678,6 +699,8 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
             offline || no_selection(state, at)
         }
         C::ShowActionsOnSelectedItem => no_selection(state, at),
+        // The filter acts on a loaded page only (spec 0012).
+        C::Search => state.page().load != Load::Idle,
         _ => false,
     }
 }

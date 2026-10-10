@@ -692,8 +692,12 @@ fn ac8_help_moves() {
     assert_eq!(highlighted(&state), "ChooseSelected");
     press(&mut state, &[Key::Char('k')]);
     assert_eq!(cursor(&state), 0, "clamped at the top");
-    press(&mut state, &[Key::Char('j'), Key::Down, Key::Ctrl('n')]);
-    assert_eq!(cursor(&state), 3);
+    // The queue's section: four rows (spec 0012 adds `/`).
+    press(
+        &mut state,
+        &[Key::Char('j'), Key::Down, Key::Ctrl('n'), Key::Char('j')],
+    );
+    assert_eq!(cursor(&state), 4);
     assert_eq!(
         highlighted(&state),
         "SelectNextOrScrollDown",

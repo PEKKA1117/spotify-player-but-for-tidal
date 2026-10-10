@@ -1,0 +1,16 @@
+---
+source: crates/app/src/ui.rs
+expression: text
+---
+┌tidal-player──────────────────────────┐
+│▶ Hell Above · Pierce The Veil     80%│
+│  Collide With The Sky                │
+│  not bit-perfect: volume below 100%  │
+│  ━━━━━━━━━──────────────  1:23 / 3:32│
+│Favorite tracks · 362 tracks          │
+│┌Favorite tracks (362 · /song · 2 ma…┐│
+││  1    Song 1        Pierce…    3:01││
+││  2    Song 2        Pierce…    3:02││
+││Loading more…                       ││
+│└────────────────────────────────────┘│
+└──────────────────────────────────────┘

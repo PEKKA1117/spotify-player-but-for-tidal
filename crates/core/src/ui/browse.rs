@@ -13,7 +13,7 @@ use super::page::{
     is_search_list, largest_page,
 };
 use super::popup::{self, Confirmed, MenuAction, Popup, TrackSource};
-use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State};
+use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State, filter};
 
 /// The message of a removal refused because the playlist changed (`412`),
 /// as the player words it (spec 0006 "Talking to the player").
@@ -223,7 +223,9 @@ fn ask_more(state: &mut State, page: usize, window: usize, effects: &mut Vec<Eff
 }
 
 /// Asks for the next page when the window's cursor is within one window
-/// height of its last loaded row, nothing is pending and the list goes on.
+/// height of its last loaded row (of the rows shown: a filtered window
+/// measures over its matches, spec 0012), nothing is pending and the list
+/// goes on.
 pub(super) fn near_end(state: &mut State, page: usize, window: usize, effects: &mut Vec<Effect>) {
     let w = &state.history[page].windows[window];
     if matches!(w.load, Load::Loading { .. }) || w.total.is_none() || w.complete() {
@@ -480,8 +482,7 @@ pub(super) fn actions_on_selected(state: &mut State) -> Vec<Effect> {
 fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
     let page = state.page();
     if page.kind == PageKind::Queue {
-        state
-            .cursor
+        filter::queue_selected(state)
             .and_then(|id| state.queue().iter().find(|e| e.id == id))
             .map(|entry| {
                 (
@@ -498,7 +499,7 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
                     if window.kind != WindowKind::PlaylistTracks {
                         return None;
                     }
-                    let position = *window.positions.get(window.cursor)?;
+                    let position = *window.positions.get(window.index(window.cursor)?)?;
                     Some((playlist, position, page.etag()))
                 });
                 (track.title.clone(), popup::track_actions(track, own))
@@ -724,8 +725,7 @@ fn apply_roles(state: &mut State, checked: [bool; 4]) -> Vec<Effect> {
     else {
         return Vec::new();
     };
-    window.roles = checked;
-    window.cursor = window.cursor.min(window.len().saturating_sub(1));
+    window.set_roles(checked);
     let mut effects = Vec::new();
     near_end(state, index, focus, &mut effects);
     effects
@@ -991,6 +991,8 @@ pub(super) fn reply(
                 window.append(items, limit);
                 if ours {
                     continue_whole_list(state, &mut effects);
+                } else {
+                    filter::arrived(state, p, w, &mut effects);
                 }
             }
             Ok(_) | Err(_) => {
