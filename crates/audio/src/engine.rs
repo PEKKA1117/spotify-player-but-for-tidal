@@ -157,6 +157,19 @@ pub enum Event {
     /// Reopening the output on `Resume` after a release failed: the engine
     /// stays paused with nothing open, and the next `Resume` tries again.
     ResumeFailed(SinkError),
+    /// `SetDevice` reopened the output (playing or paused, spec 0014): what
+    /// it opened. Never sent on a track start, which has `Started`.
+    OutputChanged(OutputInfo),
+    /// Opening `tried` failed with `error`, so the engine went back to the
+    /// last device it opened successfully, `device`, and carries on there
+    /// (spec 0014 "A failed switch falls back"). Sent before the track
+    /// continues: before `Started` on a track start, before `Resumed` on a
+    /// resume after a release, before `OutputChanged` on a switch.
+    DeviceFallback {
+        tried: String,
+        error: SinkError,
+        device: String,
+    },
     /// The track failed; no `TrackEnded` follows for it.
     Error {
         tag: u64,

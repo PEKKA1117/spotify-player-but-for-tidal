@@ -657,6 +657,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 return handled;
             }
             RuntimeInput::Command(command) => PlayerInput::Command(command),
+            // 0014 slice C: map the device switch events into the player.
+            RuntimeInput::Engine(
+                audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. }, // 0014 slice C
+            ) => return handled, // 0014 slice C
             RuntimeInput::Engine(event) => {
                 let (input, n) = self.engine_input(event, &mut handled);
                 notice = n;
@@ -782,6 +786,10 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 let failure = engine_failure(0, &audio::EngineError::Output(error));
                 handled.failures.push(failure.clone());
                 (EngineEvent::ResumeFailed { failure }, Notice::None)
+            }
+            // 0014 slice C: filtered out in `apply` until slice C maps them.
+            audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. } => {
+                unreachable!("filtered out in apply") // 0014 slice C
             }
             audio::Event::Error { tag, error } => {
                 let track = sent(tag).map_or(0, |s| s.track.0);
