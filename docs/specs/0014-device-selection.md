@@ -69,7 +69,7 @@ Opening the new device can fail (busy, missing, refused reservation, format refu
 | `tidal-player playback device` | Asks the running player for its devices and prints them like `tidal-player devices`, with `*` on the **player's** selected device. Exit 1 with 0005's message when no player runs |
 | `tidal-player playback device NAME` | Sends `SetDevice(NAME)` and exits 0 once the player has applied it, or 1 with the player's error. It does not wait for the device to open: a failure to open shows in `playback status` and the TUI, like any output failure |
 | `tidal-player playback status` | The second line gains ` · hw:1,0` (the selected device) after the volume. `--json` carries it in the snapshot |
-| `tidal-player devices` | Unchanged: the local list with `*` on the configured device (`--device`/environment/`app.toml`). It contacts no player, so it does not show a device chosen at runtime. Its help line says so and points to `playback device` |
+| `tidal-player devices` | The local list. When a player runs (its socket answers within 1 s), `*` marks the **player's** selected device and, when the configured device (`--device`/environment/`app.toml`) differs, its row ends with `  (configured)`; a player device the list lacks comes first as `not found`. With no player (or no answer in time) it is as before: `*` on the configured device. Always exit 0 (see Bugs, AC13) |
 | `tidal-player play --device PCM` | Unchanged: the device it starts on |
 
 ### Not remembered
@@ -90,6 +90,7 @@ The selected device is not saved in `playback.json` (0009). To make a device per
 - **AC10** — CLI: `playback device` prints the player's list with `*` on its selected device; `playback device NAME` sends `SetDevice(NAME)` and exits 0, 1 with the player's error (empty name: exit 2 before sending), 1 with 0005's message when no player runs; `playback status` shows the selected device on its second line (integration against a real daemon with fixture `asound` files and the fake engine)
 - **AC11** — End to end: in a daemon with the fake engine, a TUI-side `SetDevice` reaches the engine as `SetDevice`, every subscribed client receives the snapshot with the new `device`, and an `OutputChanged` from the engine reaches them as an updated `now_playing.output`
 - **AC12** — `docs/tui.md` (Output device: `D`, the popup, its keys), `docs/daemon.md` (`playback device`), `docs/playback.md` (which device is used and the precedence, `devices` vs `playback device`), `docs/config.md` (`SwitchDevice` supported; a runtime choice lasts for the run; `output_device` makes it permanent), their zh-TW copies, `examples/keymap.toml` (`D`), `README.md` and its zh-TW copy are updated; `CLAUDE.md` "Features" gains the entry
+- **AC13** — `tidal-player devices` with a running player marks the player's selected device `*` and the configured device, when different, `(configured)`; the player's device missing from the local list comes first as `not found`; no player, or no `Welcome` within 1 s, prints the list as before with `*` on the configured device; exit 0 in every case
 
 ## Edge cases & errors
 
@@ -127,6 +128,7 @@ Each automated test is named after its criterion. Red is a failing assertion aga
 | AC10 | `crates/app/src/oneshot.rs` :: `ac10_parse_device`, `ac10_status_device_line` + `crates/app/tests/daemon.rs` :: `ac10_playback_device` | parse and exit codes; status line; listing and switching against a daemon | stub prints nothing and sends nothing |
 | AC11 | `crates/app/src/player_runtime.rs` :: `ac11_set_device_reaches_engine` (fake engine, two subscribers) | engine call; both snapshots; output update | stub runtime drops `EngineSetDevice` |
 | AC12 | `crates/app/tests/docs.rs` :: `ac12_device_selection_documented` + zh-TW copies, README and `CLAUDE.md` reviewed at acceptance; `crates/app/tests/examples.rs` (example keymap is the default keymap, existing test) | docs mention `D`, `SwitchDevice`, `playback device`; example keymap matches | docs lack the terms; example lacks `D` |
+| AC13 | `crates/app/src/oneshot.rs` :: `ac13_local_device_lines` (table: no player, same device, different device, device not in the list) + `crates/app/tests/daemon.rs` :: `ac13_devices_shows_player_device` (daemon on `hw:0,0`, `playback device hw:1,0`, then `devices`) + `crates/app/tests/cli.rs` :: `ac25_devices_marks_configured` (unchanged, no player) | marks per row; the real command against a daemon | `devices` ignores the player: `*` stays on `hw:0,0` |
 
 Checked by hand at acceptance on the user's machine (results in the PR description): playing on `default`, `D` → the DAC (`hw:`) moves the track with no audible gap beyond the reopen and the output line says `bit-perfect`; `playback device hw:0,0` from another terminal moves it again; a DAC plugged in while the popup is closed shows up on the next `D`; a busy `hw:` reports busy and `space` after closing the other app plays; a busy `hw:` keeps playing on the previous device with the fallback message; restarting the daemon starts on the configured device.
 
@@ -145,7 +147,7 @@ Assumptions (checked at acceptance): reading `/proc/asound` reflects a USB DAC p
 
 ## Decisions (answered by the user, 2026-10-10)
 
-1. **CLI**: *answered: as proposed*: `playback device [NAME]` lists from the running player or switches; `devices` unchanged
+1. **CLI**: *answered: as proposed*: `playback device [NAME]` lists from the running player or switches; `devices` unchanged. *Revised 2026-10-11*: `devices` takes its marks from a running player (see Bugs)
 2. **Remembering**: *answered: only for this run*. A restart starts on the configured device; `output_device` makes a choice permanent
 3. **A failed switch**: *answered: fall back to the old device* and keep playing there, with a message
 4. **Key**: *answered: as proposed*: `D` / `SwitchDevice` only
@@ -172,3 +174,13 @@ Choices made where the spec was silent:
 - Per-device settings (quality, release delay, buffer size), and the `hw:` buffer issue ([#6](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/6))
 - Windows devices ([#21](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/21))
 - A device property over MPRIS
+
+## Bugs
+
+### `tidal-player devices` shows the configured device after a switch (2026-10-11)
+
+- **Expected** (reported by the user on real hardware): after choosing `default` in the TUI, `tidal-player devices` marks `default`, the device the player is using
+- **Actual**: it kept `*` on `hw:3,0`, the configured device
+- **Root cause**: not a code fault. The spec kept `devices` local and player-free (decision 1, "`devices` unchanged"), so its `*` meant "configured", while `playback device` prints the same list with `*` meaning "in use". Two lists that look the same with different marks misled the user. Decision revisited by the user: `devices` asks the running player when there is one
+- **Fix**: the `tidal-player devices` row under "CLI" and AC13. The list itself stays local (the player is the same user's on the same machine, over the Unix socket); only the marks come from the player. A player that does not answer within 1 s is treated as absent so `devices` never hangs
+
