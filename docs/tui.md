@@ -2,7 +2,7 @@ English | [繁體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device).
 
 ## The screen
 
@@ -56,6 +56,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `A` | `ToggleAutoplay` | autoplay on/off |
 | `+` / `-` | `VolumeUp` / `VolumeDown` | volume up / down by the volume step (5 %) |
 | `_` | `Mute` | mute / unmute |
+| `D` | `SwitchDevice` | choose the [output device](#output-device) (the Devices popup) |
 | `o` | `AddToQueuePrompt` | add a link or track ID to the end of the queue |
 | `O` | `PlayNextPrompt` | add a link or track ID to play next |
 | `j`, `down`, `C-n` / `k`, `up`, `C-p` | `SelectNextOrScrollDown` / `SelectPreviousOrScrollUp` | move the cursor down, up |
@@ -288,6 +289,32 @@ While the prompt is open every key types into it: `Space`, `q` and the other key
 ### Volume
 
 From 0 to 100 %, **100 % by default**, in steps of the volume step. At 100 % the samples are not touched, so a bit-perfect output stays bit-perfect; below 100 % (or muted) the third row says `not bit-perfect: volume below 100%` (or `muted`). The volume follows a curve that matches how loudness is heard (50 % is about −18 dB). Mute (`_`) keeps the volume, so unmuting restores it; changing the volume unmutes. The volume and mute are remembered across runs, with the queue and the modes (see [Resuming the last session](playback.md#resuming-the-last-session)).
+
+## Output device
+
+`D` opens the **Devices** popup from any page: the player's output devices, read from the player's machine each time it opens (a DAC plugged in since shows up), with `●` on the device the player uses now:
+
+```
+┌Devices─────────────────────────────────────────┐
+│● default   shared, through the system mixer    │
+│  hw:0,0    HDA Intel PCH: ALC892 Analog        │
+│  hw:1,0    E30 II: USB Audio                   │
+└────────────────────────────────────────────────┘
+```
+
+| Key | Does |
+|---|---|
+| `j`, `k` (and the arrow keys) | move the cursor (it starts on the device in use) |
+| `Enter` | switch to that device and close the popup; on the device in use it just closes |
+| `r` | read the list again |
+| `esc`, `q` | close without changing anything (`q` does not quit here) |
+
+- `Loading devices…` shows until the list arrives; `Cannot list devices: <reason>` when it cannot be read. While an attached TUI is disconnected the popup says so, and `D` is dimmed in the [keys help](#the-keys-help)
+- A device in use that the list does not have (`plughw:1,0`, a custom PCM, an unplugged DAC) comes first, marked `●`, as `not found`
+- **Playing**, the track moves to the new device at its position, with nothing lost or played twice; the third row shows the new output (`hw:1,0 (exclusive) …, bit-perfect`) as soon as it is open. **Paused**, the new device is opened paused: nothing plays until `space`. **Stopped**, loading or with the device [released](daemon.md#releasing-the-device-while-paused), nothing is opened: the next play opens the new device
+- If the new device cannot be opened (busy, missing, refused), the player goes back to the device it was using and carries on there, with the message `Cannot switch to hw:1,0: Output hw:1,0 is busy (used by …): …; staying on default`. Nothing is skipped and the queue is unchanged
+- The choice is the **player's**, so every attached TUI and `tidal-player playback status` show it; `tidal-player playback device` lists and switches from a shell (see [One-shot commands](daemon.md#one-shot-commands))
+- It lasts for the run: a restarted player starts on the configured device again (`output_device` in `app.toml`, `--device` or `TIDAL_PLAYER_DEVICE`; see [Settings](playback.md#settings)). Put the device there to keep it
 
 ## Failures
 

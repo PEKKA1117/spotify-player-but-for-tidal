@@ -15,7 +15,7 @@ use ratatui::{
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
     Header, HelpSection, Hints, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind,
-    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
+    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind, device_rows,
 };
 
 use super::{Columns, draw_prompt, fit, pad, tail, text_width};
@@ -618,8 +618,20 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
         return;
     };
     match popup {
-        // 0014 slice C
-        Popup::Devices { .. } => {}
+        Popup::Devices { list, cursor } => {
+            let selected = state.player.as_ref().map(|p| p.device.as_str());
+            let rows = device_rows(list, selected);
+            let name_width = rows.iter().map(|r| text_width(&r.name)).max().unwrap_or(0);
+            let labels: Vec<String> = rows
+                .iter()
+                .map(|r| {
+                    let mark = if r.selected { '●' } else { ' ' };
+                    format!("{mark} {}   {}", pad(&r.name, name_width), r.description)
+                })
+                .collect();
+            let status = list.status().map(|text| (text, Modifier::DIM));
+            list_popup(frame, page, "Devices", &labels, *cursor, status, "", 6);
+        }
         Popup::Actions {
             title,
             actions,
@@ -687,14 +699,31 @@ fn menu(
     cursor: usize,
     status: Option<(String, Modifier)>,
 ) {
+    list_popup(frame, page, title, labels, cursor, status, " ", 4);
+}
+
+/// [`menu`], with each row (and the status row) after `lead`, and `extra`
+/// columns beside the widest row (borders included).
+#[allow(clippy::too_many_arguments)]
+fn list_popup(
+    frame: &mut Frame,
+    page: Rect,
+    title: &str,
+    labels: &[String],
+    cursor: usize,
+    status: Option<(String, Modifier)>,
+    lead: &str,
+    extra: usize,
+) {
     let widest = labels
         .iter()
         .map(|l| text_width(l))
         .chain(std::iter::once(text_width(title)))
+        .chain(status.iter().map(|(text, _)| text_width(text)))
         .max()
         .unwrap_or(0);
     let rows = labels.len() + usize::from(status.is_some());
-    let rect = centred(page, (widest + 4).max(24), rows + 2);
+    let rect = centred(page, (widest + extra).max(24), rows + 2);
     let block = Block::bordered().title(Line::styled(
         fit(title, usize::from(rect.width).saturating_sub(2)),
         Style::new().add_modifier(Modifier::BOLD),
@@ -716,12 +745,12 @@ fn menu(
             } else {
                 Style::new()
             };
-            (pad(&fit(&format!(" {label}"), width), width), style)
+            (pad(&fit(&format!("{lead}{label}"), width), width), style)
         })
         .collect();
     if let Some((text, modifier)) = status {
         lines.push((
-            fit(&format!(" {text}"), width),
+            fit(&format!("{lead}{text}"), width),
             Style::new().add_modifier(modifier),
         ));
     }

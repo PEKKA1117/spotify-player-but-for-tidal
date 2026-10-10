@@ -1719,6 +1719,8 @@ mod tests {
         let mixes = mixes_states();
         // 0013 AC6: a pending sequence's hint over each kind of view.
         let hints = hint_states();
+        // 0014 AC9: the devices popup in each of its states.
+        let devices = devices_states();
         let sizes = sizes.chain(
             (1..=200)
                 .step_by(13)
@@ -1731,6 +1733,7 @@ mod tests {
                 .chain(&help)
                 .chain(&mixes)
                 .chain(&hints)
+                .chain(&devices)
             {
                 draw(state, width, height);
             }
@@ -2947,5 +2950,123 @@ mod tests {
         // No page area (under 8 rows): no hint.
         let text = draw(&pending(library(), &g), 80, 7);
         assert!(!text.contains("g …"), "{text}");
+    }
+
+    // --- spec 0014 AC9: the devices popup ------------------------------------------
+
+    use tidal_player_core::protocol::DeviceEntry;
+
+    fn device_list() -> Vec<DeviceEntry> {
+        [
+            ("default", "shared, through the system mixer"),
+            ("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+            ("hw:1,0", "E30 II: USB Audio"),
+        ]
+        .into_iter()
+        .map(|(name, description)| DeviceEntry {
+            name: name.into(),
+            description: description.into(),
+        })
+        .collect()
+    }
+
+    /// `D` over the queue of a player on `device`: the popup, loading; its
+    /// request ID.
+    fn devices_popup(device: &str) -> (State, u64) {
+        let mut snapshot = playing();
+        snapshot.device = device.into();
+        let mut state = state_of(snapshot);
+        let effects = press(&mut state, &[Key::Char('D')]);
+        let id = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Devices { id } => Some(*id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no devices request: {effects:?}"));
+        (state, id)
+    }
+
+    /// The popup with the player's answer.
+    fn devices_answered(device: &str, result: Result<Vec<DeviceEntry>, String>) -> State {
+        let (mut state, id) = devices_popup(device);
+        update(&mut state, Action::DevicesReply { id, result });
+        state
+    }
+
+    fn devices_states() -> Vec<State> {
+        let mut moved = devices_answered("hw:1,0", Ok(device_list()));
+        press(&mut moved, &[Key::Char('k')]);
+        vec![
+            devices_popup("default").0,
+            devices_answered("default", Ok(device_list())),
+            devices_answered("plughw:1,0", Ok(device_list())),
+            devices_answered("default", Err("cannot read /proc/asound/cards".into())),
+            devices_answered("default", Ok(Vec::new())),
+            moved,
+        ]
+    }
+
+    /// 0014 AC9: the devices popup at 80×24 (loading, the list with `●` on
+    /// the selected device and the names aligned, a selected device the
+    /// list lacks shown first as `not found`, a failure) and at 40×12.
+    #[test]
+    fn ac9_devices_popup() {
+        let text = draw(&devices_popup("default").0, 80, 24);
+        assert_contains(&text, &["┌Devices", "Loading devices…"]);
+        insta::assert_snapshot!("ac9_devices_loading", text);
+
+        let state = devices_answered("default", Ok(device_list()));
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "┌Devices",
+                "│● default   shared, through the system mixer",
+                "│  hw:0,0    HDA Intel PCH: ALC892 Analog",
+                "│  hw:1,0    E30 II: USB Audio",
+            ],
+        );
+        // The cursor's row (the selected device) is reversed.
+        let terminal = draw_terminal(&state, 80, 24);
+        let y = row_of(&text, "● default");
+        let x = line_with(&text, "● default")
+            .split("● default")
+            .next()
+            .unwrap()
+            .chars()
+            .count();
+        assert!(
+            terminal.backend().buffer()[(x as u16, y as u16)]
+                .modifier
+                .contains(Mod::REVERSED),
+            "{text}"
+        );
+        insta::assert_snapshot!("ac9_devices_list", text);
+
+        let text = draw(&devices_answered("plughw:1,0", Ok(device_list())), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "│● plughw:1,0   not found",
+                "│  default      shared, through the system mixer",
+            ],
+        );
+        insta::assert_snapshot!("ac9_devices_missing", text);
+
+        let text = draw(
+            &devices_answered(
+                "default",
+                Err("cannot read /proc/asound/cards: Permission denied".into()),
+            ),
+            80,
+            24,
+        );
+        assert_contains(&text, &["┌Devices", "Cannot list devices: cannot read"]);
+        insta::assert_snapshot!("ac9_devices_failed", text);
+
+        let text = draw(&devices_answered("hw:1,0", Ok(device_list())), 40, 12);
+        assert_contains(&text, &["┌Devices", "● hw:1,0"]);
+        insta::assert_snapshot!("ac9_devices_40x12", text);
     }
 }

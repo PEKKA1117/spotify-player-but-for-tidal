@@ -157,3 +157,48 @@ fn ac7_key_hints_documented() {
     );
     assert!(zh.contains("key_hints_delay_ms"), "docs/zh-TW/tui.md");
 }
+
+/// 0014 AC12: the output device is documented: `D` and its popup in
+/// `docs/tui.md`, `SwitchDevice` in `docs/config.md`, `playback device` in
+/// `docs/daemon.md` and `docs/playback.md`, in English and in the zh-TW
+/// copies, and the README mentions it.
+#[test]
+fn ac12_device_selection_documented() {
+    for prefix in ["", "zh-TW/"] {
+        let tui = doc(&format!("{prefix}tui.md"));
+        for needed in ["`D`", "SwitchDevice", "playback device", "Devices"] {
+            assert!(tui.contains(needed), "docs/{prefix}tui.md: {needed}");
+        }
+        let config = doc(&format!("{prefix}config.md"));
+        assert!(
+            !rows(&config, "SwitchDevice").is_empty(),
+            "docs/{prefix}config.md: a SwitchDevice row"
+        );
+        assert!(
+            config.contains("output_device"),
+            "docs/{prefix}config.md: output_device"
+        );
+        let daemon = doc(&format!("{prefix}daemon.md"));
+        assert!(
+            !rows(&daemon, "device").is_empty() && daemon.contains("playback device"),
+            "docs/{prefix}daemon.md: playback device"
+        );
+        let playback = doc(&format!("{prefix}playback.md"));
+        for needed in ["playback device", "tidal-player devices", "output_device"] {
+            assert!(
+                playback.contains(needed),
+                "docs/{prefix}playback.md: {needed}"
+            );
+        }
+    }
+    for readme in ["README.md", "README.zh-TW.md"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(readme);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("playback device"), "{readme}");
+    }
+    if let Some(row) = rows(&doc("tui.md"), "D").first() {
+        assert!(row.contains("Devices") || row.contains("device"), "{row}");
+    }
+}

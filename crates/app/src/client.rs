@@ -171,8 +171,7 @@ impl Link for InProcessLink {
                 id,
                 request,
             },
-            // 0014 slice C
-            ClientMessage::Devices { .. } => return Ok(()),
+            ClientMessage::Devices { id } => ClientInput::Devices { client, id },
         };
         self.inputs
             .send(RuntimeInput::Client(input))
@@ -386,6 +385,12 @@ impl<C: Connector> Session<C> {
         self.write(&ClientMessage::Library { id, request });
     }
 
+    /// Asks the player for its output devices (spec 0014); the answer
+    /// comes back as `Action::DevicesReply` with `id`.
+    pub fn send_devices(&mut self, id: u64) {
+        self.write(&ClientMessage::Devices { id });
+    }
+
     fn write(&mut self, message: &ClientMessage) {
         if let Some(link) = self.link.as_mut()
             && link.send(message).is_err()
@@ -441,8 +446,9 @@ impl<C: Connector> Session<C> {
                 Ok(Some(ServerMessage::LibraryReply { id, result })) => {
                     actions.push(Action::LibraryReply { id, result })
                 }
-                // 0014 slice C
-                Ok(Some(ServerMessage::DevicesReply { .. })) => {}
+                Ok(Some(ServerMessage::DevicesReply { id, result })) => {
+                    actions.push(Action::DevicesReply { id, result })
+                }
                 Err(_) => self.lost = true,
             }
         }

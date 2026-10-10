@@ -20,6 +20,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
@@ -37,7 +38,9 @@ use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
 };
-use tidal_player_core::protocol::{Command, Event, InsertAt, PlaybackState, PlayerSnapshot};
+use tidal_player_core::protocol::{
+    Command, DeviceEntry, Event, InsertAt, PlaybackState, PlayerSnapshot,
+};
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::ipc::server::{ClientId, ClientInput, Hub};
@@ -45,6 +48,9 @@ use crate::persist::{Loaded, Persister, SaveResult, SaveSchedule};
 use crate::play::{
     PlayerSettings, engine_failure, output_description, source_description, start_autoplay,
 };
+
+/// The reply to a `SetDevice` with an empty name (spec 0014).
+pub const EMPTY_DEVICE_NAME: &str = "Device name is empty";
 
 /// How long the runtime thread waits for an engine event before it looks at
 /// its other inputs again (the latency of a key press, at worst).
@@ -98,6 +104,42 @@ pub trait Jobs {
     fn expand(&mut self, tag: u64, items: Vec<Item>);
     /// Answer a library request of `client` (answer: `LibraryDone`).
     fn library(&mut self, client: ClientId, id: u64, request: LibraryRequest);
+}
+
+/// The player's machine's output devices (spec 0014 "Listing devices"),
+/// read at each request. An `Err` is the message the client shows.
+pub trait DeviceLister: Send {
+    fn list(&self) -> Result<Vec<DeviceEntry>, String>;
+}
+
+/// The devices under an `asound` directory (`/proc/asound`, or
+/// `TIDAL_PLAYER_ASOUND_DIR`), read fresh on every request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsoundDevices {
+    pub dir: PathBuf,
+}
+
+impl AsoundDevices {
+    /// From the process environment.
+    pub fn from_env() -> Self {
+        Self {
+            dir: crate::play::asound_dir(|key| std::env::var(key).ok()),
+        }
+    }
+}
+
+impl DeviceLister for AsoundDevices {
+    fn list(&self) -> Result<Vec<DeviceEntry>, String> {
+        crate::play::read_devices(&self.dir).map(|devices| {
+            devices
+                .into_iter()
+                .map(|d| DeviceEntry {
+                    name: d.name,
+                    description: d.description,
+                })
+                .collect()
+        })
+    }
 }
 
 /// The library as the player reaches it (spec 0006 "Talking to the
@@ -399,6 +441,8 @@ pub struct PlayerRuntime<E, J> {
     /// The remembered playback state (spec 0009): `None` for a player
     /// that remembers nothing (`play`, and the tests of 0004–0008).
     persistence: Option<Persistence>,
+    /// Answers `Devices` (spec 0014 AC7).
+    devices: Box<dyn DeviceLister>,
 }
 
 /// The playback file and when to write it (spec 0009 "Saving").
@@ -556,7 +600,15 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             next_open: 0,
             library: HashMap::new(),
             persistence: None,
+            devices: Box::new(AsoundDevices::from_env()),
         }
+    }
+
+    /// Answers `Devices` with `devices` instead of `/proc/asound`.
+    #[must_use]
+    pub fn with_devices(mut self, devices: Box<dyn DeviceLister>) -> Self {
+        self.devices = devices;
+        self
     }
 
     /// The player's state, as clients see it.
@@ -657,10 +709,6 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 return handled;
             }
             RuntimeInput::Command(command) => PlayerInput::Command(command),
-            // 0014 slice C: map the device switch events into the player.
-            RuntimeInput::Engine(
-                audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. }, // 0014 slice C
-            ) => return handled, // 0014 slice C
             RuntimeInput::Engine(event) => {
                 let (input, n) = self.engine_input(event, &mut handled);
                 notice = n;
@@ -787,9 +835,32 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 handled.failures.push(failure.clone());
                 (EngineEvent::ResumeFailed { failure }, Notice::None)
             }
-            // 0014 slice C: filtered out in `apply` until slice C maps them.
-            audio::Event::OutputChanged(_) | audio::Event::DeviceFallback { .. } => {
-                unreachable!("filtered out in apply") // 0014 slice C
+            audio::Event::OutputChanged(output) => {
+                // The source line is the player's (it keeps it).
+                let details = TrackDetails {
+                    source: String::new(),
+                    output: output_description(&output),
+                    bit_perfect: output.bit_perfect,
+                    reason: output.not_bit_perfect_reason.clone(),
+                };
+                (EngineEvent::OutputChanged(details), Notice::None)
+            }
+            audio::Event::DeviceFallback {
+                tried,
+                error,
+                device,
+            } => {
+                // 0003's message for the failed open (not a failure: the
+                // track carries on on `device`).
+                let message = engine_failure(0, &audio::EngineError::Output(error)).message;
+                (
+                    EngineEvent::DeviceFallback {
+                        tried,
+                        message,
+                        device,
+                    },
+                    Notice::None,
+                )
             }
             audio::Event::Error { tag, error } => {
                 let track = sent(tag).map_or(0, |s| s.track.0);
@@ -856,8 +927,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             PlayerEffect::EngineSeek(position) => self.engine.send(audio::Command::Seek(position)),
             PlayerEffect::EngineStop => self.engine.send(audio::Command::Stop),
             PlayerEffect::EngineSetGain(gain) => self.engine.send(audio::Command::SetGain(gain)),
-            // 0014 slice C
-            PlayerEffect::EngineSetDevice(_) => {}
+            PlayerEffect::EngineSetDevice(device) => {
+                self.engine.send(audio::Command::SetDevice(device));
+            }
             PlayerEffect::FetchSuggestions { seed, tag } => {
                 self.suggesting.insert(tag);
                 self.jobs.suggest(tag, seed);
@@ -903,6 +975,19 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                     queue.waiting.push_back((id, request));
                     self.library_next(client);
                 }
+            }
+            ClientInput::Devices { client, id } => {
+                // Read now: a card plugged in since shows up (spec 0014).
+                let result = self.devices.list();
+                self.hub.reply_devices(client, id, result);
+            }
+            ClientInput::Request {
+                client,
+                id,
+                command: Command::SetDevice(name),
+            } if name.is_empty() => {
+                self.hub
+                    .reply(client, id, Err(EMPTY_DEVICE_NAME.to_owned()));
             }
             ClientInput::Request {
                 client,
@@ -2084,9 +2169,13 @@ mod tests {
             loop {
                 while let Some(action) = pending.pop_front() {
                     for effect in ui::update(&mut self.ui, action) {
-                        if let ui::Effect::Send(command) = effect {
-                            self.sent.push(command.clone());
-                            self.session.send(command);
+                        match effect {
+                            ui::Effect::Send(command) => {
+                                self.sent.push(command.clone());
+                                self.session.send(command);
+                            }
+                            ui::Effect::Devices { id } => self.session.send_devices(id),
+                            _ => {}
                         }
                     }
                 }
@@ -2874,5 +2963,261 @@ mod tests {
         // Shown once: the next failure says nothing new.
         rt.handle(RuntimeInput::Command(Command::ToggleMute));
         assert!(rt.tick(Instant::now() + Duration::from_secs(6)).is_empty());
+    }
+
+    /// The `asound` fixtures of the audio crate.
+    fn asound_fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../audio/tests/fixtures/asound")
+            .join(name)
+    }
+
+    /// 0014 AC6: the device the player starts on is the configured one
+    /// (flag for `play`, then `TIDAL_PLAYER_DEVICE`, `output_device`,
+    /// `default`), the one `main` starts the engine on, and the snapshot
+    /// says so, for a fresh and a restored player.
+    #[test]
+    fn ac6_snapshot_device_is_configured() {
+        use crate::config::AppConfig;
+        use crate::play::{
+            DEVICE_VAR, resolve_play_config_with, resolve_player_config_with,
+            resolve_settings_with, with_device,
+        };
+
+        struct Row {
+            name: &'static str,
+            file: Option<&'static str>,
+            env: Option<&'static str>,
+            /// `play --device`; `None` for the TUI and the daemon.
+            flag: Option<&'static str>,
+            want: &'static str,
+        }
+        let rows = [
+            Row {
+                name: "default",
+                file: None,
+                env: None,
+                flag: None,
+                want: "default",
+            },
+            Row {
+                name: "app.toml",
+                file: Some("hw:0,0"),
+                env: None,
+                flag: None,
+                want: "hw:0,0",
+            },
+            Row {
+                name: "environment over app.toml",
+                file: Some("hw:0,0"),
+                env: Some("hw:1,0"),
+                flag: None,
+                want: "hw:1,0",
+            },
+            Row {
+                name: "play's flag over the environment",
+                file: Some("hw:0,0"),
+                env: Some("hw:1,0"),
+                flag: Some("plughw:1,0"),
+                want: "plughw:1,0",
+            },
+        ];
+        for row in rows {
+            let name = row.name;
+            let file = AppConfig {
+                output_device: row.file.map(str::to_owned),
+                ..AppConfig::default()
+            };
+            let env = |key: &str| (key == DEVICE_VAR).then(|| row.env.map(str::to_owned))?;
+            let settings = resolve_settings_with(&file, None, row.flag, env).unwrap();
+            let player = match row.flag {
+                Some(_) => resolve_play_config_with(&file, false, env),
+                None => resolve_player_config_with(&file, env),
+            }
+            .unwrap();
+            // As `main` (and `play`) build the player and its engine.
+            let config = with_device(player.player.clone(), &settings);
+            let engine_device = settings.device.clone();
+            assert_eq!(engine_device, row.want, "{name}: engine");
+            assert_eq!(config.device, engine_device, "{name}: config");
+
+            let log: Log = Arc::default();
+            let (tx, _rx) = mpsc::channel();
+            let rt = PlayerRuntime::new(
+                config.clone(),
+                7,
+                FakeEngine::new(&log, Script::Plays),
+                FakeJobs::new(&log, &tx, false),
+            );
+            assert_eq!(rt.snapshot().device, row.want, "{name}: fresh");
+
+            let dir = tempfile::tempdir().unwrap();
+            let rt = PlayerRuntime::restored(
+                config,
+                7,
+                &player,
+                Persister::new(dir.path().to_owned(), true),
+                FakeEngine::new(&log, Script::Plays),
+                FakeJobs::new(&log, &tx, false),
+            );
+            assert_eq!(rt.snapshot().device, row.want, "{name}: restored");
+        }
+    }
+
+    /// 0014 AC11: with two subscribers (the TUI in-process and a socket
+    /// client), a `SetDevice` from the TUI reaches the engine as
+    /// `SetDevice` and both get the snapshot with the new device; the
+    /// engine's `OutputChanged` reaches both as the new output line, and a
+    /// `DeviceFallback` as 0003's message with the device put back. An
+    /// empty name is refused with a reply. The popup lists the player's
+    /// devices through the in-process link.
+    #[test]
+    fn ac11_set_device_reaches_engine() {
+        use crate::ipc::server::{OUTBOX, Peer};
+        use tidal_player_audio::{OutputKind, SampleFormat};
+        use tidal_player_core::protocol::ServerMessage;
+
+        const OTHER: ClientId = ClientId(900);
+        let (mut client, log) = Client::build(
+            |engine, jobs| {
+                PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs).with_devices(Box::new(
+                    AsoundDevices {
+                        dir: asound_fixture("onboard_usb"),
+                    },
+                ))
+            },
+            None,
+        );
+        let (outbox, other) = mpsc::sync_channel(OUTBOX);
+        client.rt.handle(RuntimeInput::Client(ClientInput::Attach {
+            client: OTHER,
+            peer: Peer::new(outbox, None),
+        }));
+        client
+            .rt
+            .handle(RuntimeInput::Client(ClientInput::Subscribe(OTHER)));
+        let other_snapshots = || -> Vec<PlayerSnapshot> {
+            other
+                .try_iter()
+                .filter_map(|m| match m {
+                    ServerMessage::Welcome { snapshot, .. }
+                    | ServerMessage::Event(Event::Player(snapshot)) => Some(snapshot),
+                    _ => None,
+                })
+                .collect()
+        };
+        client.rt.handle(load(&[1, 2]));
+        client.act(Vec::new());
+        assert_eq!(client.rt.snapshot().state, PlaybackState::Playing);
+        assert_eq!(client.rt.snapshot().device, "default");
+        other_snapshots();
+        take(&log);
+
+        // The TUI's `SetDevice`: the engine's call, both snapshots.
+        client.session.send(Command::SetDevice("hw:0,0".into()));
+        client.act(Vec::new());
+        assert_eq!(take(&log), vec![Call::SetDevice("hw:0,0".into())]);
+        let tui = client.ui.player.clone().expect("a snapshot");
+        assert_eq!(tui.device, "hw:0,0");
+        assert_eq!(
+            other_snapshots().last().map(|s| s.device.clone()),
+            Some("hw:0,0".to_owned())
+        );
+
+        // The engine reopened it: the new output line, to both.
+        let onboard = OutputInfo {
+            requested: "hw:0,0".into(),
+            device: "hw:0,0".into(),
+            kind: OutputKind::Exclusive,
+            sample_format: SampleFormat::S16Le,
+            sample_rate: 44_100,
+            channels: 2,
+            bit_perfect: true,
+            not_bit_perfect_reason: None,
+        };
+        client
+            .rt
+            .handle(RuntimeInput::Engine(audio::Event::OutputChanged(onboard)));
+        client.act(Vec::new());
+        let output = |s: &PlayerSnapshot| s.now_playing.as_ref().map(|np| np.output.clone());
+        let want = Some("hw:0,0 (exclusive) S16_LE 44.1 kHz 2 ch".to_owned());
+        assert_eq!(client.ui.player.as_ref().and_then(output), want);
+        let seen = other_snapshots();
+        assert_eq!(seen.last().and_then(output), want);
+        assert_eq!(
+            seen.last()
+                .and_then(|s| s.now_playing.as_ref())
+                .map(|np| np.source.clone()),
+            Some("FLAC 16-bit 44.1 kHz stereo".to_owned()),
+            "the source line is kept"
+        );
+
+        // A switch that falls back: 0003's message, the device put back.
+        client.session.send(Command::SetDevice("hw:1,0".into()));
+        client.act(Vec::new());
+        client
+            .rt
+            .handle(RuntimeInput::Engine(audio::Event::DeviceFallback {
+                tried: "hw:1,0".into(),
+                error: SinkError::Busy {
+                    device: "hw:1,0".into(),
+                    holder: Some("firefox".into()),
+                },
+                device: "hw:0,0".into(),
+            }));
+        client.act(Vec::new());
+        let message = "Cannot switch to hw:1,0: Output hw:1,0 is busy (used by firefox): \
+                       close it, or use --device default; staying on hw:0,0";
+        for snapshot in [
+            client.ui.player.clone().expect("a snapshot"),
+            other_snapshots().pop().expect("a snapshot"),
+        ] {
+            assert_eq!(snapshot.device, "hw:0,0");
+            assert_eq!(snapshot.message.as_deref(), Some(message));
+            assert_eq!(snapshot.state, PlaybackState::Playing);
+        }
+        take(&log);
+
+        // An empty name: refused with the reply, nothing reaches the engine.
+        client.rt.handle(RuntimeInput::Client(ClientInput::Request {
+            client: OTHER,
+            id: 5,
+            command: Command::SetDevice(String::new()),
+        }));
+        let replies: Vec<ServerMessage> = other
+            .try_iter()
+            .filter(|m| matches!(m, ServerMessage::Reply { .. }))
+            .collect();
+        assert_eq!(
+            replies,
+            vec![ServerMessage::Reply {
+                id: 5,
+                result: Err("Device name is empty".into())
+            }]
+        );
+        assert_eq!(take(&log), vec![]);
+        assert_eq!(client.rt.snapshot().device, "hw:0,0");
+
+        // The popup, through the in-process link: the player's list, the
+        // cursor on its device; `k` then `Enter` switches to `hw:0,0`'s
+        // neighbour above, `default`.
+        client.sent.clear();
+        client.act(vec![ui::Action::Key(ui::Key::Char('D'))]);
+        match &client.ui.popup {
+            Some(ui::Popup::Devices {
+                list: ui::DeviceList::Loaded(devices),
+                cursor,
+            }) => {
+                assert_eq!(devices.len(), 4, "{devices:?}");
+                assert_eq!(devices[*cursor].name, "hw:0,0");
+            }
+            other => panic!("expected the loaded devices popup, got {other:?}"),
+        }
+        client.act(vec![
+            ui::Action::Key(ui::Key::Char('k')),
+            ui::Action::Key(ui::Key::Enter),
+        ]);
+        assert_eq!(client.sent, vec![Command::SetDevice("default".into())]);
+        assert_eq!(take(&log), vec![Call::SetDevice("default".into())]);
     }
 }

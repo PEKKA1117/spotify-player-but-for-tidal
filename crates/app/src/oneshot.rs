@@ -10,9 +10,13 @@ use tidal_player_core::protocol::{
     ClientMessage, Command, InsertAt, PlaybackState, PlayerSnapshot, RepeatMode, ServerMessage,
 };
 
+use tidal_player_audio::devices::{PlaybackDevice, format_devices};
+use tidal_player_core::protocol::DeviceEntry;
+use tidal_player_core::ui::{DeviceList, device_rows};
+
 use crate::client::{Link, find};
 use crate::ipc::codec::encode;
-use crate::player_runtime::parse_items;
+use crate::player_runtime::{EMPTY_DEVICE_NAME, parse_items};
 use crate::ui::clock;
 
 /// How long a one-shot command waits for the player's answer.
@@ -88,6 +92,12 @@ pub enum PlaybackCommand {
         #[arg(value_name = "ITEM", required = true)]
         items: Vec<String>,
     },
+    /// The running player's output devices (`*`: the one it uses), or
+    /// switch it to NAME (an ALSA PCM name, as "tidal-player devices" lists).
+    Device {
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+    },
     /// Print what is playing.
     Status {
         /// The player's state as one JSON line.
@@ -104,6 +114,9 @@ pub enum Plan {
     Status {
         json: bool,
     },
+    /// `Devices` and `Subscribe`, print the list with `*` on the player's
+    /// device, leave.
+    Devices,
 }
 
 /// A bad argument or item (exit 2, nothing sent).
@@ -115,6 +128,8 @@ pub enum UsageError {
     Volume(String),
     #[error("{0}")]
     Item(String),
+    #[error("{EMPTY_DEVICE_NAME}")]
+    EmptyDevice,
 }
 
 /// The message `command` sends.
@@ -149,6 +164,11 @@ pub fn plan(command: &PlaybackCommand) -> Result<Plan, UsageError> {
             at: Some(if *next { InsertAt::Next } else { InsertAt::End }),
         },
         PlaybackCommand::Status { json } => return Ok(Plan::Status { json: *json }),
+        PlaybackCommand::Device { name: None } => return Ok(Plan::Devices),
+        PlaybackCommand::Device { name: Some(name) } if name.is_empty() => {
+            return Err(UsageError::EmptyDevice);
+        }
+        PlaybackCommand::Device { name: Some(name) } => Command::SetDevice(name.clone()),
     };
     Ok(Plan::Request(command))
 }
@@ -248,6 +268,9 @@ pub fn status_lines(snapshot: &PlayerSnapshot, login_required: bool) -> String {
             } else {
                 format!("{}%", snapshot.volume)
             });
+            if !snapshot.device.is_empty() {
+                second.push(snapshot.device.clone());
+            }
             if snapshot.now_playing.as_ref().is_some_and(|np| np.released) {
                 second.push("device released".to_owned());
             }
@@ -271,18 +294,24 @@ pub fn execute<L: Link>(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let message = match plan {
-        Plan::Request(command) => ClientMessage::Request {
+    let messages = match plan {
+        Plan::Request(command) => vec![ClientMessage::Request {
             id: 0,
             command: command.clone(),
-        },
-        Plan::Status { .. } => ClientMessage::Subscribe,
+        }],
+        Plan::Status { .. } => vec![ClientMessage::Subscribe],
+        // The list, and the snapshot for the player's device.
+        Plan::Devices => vec![ClientMessage::Devices { id: 0 }, ClientMessage::Subscribe],
     };
-    if let Err(e) = link.send(&message) {
-        let _ = writeln!(err, "{e}");
-        return 1;
+    for message in &messages {
+        if let Err(e) = link.send(message) {
+            let _ = writeln!(err, "{e}");
+            return 1;
+        }
     }
     let deadline = Instant::now() + timeout;
+    let mut devices: Option<Vec<DeviceEntry>> = None;
+    let mut selected: Option<String> = None;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         let answer = match link.recv(Some(left)) {
@@ -320,10 +349,38 @@ pub fn execute<L: Link>(
                 };
                 return u8::from(written.and_then(|()| out.flush()).is_err());
             }
+            (Plan::Devices, ServerMessage::DevicesReply { id: 0, result }) => match result {
+                Ok(list) => devices = Some(list),
+                Err(message) => {
+                    let _ = writeln!(err, "Cannot list devices: {message}");
+                    return 1;
+                }
+            },
+            (Plan::Devices, ServerMessage::Welcome { snapshot, .. }) => {
+                selected = Some(snapshot.device);
+            }
             // Anything else (an event before the `Welcome`) is not the answer.
             _ => {}
         }
+        if let (Some(list), Some(selected)) = (&devices, &selected) {
+            let written = out.write_all(device_lines(list, selected).as_bytes());
+            return u8::from(written.and_then(|()| out.flush()).is_err());
+        }
     }
+}
+
+/// `playback device`: the player's list as `tidal-player devices` prints
+/// it, `*` on the player's `selected` device, which comes first as `not
+/// found` when the list does not have it (spec 0014 "Listing devices").
+pub fn device_lines(list: &[DeviceEntry], selected: &str) -> String {
+    let rows: Vec<PlaybackDevice> = device_rows(&DeviceList::Loaded(list.to_vec()), Some(selected))
+        .into_iter()
+        .map(|row| PlaybackDevice {
+            name: row.name,
+            description: row.description,
+        })
+        .collect();
+    format_devices(&rows, selected)
 }
 
 /// `tidal-player playback <command>`.
@@ -604,7 +661,7 @@ mod tests {
                 playing(),
                 false,
                 "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
-                 1:23 / 3:32 · shuffle · repeat: queue · 80%\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80% · default\n\
                  Queue: 2 of 12\n",
             ),
             (
@@ -612,7 +669,7 @@ mod tests {
                 paused_released,
                 false,
                 "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
-                 1:23 / 3:32 · autoplay · muted · device released\n\
+                 1:23 / 3:32 · autoplay · muted · default · device released\n\
                  Queue: 2 of 12\n",
             ),
             (
@@ -620,7 +677,7 @@ mod tests {
                 failed,
                 false,
                 "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
-                 1:23 / 3:32 · autoplay · muted · device released\n\
+                 1:23 / 3:32 · autoplay · muted · default · device released\n\
                  Queue: 2 of 12\n\
                  Output hw:1,0 is busy (used by firefox)\n",
             ),
@@ -629,7 +686,7 @@ mod tests {
                 unknown,
                 false,
                 "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
-                 1:23 / ?:?? · shuffle · repeat: queue · 80%\n\
+                 1:23 / ?:?? · shuffle · repeat: queue · 80% · default\n\
                  Queue: 2 of 12\n",
             ),
             ("nothing playing", empty.clone(), false, "Nothing playing\n"),
@@ -644,7 +701,7 @@ mod tests {
                 playing(),
                 true,
                 "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
-                 1:23 / 3:32 · shuffle · repeat: queue · 80%\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80% · default\n\
                  Queue: 2 of 12\n\
                  Session expired: run \"tidal-player login\"\n",
             ),
@@ -756,5 +813,149 @@ mod tests {
                 vec![ClientMessage::Subscribe]
             )
         );
+    }
+
+    /// 0014 AC10: `device` lists, `device NAME` sends `SetDevice(NAME)`,
+    /// an empty name is refused before anything is sent (exit 2); the
+    /// list is printed like `tidal-player devices` with `*` on the
+    /// player's device, a player's error is exit 1.
+    #[test]
+    fn ac10_parse_device() {
+        use tidal_player_core::protocol::DeviceEntry;
+
+        assert_eq!(parse(&["device"]), Ok(Plan::Devices));
+        assert_eq!(
+            parse(&["device", "hw:1,0"]),
+            request(Command::SetDevice("hw:1,0".into()))
+        );
+        assert_eq!(
+            parse(&["device", "plughw:1,0"]),
+            request(Command::SetDevice("plughw:1,0".into()))
+        );
+        assert_eq!(parse(&["device", ""]), Err("Device name is empty".into()));
+        assert!(parse(&["device", "a", "b"]).is_err(), "two names accepted");
+
+        // Switching: the player's answer is the exit code.
+        let set = Plan::Request(Command::SetDevice("hw:9,0".into()));
+        let reply = |result| Ok(ServerMessage::Reply { id: 0, result });
+        let asked = vec![ClientMessage::Request {
+            id: 0,
+            command: Command::SetDevice("hw:9,0".into()),
+        }];
+        assert_eq!(
+            exec(&set, vec![reply(Ok(()))]),
+            (0, String::new(), String::new(), asked.clone())
+        );
+        assert_eq!(
+            exec(&set, vec![reply(Err("Device name is empty".into()))]),
+            (1, String::new(), "Device name is empty\n".into(), asked)
+        );
+
+        // Listing: `*` on the player's device (from its snapshot), the
+        // answer in either order, events before them skipped.
+        let entry = |name: &str, description: &str| DeviceEntry {
+            name: name.into(),
+            description: description.into(),
+        };
+        let list = vec![
+            entry("default", "shared, through the system mixer"),
+            entry("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+            entry("hw:1,0", "E30 II: USB Audio"),
+        ];
+        let mut snapshot = playing();
+        snapshot.device = "hw:1,0".into();
+        let welcome = ServerMessage::Welcome {
+            snapshot: snapshot.clone(),
+            login_required: false,
+        };
+        let devices = ServerMessage::DevicesReply {
+            id: 0,
+            result: Ok(list.clone()),
+        };
+        let want = "  default  shared, through the system mixer\n  \
+                    hw:0,0   HDA Intel PCH: ALC892 Analog\n\
+                    * hw:1,0   E30 II: USB Audio\n";
+        for answers in [
+            vec![Ok(welcome.clone()), Ok(devices.clone())],
+            vec![
+                Ok(devices.clone()),
+                Ok(ServerMessage::Event(
+                    tidal_player_core::protocol::Event::Player(playing()),
+                )),
+                Ok(welcome.clone()),
+            ],
+        ] {
+            let (code, out, err, sent) = exec(&Plan::Devices, answers);
+            assert_eq!((code, out.as_str(), err.as_str()), (0, want, ""));
+            assert_eq!(
+                sent,
+                vec![ClientMessage::Devices { id: 0 }, ClientMessage::Subscribe]
+            );
+        }
+        // A selected device the list does not have: printed first, marked,
+        // `not found`.
+        let mut missing = snapshot;
+        missing.device = "plughw:1,0".into();
+        let (code, out, _, _) = exec(
+            &Plan::Devices,
+            vec![
+                Ok(ServerMessage::Welcome {
+                    snapshot: missing,
+                    login_required: false,
+                }),
+                Ok(devices),
+            ],
+        );
+        assert_eq!(code, 0);
+        assert_eq!(out.lines().next(), Some("* plughw:1,0  not found"), "{out}");
+        // The player cannot list: its message, exit 1.
+        let (code, out, err, _) = exec(
+            &Plan::Devices,
+            vec![
+                Ok(welcome),
+                Ok(ServerMessage::DevicesReply {
+                    id: 0,
+                    result: Err("cannot read /proc/asound/cards: denied".into()),
+                }),
+            ],
+        );
+        assert_eq!(
+            (code, out.as_str(), err.as_str()),
+            (
+                1,
+                "",
+                "Cannot list devices: cannot read /proc/asound/cards: denied\n"
+            )
+        );
+        // No answer in time.
+        let (code, _, err, _) = exec(&Plan::Devices, vec![]);
+        assert_eq!((code, err), (1, format!("{NO_ANSWER}\n")));
+    }
+
+    /// 0014 AC10: `status`'s second line has the selected device after the
+    /// volume (before `device released`).
+    #[test]
+    fn ac10_status_device_line() {
+        let second = |s: &PlayerSnapshot| status_lines(s, false).lines().nth(1).map(str::to_owned);
+        let mut dac = playing();
+        dac.device = "hw:1,0".into();
+        assert_eq!(
+            second(&dac).as_deref(),
+            Some("1:23 / 3:32 · shuffle · repeat: queue · 80% · hw:1,0")
+        );
+        dac.muted = true;
+        if let Some(np) = dac.now_playing.as_mut() {
+            np.released = true;
+        }
+        assert_eq!(
+            second(&dac).as_deref(),
+            Some("1:23 / 3:32 · shuffle · repeat: queue · muted · hw:1,0 · device released")
+        );
+        // Nothing playing: one line, as before.
+        let idle = PlayerSnapshot {
+            current: None,
+            ..playing()
+        };
+        assert_eq!(status_lines(&idle, false), "Nothing playing\n");
     }
 }

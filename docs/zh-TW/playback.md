@@ -60,7 +60,7 @@ Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect
 <a id="tidal-player-devices"></a>
 ### `tidal-player devices`
 
-列出 `--device` 接受的裝置：先是 `default`，接著是每個能播放的 ALSA 硬體裝置（`hw:CARD,DEVICE`），附上音效卡名稱。`play` 會使用的裝置以 `*` 標示：
+列出本機的裝置，也就是 `--device` 接受的裝置：先是 `default`，接著是每個能播放的 ALSA 硬體裝置（`hw:CARD,DEVICE`），附上音效卡名稱。設定的裝置（`play` 會使用的裝置，來自 `--device`、`TIDAL_PLAYER_DEVICE` 或 `output_device`）以 `*` 標示：
 
 ```
 $ tidal-player devices
@@ -70,7 +70,7 @@ $ tidal-player devices
   hw:1,0   E30 II: USB Audio
 ```
 
-它讀取 `/proc/asound/cards` 與 `/proc/asound/pcm`；只能錄音的裝置（麥克風）不會列出。
+它讀取 `/proc/asound/cards` 與 `/proc/asound/pcm`；只能錄音的裝置（麥克風）不會列出。它不會詢問正在執行的播放器，因此不會顯示播放器執行期間選擇的裝置：請用 [`tidal-player playback device`](#choosing-the-output-device)。
 
 <a id="settings"></a>
 ## 設定
@@ -101,12 +101,24 @@ $ tidal-player devices
 
 要把 DAC 設為預設，在 `~/.config/tidal-player/app.toml` 中加上 `output_device = "hw:1,0"`（或在 shell 設定檔中加上 `export TIDAL_PLAYER_DEVICE=hw:1,0`）。
 
+<a id="choosing-the-output-device"></a>
+### 選擇輸出裝置
+
+播放器（獨立模式的 TUI、常駐程式、`play`）會從**設定的裝置**開始：`--device`（僅限 `play`），否則 `TIDAL_PLAYER_DEVICE`，否則 `app.toml` 中的 `output_device`，否則 `default`。執行期間可以從任何用戶端把它移到另一個裝置：在 TUI 中按 `D`（[Devices 彈出視窗](tui.md#output-device)），或在 shell 中執行 `tidal-player playback device hw:1,0`。正在播放的曲目會在原位置移到新裝置，不會遺失或重複；無法開啟的裝置會讓播放器留在原本使用的裝置，並顯示訊息。設計文件：[spec 0014](../specs/0014-device-selection.md)。
+
+| 指令 | 列出 | `*` 標示 |
+|---|---|---|
+| `tidal-player devices` | 本機的裝置，不詢問任何播放器 | 設定的裝置 |
+| `tidal-player playback device` | 正在執行的播放器所在機器的裝置，於詢問時讀取 | 播放器目前使用的裝置，即使是執行期間才選擇的 |
+
+執行期間選擇的裝置只在這次執行有效：它不會與佇列一起被記住，因此重新啟動的播放器（或常駐程式）會再次從設定的裝置開始。要保留某個裝置，請設定 `output_device`（或 `TIDAL_PLAYER_DEVICE`、`--device`）。
+
 <a id="resuming-the-last-session"></a>
 ## 接續上次的工作階段
 
 播放器（獨立執行的 TUI 或常駐程式）會記住它正在播放的內容，下次啟動時從那裡開始，並**停止**在相同的位置：在你按下 `Space`（或 `tidal-player playback play-pause`）之前不會播放任何東西，也不會取得或開啟任何東西；按下後從該位置開始播放。設計：[spec 0009](../specs/0009-persistence.md)。
 
-- **會記住的**：佇列（包含 `Suggested` 曲目與隨機後的順序）、目前曲目與其中的位置、隨機播放、重複播放、自動播放、音量與靜音。不會記住的：當時是否正在播放、輸出裝置（來自設定），以及 TUI 自己顯示的內容（頁面、游標、搜尋）
+- **會記住的**：佇列（包含 `Suggested` 曲目與隨機後的順序）、目前曲目與其中的位置、隨機播放、重複播放、自動播放、音量與靜音。不會記住的：當時是否正在播放、輸出裝置（來自設定，即使[執行期間曾選擇過](#choosing-the-output-device)），以及 TUI 自己顯示的內容（頁面、游標、搜尋）
 - **自動播放**：記住的模式優先於 `app.toml` 中的 `autoplay`（檔案設定的是新佇列的模式）；`TIDAL_PLAYER_AUTOPLAY` 與 `--autoplay` 優先於記住的模式
 - **以 `tidal-player ITEM…` 啟動播放器**時，會以這些項目取代記住的佇列並播放；隨機播放、重複播放、自動播放與音量維持記住的值。`tidal-player play ITEM…` 既不讀取也不寫入記住的狀態
 - **何時儲存**：變更會在 2 秒內儲存（連續多次變更只儲存一次）；播放中的位置最多每 30 秒儲存一次；暫停、停止、跳轉、換曲與結束（`q`、`tidal-player daemon stop`、`systemctl --user stop`）會立即儲存。當機或斷電最多遺失最後 30 秒的位置
