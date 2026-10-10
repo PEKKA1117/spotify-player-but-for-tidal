@@ -60,7 +60,7 @@ Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect
 <a id="tidal-player-devices"></a>
 ### `tidal-player devices`
 
-列出本機的裝置，也就是 `--device` 接受的裝置：先是 `default`，接著是每個能播放的 ALSA 硬體裝置（`hw:CARD,DEVICE`），附上音效卡名稱。設定的裝置（`play` 會使用的裝置，來自 `--device`、`TIDAL_PLAYER_DEVICE` 或 `output_device`）以 `*` 標示：
+列出本機的裝置，也就是 `--device` 接受的裝置：先是 `default`，接著是每個能播放的 ALSA 硬體裝置（`hw:CARD,DEVICE`），附上音效卡名稱。沒有播放器在執行時，設定的裝置（`play` 會使用的裝置，來自 `--device`、`TIDAL_PLAYER_DEVICE` 或 `output_device`）以 `*` 標示：
 
 ```
 $ tidal-player devices
@@ -70,7 +70,19 @@ $ tidal-player devices
   hw:1,0   E30 II: USB Audio
 ```
 
-它讀取 `/proc/asound/cards` 與 `/proc/asound/pcm`；只能錄音的裝置（麥克風）不會列出。它不會詢問正在執行的播放器，因此不會顯示播放器執行期間選擇的裝置：請用 [`tidal-player playback device`](#choosing-the-output-device)。
+它讀取 `/proc/asound/cards` 與 `/proc/asound/pcm`；只能錄音的裝置（麥克風）不會列出。
+
+有播放器在執行（獨立模式的 TUI、常駐程式或 `play`）且在一秒內回應時，`*` 標示的是**播放器正在使用**的裝置，即使是執行期間才選擇的；設定的裝置若是另一個，該列結尾會加上 `(configured)`。播放器使用的裝置若不在這份清單中，會以 `not found` 列在最前面：
+
+```
+$ tidal-player devices
+  default  shared, through the system mixer  (configured)
+  hw:0,0   HDA Intel PCH: ALC892 Analog
+  hw:0,1   HDA Intel PCH: ALC892 Digital
+* hw:1,0   E30 II: USB Audio
+```
+
+未及時回應的播放器視同沒有播放器，因此 `devices` 不會卡住。它一律以 0 結束。清單仍是本機的；[`tidal-player playback device`](#choosing-the-output-device) 則向播放器取得清單，沒有播放器在執行時會失敗。
 
 <a id="settings"></a>
 ## 設定
@@ -108,7 +120,7 @@ $ tidal-player devices
 
 | 指令 | 列出 | `*` 標示 |
 |---|---|---|
-| `tidal-player devices` | 本機的裝置，不詢問任何播放器 | 設定的裝置 |
+| `tidal-player devices` | 本機的裝置，在本機讀取 | 正在執行的播放器的裝置（設定的裝置若不同，結尾加上 `(configured)`）；沒有播放器時為設定的裝置 |
 | `tidal-player playback device` | 正在執行的播放器所在機器的裝置，於詢問時讀取 | 播放器目前使用的裝置，即使是執行期間才選擇的 |
 
 執行期間選擇的裝置只在這次執行有效：它不會與佇列一起被記住，因此重新啟動的播放器（或常駐程式）會再次從設定的裝置開始。要保留某個裝置，請設定 `output_device`（或 `TIDAL_PLAYER_DEVICE`、`--device`）。

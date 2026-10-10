@@ -126,7 +126,7 @@ Queue: 2 of 12
 
 沒有目前曲目時，只會顯示 `Nothing playing`。若播放器有訊息，第四行會顯示它（`Output hw:1,0 is busy …`），或是 `Session expired: run "tidal-player login"`。第二行結尾是播放器使用中的輸出裝置（`hw:1,0`），裝置已釋放時再接著 `· device released`。`status --json` 會以一行 JSON 印出播放器的完整狀態，供腳本使用。
 
-`playback device` 會詢問正在執行的播放器，因此列出的是播放器所在機器的裝置，並標示播放器的裝置，即使是執行期間才選擇的；它的輸出格式與 [`tidal-player devices`](playback.md#tidal-player-devices) 相同，而後者讀取的是本機的清單，標示設定的裝置，不會詢問任何播放器。`playback device hw:1,0` 在播放器接受新裝置後即以 0 結束，不會等待裝置開啟：無法開啟的裝置會像其他輸出失敗一樣顯示在 `playback status` 與 TUI 中，播放器則留在原本的裝置（見[輸出裝置](tui.md#output-device)）。
+`playback device` 會詢問正在執行的播放器，因此列出的是播放器所在機器的裝置，並標示播放器的裝置，即使是執行期間才選擇的；它的輸出格式與 [`tidal-player devices`](playback.md#tidal-player-devices) 相同，而後者讀取的是本機的清單，只有標示取自正在執行的播放器（沒有播放器回應時標示設定的裝置）。`playback device hw:1,0` 在播放器接受新裝置後即以 0 結束，不會等待裝置開啟：無法開啟的裝置會像其他輸出失敗一樣顯示在 `playback status` 與 TUI 中，播放器則留在原本的裝置（見[輸出裝置](tui.md#output-device)）。
 
 `playback add` 可以做成簡單的連結處理程式：例如 `tidal-player playback add --next "$1"`。
 

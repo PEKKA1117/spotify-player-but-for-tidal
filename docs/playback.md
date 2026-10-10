@@ -54,7 +54,7 @@ Exit codes: `0` the queue ran out and at least one track played to its end; `1` 
 
 ### `tidal-player devices`
 
-Lists this machine's devices, the ones `--device` accepts: `default` first, then every ALSA hardware device (`hw:CARD,DEVICE`) that can play, with the card's name. The configured device (the one `play` would use, from `--device`, `TIDAL_PLAYER_DEVICE` or `output_device`) is marked `*`:
+Lists this machine's devices, the ones `--device` accepts: `default` first, then every ALSA hardware device (`hw:CARD,DEVICE`) that can play, with the card's name. With no player running, the configured device (the one `play` would use, from `--device`, `TIDAL_PLAYER_DEVICE` or `output_device`) is marked `*`:
 
 ```
 $ tidal-player devices
@@ -64,7 +64,19 @@ $ tidal-player devices
   hw:1,0   E30 II: USB Audio
 ```
 
-It reads `/proc/asound/cards` and `/proc/asound/pcm`; capture-only devices (microphones) are not listed. It does not ask the running player, so it does not show a device chosen while the player runs: [`tidal-player playback device`](#choosing-the-output-device) does.
+It reads `/proc/asound/cards` and `/proc/asound/pcm`; capture-only devices (microphones) are not listed.
+
+When a player runs (standalone TUI, daemon or `play`) and answers within a second, `*` marks the device **the player uses**, even one chosen while it runs, and the configured device, when it is another one, ends with `(configured)`. A device the player uses that this list lacks comes first as `not found`:
+
+```
+$ tidal-player devices
+  default  shared, through the system mixer  (configured)
+  hw:0,0   HDA Intel PCH: ALC892 Analog
+  hw:0,1   HDA Intel PCH: ALC892 Digital
+* hw:1,0   E30 II: USB Audio
+```
+
+A player that does not answer in time counts as none, so `devices` never hangs. It always exits 0. The list stays this machine's; [`tidal-player playback device`](#choosing-the-output-device) gets the list from the player instead, and fails when none runs.
 
 ## Settings
 
@@ -100,7 +112,7 @@ A player (the standalone TUI, the daemon, `play`) starts on the **configured dev
 
 | Command | Lists | `*` marks |
 |---|---|---|
-| `tidal-player devices` | this machine's devices, without asking any player | the configured device |
+| `tidal-player devices` | this machine's devices, read here | the running player's device (the configured one ends with `(configured)` when it differs); with no player, the configured device |
 | `tidal-player playback device` | the running player's machine's devices, read when asked | the device the player uses now, even one chosen at runtime |
 
 A device chosen at runtime lasts for the run: it is not remembered with the queue, so a restarted player (or daemon) starts on the configured device again. To keep a device, set `output_device` (or `TIDAL_PLAYER_DEVICE`, `--device`).
