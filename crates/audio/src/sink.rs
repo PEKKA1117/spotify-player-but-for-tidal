@@ -204,8 +204,10 @@ pub struct SinkScript {
     /// The device is reserved while open, like an exclusive output: `Open`
     /// is preceded by `Reserve`, `Close` followed by `Release` (spec 0005).
     pub reserved: bool,
-    /// `(n, error)`: the n-th `open` call (1-based) fails with `error`,
-    /// leaving nothing open and nothing reserved (spec 0005 AC21).
+    /// `(n, error)`: the n-th `open` of this device (1-based, counted
+    /// across every sink of a [`MemoryDevices`] factory created for it)
+    /// fails with `error`, leaving nothing open and nothing reserved (spec
+    /// 0005 AC21, 0014 AC5).
     pub open_errors: Vec<(usize, SinkError)>,
 }
 
@@ -223,6 +225,8 @@ struct Shared {
     open: usize,
     max_open: usize,
     released: bool,
+    /// The device of every `open` call, failed or not, in order.
+    open_attempts: Vec<String>,
 }
 
 type SharedState = Arc<(Mutex<Shared>, Condvar)>;
@@ -243,7 +247,6 @@ pub struct MemorySink {
     written: u64,
     buffered: u64,
     write_calls: usize,
-    open_calls: usize,
 }
 
 impl Default for MemorySink {
@@ -267,7 +270,6 @@ impl MemorySink {
             written: 0,
             buffered: 0,
             write_calls: 0,
-            open_calls: 0,
         }
     }
 
@@ -300,12 +302,20 @@ impl MemorySink {
 impl Sink for MemorySink {
     fn open(&mut self, source: &SourceFormat) -> Result<OutputInfo, SinkError> {
         self.close();
-        self.open_calls += 1;
+        let open_calls = {
+            let mut shared = lock(&self.shared);
+            shared.open_attempts.push(self.device.clone());
+            shared
+                .open_attempts
+                .iter()
+                .filter(|d| **d == self.device)
+                .count()
+        };
         if let Some((_, error)) = self
             .script
             .open_errors
             .iter()
-            .find(|(n, _)| *n == self.open_calls)
+            .find(|(n, _)| *n == open_calls)
         {
             return Err(error.clone());
         }
@@ -478,6 +488,12 @@ impl MemorySinkHandle {
     /// before they were played (its delay at that moment).
     pub fn heard(&self) -> Vec<i32> {
         lock(&self.shared).heard.clone()
+    }
+
+    /// The device of every `open` call so far, failed or not, in order
+    /// (a failed open logs no [`SinkCall`]).
+    pub fn open_attempts(&self) -> Vec<String> {
+        lock(&self.shared).open_attempts.clone()
     }
 
     /// The number of frames written so far, to any device.
@@ -710,5 +726,25 @@ mod tests {
         assert_eq!(handle.max_open(), 2);
         assert_eq!(handle.samples_of("a"), [1, 1]);
         assert_eq!(handle.samples(), [1, 1, 2, 2]);
+    }
+
+    /// 0014 AC5's fake: `open_errors` counts the opens of a device across
+    /// every sink created for it, and every attempt is logged.
+    #[test]
+    fn open_errors_count_per_device() {
+        let error = SinkError::NotFound("a".into());
+        let mut devices = MemoryDevices::new().with_script(
+            "a",
+            SinkScript {
+                open_errors: vec![(2, error.clone())],
+                ..SinkScript::default()
+            },
+        );
+        let handle = devices.handle();
+        devices.create("a").open(&SOURCE).unwrap();
+        devices.create("b").open(&SOURCE).unwrap();
+        assert_eq!(devices.create("a").open(&SOURCE), Err(error));
+        devices.create("a").open(&SOURCE).unwrap();
+        assert_eq!(handle.open_attempts(), ["a", "b", "a", "a"]);
     }
 }
