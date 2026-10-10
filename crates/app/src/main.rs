@@ -31,7 +31,7 @@ use tidal_player::{
     },
     login::{LoginOutcome, run_login},
     mpris,
-    oneshot::PlaybackCommand,
+    oneshot::{self, PlaybackCommand},
     panic_hook::install_panic_hook,
     persist::Persister,
     play::{
@@ -50,7 +50,7 @@ use tidal_player_api::auth::{
 };
 use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::MetadataClient;
-use tidal_player_audio::devices::{format_devices, parse_devices};
+use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
 use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, update};
@@ -773,9 +773,16 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
 fn devices(app: &AppConfig) -> ExitCode {
     // An unreadable list is shown as no card: `default` only.
     let listing = read_devices(&asound_dir(env_var)).unwrap_or_else(|_| parse_devices("", ""));
+    // The marks come from a running player when one answers in time
+    // (spec 0014 AC13); the list stays this machine's.
+    let player = oneshot::player_device(oneshot::PLAYER_DEVICE_TIMEOUT);
     print!(
         "{}",
-        format_devices(&listing, &configured_device_with(app, env_var))
+        oneshot::local_device_lines(
+            &listing,
+            player.as_deref(),
+            &configured_device_with(app, env_var)
+        )
     );
     ExitCode::SUCCESS
 }

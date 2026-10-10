@@ -1357,3 +1357,35 @@ fn ac10_playback_device() {
     let (_, stdout, _) = machine.run_client(&["playback", "device"]);
     assert!(stdout.contains("* hw:1,0   E30 II: USB Audio"), "{stdout}");
 }
+
+/// 0014 AC13: with a running player, `tidal-player devices` marks the
+/// player's device `*` and the configured one `(configured)`.
+#[test]
+fn ac13_devices_shows_player_device() {
+    let machine = Machine::new();
+    let mut cmd = machine.command(&["daemon"]);
+    cmd.env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env("TIDAL_PLAYER_DEVICE", "hw:0,0");
+    let _daemon = Running(cmd.spawn().unwrap());
+    let (mut watcher, welcome) = subscribe(&machine.socket());
+    assert_eq!(welcome.device, "hw:0,0", "the configured device");
+    assert_eq!(
+        machine.run_client(&["playback", "device", "hw:1,0"]),
+        (Some(0), String::new(), String::new())
+    );
+    wait_snapshot(&mut watcher, "device hw:1,0", |s| s.device == "hw:1,0");
+
+    let mut devices = machine.client(&["devices"]);
+    devices
+        .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
+        .env("TIDAL_PLAYER_DEVICE", "hw:0,0");
+    let (code, stdout, stderr) = Running(devices.spawn().unwrap()).output(Duration::from_secs(20));
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    assert_eq!(
+        stdout,
+        "  default  shared, through the system mixer\n  \
+         hw:0,0   HDA Intel PCH: ALC892 Analog  (configured)\n  \
+         hw:0,1   HDA Intel PCH: ALC892 Digital\n\
+         * hw:1,0   E30 II: USB Audio\n"
+    );
+}

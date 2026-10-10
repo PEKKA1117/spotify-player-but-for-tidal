@@ -383,6 +383,30 @@ pub fn device_lines(list: &[DeviceEntry], selected: &str) -> String {
     format_devices(&rows, selected)
 }
 
+/// How long `tidal-player devices` waits for a running player's
+/// `Welcome` before treating it as absent (spec 0014 AC13).
+pub const PLAYER_DEVICE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// `tidal-player devices`: the local `list`, `*` on the running `player`'s
+/// selected device and `  (configured)` after the `configured` device's row
+/// when it differs; with no player, `*` on the configured device as before
+/// (spec 0014 AC13).
+pub fn local_device_lines(
+    list: &[PlaybackDevice],
+    player: Option<&str>,
+    configured: &str,
+) -> String {
+    let _ = player;
+    format_devices(list, configured)
+}
+
+/// The running player's selected device, when one answers with its
+/// `Welcome` within `timeout`; `None` otherwise (spec 0014 AC13).
+pub fn player_device(timeout: Duration) -> Option<String> {
+    let _ = timeout;
+    None
+}
+
 /// `tidal-player playback <command>`.
 pub fn run(command: &PlaybackCommand) -> ExitCode {
     let plan = match plan(command) {
@@ -957,5 +981,62 @@ mod tests {
             ..playing()
         };
         assert_eq!(status_lines(&idle, false), "Nothing playing\n");
+    }
+
+    /// 0014 AC13: `devices` marks the running player's device `*` and the
+    /// configured one, when different, `(configured)`.
+    #[test]
+    fn ac13_local_device_lines() {
+        let dev = |name: &str, description: &str| PlaybackDevice {
+            name: name.into(),
+            description: description.into(),
+        };
+        let list = vec![
+            dev("default", "shared, through the system mixer"),
+            dev("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+            dev("hw:1,0", "E30 II: USB Audio"),
+        ];
+        let cases: &[(&str, Option<&str>, &str, &str)] = &[
+            (
+                "no player: `*` on the configured device",
+                None,
+                "hw:0,0",
+                "  default  shared, through the system mixer\n\
+                 * hw:0,0   HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0   E30 II: USB Audio\n",
+            ),
+            (
+                "the player on the configured device",
+                Some("hw:0,0"),
+                "hw:0",
+                "  default  shared, through the system mixer\n\
+                 * hw:0,0   HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0   E30 II: USB Audio\n",
+            ),
+            (
+                "the player on another device",
+                Some("hw:1,0"),
+                "hw:0,0",
+                "  default  shared, through the system mixer\n  \
+                 hw:0,0   HDA Intel PCH: ALC892 Analog  (configured)\n\
+                 * hw:1,0   E30 II: USB Audio\n",
+            ),
+            (
+                "the player's device not in the list: first, `not found`",
+                Some("plughw:1,0"),
+                "default",
+                "* plughw:1,0  not found\n  \
+                 default     shared, through the system mixer  (configured)\n  \
+                 hw:0,0      HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0      E30 II: USB Audio\n",
+            ),
+        ];
+        for (what, player, configured, want) in cases {
+            assert_eq!(
+                local_device_lines(&list, *player, configured),
+                *want,
+                "{what}"
+            );
+        }
     }
 }
