@@ -52,7 +52,7 @@ cp examples/app.toml examples/keymap.toml ~/.config/tidal-player/
 | `hide_versions` | 字串陣列（`[]` 表示不隱藏任何東西） | [設定](playback.md#settings)中列出的十六個詞 | `TIDAL_PLAYER_HIDE_VERSIONS` | 播放器 |
 | `[layout] library = { playlist_percent, album_percent }` | 各為整數 1–98，總和最多 99；*Artists*（藝人）佔用其餘部分 | `40`、`40` | | TUI |
 
-各項設定的作用說明於[設定](playback.md#settings)；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
+各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
 
 ```toml
 # ~/.config/tidal-player/app.toml
@@ -135,6 +135,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `Shuffle` | `C-s` | 所有地方 | shuffle on / off（隨機播放開／關） |
 | `Repeat` | `C-r` | 所有地方 | repeat: off → queue → track（重複播放：關 → 佇列 → 曲目） |
 | `ToggleAutoplay` | `A` | 所有地方 | autoplay on / off（自動播放開／關） |
+| `SwitchDevice` | `D` | 所有地方 | choose the output device（選擇輸出裝置，開啟裝置彈出視窗） |
 | `VolumeUp` | `+` | 所有地方 | volume up by `volume_step`（音量增加 `volume_step`） |
 | `VolumeDown` | `-` | 所有地方 | volume down by `volume_step`（音量減少 `volume_step`） |
 | `VolumeChange`（`offset`：−25…25，不可為 0） | 無 | 所有地方 | volume by `offset` %（音量調整 `offset` %） |
@@ -194,7 +195,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 
 這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SwitchTheme`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`SwitchTheme`、`SwitchDevice`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`SwitchTheme`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
 - 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。

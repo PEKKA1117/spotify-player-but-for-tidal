@@ -1,0 +1,29 @@
+---
+source: crates/app/src/ui.rs
+assertion_line: 3055
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────────────────────────────────────────────┐│
+││  1   May These Noises Start…  Pierce The Veil    Collide With The S…   4:01││
+││▶ 2   Hell Above               Pierce The Veil    Collide With The S…   3:32││
+││  3   A Match Into Water       Pierce The Veil    Collide With The S…   4:22││
+││  4   King For A Day           Pierce The Veil    Collide With The S…   3:52││
+││  5   Bulls In The Bronx       Pierce The Veil    Collide With The S…   4:50││
+││  6   Props &┌Devices─────────────────────────────────────────┐The S…   3:33││
+││  7   Tangled│● plughw:1,0   not found                        │The S…   5:04││
+││  8   Stained│  default      shared, through the system mixer │The S…   3:53││
+││  9   I'm Low│  hw:0,0       HDA Intel PCH: ALC892 Analog     │The S…   3:43││
+││  ── Suggeste│  hw:1,0       E30 II: USB Audio                │─────────────││
+││  10  If I'm └────────────────────────────────────────────────┘See A…   3:39││
+││  11  Can You Feel My Heart    Bring Me The Hor…  Sempiternal           3:48││
+││  12  All I Want               A Day To Remember  What Separates Me…    3:21││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

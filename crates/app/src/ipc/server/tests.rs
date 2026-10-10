@@ -22,7 +22,7 @@ use crate::ipc::client::{Connection, RecvError};
 use crate::player_runtime::fakes::{
     Call, FakeEngine, FakeJobs, FakeLibrary, Log, Script, delete, track,
 };
-use crate::player_runtime::{PlayerRuntime, RuntimeHandle, spawn_runtime};
+use crate::player_runtime::{AsoundDevices, PlayerRuntime, RuntimeHandle, spawn_runtime};
 
 /// The longest any one message may take to arrive.
 const WAIT: Duration = Duration::from_secs(5);
@@ -49,11 +49,25 @@ impl TestPlayer {
     }
 
     fn start_with(jobs: impl FnOnce(FakeJobs) -> FakeJobs) -> Self {
+        Self::start_on(jobs, None)
+    }
+
+    /// A player that reads its device list from `asound` (spec 0014).
+    fn start_with_asound(asound: &Path) -> Self {
+        Self::start_on(|jobs| jobs, Some(asound))
+    }
+
+    fn start_on(jobs: impl FnOnce(FakeJobs) -> FakeJobs, asound: Option<&Path>) -> Self {
         let log: Log = Log::default();
         let (tx, rx) = mpsc::channel();
         let engine = FakeEngine::new(&log, Script::Plays);
         let jobs = jobs(FakeJobs::new(&log, &tx, true));
-        let runtime = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+        let mut runtime = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+        if let Some(dir) = asound {
+            runtime = runtime.with_devices(Box::new(AsoundDevices {
+                dir: dir.to_owned(),
+            }));
+        }
         let handle = spawn_runtime(runtime, rx, tx.clone());
         Self {
             _handle: handle,
@@ -230,7 +244,8 @@ impl View {
             ServerMessage::Event(Event::LoginRestored) => self.login_required = false,
             ServerMessage::Event(Event::ShuttingDown)
             | ServerMessage::Reply { .. }
-            | ServerMessage::LibraryReply { .. } => {}
+            | ServerMessage::LibraryReply { .. }
+            | ServerMessage::DevicesReply { .. } => {}
         }
     }
 
@@ -496,6 +511,7 @@ impl ModelClient {
                 }
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
                 ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
+                ServerMessage::DevicesReply { id, .. } => panic!("unasked devices reply {id}"),
             }
         }
     }
@@ -1193,4 +1209,77 @@ fn ac8_disconnect_mid_request() {
     let _ = LibraryRequest::DeletePlaylist {
         uuid: String::new(),
     };
+}
+
+/// 0014 AC7: `Devices` is answered from the `asound` directory read at
+/// request time (a card plugged in between two requests shows up), a read
+/// error is the reply's `Err`, and only the asking client gets a reply.
+#[test]
+fn ac7_devices_reply() {
+    use tidal_player_core::protocol::DeviceEntry;
+
+    let fixture = |name: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../audio/tests/fixtures/asound")
+            .join(name)
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let copy = |name: &str| {
+        for file in ["cards", "pcm"] {
+            std::fs::copy(fixture(name).join(file), dir.path().join(file)).unwrap();
+        }
+    };
+    let entry = |name: &str, description: &str| DeviceEntry {
+        name: name.into(),
+        description: description.into(),
+    };
+    let default = || entry("default", "shared, through the system mixer");
+    let onboard = vec![
+        default(),
+        entry("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+        entry("hw:0,1", "HDA Intel PCH: ALC892 Digital"),
+    ];
+    let mut with_dac = onboard.clone();
+    with_dac.push(entry("hw:1,0", "E30 II: USB Audio"));
+
+    copy("onboard");
+    let player = TestPlayer::start_with_asound(dir.path());
+    let mut asker = player.connect();
+    let mut other = player.connect();
+    other.subscribe();
+    asker.subscribe();
+
+    let ask = |client: &mut Client| {
+        let id = client.next_id;
+        client.next_id += 1;
+        client.conn.send(&ClientMessage::Devices { id }).unwrap();
+        // The reply, after the events before it.
+        loop {
+            if let ServerMessage::DevicesReply { id: got, result } = client.recv() {
+                assert_eq!(got, id);
+                return result;
+            }
+        }
+    };
+    assert_eq!(ask(&mut asker), Ok(onboard));
+    // The DAC plugged in: the next request sees it.
+    copy("onboard_usb");
+    assert_eq!(ask(&mut asker), Ok(with_dac));
+    // No card at all: `default` alone.
+    std::fs::remove_file(dir.path().join("cards")).unwrap();
+    std::fs::remove_file(dir.path().join("pcm")).unwrap();
+    assert_eq!(ask(&mut asker), Ok(vec![default()]));
+    // Unreadable (a directory where the file should be): the `Err`.
+    std::fs::create_dir(dir.path().join("cards")).unwrap();
+    let error = ask(&mut asker).expect_err("an unreadable list");
+    assert!(error.contains("cards"), "{error}");
+
+    // The other subscriber got none of the replies.
+    let seen = other.settle();
+    assert!(
+        !seen
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DevicesReply { .. })),
+        "{seen:?}"
+    );
 }

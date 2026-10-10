@@ -1500,3 +1500,537 @@ fn ac21_resume_failure() {
         assert_eq!(counts(&rig.sinks.calls()), counts_of(2, 2), "{what}");
     }
 }
+
+// --- spec 0014: choosing the output device ----------------------------------
+
+/// The device the 0014 tests start on: a delay, held at [`HOLD`] frames.
+fn device_a() -> SinkScript {
+    SinkScript {
+        delay_frames: DEVICE_DELAY,
+        ..held(HOLD)
+    }
+}
+
+/// An engine starting on `a`, other devices on the default script,
+/// releasing the paused output after `release` (`None`: never).
+fn switching(devices: MemoryDevices, release: Option<Duration>) -> Rig {
+    rig_full(devices, SinkScript::default(), "a", |config| {
+        config.with_release_paused(release)
+    })
+}
+
+fn is_output_changed(e: &Event) -> bool {
+    matches!(e, Event::OutputChanged(_))
+}
+
+/// The devices of the `OutputChanged` events, in order.
+fn outputs_changed(events: &[Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::OutputChanged(output) => Some(output.device.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the listener hears in an unswitched run of `source` on `a`.
+fn unswitched(source: Fixture) -> Vec<i32> {
+    let rig = switching(MemoryDevices::new().with_script("a", device_a()), None);
+    rig.play(source());
+    rig.until("Started", is_started);
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert!(
+        matches!(events.last(), Some(Event::TrackEnded { .. })),
+        "unswitched run: {events:?}"
+    );
+    rig.sinks.heard()
+}
+
+/// 0014 AC4: `SetDevice` while paused opens the new device paused: no
+/// frame reaches it until `Resume`, then the frames from the paused
+/// position, nothing lost or repeated (16- and 24-bit).
+#[test]
+fn ac4_set_device_while_paused() {
+    for (fixture, source) in fixtures() {
+        let what = fixture;
+        let (_, full) = reference(source());
+        let expected = unswitched(source);
+        assert_samples(&expected, &full, &format!("{what}: unswitched run"));
+
+        let rig = switching(MemoryDevices::new().with_script("a", device_a()), None);
+        let at_pause = play_and_pause(&rig, source());
+        rig.sinks.release();
+        rig.send(Command::SetDevice("b".into()));
+        let events = rig.quiet_for(QUIET);
+        assert!(
+            matches!(&events[..], [Event::OutputChanged(output)] if output.device == "b"),
+            "{what}: OutputChanged alone, still paused: {events:?}"
+        );
+        assert!(
+            rig.sinks.samples_of("b").is_empty(),
+            "{what}: nothing written to b while paused"
+        );
+        let calls = rig.sinks.calls();
+        let open_b = calls
+            .iter()
+            .position(|c| matches!(c, SinkCall::Open { device, .. } if device == "b"))
+            .expect("b opened");
+        assert_eq!(
+            calls[open_b + 1..],
+            [SinkCall::Pause {
+                device: "b".into(),
+                paused: true
+            }],
+            "{what}: b opened paused: {calls:?}"
+        );
+        assert_eq!(rig.sinks.open_now(), 1, "{what}");
+
+        rig.send(Command::Resume);
+        assert_eq!(rig.next(), Event::Resumed, "{what}");
+        assert_eq!(rig.next(), Event::Position(at_pause), "{what}");
+        let events = rig.until_end();
+        assert!(
+            matches!(events.last(), Some(Event::TrackEnded { .. })),
+            "{what}: {events:?}"
+        );
+        let first_unheard = rig.sinks.samples_of("a").len() / 2 - DEVICE_DELAY as usize;
+        assert_samples(
+            &rig.sinks.samples_of("b"),
+            &full[first_unheard * 2..],
+            &format!("{what}: b continues from the paused position"),
+        );
+        assert_samples(&rig.sinks.heard(), &expected, what);
+        assert_eq!(rig.sinks.max_open(), 1, "{what}");
+    }
+}
+
+/// 0014 AC4: `OutputChanged` follows every reopen caused by `SetDevice`
+/// (playing or paused) and never a track start (table).
+#[test]
+fn ac4_output_changed() {
+    let devices = || MemoryDevices::new().with_script("a", device_a());
+
+    // A plain run: Started, never OutputChanged.
+    let rig = switching(devices(), None);
+    rig.play(flac16());
+    rig.until("Started", is_started);
+    rig.sinks.release();
+    let events = rig.until_end();
+    assert_eq!(
+        count(&events, is_output_changed),
+        0,
+        "plain run: {events:?}"
+    );
+
+    // Playing: once per switch, after Started, with what was opened.
+    for targets in [vec!["b"], vec!["b", "c"]] {
+        let what = format!("playing, to {targets:?}");
+        let rig = switching(devices(), None);
+        rig.play(flac16());
+        let mut events = rig.until("Started", is_started);
+        rig.wait_frames(HOLD as usize);
+        for target in &targets {
+            rig.send(Command::SetDevice((*target).into()));
+        }
+        rig.sinks.release();
+        events.extend(rig.until_end());
+        assert_eq!(outputs_changed(&events), targets, "{what}: {events:?}");
+        assert!(
+            matches!(events.last(), Some(Event::TrackEnded { .. })),
+            "{what}: {events:?}"
+        );
+        let output = events.iter().find_map(|e| match e {
+            Event::OutputChanged(output) => Some(output.clone()),
+            _ => None,
+        });
+        let output = output.expect("an OutputChanged");
+        assert_eq!(output.requested, targets[0], "{what}");
+        assert_eq!(output.sample_rate, 44_100, "{what}");
+    }
+
+    // Paused: once.
+    let rig = switching(devices(), None);
+    play_and_pause(&rig, flac16());
+    rig.send(Command::SetDevice("b".into()));
+    let mut events = rig.quiet_for(QUIET);
+    rig.sinks.release();
+    rig.send(Command::Resume);
+    events.extend(rig.until_end());
+    assert_eq!(outputs_changed(&events), ["b"], "paused: {events:?}");
+
+    // Stopped: nothing opened, the next track starts on the new device
+    // with Started only.
+    let rig = switching(devices(), None);
+    rig.play(flac16());
+    rig.until("Started", is_started);
+    rig.stop();
+    rig.send(Command::SetDevice("b".into()));
+    let quiet = rig.quiet_for(QUIET);
+    assert!(quiet.is_empty(), "stopped: {quiet:?}");
+    rig.play(flac16());
+    let events = rig.until_end();
+    assert_eq!(count(&events, is_output_changed), 0, "stopped: {events:?}");
+    match events.first() {
+        Some(Event::Started { output, .. }) => assert_eq!(output.device, "b"),
+        other => panic!("stopped: expected Started first, got {other:?}"),
+    }
+
+    // Released: nothing opened, the resume reopens with Resumed only.
+    let rig = switching(devices(), Some(Duration::ZERO));
+    play_and_pause(&rig, flac16());
+    assert!(wait_for_release(&rig, Some(Duration::ZERO), "released"));
+    rig.send(Command::SetDevice("b".into()));
+    let quiet = rig.quiet_for(QUIET);
+    assert!(quiet.is_empty(), "released: {quiet:?}");
+    rig.sinks.release();
+    rig.send(Command::Resume);
+    assert_eq!(rig.next(), Event::Resumed, "released");
+    let events = rig.until_end();
+    assert_eq!(count(&events, is_output_changed), 0, "released: {events:?}");
+    assert!(!rig.sinks.samples_of("b").is_empty(), "released: on b");
+}
+
+/// 0014 AC4: `SetDevice` to the device already open does not reopen it
+/// (playing, paused).
+#[test]
+fn ac4_set_same_device() {
+    let (_, full) = reference(flac16());
+    for paused in [false, true] {
+        let what = if paused { "paused" } else { "playing" };
+        let rig = switching(MemoryDevices::new().with_script("a", device_a()), None);
+        if paused {
+            play_and_pause(&rig, flac16());
+        } else {
+            rig.play(flac16());
+            rig.until("Started", is_started);
+            rig.wait_frames(HOLD as usize);
+        }
+        rig.send(Command::SetDevice("a".into()));
+        let quiet = rig.quiet_for(QUIET);
+        assert!(
+            quiet.iter().all(|e| matches!(e, Event::Position(_))),
+            "{what}: {quiet:?}"
+        );
+        let calls = rig.sinks.calls();
+        assert_eq!(
+            (
+                count_calls(&calls, |c| matches!(c, SinkCall::Open { .. })),
+                count_calls(&calls, |c| matches!(c, SinkCall::Close { .. })),
+                count_calls(&calls, |c| matches!(c, SinkCall::Discard { .. })),
+            ),
+            (1, 0, 0),
+            "{what}: not reopened: {calls:?}"
+        );
+        rig.sinks.release();
+        if paused {
+            rig.send(Command::Resume);
+        }
+        let events = rig.until_end();
+        assert!(
+            matches!(events.last(), Some(Event::TrackEnded { .. })),
+            "{what}: {events:?}"
+        );
+        assert_eq!(count(&events, is_output_changed), 0, "{what}: {events:?}");
+        assert_samples(&rig.sinks.samples(), &full, what);
+        assert_eq!(
+            count_calls(&rig.sinks.calls(), |c| matches!(c, SinkCall::Open { .. })),
+            1,
+            "{what}"
+        );
+    }
+}
+
+/// The engine's phase when `SetDevice` arrives (0014 AC5).
+#[derive(Debug, Clone, Copy)]
+enum Phase {
+    Playing,
+    Paused,
+    /// After a track played on `a` and was stopped.
+    Stopped,
+    /// Paused with the output released (0005).
+    Released,
+}
+
+const PHASES: [Phase; 4] = [
+    Phase::Playing,
+    Phase::Paused,
+    Phase::Stopped,
+    Phase::Released,
+];
+
+/// Brings an engine on `a` into `phase`; the position at the pause, if
+/// paused.
+fn enter(rig: &Rig, phase: Phase) -> Option<Duration> {
+    match phase {
+        Phase::Playing => {
+            rig.play(flac16());
+            rig.until("Started", is_started);
+            rig.wait_frames(HOLD as usize);
+            None
+        }
+        Phase::Paused => Some(play_and_pause(rig, flac16())),
+        Phase::Stopped => {
+            rig.play(flac16());
+            rig.until("Started", is_started);
+            rig.stop();
+            None
+        }
+        Phase::Released => {
+            let at_pause = play_and_pause(rig, flac16());
+            assert!(wait_for_release(rig, Some(Duration::ZERO), "released"));
+            Some(at_pause)
+        }
+    }
+}
+
+/// The opening errors of the `bad` device (0014 AC5).
+fn open_errors() -> [SinkError; 3] {
+    [
+        SinkError::Busy {
+            device: "bad".into(),
+            holder: Some("PipeWire".into()),
+        },
+        SinkError::NotFound("bad".into()),
+        SinkError::Lost("bad".into()),
+    ]
+}
+
+/// 0014 AC5: a device that refuses to open falls back to the last good
+/// device in the same state, every frame heard once; with no last good
+/// device, or that one failing too, it is an ordinary output failure; no
+/// `plughw:` is ever tried (table: phase × error, no last good device, both
+/// failing).
+#[test]
+fn ac5_device_fallback() {
+    let (_, full) = reference(flac16());
+    let expected = unswitched(flac16);
+    assert_samples(&expected, &full, "unswitched run");
+    let release = |phase| matches!(phase, Phase::Released).then_some(Duration::ZERO);
+
+    // Falls back to `a`.
+    for error in open_errors() {
+        for phase in PHASES {
+            let what = format!("{phase:?}, {error:?}");
+            let devices = MemoryDevices::new()
+                .with_script("a", device_a())
+                .with_script(
+                    "bad",
+                    SinkScript {
+                        open_errors: vec![(1, error.clone())],
+                        ..SinkScript::default()
+                    },
+                );
+            let rig = switching(devices, release(phase));
+            let at_pause = enter(&rig, phase);
+            rig.send(Command::SetDevice("bad".into()));
+            let fallback = Event::DeviceFallback {
+                tried: "bad".into(),
+                error: error.clone(),
+                device: "a".into(),
+            };
+            let mut events = Vec::new();
+            match phase {
+                Phase::Playing => {
+                    rig.sinks.release();
+                    events = rig.until_end();
+                    let at = events.iter().position(|e| *e == fallback);
+                    let changed = events.iter().position(is_output_changed);
+                    assert!(
+                        at.is_some() && at < changed,
+                        "{what}: DeviceFallback, then OutputChanged: {events:?}"
+                    );
+                    assert_eq!(outputs_changed(&events), ["a"], "{what}");
+                    let after = after_open(&rig, 2);
+                    let first_unheard =
+                        rig.sinks.samples().len() / 2 - after.len() / 2 - DEVICE_DELAY as usize;
+                    assert_samples(
+                        &after,
+                        &full[first_unheard * 2..],
+                        &format!("{what}: a again from the position"),
+                    );
+                    assert_samples(&rig.sinks.heard(), &expected, &what);
+                }
+                Phase::Paused => {
+                    events.push(rig.next());
+                    assert_eq!(events, std::slice::from_ref(&fallback), "{what}");
+                    assert!(is_output_changed(&rig.next()), "{what}");
+                    let written = rig.sinks.frames_written();
+                    rig.sinks.release();
+                    let quiet = rig.quiet_for(QUIET);
+                    assert!(quiet.is_empty(), "{what}: still paused: {quiet:?}");
+                    assert_eq!(rig.sinks.frames_written(), written, "{what}");
+                    assert_eq!(rig.sinks.open_now(), 1, "{what}: a open, paused");
+                    rig.send(Command::Resume);
+                    assert_eq!(rig.next(), Event::Resumed, "{what}");
+                    assert_eq!(rig.next(), Event::Position(at_pause.unwrap()), "{what}");
+                    events.extend(rig.until_end());
+                    assert_samples(&rig.sinks.heard(), &expected, &what);
+                }
+                Phase::Stopped => {
+                    let quiet = rig.quiet_for(QUIET);
+                    assert!(quiet.is_empty(), "{what}: nothing opened: {quiet:?}");
+                    assert_eq!(rig.sinks.open_attempts(), ["a"], "{what}");
+                    rig.sinks.release();
+                    rig.play(flac16());
+                    events = rig.until_end();
+                    assert_eq!(events.first(), Some(&fallback), "{what}: {events:?}");
+                    assert!(
+                        matches!(&events[1], Event::Started { output, .. } if output.device == "a"),
+                        "{what}: {events:?}"
+                    );
+                    assert_eq!(count(&events, is_output_changed), 0, "{what}");
+                    assert_samples(&after_open(&rig, 2), &full, &what);
+                }
+                Phase::Released => {
+                    let quiet = rig.quiet_for(QUIET);
+                    assert!(quiet.is_empty(), "{what}: nothing opened: {quiet:?}");
+                    assert_eq!(rig.sinks.open_attempts(), ["a"], "{what}");
+                    rig.sinks.release();
+                    rig.send(Command::Resume);
+                    events.push(rig.next());
+                    assert_eq!(events, std::slice::from_ref(&fallback), "{what}");
+                    assert_eq!(rig.next(), Event::Resumed, "{what}");
+                    assert_eq!(rig.next(), Event::Position(at_pause.unwrap()), "{what}");
+                    events.extend(rig.until_end());
+                    assert_eq!(count(&events, is_output_changed), 0, "{what}");
+                    assert_samples(&rig.sinks.heard(), &expected, &what);
+                }
+            }
+            assert!(
+                matches!(events.last(), Some(Event::TrackEnded { .. })),
+                "{what}: {events:?}"
+            );
+            assert_eq!(count(&events, |e| *e == fallback), 1, "{what}: once");
+            assert_eq!(count(&events, |e| matches!(e, Event::Error { .. })), 0);
+            assert_eq!(
+                rig.sinks.open_attempts(),
+                ["a", "bad", "a"],
+                "{what}: back to a, never plughw:"
+            );
+            assert_eq!(rig.sinks.max_open(), 1, "{what}");
+            // `a` is current again: switching to it is no reopen.
+            rig.stop();
+            rig.send(Command::SetDevice("a".into()));
+            rig.play(flac16());
+            rig.sinks.release();
+            let events = rig.until_end();
+            assert!(
+                matches!(&events[0], Event::Started { output, .. } if output.device == "a"),
+                "{what}: {events:?}"
+            );
+        }
+    }
+
+    // No last good device: the configured device never opened.
+    for error in open_errors() {
+        let what = format!("no last good device, {error:?}");
+        // The configured device fails its first open.
+        let devices = MemoryDevices::new().with_script(
+            "a",
+            SinkScript {
+                open_errors: vec![(1, error.clone())],
+                ..device_a()
+            },
+        );
+        let rig = switching(devices, None);
+        rig.play(flac16());
+        let events = rig.until_end();
+        assert_eq!(
+            events,
+            [Event::Error {
+                tag: 0,
+                error: EngineError::Output(error.clone())
+            }],
+            "{what}: configured device"
+        );
+        assert_eq!(rig.sinks.open_attempts(), ["a"], "{what}");
+
+        // A switch before anything opened.
+        let devices = MemoryDevices::new()
+            .with_script("a", device_a())
+            .with_script(
+                "bad",
+                SinkScript {
+                    open_errors: vec![(1, error.clone())],
+                    ..SinkScript::default()
+                },
+            );
+        let rig = switching(devices, None);
+        rig.send(Command::SetDevice("bad".into()));
+        rig.play(flac16());
+        let events = rig.until_end();
+        assert_eq!(
+            events,
+            [Event::Error {
+                tag: 0,
+                error: EngineError::Output(error.clone())
+            }],
+            "{what}: switched before playing"
+        );
+        assert_eq!(rig.sinks.open_attempts(), ["bad"], "{what}");
+        assert_eq!(rig.sinks.open_now(), 0, "{what}");
+    }
+
+    // The last good device fails too: the switch's error, as today.
+    for error in open_errors() {
+        for phase in PHASES {
+            let what = format!("both failing, {phase:?}, {error:?}");
+            let devices = MemoryDevices::new()
+                .with_script(
+                    "a",
+                    SinkScript {
+                        open_errors: vec![(2, SinkError::Backend("a refused".into()))],
+                        ..device_a()
+                    },
+                )
+                .with_script(
+                    "bad",
+                    SinkScript {
+                        open_errors: vec![(1, error.clone())],
+                        ..SinkScript::default()
+                    },
+                );
+            let rig = switching(devices, release(phase));
+            enter(&rig, phase);
+            rig.send(Command::SetDevice("bad".into()));
+            rig.sinks.release();
+            let failed = Event::Error {
+                tag: 0,
+                error: EngineError::Output(error.clone()),
+            };
+            let events = match phase {
+                Phase::Playing | Phase::Paused => rig.until_end(),
+                Phase::Stopped => {
+                    rig.play(flac16());
+                    rig.until_end()
+                }
+                Phase::Released => {
+                    rig.send(Command::Resume);
+                    rig.until("ResumeFailed", |e| matches!(e, Event::ResumeFailed(_)))
+                }
+            };
+            match phase {
+                Phase::Released => assert_eq!(
+                    events.last(),
+                    Some(&Event::ResumeFailed(error.clone())),
+                    "{what}: as 0005 AC21"
+                ),
+                _ => assert_eq!(events.last(), Some(&failed), "{what}: {events:?}"),
+            }
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, Event::DeviceFallback { .. })),
+                "{what}: {events:?}"
+            );
+            assert_eq!(
+                rig.sinks.open_attempts(),
+                ["a", "bad", "a"],
+                "{what}: never plughw:"
+            );
+            assert_eq!(rig.sinks.open_now(), 0, "{what}: nothing open");
+        }
+    }
+}

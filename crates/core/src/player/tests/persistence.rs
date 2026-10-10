@@ -736,3 +736,38 @@ fn ac3_restored_equals_reached() {
         assert_eq!(restored.snapshot(), reached.snapshot(), "AC3 {name}: end");
     }
 }
+
+/// Spec 0014 AC6: the selected device is not remembered. After a
+/// `SetDevice`, the saved state is the same as without it, and a player
+/// restored from it starts on its configured device.
+#[test]
+fn ac6_device_not_remembered() {
+    let configured = |device: &str| PlayerConfig {
+        device: device.into(),
+        ..PlayerConfig::default()
+    };
+    for (start, chosen) in [("default", "hw:1,0"), ("hw:0,0", "default")] {
+        let untouched = stopped_at(
+            PlayerState::new(configured(start), 42),
+            &[1, 2, 3],
+            1,
+            secs(42),
+        );
+        let mut switched = untouched.clone();
+        cmd(&mut switched, C::SetDevice(chosen.into()));
+        assert_eq!(switched.snapshot().device, chosen, "{start}: switched");
+        assert_eq!(
+            switched.saved(),
+            untouched.saved(),
+            "{start}: no device saved"
+        );
+        for config_device in [start, "hw:2,0"] {
+            let restored = PlayerState::restore(configured(config_device), 42, switched.saved());
+            assert_eq!(
+                restored.snapshot().device,
+                config_device,
+                "{start}: restored on the configured device"
+            );
+        }
+    }
+}

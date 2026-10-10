@@ -3,7 +3,7 @@
 //! playing and queueing from a page, the popups and the library writes.
 
 use crate::library::{FavoriteKind, LibraryRequest, LibraryResponse, ListRef, PlaylistSummary};
-use crate::protocol::{Command, InsertAt};
+use crate::protocol::{Command, DeviceEntry, InsertAt};
 use crate::track::Track;
 
 use super::dispatch::step;
@@ -12,7 +12,7 @@ use super::page::{
     Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind, group,
     is_search_list, largest_page,
 };
-use super::popup::{self, Confirmed, MenuAction, Popup, TrackSource};
+use super::popup::{self, Confirmed, DeviceList, MenuAction, Popup, TrackSource, device_rows};
 use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State};
 
 /// The message of a removal refused because the playlist changed (`412`),
@@ -602,6 +602,12 @@ pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>
             checked[*cursor] = !checked[*cursor];
             Some(Vec::new())
         }
+        // Spec 0014: `q` closes the devices popup, `r` reads the list again.
+        (Popup::Devices { .. }, Key::Char('q')) => {
+            state.popup = None;
+            Some(Vec::new())
+        }
+        (Popup::Devices { .. }, Key::Char('r')) => Some(open_devices(state)),
         _ => None,
     }
 }
@@ -694,6 +700,26 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
                 });
             }
         }
+        Popup::Devices { list, cursor } => {
+            let selected = state.player.as_ref().map(|p| p.device.as_str());
+            let rows = device_rows(&list, selected);
+            if choose && let Some(row) = rows.get(cursor) {
+                // The selected device: just closed.
+                return if row.selected {
+                    Vec::new()
+                } else {
+                    vec![Effect::Send(Command::SetDevice(row.name.clone()))]
+                };
+            }
+            state.popup = Some(Popup::Devices {
+                cursor: if rows.is_empty() {
+                    0
+                } else {
+                    step(command, cursor, rows.len(), height)
+                },
+                list,
+            });
+        }
         Popup::Roles { checked, cursor } => {
             if choose {
                 return apply_roles(state, checked);
@@ -709,6 +735,43 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
         }
     }
     Vec::new()
+}
+
+/// Opens the devices popup (spec 0014), or reads its list again: asks the
+/// player for its devices; while not connected the popup says why.
+pub(super) fn open_devices(state: &mut State) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    let list = if connected(state) {
+        let id = state.next_request;
+        state.next_request += 1;
+        effects.push(Effect::Devices { id });
+        DeviceList::Loading { id }
+    } else {
+        DeviceList::Failed(connection_message(state))
+    };
+    state.popup = Some(Popup::Devices { list, cursor: 0 });
+    effects
+}
+
+/// The player's answer to the devices popup's request `id`: the list with
+/// the cursor on the selected device, or why not; dropped when the popup
+/// is closed or asked again since.
+pub(super) fn devices_reply(state: &mut State, id: u64, result: Result<Vec<DeviceEntry>, String>) {
+    let selected = state.player.as_ref().map(|p| p.device.clone());
+    let Some(Popup::Devices { list, cursor }) = state.popup.as_mut() else {
+        return;
+    };
+    if *list != (DeviceList::Loading { id }) {
+        return;
+    }
+    *list = match result {
+        Ok(devices) => DeviceList::Loaded(devices),
+        Err(message) => DeviceList::Failed(message),
+    };
+    *cursor = device_rows(list, selected.as_deref())
+        .iter()
+        .position(|row| row.selected)
+        .unwrap_or(0);
 }
 
 /// The role filter applied to *All tracks*: the cursor stays among the
@@ -1148,6 +1211,11 @@ pub(super) fn disconnected(state: &mut State) {
     }
     if let Some(Popup::AddToPlaylist { playlists, .. }) = state.popup.as_mut() {
         fail(&mut playlists.load);
+    }
+    if let Some(Popup::Devices { list, .. }) = state.popup.as_mut()
+        && matches!(list, DeviceList::Loading { .. })
+    {
+        *list = DeviceList::Failed(message);
     }
     cancel_whole_list(state);
     state.writes.clear();

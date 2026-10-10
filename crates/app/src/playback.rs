@@ -293,7 +293,8 @@ mod alsa_play {
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);
-        let engine = spawn_output(&request.settings.device, request.release_paused);
+        // `request.player.device` is `request.settings.device` (spec 0014).
+        let engine = spawn_output(&config.device, request.release_paused);
         let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs);
         let stdout = io::stdout();
         let tty = stdout.is_terminal();

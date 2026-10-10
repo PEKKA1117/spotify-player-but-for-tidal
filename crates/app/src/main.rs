@@ -31,12 +31,12 @@ use tidal_player::{
     },
     login::{LoginOutcome, run_login},
     mpris,
-    oneshot::PlaybackCommand,
+    oneshot::{self, PlaybackCommand},
     panic_hook::install_panic_hook,
     persist::Persister,
     play::{
-        ASOUND_DIR_VAR, PlayOptions, configured_device_with, resolve_play_config_with,
-        resolve_player_config_with, resolve_settings_with,
+        PlayOptions, asound_dir, configured_device_with, read_devices, resolve_play_config_with,
+        resolve_player_config_with, resolve_settings_with, with_device,
     },
     playback::{
         HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
@@ -50,7 +50,7 @@ use tidal_player_api::auth::{
 };
 use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::MetadataClient;
-use tidal_player_audio::devices::{format_devices, parse_devices};
+use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
 use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, update};
@@ -111,7 +111,9 @@ enum Command {
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
     Play(PlayArgs),
-    /// List the playback devices; `*` marks the one `play` would use.
+    /// List this machine's playback devices; `*` marks a running player's
+    /// device, else the configured one (the player's own list: "tidal-player
+    /// playback device").
     Devices,
 }
 
@@ -224,6 +226,7 @@ fn run<C: Connector>(
                     Effect::Quit => return Ok(()),
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
+                    Effect::Devices { id } => session.send_devices(id),
                 }
             }
         }
@@ -352,8 +355,9 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
         .with_library(player_library(&auth), player_settings.library.clone());
-    let mut config = player_settings.player.clone();
+    let mut config = with_device(player_settings.player.clone(), &settings);
     config.country = Some(country);
+    let engine = spawn_output(&config.device, player_settings.release_paused);
     // The remembered state is read before the socket is bound, so the
     // first `Welcome` carries it (spec 0009). The engine opens the device
     // only once something plays (0003).
@@ -362,7 +366,7 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         time_seed(),
         &player_settings,
         Persister::new(plan.state_dir.clone(), player_settings.remember_playback),
-        spawn_output(&settings.device, player_settings.release_paused),
+        engine,
         jobs,
     );
     let (listener, socket) = match bind_player(&lock) {
@@ -600,8 +604,9 @@ fn standalone(
     let (results, inputs) = std::sync::mpsc::channel();
     let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results.clone())
         .with_library(player_library(&auth), player_settings.library.clone());
-    let mut config = player_settings.player.clone();
+    let mut config = with_device(player_settings.player.clone(), &settings);
     config.country = Some(country);
+    let engine = spawn_output(&config.device, player_settings.release_paused);
     // Restored before the socket is bound and before the TUI's first
     // frame; the startup items' `Open` then replaces the queue (spec 0009).
     let player_runtime = PlayerRuntime::restored(
@@ -609,7 +614,7 @@ fn standalone(
         time_seed(),
         &player_settings,
         Persister::new(state_dir, player_settings.remember_playback),
-        spawn_output(&settings.device, player_settings.release_paused),
+        engine,
         jobs,
     );
     let (listener, socket) = match bind_player(&lock) {
@@ -751,8 +756,8 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
         },
         PlayRequest {
             items,
+            player: with_device(player.player, &settings),
             settings,
-            player: player.player,
             release_paused: player.release_paused,
             mpris: mpris_settings,
             options: PlayOptions {
@@ -767,15 +772,18 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
 
 /// `tidal-player devices`: `/proc/asound` (or `TIDAL_PLAYER_ASOUND_DIR`).
 fn devices(app: &AppConfig) -> ExitCode {
-    let dir = env_var(ASOUND_DIR_VAR)
-        .filter(|d| !d.is_empty())
-        .map_or_else(|| PathBuf::from("/proc/asound"), PathBuf::from);
-    // A missing file means no card (no ALSA, or a container): `default` only.
-    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
-    let listing = parse_devices(&read("cards"), &read("pcm"));
+    // An unreadable list is shown as no card: `default` only.
+    let listing = read_devices(&asound_dir(env_var)).unwrap_or_else(|_| parse_devices("", ""));
+    // The marks come from a running player when one answers in time
+    // (spec 0014 AC13); the list stays this machine's.
+    let player = oneshot::player_device(oneshot::PLAYER_DEVICE_TIMEOUT);
     print!(
         "{}",
-        format_devices(&listing, &configured_device_with(app, env_var))
+        oneshot::local_device_lines(
+            &listing,
+            player.as_deref(),
+            &configured_device_with(app, env_var)
+        )
     );
     ExitCode::SUCCESS
 }

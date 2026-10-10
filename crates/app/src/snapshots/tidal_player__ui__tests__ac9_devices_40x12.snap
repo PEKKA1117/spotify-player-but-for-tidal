@@ -1,0 +1,17 @@
+---
+source: crates/app/src/ui.rs
+assertion_line: 3070
+expression: text
+---
+┌tidal-player──────────────────────────┐
+│▶ Hell Above · Pierce The Veil     80%│
+│  Collide With The Sky                │
+│  not bit-perfect: volume below 100%  │
+│  ━━━━━━━━━──────────────  1:23 / 3:32│
+│┌Devices─────────────────────────────┐│
+││  default   shared, through the sys…││
+││  hw:0,0    HDA Intel PCH: ALC892 A…││
+││● hw:1,0    E30 II: USB Audio       ││
+│└────────────────────────────────────┘│
+│└────────────────────────────────────┘│
+└──────────────────────────────────────┘

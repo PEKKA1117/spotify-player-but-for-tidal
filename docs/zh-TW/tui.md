@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），以及 [spec 0013](../specs/0013-key-hints.md)（按鍵提示）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），以及 [spec 0014](../specs/0014-device-selection.md)（輸出裝置）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -61,6 +61,7 @@
 | `A` | `ToggleAutoplay` | 開啟／關閉自動播放 |
 | `+` / `-` | `VolumeUp` / `VolumeDown` | 依音量間隔（5 %）調高／調低音量 |
 | `_` | `Mute` | 靜音／取消靜音 |
+| `D` | `SwitchDevice` | 選擇[輸出裝置](#output-device)（Devices 彈出視窗） |
 | `o` | `AddToQueuePrompt` | 將連結或曲目 ID 加到佇列尾端 |
 | `O` | `PlayNextPrompt` | 將連結或曲目 ID 加入為下一首播放 |
 | `j`, `down`, `C-n` / `k`, `up`, `C-p` | `SelectNextOrScrollDown` / `SelectPreviousOrScrollUp` | 游標下移、上移 |
@@ -309,6 +310,33 @@
 ### 音量
 
 範圍為 0 到 100 %，**預設 100 %**，每次調整一個音量間隔。在 100 % 時不會更動取樣，因此位元完美的輸出會保持位元完美；低於 100 %（或靜音）時，第三列會顯示 `not bit-perfect: volume below 100%`（或 `muted`）。音量依符合人耳感知響度的曲線變化（50 % 約為 −18 dB）。靜音（`_`）會保留音量，因此取消靜音時會恢復原音量；調整音量會取消靜音。音量與靜音會連同佇列與各模式跨次執行記住（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
+
+<a id="output-device"></a>
+## 輸出裝置
+
+在任何頁面按 `D` 會開啟 **Devices** 彈出視窗：列出播放器的輸出裝置，每次開啟時都從播放器所在的機器重新讀取（之後才插上的 DAC 也會出現），並以 `●` 標示播放器目前使用的裝置：
+
+```
+┌Devices─────────────────────────────────────────┐
+│● default   shared, through the system mixer    │
+│  hw:0,0    HDA Intel PCH: ALC892 Analog        │
+│  hw:1,0    E30 II: USB Audio                   │
+└────────────────────────────────────────────────┘
+```
+
+| 按鍵 | 作用 |
+|---|---|
+| `j`、`k`（以及方向鍵） | 移動游標（一開始位於使用中的裝置） |
+| `Enter` | 切換到該裝置並關閉彈出視窗；在使用中的裝置上則只是關閉 |
+| `r` | 重新讀取清單 |
+| `esc`、`q` | 關閉而不做任何變更（在這裡 `q` 不會離開程式） |
+
+- 清單送達前顯示 `Loading devices…`；無法讀取時顯示 `Cannot list devices: <reason>`。連上播放器的 TUI 斷線時，彈出視窗會說明原因，且 `D` 在[按鍵說明](#the-keys-help)中會變暗
+- 使用中的裝置若不在清單中（`plughw:1,0`、自訂的 PCM、已拔除的 DAC），會列在最前面，標示 `●`，說明為 `not found`
+- **播放中**時，曲目會在原位置移到新裝置，不會遺失也不會重複任何片段；新裝置一開啟，第三列就會顯示新的輸出（`hw:1,0 (exclusive) …, bit-perfect`）。**暫停中**時，新裝置會以暫停狀態開啟：按 `space` 之前不會播放。**已停止**、載入中或裝置已[釋放](daemon.md#releasing-the-device-while-paused)時，不會開啟任何裝置：下次播放時才開啟新裝置
+- 若新裝置無法開啟（忙碌、不存在、被拒絕），播放器會回到原本使用的裝置並在那裡繼續播放，並顯示訊息 `Cannot switch to hw:1,0: Output hw:1,0 is busy (used by …): …; staying on default`。不會跳過任何曲目，佇列也不變
+- 這個選擇屬於**播放器**，因此每個連上的 TUI 與 `tidal-player playback status` 都會顯示它；在 shell 中可用 `tidal-player playback device` 列出與切換（見[單次指令](daemon.md#one-shot-commands)）
+- 只在這次執行期間有效：重新啟動的播放器會再次從設定的裝置開始（`app.toml` 中的 `output_device`、`--device` 或 `TIDAL_PLAYER_DEVICE`；見[設定](playback.md#settings)）。要保留某個裝置，請設定在那裡
 
 <a id="failures"></a>
 ## 失敗處理

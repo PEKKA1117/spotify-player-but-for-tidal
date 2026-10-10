@@ -151,6 +151,7 @@ fn snapshot(ids: &[u64], current: Option<u64>) -> PlayerSnapshot {
         muted: false,
         now_playing: None,
         message: None,
+        device: "default".into(),
     }
 }
 
@@ -200,6 +201,7 @@ enum Out {
     Quit,
     Send(Command),
     Library(LibraryRequest),
+    Devices,
 }
 
 fn outs(effects: &[Effect]) -> Vec<Out> {
@@ -209,6 +211,7 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
             Effect::Quit => Out::Quit,
             Effect::Send(c) => Out::Send(c.clone()),
             Effect::Library { request, .. } => Out::Library(request.clone()),
+            Effect::Devices { .. } => Out::Devices,
         })
         .collect()
 }
@@ -2176,4 +2179,261 @@ fn ac10_disconnected() {
     let (_, request) = one_request(&press(&mut state, &GM));
     assert_eq!(request, LibraryRequest::Page(PageRequest::Mixes));
     assert_eq!(state.history.len(), 2);
+}
+
+// --- spec 0014: the devices popup ---------------------------------------------
+
+fn device(name: &str, description: &str) -> crate::protocol::DeviceEntry {
+    crate::protocol::DeviceEntry {
+        name: name.into(),
+        description: description.into(),
+    }
+}
+
+/// The player's list: `default`, `hw:0,0`, `hw:1,0`.
+fn devices() -> Vec<crate::protocol::DeviceEntry> {
+    vec![
+        device("default", "shared, through the system mixer"),
+        device("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+        device("hw:1,0", "E30 II: USB Audio"),
+    ]
+}
+
+/// A queue page on a player whose selected device is `selected`.
+fn on_device(selected: &str) -> State {
+    let mut state = State::default();
+    update(
+        &mut state,
+        Action::Player(protocol::Event::Player(PlayerSnapshot {
+            device: selected.into(),
+            ..snapshot(&[1, 2], Some(1))
+        })),
+    );
+    state
+}
+
+/// The `Devices` request among `effects`, the only effect.
+fn devices_request(effects: &[Effect]) -> u64 {
+    match effects {
+        [Effect::Devices { id }] => *id,
+        other => panic!("one Devices request expected: {other:?}"),
+    }
+}
+
+fn devices_reply(
+    state: &mut State,
+    id: u64,
+    result: Result<Vec<crate::protocol::DeviceEntry>, String>,
+) -> Vec<Effect> {
+    update(state, Action::DevicesReply { id, result })
+}
+
+/// `D`, answered with `list`: the open popup's request ID.
+fn devices_open(state: &mut State, list: Vec<crate::protocol::DeviceEntry>) -> u64 {
+    let id = devices_request(&press(state, &[Key::Char('D')]));
+    assert_eq!(devices_reply(state, id, Ok(list)), vec![]);
+    id
+}
+
+/// The open popup's rows as (name, description, selected), and its cursor.
+fn device_view(state: &State) -> (Vec<(String, String, bool)>, usize) {
+    let Some(Popup::Devices { list, cursor }) = &state.popup else {
+        panic!("the devices popup is not open: {:?}", state.popup);
+    };
+    let selected = state.player.as_ref().map(|p| p.device.as_str());
+    let rows = super::super::device_rows(list, selected)
+        .into_iter()
+        .map(|r| (r.name, r.description, r.selected))
+        .collect();
+    (rows, *cursor)
+}
+
+fn row(name: &str, description: &str, selected: bool) -> (String, String, bool) {
+    (name.into(), description.into(), selected)
+}
+
+/// 0014 AC8: `D` opens the popup and asks for the list; the reply fills
+/// it with the cursor on the selected device (shown first as `not found`
+/// when the list lacks it); `Enter` sends `SetDevice` for another row and
+/// closes, closes only on the selected one; `esc`/`q` close; `r` asks
+/// again; a failed reply shows its message (table: key → effects, state).
+#[test]
+fn ac8_devices_popup() {
+    use super::super::DeviceList;
+
+    // `D`: the popup, loading, and one request.
+    let mut state = on_device("default");
+    let effects = press(&mut state, &[Key::Char('D')]);
+    let id = devices_request(&effects);
+    assert_eq!(
+        state.popup,
+        Some(Popup::Devices {
+            list: DeviceList::Loading { id },
+            cursor: 0
+        })
+    );
+    assert_eq!(
+        DeviceList::Loading { id }.status().as_deref(),
+        Some("Loading devices…")
+    );
+    // Another request's answer is not this popup's.
+    devices_reply(&mut state, id + 100, Ok(devices()));
+    assert!(matches!(
+        state.popup,
+        Some(Popup::Devices {
+            list: DeviceList::Loading { .. },
+            ..
+        })
+    ));
+
+    // The reply: the cursor on the selected device.
+    for (selected, cursor) in [("default", 0), ("hw:0,0", 1), ("hw:1,0", 2)] {
+        let mut state = on_device(selected);
+        devices_open(&mut state, devices());
+        let (rows, at) = device_view(&state);
+        assert_eq!(at, cursor, "{selected}");
+        let marks: Vec<bool> = rows.iter().map(|r| r.2).collect();
+        let expected: Vec<bool> = (0..3).map(|i| i == cursor).collect();
+        assert_eq!(marks, expected, "{selected}: ● on the selected device");
+        assert_eq!(rows.len(), 3, "{selected}");
+    }
+
+    // The selected device missing from the list: first, `not found`.
+    let mut state = on_device("plughw:1,0");
+    devices_open(&mut state, devices());
+    assert_eq!(
+        device_view(&state),
+        (
+            vec![
+                row("plughw:1,0", "not found", true),
+                row("default", "shared, through the system mixer", false),
+                row("hw:0,0", "HDA Intel PCH: ALC892 Analog", false),
+                row("hw:1,0", "E30 II: USB Audio", false),
+            ],
+            0
+        )
+    );
+
+    // Keys in the loaded popup, on `default` (row 0).
+    type Check = fn(&State);
+    let open = |state: &State| assert!(matches!(state.popup, Some(Popup::Devices { .. })));
+    let closed = |state: &State| assert_eq!(state.popup, None);
+    let rows: Vec<(&str, Vec<Key>, Vec<Out>, Check)> = vec![
+        ("j", vec![Key::Char('j')], vec![], |s| {
+            assert_eq!(device_view(s).1, 1)
+        }),
+        ("down down down", vec![Key::Down; 3], vec![], |s| {
+            assert_eq!(device_view(s).1, 2, "clamped at the last row")
+        }),
+        ("j k", vec![Key::Char('j'), Key::Char('k')], vec![], |s| {
+            assert_eq!(device_view(s).1, 0)
+        }),
+        ("up", vec![Key::Up], vec![], |s| {
+            assert_eq!(device_view(s).1, 0)
+        }),
+        (
+            "j enter",
+            vec![Key::Char('j'), Key::Enter],
+            vec![Out::Send(Command::SetDevice("hw:0,0".into()))],
+            closed,
+        ),
+        (
+            "G enter",
+            vec![Key::Char('G'), Key::Enter],
+            vec![Out::Send(Command::SetDevice("hw:1,0".into()))],
+            closed,
+        ),
+        ("enter on the selected", vec![Key::Enter], vec![], closed),
+        ("esc", vec![Key::Esc], vec![], closed),
+        (
+            "q closes, never quits",
+            vec![Key::Char('q')],
+            vec![],
+            closed,
+        ),
+        ("r", vec![Key::Char('r')], vec![Out::Devices], |s| {
+            assert!(matches!(
+                s.popup,
+                Some(Popup::Devices {
+                    list: DeviceList::Loading { .. },
+                    ..
+                })
+            ))
+        }),
+        ("D again", vec![Key::Char('D')], vec![], open),
+        ("space", vec![Key::Char(' ')], vec![], open),
+        ("n", vec![Key::Char('n')], vec![], open),
+    ];
+    for (name, keys, expected, check) in rows {
+        let mut state = on_device("default");
+        devices_open(&mut state, devices());
+        let effects = press(&mut state, &keys);
+        assert_eq!(outs(&effects), expected, "{name}");
+        check(&state);
+    }
+
+    // `r`: a new request; its answer fills the popup, the first one's not.
+    let mut state = on_device("hw:1,0");
+    let first = devices_open(&mut state, vec![device("default", "")]);
+    let again = devices_request(&press(&mut state, &[Key::Char('r')]));
+    assert_ne!(again, first);
+    devices_reply(&mut state, first, Ok(vec![]));
+    assert!(matches!(
+        state.popup,
+        Some(Popup::Devices {
+            list: DeviceList::Loading { .. },
+            ..
+        })
+    ));
+    devices_reply(&mut state, again, Ok(devices()));
+    assert_eq!(device_view(&state).1, 2);
+
+    // A failed reply: its message; `enter` does nothing, `r` asks again.
+    let mut state = on_device("default");
+    let id = devices_request(&press(&mut state, &[Key::Char('D')]));
+    devices_reply(&mut state, id, Err("permission denied".into()));
+    let Some(Popup::Devices { list, .. }) = &state.popup else {
+        panic!("closed: {:?}", state.popup);
+    };
+    assert_eq!(list, &DeviceList::Failed("permission denied".into()));
+    assert_eq!(
+        list.status().as_deref(),
+        Some("Cannot list devices: permission denied")
+    );
+    assert_eq!(device_view(&state).0, vec![], "no rows");
+    assert_eq!(press(&mut state, &[Key::Enter]), vec![]);
+    assert!(state.popup.is_some(), "enter on no row keeps it open");
+    let id = devices_request(&press(&mut state, &[Key::Char('r')]));
+    devices_reply(&mut state, id, Ok(devices()));
+    assert_eq!(device_view(&state).0.len(), 3);
+
+    // Disconnected: nothing is asked, the popup says why; a request in
+    // flight fails with the connection's message.
+    let mut state = on_device("default");
+    update(&mut state, Action::Disconnected { shut_down: false });
+    assert_eq!(press(&mut state, &[Key::Char('D')]), vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::Devices {
+            list: DeviceList::Failed(DISCONNECTED.into()),
+            cursor: 0
+        })
+    );
+    let mut state = on_device("default");
+    devices_request(&press(&mut state, &[Key::Char('D')]));
+    update(&mut state, Action::Disconnected { shut_down: true });
+    assert_eq!(
+        state.popup,
+        Some(Popup::Devices {
+            list: DeviceList::Failed(SHUT_DOWN.into()),
+            cursor: 0
+        })
+    );
+
+    // Over another popup `D` does nothing.
+    let mut state = on_device("default");
+    press(&mut state, &[Key::Char('a')]);
+    assert!(matches!(state.popup, Some(Popup::Actions { .. })));
+    assert_eq!(press(&mut state, &[Key::Char('D')]), vec![]);
+    assert!(matches!(state.popup, Some(Popup::Actions { .. })));
 }

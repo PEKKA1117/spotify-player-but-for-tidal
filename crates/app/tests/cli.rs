@@ -175,8 +175,12 @@ fn ac25_devices_marks_configured() {
             mark("hw:1,0"),
         )
     };
+    // No player: an empty runtime dir of its own, so a player running on
+    // this machine is not asked (spec 0014 AC13).
+    let run = tempfile::tempdir().unwrap();
     bin()
         .arg("devices")
+        .env("TIDAL_PLAYER_RUNTIME_DIR", run.path())
         .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
         .env_remove("TIDAL_PLAYER_DEVICE")
         .assert()
@@ -184,6 +188,7 @@ fn ac25_devices_marks_configured() {
         .stdout(listing("default"));
     bin()
         .arg("devices")
+        .env("TIDAL_PLAYER_RUNTIME_DIR", run.path())
         .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("onboard_usb"))
         .env("TIDAL_PLAYER_DEVICE", "hw:1,0")
         .assert()
@@ -191,6 +196,7 @@ fn ac25_devices_marks_configured() {
         .stdout(listing("hw:1,0"));
     bin()
         .arg("devices")
+        .env("TIDAL_PLAYER_RUNTIME_DIR", run.path())
         .env("TIDAL_PLAYER_ASOUND_DIR", asound_fixture("no_cards"))
         .env_remove("TIDAL_PLAYER_DEVICE")
         .assert()

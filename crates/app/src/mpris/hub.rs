@@ -125,6 +125,7 @@ fn empty_snapshot() -> PlayerSnapshot {
         muted: false,
         now_playing: None,
         message: None,
+        device: String::new(),
     }
 }
 
@@ -316,7 +317,9 @@ impl Shared {
                 self.on_position(entry, position);
             }
             ServerMessage::Event(Event::ShuttingDown) => self.shut(),
-            ServerMessage::Event(_) | ServerMessage::LibraryReply { .. } => {}
+            ServerMessage::Event(_)
+            | ServerMessage::LibraryReply { .. }
+            | ServerMessage::DevicesReply { .. } => {}
             ServerMessage::Reply { id, result } => {
                 if let Some(tx) = lock(&self.calls).pending.remove(&id) {
                     let _ = tx.send(result);

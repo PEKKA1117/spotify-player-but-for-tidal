@@ -99,11 +99,13 @@ After `tidal-player login` in any terminal, a running daemon picks up the new se
 | `repeat off`, `repeat queue`, `repeat track` | set the repeat mode |
 | `load ITEM...` | replace the queue with the [items](playback.md#items) and play the first |
 | `add ITEM...`, `add --next ITEM...` | add the items at the end of the queue, or right after the current track |
+| `device` | list the player's output devices, `*` on the one it uses (see [Choosing the output device](playback.md#choosing-the-output-device)) |
+| `device NAME` | switch the player to the output device `NAME` (an ALSA PCM name: `hw:1,0`, `default`, …), as `D` in the TUI |
 | `status`, `status --json` | print what is playing |
 
 It prints nothing and exits 0 when the player did it. Otherwise:
 
-- a bad argument or item (`volume 101`, `seek x`, `shuffle maybe`, an artist link) exits 2 and sends nothing
+- a bad argument or item (`volume 101`, `seek x`, `shuffle maybe`, an artist link, an empty device name) exits 2 and sends nothing
 - no player running exits 1 with `No player is running: start "tidal-player" or "tidal-player daemon"`
 - the player's error (`Album 123 was not found`) is printed on stderr, exit 1
 - no answer within 5 s: `The player did not answer`, exit 1
@@ -113,11 +115,13 @@ It prints nothing and exits 0 when the player did it. Otherwise:
 ```
 $ tidal-player playback status
 ▶ Hell Above · Pierce The Veil · Collide With The Sky
-1:23 / 3:32 · shuffle · repeat: queue · 80%
+1:23 / 3:32 · shuffle · repeat: queue · 80% · hw:1,0
 Queue: 2 of 12
 ```
 
-`Nothing playing` alone when nothing is current. A fourth line shows the player's message, if any (`Output hw:1,0 is busy …`), or `Session expired: run "tidal-player login"`. While the device is released, the second line ends with `· device released`. `status --json` prints the player's whole state as one JSON line, for scripts.
+`Nothing playing` alone when nothing is current. A fourth line shows the player's message, if any (`Output hw:1,0 is busy …`), or `Session expired: run "tidal-player login"`. The second line ends with the output device the player uses (`hw:1,0`), then `· device released` while the device is released. `status --json` prints the player's whole state as one JSON line, for scripts.
+
+`playback device` asks the running player, so it lists the devices of the player's machine and marks the player's device, even one chosen at runtime; it prints like [`tidal-player devices`](playback.md#tidal-player-devices), which reads this machine's list and takes only its marks from the running player (the configured device, when no player answers). `playback device hw:1,0` exits 0 once the player has taken the new device; it does not wait for the device to open: a device that cannot be opened shows in `playback status` and the TUI like any output failure, and the player stays on the previous one (see [Output device](tui.md#output-device)).
 
 `playback add` makes a simple handler for links: for example `tidal-player playback add --next "$1"`.
 

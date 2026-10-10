@@ -2127,3 +2127,290 @@ fn notice_sets_message() {
     started(&mut st, tag);
     assert_eq!(st.snapshot().message, None);
 }
+
+// --- spec 0014: the selected output device ----------------------------------------
+
+const BUSY: &str = "Output hw:1,0 is busy (used by PipeWire): close it, or use --device default";
+
+#[derive(Debug, Clone, Copy)]
+enum DevicePhase {
+    Stopped,
+    Loading,
+    Playing,
+    Buffering,
+    Paused,
+    Released,
+}
+
+/// Queue 1, 2, 3 with track 2 current, in `phase`, on the default device.
+fn in_device_phase(phase: DevicePhase) -> PlayerState {
+    let st = match phase {
+        DevicePhase::Stopped => in_state(From::Stopped),
+        DevicePhase::Loading => in_state(From::Loading),
+        DevicePhase::Playing => in_state(From::Playing),
+        DevicePhase::Paused => in_state(From::Paused),
+        DevicePhase::Buffering => {
+            let mut st = in_state(From::Playing);
+            engine(&mut st, EngineEvent::Buffering);
+            assert_eq!(st.snapshot().state, S::Buffering);
+            st
+        }
+        DevicePhase::Released => paused_and_released(),
+    };
+    assert_eq!(
+        st.snapshot().device,
+        "default",
+        "{phase:?}: starts on default"
+    );
+    st
+}
+
+const DEVICE_PHASES: [DevicePhase; 6] = [
+    DevicePhase::Stopped,
+    DevicePhase::Loading,
+    DevicePhase::Playing,
+    DevicePhase::Buffering,
+    DevicePhase::Paused,
+    DevicePhase::Released,
+];
+
+/// 0014 AC2: in every phase, `SetDevice` to another device sends
+/// `EngineSetDevice` and one snapshot that differs only by `device`; the
+/// selected device again, or an empty name, changes nothing and sends
+/// nothing (table over phase × name).
+#[test]
+fn ac2_set_device() {
+    for phase in DEVICE_PHASES {
+        for (name, applies) in [
+            ("hw:1,0", true),
+            ("plughw:0,0", true),
+            ("default", false),
+            ("", false),
+        ] {
+            let ctx = format!("{phase:?} × {name:?}");
+            let mut st = in_device_phase(phase);
+            let before = st.snapshot();
+            let fx = cmd(&mut st, C::SetDevice(name.into()));
+            let after = st.snapshot();
+            if applies {
+                let expected = crate::protocol::PlayerSnapshot {
+                    device: name.into(),
+                    ..before
+                };
+                assert_eq!(after, expected, "{ctx}: only the device changes");
+                assert_eq!(
+                    fx,
+                    vec![
+                        PlayerEffect::EngineSetDevice(name.into()),
+                        PlayerEffect::Broadcast(Event::Player(expected)),
+                    ],
+                    "{ctx}"
+                );
+            } else {
+                assert_eq!(fx, vec![], "{ctx}: nothing sent");
+                assert_eq!(after, before, "{ctx}: nothing changed");
+            }
+        }
+    }
+}
+
+/// 0014 AC3: a `DeviceFallback` selects the device the engine went back
+/// to, keeps the phase, the position, the current entry and the queue,
+/// touches neither the engine nor the resolver, and says why; a fallback
+/// while the track opens keeps its message through the track's start.
+#[test]
+fn ac3_device_fallback() {
+    let fallback = || EngineEvent::DeviceFallback {
+        tried: "hw:1,0".into(),
+        message: BUSY.into(),
+        device: "default".into(),
+    };
+    let message = format!("Cannot switch to hw:1,0: {BUSY}; staying on default");
+    for phase in [
+        DevicePhase::Playing,
+        DevicePhase::Buffering,
+        DevicePhase::Paused,
+        DevicePhase::Released,
+    ] {
+        let mut st = in_device_phase(phase);
+        if matches!(phase, DevicePhase::Playing | DevicePhase::Buffering) {
+            position(&mut st, secs(42));
+        }
+        cmd(&mut st, C::SetDevice("hw:1,0".into()));
+        let before = st.snapshot();
+        assert_eq!(before.device, "hw:1,0", "{phase:?}");
+        let fx = engine(&mut st, fallback());
+        assert!(!touches_engine(&fx), "{phase:?}: {fx:?}");
+        assert!(!any_resolve(&fx), "{phase:?}: {fx:?}");
+        let after = st.snapshot();
+        assert_eq!(
+            after,
+            crate::protocol::PlayerSnapshot {
+                device: "default".into(),
+                message: Some(message.clone()),
+                ..before
+            },
+            "{phase:?}: device back, message, nothing else"
+        );
+        assert_eq!(current_track(&st), Some(2), "{phase:?}: no skip");
+    }
+
+    // Selected while stopped: the fallback comes when the next play opens
+    // the device, before the track starts.
+    let mut st = in_device_phase(DevicePhase::Stopped);
+    cmd(&mut st, C::SetDevice("hw:1,0".into()));
+    let fx = cmd(&mut st, C::TogglePause);
+    let (_, _, tag) = expect_resolve(&fx, Purpose::Play);
+    resolved(&mut st, tag);
+    let fx = engine(&mut st, fallback());
+    assert!(!touches_engine(&fx), "opening: {fx:?}");
+    let snapshot = st.snapshot();
+    assert_eq!(snapshot.state, S::Loading, "opening: still loading");
+    assert_eq!(snapshot.device, "default", "opening");
+    assert_eq!(snapshot.message.as_deref(), Some(message.as_str()));
+    started(&mut st, tag);
+    let snapshot = st.snapshot();
+    assert_eq!(snapshot.state, S::Playing);
+    assert_eq!(current_track(&st), Some(2), "opening: no skip");
+    assert_eq!(snapshot.device, "default");
+    assert_eq!(
+        snapshot.message.as_deref(),
+        Some(message.as_str()),
+        "the start keeps the fallback's message"
+    );
+    // The next track start clears it, as any message.
+    let fx = cmd(&mut st, C::Next);
+    complete(&mut st, &fx);
+    assert_eq!(st.snapshot().message, None, "the next track");
+}
+
+/// 0014 AC3: with no fallback possible, the new device's output error is
+/// an ordinary output failure (0004): stopped at the position, the same
+/// entry, the queue kept, 0003's message, the new device still selected.
+#[test]
+fn ac3_set_device_failure() {
+    // While playing: the engine fails the track on the new device.
+    let (mut st, tag) = playing(&[1, 2, 3], 1);
+    position(&mut st, secs(42));
+    cmd(&mut st, C::SetDevice("hw:1,0".into()));
+    let fx = engine(
+        &mut st,
+        EngineEvent::Error {
+            tag,
+            failure: failure(FailureKind::Output, BUSY),
+        },
+    );
+    assert!(!any_resolve(&fx), "never skipped: {fx:?}");
+    let snapshot = st.snapshot();
+    assert_eq!(snapshot.state, S::Stopped);
+    assert_eq!(snapshot.position, secs(42));
+    assert_eq!(current_track(&st), Some(2));
+    assert_eq!(order(&st), vec![1, 2, 3]);
+    assert_eq!(snapshot.message.as_deref(), Some(BUSY));
+    assert_eq!(snapshot.device, "hw:1,0", "the new device stays selected");
+
+    // Selected while stopped: the next play fails to open it.
+    let mut st = in_device_phase(DevicePhase::Stopped);
+    cmd(&mut st, C::SetDevice("hw:1,0".into()));
+    let fx = cmd(&mut st, C::TogglePause);
+    let (_, _, tag) = expect_resolve(&fx, Purpose::Play);
+    resolved(&mut st, tag);
+    let fx = engine(
+        &mut st,
+        EngineEvent::Error {
+            tag,
+            failure: failure(FailureKind::Output, BUSY),
+        },
+    );
+    assert!(!any_resolve(&fx), "never skipped: {fx:?}");
+    let snapshot = st.snapshot();
+    assert_eq!(snapshot.state, S::Stopped);
+    assert_eq!(current_track(&st), Some(2));
+    assert_eq!(snapshot.message.as_deref(), Some(BUSY));
+    assert_eq!(snapshot.device, "hw:1,0");
+}
+
+/// 0014 AC3: `OutputChanged` replaces the output line and the engine's
+/// verdict of the playing track, keeping its source and quality; the
+/// volume and mute reasons of 0004 still win; with nothing started it
+/// changes nothing.
+#[test]
+fn ac3_output_changed() {
+    let exclusive = TrackDetails {
+        source: "ignored".into(),
+        output: "hw:0,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
+        bit_perfect: true,
+        reason: None,
+    };
+    let shared = TrackDetails {
+        source: "ignored".into(),
+        output: "default (shared) S16_LE 48 kHz 2 ch".into(),
+        bit_perfect: false,
+        reason: Some("resampled by the system mixer".into()),
+    };
+    type Setup = fn(&mut PlayerState);
+    let rows: [(&str, Setup, TrackDetails, bool, Option<&str>); 5] = [
+        ("100 %, exclusive", |_| {}, exclusive.clone(), true, None),
+        (
+            "100 %, shared",
+            |_| {},
+            shared.clone(),
+            false,
+            Some("resampled by the system mixer"),
+        ),
+        (
+            "80 %",
+            |st| {
+                cmd(st, C::SetVolume(80));
+            },
+            exclusive.clone(),
+            false,
+            Some("volume below 100%"),
+        ),
+        (
+            "muted",
+            |st| {
+                cmd(st, C::ToggleMute);
+            },
+            shared.clone(),
+            false,
+            Some("muted"),
+        ),
+        (
+            "paused",
+            |st| {
+                cmd(st, C::TogglePause);
+            },
+            exclusive.clone(),
+            true,
+            None,
+        ),
+    ];
+    for (ctx, setup, details, bit_perfect, reason) in rows {
+        let (mut st, _) = playing(&[1, 2], 0);
+        setup(&mut st);
+        cmd(&mut st, C::SetDevice("hw:0,0".into()));
+        let before = st.snapshot();
+        let fx = engine(&mut st, EngineEvent::OutputChanged(details.clone()));
+        assert!(!touches_engine(&fx), "{ctx}: {fx:?}");
+        let after = st.snapshot();
+        let (Some(old), Some(new)) = (before.now_playing.clone(), after.now_playing.clone()) else {
+            panic!("{ctx}: nothing playing");
+        };
+        assert_eq!(new.output, details.output, "{ctx}");
+        assert_eq!(new.bit_perfect, bit_perfect, "{ctx}");
+        assert_eq!(new.bit_perfect_reason.as_deref(), reason, "{ctx}");
+        assert_eq!(new.source, old.source, "{ctx}: the source stays");
+        assert_eq!(new.quality, old.quality, "{ctx}");
+        assert_eq!(after.state, before.state, "{ctx}");
+        assert_eq!(after.position, before.position, "{ctx}");
+        assert_eq!(after.device, "hw:0,0", "{ctx}");
+    }
+
+    // Nothing started: nothing to update.
+    let mut st = in_device_phase(DevicePhase::Stopped);
+    assert_eq!(
+        engine(&mut st, EngineEvent::OutputChanged(exclusive)),
+        vec![]
+    );
+}

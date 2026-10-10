@@ -414,6 +414,7 @@ mod tests {
             muted: false,
             now_playing: None,
             message: None,
+            device: "default".into(),
         }
     }
 
