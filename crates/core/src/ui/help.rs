@@ -201,6 +201,91 @@ pub fn no_match(state: &State) -> Option<&str> {
     (!open.filter.is_empty() && visible(state).is_empty()).then_some(open.filter.as_str())
 }
 
+// --- key-sequence hints (spec 0013) ------------------------------------------
+
+/// The hint for the pending keys of a sequence (spec 0013 "What it
+/// lists"): content only, the TUI decides when to draw it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hints {
+    /// The pending keys in the file's syntax (`g`, `s l`).
+    pub prefix: String,
+    /// One per distinct next key, in the keys help's order.
+    pub entries: Vec<HintEntry>,
+}
+
+/// One next key and what it does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HintEntry {
+    /// The next key in the file's syntax (`l`, `C-x`, `enter`).
+    pub key: String,
+    /// The binding's help text; empty for a nested prefix.
+    pub text: String,
+    /// Whether the binding would do nothing right now (for a nested
+    /// prefix: whether everything it leads to would).
+    pub dim: bool,
+    /// For a nested prefix, how many listed bindings the key leads to;
+    /// `0` for a key that completes a binding.
+    pub more: usize,
+}
+
+/// The hint for `state`'s pending keys (spec 0013 AC1–AC3): `None` when
+/// nothing is pending, the keys help or a whole-list load is open, hints
+/// are off, or no binding under the pending keys acts in this view.
+pub fn hints(state: &State) -> Option<Hints> {
+    let pending = state.pending.as_slice();
+    if !state.key_hints || pending.is_empty() || state.help.is_some() || state.whole_list.is_some()
+    {
+        return None;
+    }
+    // Per next key, in the help's order: the entry, and for a nested
+    // prefix the rows it leads to (each counted once).
+    let mut found: Vec<(Key, HintEntry, Vec<usize>)> = Vec::new();
+    let rows = help(state).into_iter().flat_map(|section| section.rows);
+    for (index, row) in rows.enumerate() {
+        if row.binding.is_none() {
+            continue;
+        }
+        for sequence in &row.sequences {
+            let keys = sequence.keys();
+            if keys.len() <= pending.len() || !keys.starts_with(pending) {
+                continue;
+            }
+            let next = keys[pending.len()];
+            let deeper = keys.len() > pending.len() + 1;
+            match found.iter_mut().find(|(key, _, _)| *key == next) {
+                Some((_, entry, leads)) => {
+                    if deeper && !leads.contains(&index) {
+                        leads.push(index);
+                        entry.more = leads.len();
+                        entry.dim &= row.dim;
+                    }
+                }
+                None => {
+                    let entry = HintEntry {
+                        key: next.to_string(),
+                        text: if deeper {
+                            String::new()
+                        } else {
+                            row.text.clone()
+                        },
+                        dim: row.dim,
+                        more: usize::from(deeper),
+                    };
+                    let leads = if deeper { vec![index] } else { Vec::new() };
+                    found.push((next, entry, leads));
+                }
+            }
+        }
+    }
+    if found.is_empty() {
+        return None;
+    }
+    Some(Hints {
+        prefix: KeySequence(pending.to_vec()).to_string(),
+        entries: found.into_iter().map(|(_, entry, _)| entry).collect(),
+    })
+}
+
 // --- what is listed where ----------------------------------------------------
 
 fn is_playback(command: UiCommand) -> bool {

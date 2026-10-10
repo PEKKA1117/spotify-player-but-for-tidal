@@ -43,7 +43,7 @@ use tidal_player::{
     },
     player_runtime::{PlayerRuntime, TokioJobs, parse_items, spawn_runtime, time_seed},
     store_setup::StorePlan,
-    ui::render,
+    ui::{HintTimer, render},
 };
 use tidal_player_api::auth::{
     AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
@@ -195,8 +195,11 @@ fn run<C: Connector>(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     session: &mut Session<C>,
     mut state: State,
+    hint_delay: Duration,
 ) -> Result<()> {
     let mut actions = Vec::new();
+    // Spec 0013: the hint shows once a sequence has been pending this long.
+    let mut hint_timer = HintTimer::new(hint_delay);
     // A list window's height follows the terminal (spec 0006 "Lists load
     // as you scroll"): sent before the first frame and whenever the size
     // (or the session-expired line, which takes a row) changes, from the
@@ -224,7 +227,8 @@ fn run<C: Connector>(
                 }
             }
         }
-        terminal.draw(|frame| render(&state, frame))?;
+        let hint = hint_timer.update(&state.pending, Instant::now());
+        terminal.draw(|frame| render(&state, frame, hint))?;
         if event::poll(FRAME)? {
             actions.extend(event_to_action(event::read()?));
         } else {
@@ -475,7 +479,13 @@ fn tui_main(
     let state = configured_tui_state(&player_settings, keymap);
     let open = startup_open(items, mode);
     match choose_role() {
-        Ok(Role::Client { connection, socket }) => attached(connection, socket, open, state),
+        Ok(Role::Client { connection, socket }) => attached(
+            connection,
+            socket,
+            open,
+            state,
+            player_settings.key_hints_delay,
+        ),
         Ok(Role::Player(lock)) => standalone(
             lock,
             plan.build_store(),
@@ -502,6 +512,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     state.page_size = player_settings.library.page_size;
     state.search_page_size = player_settings.library.search_page_size;
     state.library_layout = player_settings.layout;
+    state.key_hints = player_settings.key_hints;
     tui_model::start_on_library(&mut state);
     state
 }
@@ -526,9 +537,10 @@ fn attached(
     socket: PathBuf,
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
+    hint_delay: Duration,
 ) -> Result<ExitCode> {
     let mut session = Session::new(SocketConnector::new(socket), connection, open);
-    let result = tui(&mut session, state);
+    let result = tui(&mut session, state, hint_delay);
     restore_terminal();
     result.map(|()| ExitCode::SUCCESS)
 }
@@ -623,7 +635,7 @@ fn standalone(
         .map_err(|e| anyhow::anyhow!("cannot join the player: {e}"))?;
     let mut session = Session::new(connector, link, open);
 
-    let result = tui(&mut session, state);
+    let result = tui(&mut session, state, player_settings.key_hints_delay);
     // Quit: the player stops and releases the device first; its other
     // clients are told it shut down.
     player.shutdown();
@@ -638,13 +650,13 @@ fn standalone(
 
 /// Runs the TUI until the user quits; the terminal is left for the caller
 /// to restore.
-fn tui<C: Connector>(session: &mut Session<C>, state: State) -> Result<()> {
+fn tui<C: Connector>(session: &mut Session<C>, state: State, hint_delay: Duration) -> Result<()> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
     execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
         .context("cannot enter the alternate screen")?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    run(&mut terminal, session, state)
+    run(&mut terminal, session, state, hint_delay)
 }
 
 fn env_var(key: &str) -> Option<String> {
@@ -881,6 +893,19 @@ mod tests {
         assert_eq!(state.page_size, 33);
         assert_eq!(state.search_page_size, 7);
         assert_eq!(state.page().kind, tidal_player_core::ui::PageKind::Library);
+    }
+    /// 0013 AC7 (wiring): every TUI, attached or standalone, takes
+    /// `key_hints` from the resolved settings.
+    #[test]
+    fn ac7_tui_state_key_hints() {
+        for on in [true, false] {
+            let settings = tidal_player::play::PlayerSettings {
+                key_hints: on,
+                ..Default::default()
+            };
+            let state = configured_tui_state(&settings, Keymap::default());
+            assert_eq!(state.key_hints, on);
+        }
     }
     /// 0008 AC15: the TUI's state takes its steps, page sizes, library
     /// layout and keymap from the config directory, the environment over

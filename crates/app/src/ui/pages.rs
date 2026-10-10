@@ -14,8 +14,8 @@ use ratatui::{
 };
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
-    Header, HelpSection, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup,
-    ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
+    Header, HelpSection, Hints, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind,
+    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind,
 };
 
 use super::{Columns, draw_prompt, fit, pad, tail, text_width};
@@ -937,4 +937,121 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
         lines.push(current);
     }
     lines
+}
+
+// --- the key-sequence hint (spec 0013) -------------------------------------------
+
+/// The widest a hint column gets.
+const HINT_COLUMN: usize = 32;
+/// Spaces between hint columns.
+const HINT_GAP: usize = 3;
+
+/// The hint box laid out in a page area (spec 0013 "Where and how it is
+/// drawn").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HintBox {
+    /// The box, borders included: docked at the bottom of the page area.
+    pub rect: Rect,
+    /// The title on the top border (`g …`).
+    pub title: String,
+    /// Every column's width.
+    pub width: usize,
+    /// The cells, row by row (filled column by column): the text, already
+    /// cut to the column, and whether it is dim.
+    pub rows: Vec<Vec<(String, bool)>>,
+}
+
+/// Lays `hints` out in the page area `area`; `None` when the area is too
+/// small for one.
+pub(super) fn hint_layout(hints: &Hints, area: Rect) -> Option<HintBox> {
+    if area.height < 3 || area.width < 12 || hints.entries.is_empty() {
+        return None;
+    }
+    // At most the page area less its title row, borders included.
+    let room = usize::from(area.height - 1).saturating_sub(2);
+    if room == 0 {
+        return None;
+    }
+    let inner = usize::from(area.width - 2);
+    let texts: Vec<(String, bool)> = hints
+        .entries
+        .iter()
+        .map(|entry| {
+            let text = if entry.more > 0 {
+                format!("{}  +{}", entry.key, entry.more)
+            } else {
+                format!("{}  {}", entry.key, entry.text)
+            };
+            (text, entry.dim)
+        })
+        .collect();
+    let widest = texts.iter().map(|(t, _)| text_width(t)).max().unwrap_or(0);
+    let width = widest.min(HINT_COLUMN).min(inner);
+    let columns = ((inner + HINT_GAP) / (width + HINT_GAP)).max(1);
+    let count = texts.len();
+    let rows = count.div_ceil(columns).min(room);
+    let capacity = rows * columns;
+    // What does not fit gives its place to `… +N more` in the last cell.
+    let mut cells: Vec<(String, bool)> = if count > capacity {
+        let shown = capacity - 1;
+        let mut cells = texts[..shown].to_vec();
+        cells.push((format!("… +{} more", count - shown), false));
+        cells
+    } else {
+        texts
+    };
+    for cell in &mut cells {
+        cell.0 = fit(&cell.0, width);
+    }
+    // Column by column: cell `i` is in column `i / rows`, row `i % rows`.
+    let mut grid: Vec<Vec<(String, bool)>> = vec![Vec::new(); rows];
+    for (i, cell) in cells.into_iter().enumerate() {
+        grid[i % rows].push(cell);
+    }
+    let height = u16::try_from(rows + 2).unwrap_or(area.height);
+    Some(HintBox {
+        rect: Rect {
+            y: area.bottom() - height,
+            height,
+            ..area
+        },
+        title: fit(&format!("{} …", hints.prefix), inner),
+        width,
+        rows: grid,
+    })
+}
+
+/// Draws the hint for the pending keys, if the state has one and the page
+/// area has room.
+pub(super) fn render_hint(state: &State, frame: &mut Frame, page: Option<Rect>) {
+    let (Some(hints), Some(page)) = (tidal_player_core::ui::hints(state), page) else {
+        return;
+    };
+    let Some(hint) = hint_layout(&hints, page) else {
+        return;
+    };
+    let block = Block::bordered().title(Line::styled(
+        hint.title.clone(),
+        Style::new().add_modifier(Modifier::BOLD),
+    ));
+    let inner = block.inner(hint.rect);
+    frame.render_widget(Clear, hint.rect);
+    frame.render_widget(block, hint.rect);
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    let lines: Vec<Line> = hint
+        .rows
+        .iter()
+        .map(|cells| {
+            let mut spans = Vec::new();
+            for (i, (text, is_dim)) in cells.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw(" ".repeat(HINT_GAP)));
+                }
+                let style = if *is_dim { dim } else { Style::new() };
+                spans.push(Span::styled(pad(text, hint.width), style));
+            }
+            Line::from(spans)
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }

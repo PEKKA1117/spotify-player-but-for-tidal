@@ -3,7 +3,7 @@
 //! queue below it. The two never share rows: the queue list always spans
 //! the full width of its own rows.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::{
     Frame,
@@ -14,7 +14,7 @@ use ratatui::{
 };
 use tidal_player_core::Track;
 use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
-use tidal_player_core::ui::{PageKind, State};
+use tidal_player_core::ui::{Key, PageKind, State};
 
 mod pages;
 
@@ -75,8 +75,46 @@ pub fn list_height(terminal: Rect, login_required: bool) -> usize {
         .map_or(0, pages::list_height)
 }
 
-/// Draws `state` into `frame`.
-pub fn render(state: &State, frame: &mut Frame) {
+/// When to draw the key-sequence hint (spec 0013 "When the hint shows"):
+/// fed the pending keys and the time after every batch of updates, it says
+/// to draw once the same pending keys have been pending for the delay. A
+/// further key that keeps a sequence pending restarts it; nothing pending
+/// resets it.
+#[derive(Debug, Clone)]
+pub struct HintTimer {
+    delay: Duration,
+    pending: Vec<Key>,
+    since: Option<Instant>,
+}
+
+impl HintTimer {
+    pub fn new(delay: Duration) -> Self {
+        Self {
+            delay,
+            pending: Vec::new(),
+            since: None,
+        }
+    }
+
+    /// Whether the hint is drawn at `now` with `pending` keys collected.
+    pub fn update(&mut self, pending: &[Key], now: Instant) -> bool {
+        if pending.is_empty() {
+            self.pending.clear();
+            self.since = None;
+            return false;
+        }
+        if self.since.is_none() || self.pending != pending {
+            self.pending = pending.to_vec();
+            self.since = Some(now);
+        }
+        self.since
+            .is_some_and(|since| now.saturating_duration_since(since) >= self.delay)
+    }
+}
+
+/// Draws `state` into `frame`; `hint`: the key-sequence hint is due
+/// ([`HintTimer`]), drawn when the state has one (spec 0013).
+pub fn render(state: &State, frame: &mut Frame, hint: bool) {
     let area = frame.area();
     let areas = areas(area, state.login_required);
     frame.render_widget(Block::bordered().title("tidal-player"), area);
@@ -103,6 +141,9 @@ pub fn render(state: &State, frame: &mut Frame) {
     };
     render_prompt(state, frame, prompt_row);
     pages::render_popup(state, frame, areas.page, prompt_row);
+    if hint {
+        pages::render_hint(state, frame, areas.page);
+    }
     pages::render_help(state, frame, areas.page, area);
 }
 
@@ -539,7 +580,7 @@ mod tests {
 
     fn draw(state: &State, width: u16, height: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal.draw(|frame| render(state, frame)).unwrap();
+        terminal.draw(|frame| render(state, frame, true)).unwrap();
         buffer_text(&terminal)
     }
 
@@ -551,7 +592,7 @@ mod tests {
     fn ac6_empty_state_80x24() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal
-            .draw(|frame| render(&State::default(), frame))
+            .draw(|frame| render(&State::default(), frame, true))
             .unwrap();
         let text = buffer_text(&terminal);
         assert!(text.contains("tidal-player"), "app name missing:\n{text}");
@@ -565,7 +606,7 @@ mod tests {
             ..State::default()
         };
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|frame| render(&state, frame)).unwrap();
+        terminal.draw(|frame| render(&state, frame, true)).unwrap();
         let text = buffer_text(&terminal);
         assert!(
             text.contains("tidal-player login"),
@@ -584,7 +625,7 @@ mod tests {
         };
         for (width, height) in [(80, 0), (80, 1), (80, 2), (80, 3), (1, 24)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal.draw(|frame| render(&state, frame)).unwrap();
+            terminal.draw(|frame| render(&state, frame, true)).unwrap();
             let text = buffer_text(&terminal);
             let rows: Vec<&str> = text.split('\n').collect();
             if height < 3 {
@@ -1369,7 +1410,7 @@ mod tests {
 
     fn draw_terminal(state: &State, width: u16, height: u16) -> Terminal<TestBackend> {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal.draw(|frame| render(state, frame)).unwrap();
+        terminal.draw(|frame| render(state, frame, true)).unwrap();
         terminal
     }
 
@@ -1675,8 +1716,21 @@ mod tests {
         let help = help_states();
         // 0011 AC11: the mixes and radio pages.
         let mixes = mixes_states();
+        // 0013 AC6: a pending sequence's hint over each kind of view.
+        let hints = hint_states();
+        let sizes = sizes.chain(
+            (1..=200)
+                .step_by(13)
+                .flat_map(|w| (1..=60).step_by(4).map(move |h| (w, h))),
+        );
         for (width, height) in sizes {
-            for state in states.iter().chain(&search).chain(&help).chain(&mixes) {
+            for state in states
+                .iter()
+                .chain(&search)
+                .chain(&help)
+                .chain(&mixes)
+                .chain(&hints)
+            {
                 draw(state, width, height);
             }
         }
@@ -2526,5 +2580,371 @@ mod tests {
             &["Could not restore the playback state (kept as playback.json.bad)"],
         );
         insta::assert_snapshot!(text);
+    }
+
+    // --- spec 0013: key-sequence hints -------------------------------------------------
+
+    use tidal_player_core::ui::{HintEntry, Hints};
+
+    /// AC5: the timer draws once the same pending keys have been pending
+    /// for the delay; a further key restarts it, nothing pending resets it.
+    #[test]
+    fn ac5_hint_timer() {
+        let g = Key::Char('g');
+        let s = Key::Char('s');
+        let l = Key::Char('l');
+        type Step = (Vec<Key>, u64, bool);
+        let rows: Vec<(&str, u64, Vec<Step>)> = vec![
+            (
+                "delay",
+                1000,
+                vec![
+                    (vec![g], 0, false),
+                    (vec![g], 999, false),
+                    (vec![g], 1000, true),
+                    (vec![g], 5000, true),
+                ],
+            ),
+            ("delay 0", 0, vec![(vec![g], 0, true), (vec![g], 10, true)]),
+            (
+                "nothing pending",
+                0,
+                vec![(vec![], 0, false), (vec![], 5000, false)],
+            ),
+            (
+                "a further key restarts",
+                1000,
+                vec![
+                    (vec![s], 0, false),
+                    (vec![s], 800, false),
+                    (vec![s, l], 900, false),
+                    (vec![s, l], 1899, false),
+                    (vec![s, l], 1900, true),
+                ],
+            ),
+            (
+                "completed, cancelled or mismatched resets",
+                1000,
+                vec![
+                    (vec![g], 0, false),
+                    (vec![g], 1000, true),
+                    (vec![], 1100, false),
+                    (vec![g], 1200, false),
+                    (vec![g], 2199, false),
+                    (vec![g], 2200, true),
+                ],
+            ),
+        ];
+        let start = Instant::now();
+        for (name, delay, steps) in rows {
+            let mut timer = HintTimer::new(Duration::from_millis(delay));
+            for (i, (pending, at, want)) in steps.into_iter().enumerate() {
+                let now = start + Duration::from_millis(at);
+                assert_eq!(
+                    timer.update(&pending, now),
+                    want,
+                    "{name}: step {i} ({pending:?} at {at} ms)"
+                );
+            }
+        }
+    }
+
+    fn hint(key: &str, text: &str) -> HintEntry {
+        HintEntry {
+            key: key.into(),
+            text: text.into(),
+            dim: false,
+            more: 0,
+        }
+    }
+
+    /// The six default `g` entries, in the library's order.
+    fn g_entries() -> Vec<HintEntry> {
+        vec![
+            hint("a", "actions on the selected row"),
+            hint("g", "move to the top"),
+            hint("l", "the library"),
+            hint("y", "favorite tracks"),
+            hint("s", "the search page (on one: its input)"),
+            hint("m", "your mixes"),
+        ]
+    }
+
+    /// AC6: the box's place, columns, rows, title and cut cells for a page
+    /// area (`… +N more` when the entries do not fit); no box under 3 × 12.
+    #[test]
+    fn ac6_key_hints_layout() {
+        let g = |entries: Vec<HintEntry>| Hints {
+            prefix: "g".into(),
+            entries,
+        };
+        let cell = |text: &str| (text.to_owned(), false);
+        let page = |width: u16, height: u16| Rect {
+            x: 1,
+            y: 5,
+            width,
+            height,
+        };
+        type Want = Option<(Rect, usize, Vec<Vec<(String, bool)>>)>;
+        let rows: Vec<(&str, Hints, Rect, Want)> = vec![
+            (
+                "80 × 24: two columns of 32",
+                g(g_entries()),
+                page(78, 18),
+                Some((
+                    Rect::new(1, 18, 78, 5),
+                    32,
+                    vec![
+                        vec![
+                            cell("a  actions on the selected row"),
+                            cell("y  favorite tracks"),
+                        ],
+                        vec![
+                            cell("g  move to the top"),
+                            cell("s  the search page (on one: its…"),
+                        ],
+                        vec![cell("l  the library"), cell("m  your mixes")],
+                    ],
+                )),
+            ),
+            (
+                "120 × 30: three columns",
+                g(g_entries()),
+                page(118, 24),
+                Some((
+                    Rect::new(1, 25, 118, 4),
+                    32,
+                    vec![
+                        vec![
+                            cell("a  actions on the selected row"),
+                            cell("l  the library"),
+                            cell("s  the search page (on one: its…"),
+                        ],
+                        vec![
+                            cell("g  move to the top"),
+                            cell("y  favorite tracks"),
+                            cell("m  your mixes"),
+                        ],
+                    ],
+                )),
+            ),
+            (
+                "40 × 12: one column, … +4 more",
+                g(g_entries()),
+                page(38, 6),
+                Some((
+                    Rect::new(1, 6, 38, 5),
+                    32,
+                    vec![
+                        vec![cell("a  actions on the selected row")],
+                        vec![cell("g  move to the top")],
+                        vec![cell("… +4 more")],
+                    ],
+                )),
+            ),
+            (
+                "one row: … +5 more",
+                g(g_entries()),
+                page(78, 4),
+                Some((
+                    Rect::new(1, 6, 78, 3),
+                    32,
+                    vec![vec![
+                        cell("a  actions on the selected row"),
+                        cell("… +5 more"),
+                    ]],
+                )),
+            ),
+            (
+                "12 columns: cut to the inner width",
+                g(g_entries()[..1].to_vec()),
+                page(12, 4),
+                Some((Rect::new(1, 6, 12, 3), 10, vec![vec![cell("a  action…")]])),
+            ),
+            (
+                "short entries: as wide as the widest",
+                g(vec![hint("a", "x"), hint("b", "y"), hint("C-c", "z")]),
+                page(78, 18),
+                Some((
+                    Rect::new(1, 20, 78, 3),
+                    6,
+                    vec![vec![cell("a  x"), cell("b  y"), cell("C-c  z")]],
+                )),
+            ),
+            (
+                "nested prefix and dim",
+                Hints {
+                    prefix: "s l".into(),
+                    entries: vec![
+                        hint("q", "the queue page"),
+                        HintEntry {
+                            key: "l".into(),
+                            text: String::new(),
+                            dim: true,
+                            more: 2,
+                        },
+                    ],
+                },
+                page(78, 18),
+                Some((
+                    Rect::new(1, 20, 78, 3),
+                    17,
+                    vec![vec![cell("q  the queue page"), ("l  +2".into(), true)]],
+                )),
+            ),
+            ("11 columns: none", g(g_entries()), page(11, 18), None),
+            ("2 rows: none", g(g_entries()), page(78, 2), None),
+            (
+                "3 rows: no room for a row",
+                g(g_entries()),
+                page(78, 3),
+                None,
+            ),
+        ];
+        for (name, hints, area, want) in rows {
+            let got = pages::hint_layout(&hints, area);
+            match want {
+                None => assert_eq!(got, None, "{name}"),
+                Some((rect, width, cells)) => {
+                    let got = got.unwrap_or_else(|| panic!("{name}: no box"));
+                    assert_eq!(got.rect, rect, "{name}: rect");
+                    assert_eq!(got.width, width, "{name}: column width");
+                    assert_eq!(got.rows, cells, "{name}: cells");
+                    let title = format!("{} …", hints.prefix);
+                    assert_eq!(got.title, title, "{name}: title");
+                }
+            }
+        }
+    }
+
+    /// `state` with `keys` pressed (a sequence left pending).
+    fn pending(mut state: State, keys: &[Key]) -> State {
+        press(&mut state, keys);
+        assert!(!state.pending.is_empty(), "nothing pending");
+        state
+    }
+
+    /// The library with `s q`, `s l a` and `s l b` bound.
+    fn nested_keymap() -> State {
+        use tidal_player_core::ui::keymap::{CommandEntry, KeymapEntry, KeymapFile, build};
+        let entry = |key_sequence: &str, name: &str| KeymapEntry {
+            command: CommandEntry::name(name),
+            key_sequence: key_sequence.into(),
+        };
+        let file = KeymapFile {
+            keymaps: vec![
+                entry("s q", "Queue"),
+                entry("s l a", "LikedTrackPage"),
+                entry("s l b", "NextTrack"),
+            ],
+            actions: vec![],
+        };
+        let mut state = library();
+        tidal_player_core::ui::apply_keymap(&mut state, build(&file).unwrap());
+        state
+    }
+
+    /// The library loaded with nothing in it: no row is selected.
+    fn library_empty() -> State {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+        answer(&mut state, id, LibraryResponse::Page(empty_library()));
+        state
+    }
+
+    fn hint_states() -> Vec<State> {
+        let g = [Key::Char('g')];
+        vec![
+            pending(library(), &g),
+            pending(state_of(playing()), &g),
+            pending(actions_popup(), &g),
+            pending(nested_keymap(), &[Key::Char('s')]),
+            pending(library_empty(), &g),
+        ]
+    }
+
+    /// AC6: the hint docked at the bottom of the page area, titled `g …`,
+    /// its entries in columns, dim entries dim; snapshots per view and size.
+    #[test]
+    fn ac6_key_hints() {
+        let g = [Key::Char('g')];
+
+        // The library, a row selected: two columns at 80 × 24.
+        let state = pending(library(), &g);
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "┌g …",
+                "a  actions on the selected row     y  favorite tracks",
+                "g  move to the top                 s  the search page (on one: its…",
+                "l  the library                     m  your mixes",
+            ],
+        );
+        // Docked: the box's bottom border is the page area's last row.
+        assert_eq!(row_of(&text, "┌g …"), 18, "{text}");
+        assert!(row(&text, 22).starts_with("│└"), "{text}");
+        // Not drawn when the timer says no.
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(&state, frame, false)).unwrap();
+        assert!(!buffer_text(&terminal).contains("┌g …"));
+        insta::assert_snapshot!("ac6_key_hints_library", text);
+
+        // The queue page: the entry's text.
+        let text = draw(&pending(state_of(playing()), &g), 80, 24);
+        assert_contains(&text, &["┌g …", "a  actions on the entry"]);
+        insta::assert_snapshot!("ac6_key_hints_queue", text);
+
+        // Over the actions popup: only `g`.
+        let text = draw(&pending(actions_popup(), &g), 80, 24);
+        assert_contains(&text, &["┌g …", "g  move to the top"]);
+        assert!(!text.contains("the library"), "{text}");
+        insta::assert_snapshot!("ac6_key_hints_actions_popup", text);
+
+        // 40 × 12: one column, cut, `… +N more`.
+        let text = draw(&pending(library(), &g), 40, 12);
+        assert_contains(
+            &text,
+            &["┌g …", "a  actions on the selected row", "… +4 more"],
+        );
+        insta::assert_snapshot!("ac6_key_hints_40x12", text);
+
+        // 120 × 30: three columns.
+        let text = draw(&pending(library(), &g), 120, 30);
+        assert_contains(
+            &text,
+            &["┌g …", "a  actions on the selected row     l  the library"],
+        );
+        insta::assert_snapshot!("ac6_key_hints_120x30", text);
+
+        // A nested prefix.
+        let text = draw(&pending(nested_keymap(), &[Key::Char('s')]), 80, 24);
+        assert_contains(&text, &["┌s …", "q  the queue page", "l  +2"]);
+        insta::assert_snapshot!("ac6_key_hints_nested", text);
+
+        // Dim: no row selected, so `a` does nothing; `l` does.
+        let state = pending(library_empty(), &g);
+        let text = draw(&state, 80, 24);
+        let terminal = draw_terminal(&state, 80, 24);
+        let at = |part: &str| {
+            let y = row_of(&text, part);
+            let x = line_with(&text, part)
+                .split(part)
+                .next()
+                .unwrap()
+                .chars()
+                .count();
+            terminal.backend().buffer()[(x as u16, y as u16)].clone()
+        };
+        assert!(
+            at("actions on the selected row")
+                .modifier
+                .contains(Mod::DIM)
+        );
+        assert!(!at("the library").modifier.contains(Mod::DIM));
+
+        // No page area (under 8 rows): no hint.
+        let text = draw(&pending(library(), &g), 80, 7);
+        assert!(!text.contains("g …"), "{text}");
     }
 }

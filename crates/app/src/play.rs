@@ -340,6 +340,11 @@ pub const REMEMBER_PLAYBACK_VAR: &str = "TIDAL_PLAYER_REMEMBER_PLAYBACK";
 pub const MPRIS_VAR: &str = "TIDAL_PLAYER_MPRIS";
 /// The most album covers the cache keeps, 0 to 1000 (spec 0010).
 pub const MAX_COVER_ARTS_VAR: &str = "TIDAL_PLAYER_MAX_COVER_ARTS";
+/// `on` or `off`: whether the TUI shows key-sequence hints (spec 0013).
+pub const KEY_HINTS_VAR: &str = "TIDAL_PLAYER_KEY_HINTS";
+/// How long a key sequence is pending before its hint shows, 0 to 10 000
+/// ms (spec 0013).
+pub const KEY_HINTS_DELAY_VAR: &str = "TIDAL_PLAYER_KEY_HINTS_DELAY_MS";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,6 +372,9 @@ pub const SEARCH_PAGE_SIZE_VAR: &str = "TIDAL_PLAYER_SEARCH_PAGE_SIZE";
 /// tracks* (spec 0006); empty hides nothing.
 pub const HIDE_VERSIONS_VAR: &str = "TIDAL_PLAYER_HIDE_VERSIONS";
 
+/// The default of `key_hints_delay_ms` (spec 0013).
+pub const DEFAULT_KEY_HINTS_DELAY: Duration = Duration::from_millis(1000);
+
 /// The player's settings and the client's steps.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerSettings {
@@ -387,6 +395,11 @@ pub struct PlayerSettings {
     pub mpris: bool,
     /// The most covers the cover cache keeps; `0`: no cache (spec 0010).
     pub max_cover_arts: u16,
+    /// Whether the TUI shows key-sequence hints (spec 0013); read by the
+    /// TUI only.
+    pub key_hints: bool,
+    /// How long a sequence is pending before its hint shows (spec 0013).
+    pub key_hints_delay: Duration,
 }
 
 impl Default for PlayerSettings {
@@ -401,6 +414,8 @@ impl Default for PlayerSettings {
             autoplay_explicit: false,
             mpris: true,
             max_cover_arts: 20,
+            key_hints: true,
+            key_hints_delay: DEFAULT_KEY_HINTS_DELAY,
         }
     }
 }
@@ -500,6 +515,13 @@ fn resolve_with(
     if let Some(on) = on_off(get(MPRIS_VAR), MPRIS_VAR)? {
         settings.mpris = on;
     }
+    if let Some(on) = on_off(get(KEY_HINTS_VAR), KEY_HINTS_VAR)? {
+        settings.key_hints = on;
+    }
+    if let Some(value) = get(KEY_HINTS_DELAY_VAR) {
+        settings.key_hints_delay =
+            Duration::from_millis(int_in(&value, KEY_HINTS_DELAY_VAR, 0, 10_000)?);
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -546,6 +568,12 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(mpris) = file.mpris {
         settings.mpris = mpris;
+    }
+    if let Some(on) = file.key_hints {
+        settings.key_hints = on;
+    }
+    if let Some(ms) = file.key_hints_delay_ms {
+        settings.key_hints_delay = Duration::from_millis(ms);
     }
     if let Some(max) = file.max_cover_arts {
         settings.max_cover_arts = max;

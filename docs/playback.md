@@ -80,6 +80,8 @@ Every setting can be set in [`app.toml`](config.md#apptoml) (in the [config dire
 | Autoplay at start | `autoplay` (`true`, `false`) | `--autoplay` (`play` only) | `TIDAL_PLAYER_AUTOPLAY` (`on`, `off`) | `off` |
 | Remember the queue, position, modes and volume across runs; see [Resuming the last session](#resuming-the-last-session) | `remember_playback` (`true`, `false`) | | `TIDAL_PLAYER_REMEMBER_PLAYBACK` (`on`, `off`) | `true` |
 | Publish the player for desktop controls, media keys and `playerctl`; see [Desktop controls and media keys](mpris.md) | `mpris` (`true`, `false`) | | `TIDAL_PLAYER_MPRIS` (`on`, `off`) | `true` |
+| Show the keys that can follow the first key of a sequence in the TUI; see [Key hints](tui.md#key-hints) | `key_hints` (`true`, `false`) | | `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`) | `true` |
+| Wait before the key hint shows (ms); `0`: at once | `key_hints_delay_ms` | | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` (0–10 000) | `1000` |
 | Album covers kept in the cache for the desktop (`0`: none, the desktop fetches them); see [Album covers](mpris.md#album-covers) | `max_cover_arts` (0–1000) | | `TIDAL_PLAYER_MAX_COVER_ARTS` | `20` |
 | Release the device after pausing for (s); see [Releasing the device](daemon.md#releasing-the-device-while-paused) | `release_paused_secs` (or `"never"`) | | `TIDAL_PLAYER_RELEASE_PAUSED` (0–3600, or `never`) | `10` |
 | Rows fetched at a time for the library's lists in the TUI; see [Lists load as you scroll](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE` (1–10 000) | `100` |

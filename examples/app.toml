@@ -38,6 +38,14 @@ remember_playback = true
 # media keys and playerctl: true or false. (TIDAL_PLAYER_MPRIS, on/off)
 mpris = true
 
+# In the TUI, show the keys that can follow the first key of a sequence (g)
+# while it waits for the next: true or false. (TIDAL_PLAYER_KEY_HINTS, on/off)
+key_hints = true
+
+# How long a sequence waits before its hint shows, in milliseconds: 0 to
+# 10000; 0 shows it at once. (TIDAL_PLAYER_KEY_HINTS_DELAY_MS)
+key_hints_delay_ms = 1000
+
 # Album covers kept in the cache directory for the desktop, least recently
 # used deleted first: 0 to 1000; 0 keeps none. (TIDAL_PLAYER_MAX_COVER_ARTS)
 max_cover_arts = 20

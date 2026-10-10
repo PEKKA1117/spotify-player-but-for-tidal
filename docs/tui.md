@@ -2,7 +2,7 @@ English | [繁體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints).
 
 ## The screen
 
@@ -81,7 +81,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
 While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name) take every printable key whatever the keymap says.
 
@@ -108,6 +108,23 @@ The steps are `volume_step` (1–25 %, default 5) and `seek_duration_secs` (1–
 - `/` starts a **filter**: type to keep the keys whose keys, command name or text contain what you typed (ignoring case); `backspace` deletes, `enter` stops typing and keeps the filter, `esc` clears it. Nothing matches: `No keys match "xyz"`
 - `enter` closes the help and **runs** the highlighted key, as if you had pressed it where you opened the help
 - `esc` (with no filter), `?` or `q` close it. While it is open no other key acts
+
+### Key hints
+
+When you press the first key of a sequence (`g`) and wait, a **hint** box opens at the bottom of the page after a second, titled with the keys pressed so far (`g …`), listing the keys that can follow and what each does here:
+
+```
+│┌g …─────────────────────────────────────────────────────────────────────────┐│
+││a  actions on the selected row     y  favorite tracks                       ││
+││g  move to the top                 s  the search page (on one: its…         ││
+││l  the library                     m  your mixes                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+```
+
+- Only keys that act where you are are listed, with the [keys help](#the-keys-help)'s texts and in its order; a key that would do nothing right now is dimmed. Your `keymap.toml`'s sequences are listed too, and a key that starts a longer sequence shows how many bindings it leads to (`l  +2`): press it to see the next level
+- The hint changes nothing about the keys: press the next key whether it is shown or not. Typed faster than the delay, a sequence never shows it. It closes when the sequence completes, when a key starts nothing (`esc` cancels) or when the keys help opens
+- When the entries do not fit, the last one reads `… +N more`; `?` lists them all. It is not drawn while the keys help is open, during a whole-list load, or in a terminal too small for the page
+- `key_hints = false` in `app.toml` (or `TIDAL_PLAYER_KEY_HINTS=off`) turns it off; `key_hints_delay_ms` (0–10 000, default `1000`; `0` shows it at once, or `TIDAL_PLAYER_KEY_HINTS_DELAY_MS`) sets the wait. An attached TUI uses its own settings; see [`app.toml`](config.md#apptoml)
 
 ## Pages
 

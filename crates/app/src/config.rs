@@ -55,6 +55,10 @@ pub struct AppConfig {
     pub mpris: Option<bool>,
     /// Spec 0010 "The cover cache".
     pub max_cover_arts: Option<u16>,
+    /// Spec 0013: whether the TUI shows key-sequence hints.
+    pub key_hints: Option<bool>,
+    /// Spec 0013: how long a sequence is pending before its hint shows.
+    pub key_hints_delay_ms: Option<u64>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -177,6 +181,18 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
+            "key_hints" => match value.as_bool() {
+                Some(on) => config.key_hints = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "key_hints_delay_ms" => {
+                config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
+            }
             "max_cover_arts" => {
                 config.max_cover_arts = Some(int_in(path, key, value, 0, 1000)? as u16);
             }
@@ -363,10 +379,11 @@ fn line_column(text: &str, offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::play::{
-        AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR,
-        PREVIOUS_RESTART_VAR, QUALITY_VAR, RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR,
-        SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR, VOLUME_STEP_VAR, resolve_play_config_with,
-        resolve_player_config_with, resolve_settings_with,
+        AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR,
+        MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR,
+        RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR,
+        VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
+        resolve_settings_with,
     };
 
     const PATH: &str = "/c/app.toml";
@@ -480,6 +497,8 @@ mod tests {
             ("page_size", 1, 10_000),
             ("search_page_size", 1, 1000),
             ("max_cover_arts", 0, 1000),
+            // Spec 0013 AC7.
+            ("key_hints_delay_ms", 0, 10_000),
         ] {
             rows.extend(bounds(key, min, max));
         }
@@ -551,6 +570,30 @@ mod tests {
                 "mpris = false",
                 |c| format!("{:?}", c.mpris),
                 "Some(false)",
+            ),
+            (
+                "key_hints true",
+                "key_hints = true",
+                |c| format!("{:?}", c.key_hints),
+                "Some(true)",
+            ),
+            (
+                "key_hints false",
+                "key_hints = false",
+                |c| format!("{:?}", c.key_hints),
+                "Some(false)",
+            ),
+            (
+                "key_hints_delay_ms 0",
+                "key_hints_delay_ms = 0",
+                |c| format!("{:?}", c.key_hints_delay_ms),
+                "Some(0)",
+            ),
+            (
+                "key_hints_delay_ms 250",
+                "key_hints_delay_ms = 250",
+                |c| format!("{:?}", c.key_hints_delay_ms),
+                "Some(250)",
             ),
             (
                 "max_cover_arts 20",
@@ -711,6 +754,16 @@ mod tests {
                 "mpris type",
                 "mpris = \"off\"",
                 "/c/app.toml: invalid mpris: expected true or false, got \"off\"",
+            ),
+            (
+                "key_hints type",
+                "key_hints = \"off\"",
+                "/c/app.toml: invalid key_hints: expected true or false, got \"off\"",
+            ),
+            (
+                "key_hints number",
+                "key_hints = 0",
+                "/c/app.toml: invalid key_hints: expected true or false, got 0",
             ),
             (
                 "mpris number",
@@ -1068,6 +1121,72 @@ mod tests {
                         Err(MPRIS_VAR),
                     ),
                 ],
+            ),
+            (
+                "key_hints",
+                |_, p| p.key_hints.to_string(),
+                vec![
+                    Row::new("default", "", &[], Ok("true")),
+                    Row::new("file true", "key_hints = true", &[], Ok("true")),
+                    Row::new("file false", "key_hints = false", &[], Ok("false")),
+                    Row::new(
+                        "env off over file true",
+                        "key_hints = true",
+                        &[(KEY_HINTS_VAR, "off")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "env on over file false",
+                        "key_hints = false",
+                        &[(KEY_HINTS_VAR, "ON")],
+                        Ok("true"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "key_hints = false",
+                        &[(KEY_HINTS_VAR, "")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "key_hints = true",
+                        &[(KEY_HINTS_VAR, "maybe")],
+                        Err(KEY_HINTS_VAR),
+                    ),
+                ],
+            ),
+            (
+                "key_hints_delay_ms",
+                |_, p| p.key_hints_delay.as_millis().to_string(),
+                {
+                    let mut rows = ranged(
+                        "key_hints_delay_ms",
+                        KEY_HINTS_DELAY_VAR,
+                        ("1000", "10", "15"),
+                    );
+                    rows.extend([
+                        Row::new("file 0", "key_hints_delay_ms = 0", &[], Ok("0")),
+                        Row::new(
+                            "env 0 over file",
+                            "key_hints_delay_ms = 500",
+                            &[(KEY_HINTS_DELAY_VAR, "0")],
+                            Ok("0"),
+                        ),
+                        Row::new(
+                            "env 10000",
+                            "",
+                            &[(KEY_HINTS_DELAY_VAR, "10000")],
+                            Ok("10000"),
+                        ),
+                        Row::new(
+                            "env 10001",
+                            "",
+                            &[(KEY_HINTS_DELAY_VAR, "10001")],
+                            Err(KEY_HINTS_DELAY_VAR),
+                        ),
+                    ]);
+                    rows
+                },
             ),
             ("max_cover_arts", |_, p| p.max_cover_arts.to_string(), {
                 let mut rows = ranged("max_cover_arts", MAX_COVER_ARTS_VAR, ("20", "10", "15"));

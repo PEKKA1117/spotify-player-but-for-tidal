@@ -43,7 +43,9 @@ use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, Qu
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
-pub use help::{Help, HelpRow, HelpSection, help, locate, no_match, visible};
+pub use help::{
+    Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
+};
 pub use keymap::{BaseKey, Keymap};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
@@ -188,6 +190,9 @@ pub struct State {
     /// Whether a sequence is being collected (with the defaults: `g` was
     /// pressed); always `!pending.is_empty()` (0004 AC21 reads it).
     pub pending_g: bool,
+    /// Whether the hint for a pending key sequence is shown (spec 0013,
+    /// `key_hints`); the TUI decides when.
+    pub key_hints: bool,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
     pub history: Vec<Page>,
@@ -233,6 +238,7 @@ impl Default for State {
             keymap: Keymap::default(),
             pending: Vec::new(),
             pending_g: false,
+            key_hints: true,
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
             help: None,
