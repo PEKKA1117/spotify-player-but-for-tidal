@@ -1,4 +1,4 @@
-# Spec 0001 AC9: the "Build & tooling" checks on every push and pull request.
+# Spec 0001 AC9: the "Build & tooling" checks on pushes and pull requests.
 name: CI
 
 on:
@@ -8,8 +8,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# The jobs build and test code, so they run only where code changes: tags (the
+# release waits for them), master, and feat/* and bugfix/* branches; docs/* and
+# chore/* skip them. `head_ref` is the PR's branch; on a push it is empty and
+# `ref_name` is the branch or tag.
 jobs:
   check:
+    if: ${{ github.ref_type == 'tag' || github.ref_name == 'master' || startsWith(github.head_ref || github.ref_name, 'feat/') || startsWith(github.head_ref || github.ref_name, 'bugfix/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +37,7 @@ jobs:
 
   # AC7: the audio crate must build and test without the ALSA headers.
   audio-no-alsa:
+    if: ${{ github.ref_type == 'tag' || github.ref_name == 'master' || startsWith(github.head_ref || github.ref_name, 'feat/') || startsWith(github.head_ref || github.ref_name, 'bugfix/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
