@@ -1,6 +1,6 @@
 # 0016 — Album cover in the playback window
 
-- **Status**: approved (2026-10-12)
+- **Status**: implemented (2026-10-12; approved 2026-10-12)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#19](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/19)
 - **Depends on**: 0004 (implemented: the screen and its playback window), 0005 (implemented: attached TUIs), 0008 (implemented: `app.toml` and its precedence), 0010 (implemented: `AlbumRef::cover`, `cover_url`, the cover cache and `max_cover_arts`)
@@ -49,7 +49,7 @@ Popups, the actions menu and the key hints are drawn in the page area (0004–00
 
 ### Protocol
 
-At start, once the terminal is in raw mode and on the alternate screen and before it reads the first event, a TUI with `cover_img` on asks the terminal which protocol it supports and its cell size in pixels (`ratatui-image`'s `Picker::from_query_stdio`, which waits at most its own timeout for the answer). With `cover_img` off it sends nothing. `cover_img_protocol` decides:
+At start, once the terminal is in raw mode and on the alternate screen and before it reads the first event, a TUI with `cover_img` on asks the terminal which protocol it supports and its cell size in pixels (`ratatui-image`'s `Picker::from_query_stdio`, which waits at most its timeout, 2 s, for the answer). With `cover_img` off it sends nothing. `cover_img_protocol` decides:
 
 | `cover_img_protocol` | Protocol used |
 |---|---|
@@ -57,7 +57,7 @@ At start, once the terminal is in raw mode and on the alternate screen and befor
 | `sixel`, `kitty`, `iterm2` | that one, whatever the terminal answered (for a terminal whose answer is wrong); the cell size from the query when it answered, else 2 columns per row |
 | `halfblocks` | coloured `▀` cells: a low-resolution cover that works in any colour terminal |
 
-Under tmux (`$TMUX` set) the image is wrapped in tmux's passthrough, which needs `set -g allow-passthrough on` in `tmux.conf` (documented); the protocol is the outer terminal's. A protocol that turns out not to work (the terminal draws garbage or nothing) is the user's to override with `cover_img_protocol` or `cover_img = false`: the TUI cannot see what the terminal drew.
+Under tmux (recognised by `ratatui-image` from `TERM` starting with `tmux` or `TERM_PROGRAM=tmux`, not from `$TMUX`) the image is wrapped in tmux's passthrough. The crate switches passthrough on for the TUI's own pane at start (`tmux set -p allow-passthrough on`); `set -g allow-passthrough on` in `tmux.conf` is only needed when that fails (a tmux too old for per-pane options, for instance), and is documented. The protocol is the outer terminal's. A protocol that turns out not to work (the terminal draws garbage or nothing) is the user's to override with `cover_img_protocol` or `cover_img = false`: the TUI cannot see what the terminal drew.
 
 ### Where the image comes from
 
@@ -87,14 +87,14 @@ Under tmux (`$TMUX` set) the image is wrapped in tmux's passthrough, which needs
 
 Pure logic (`tidal-player`):
 
-- **AC1** — Layout (`ui::cover_layout`, table: frame inner size × `cover_img_rows` × cell size × active → playback window rect, cover rect, text rect, page rect): 80 × 22 inner, 6 rows, cell 10 × 20 px → cover 12 × 6 at the top-left, text from column 13 with width 65, page from row 6 with 16 rows; cell 8 × 18 px → `round(6 × 18 / 8)` = 14 columns; no cell size → 12; 4 rows → 8 columns; under `rows + 2` rows or under `cols + 21` columns, or not active → today's 4-row layout with no cover rect
+- **AC1** — Layout (`ui::cover_layout`, table: frame inner size × `cover_img_rows` × cell size × active → playback window rect, cover rect, text rect, page rect): 78 × 22 inner (an 80 × 24 terminal), 6 rows, cell 10 × 20 px → cover 12 × 6 at the top-left, text from column 13 with width 65, page from row 6 with 16 rows; cell 8 × 18 px → `round(6 × 18 / 8)` = 14 columns; no cell size → 12; 4 rows → 8 columns; under `rows + 2` rows or under `cols + 21` columns, or not active → today's 4-row layout with no cover rect
 - **AC2** — `ui::list_height` counts the taller window: with the cover active the list has `cover_img_rows − 4` rows fewer than without; under the size limits it is today's
 - **AC3** — Protocol choice (`cover::protocol`, table: `cover_img` × `cover_img_protocol` × the query's answer (sixel, kitty, iTerm2, halfblocks only, no answer) → protocol or none, and whether the terminal is queried at all): `auto` takes sixel/kitty/iTerm2 and gives none for halfblocks or no answer; a forced protocol wins over any answer; `halfblocks` gives halfblocks; `cover_img = false` gives none and **no query**
 - **AC4** — The cover loader's decisions (`cover::Slot`, pure state, table of events: the current cover changes, a result arrives, the area is resized, the queue empties, `cover_img` inactive): which cover to look for (the newest only), when to look again (every second while the current cover's file is missing, never after the cover stopped being current), which result to keep (the current cover at the current size) and which to drop (stale cover, stale size), when the area is blank, and that a cover that failed to decode is not tried again until it becomes current again
 
 Rendering (`tidal-player::ui`, `insta`, `TestBackend`: the image itself is behind a seam and the snapshots show the reserved area blank):
 
-- **AC5** — With the cover active the playback window is `cover_img_rows` rows, the text starts after the cover area and one blank column, the progress bar is on its last row, and the rest of 0004's text rules hold at the narrower width. Snapshots: playing at 80 × 24 (6 rows), paused at 120 × 30 (8 rows), nothing playing at 80 × 24 (area blank, window still tall), a message at 80 × 24, 40 × 12 (too narrow: today's window)
+- **AC5** — With the cover active the playback window is `cover_img_rows` rows, the text starts after the cover area and one blank column, the progress bar is on its last row, and the rest of 0004's text rules hold at the narrower width. Snapshots: playing at 80 × 24 (6 rows), paused at 120 × 30 (8 rows), nothing playing at 80 × 24 (area blank, window still tall), a message at 80 × 24, 40 × 12 (active, 25-column text side), 34 × 12 (too narrow: today's window)
 - **AC6** — Not active (`cover_img = false`, protocol none, too small): every existing snapshot of 0004–0014 is unchanged (no snapshot is re-accepted by this spec). Drawing at every terminal size from 1 × 1 to 200 × 60 with the cover active does not panic (0004's no-panic test, new rows)
 - **AC7** — The seam: `render` draws the ready image (a fake protocol recording the rect it was given) exactly in the cover rect, and nothing when the image's size is not the cover rect's (after a resize) or there is no ready image
 
@@ -112,10 +112,11 @@ Docs:
 
 | Situation | Behaviour |
 |---|---|
-| Terminal answers the query with nothing, or slowly | Waits at most `ratatui-image`'s timeout once at start, then no cover (`auto`) |
+| Terminal answers the query with nothing, or slowly | Waits at most `ratatui-image`'s timeout (2 s) once at start, then no cover (`auto`) |
+| Terminal answers without its cell size (xterm with window ops disallowed) | `ratatui-image` falls back to halfblocks, so no cover under `auto`; documented: force `cover_img_protocol = "sixel"` |
 | `cover_img = false` | No query is sent; the TUI is exactly as before |
 | Not a terminal that answers queries (e.g. a serial console, `TERM=linux`) | No answer → none |
-| tmux without `allow-passthrough` | tmux drops the image; the area stays blank. Documented; `cover_img = false` hides the reserved area |
+| tmux refuses the per-pane `allow-passthrough` | tmux drops the image; the area stays blank. Documented (`set -g allow-passthrough on`); `cover_img = false` hides the reserved area |
 | tmux attached from two different terminals | The protocol is the one detected at the TUI's start |
 | Resize | The next frame lays out for the new size; the image is encoded again for a new cover size, blank until then |
 | The terminal becomes too small | The cover is not active (4-row window); the image is not drawn |
@@ -163,10 +164,11 @@ Verified (2026-10-12, from code and crates.io):
 - Popups, the actions menu and the key hints are drawn inside the page area (`pages::render_popup`, `render_hint` take `areas.page`)
 - The cover cache: `crates/app/src/mpris/covers.rs` (`CoverCache::{lookup, download, fetch}`, `CoverWorker`, `process_cache_dir`, `evict`), started by the MPRIS adapter (`mpris/hub.rs`, `CoverWorker::spawn`), so it downloads only while MPRIS is on and available (0010)
 - `ratatui-image` 11.1.0 depends on `ratatui ^0.30.1` (ours: 0.30.2) and `image ^0.25.6`; its default features pull `chafa-dyn` (pkg-config); it has `Picker::from_query_stdio` (to be called after entering the alternate screen and before reading events), protocols sixel, kitty, iTerm2 and halfblocks, and tmux passthrough (`is_tmux` from the environment). It blacklists kitty and sixel under WezTerm and Konsole and uses iTerm2 there. 12.0 is a release candidate only
+- (from its source, 11.1.0) `from_query_stdio` waits at most 2 s (`STDIN_READ_TIMEOUT_MILLIS`), the wait restarted by each "busy" step of its query thread; a terminal that answers does so at once (the query ends with a status report every terminal answers), so only one that does not answer pays it. tmux is detected from `TERM`/`TERM_PROGRAM`, not `$TMUX`, and the crate runs `tmux set -p allow-passthrough on` for its pane. A terminal that answers without a cell size gets the crate's default halfblocks picker
 
 Assumptions, checked at acceptance:
 
-- The query's timeout is short enough (well under a second) not to be noticed at start, and the terminals listed under "Context" answer it as `ratatui-image`'s compatibility matrix says
+- The terminals listed under "Context" answer the query as `ratatui-image`'s compatibility matrix says
 - Redrawing the cells under a sixel image (resize, a popup) clears it in foot, WezTerm and xterm; kitty's images go with their cells
 - spotify-player (from memory, re-check): `cover_img_length`, `cover_img_width`, `cover_img_scale` behind its `image` feature, drawn with `viuer`
 
@@ -200,5 +202,5 @@ Answered by the user, 2026-10-12 (approved with the spec):
   - **`cover_img_*` plumbing**: as `key_hints` (`AppConfig` → `PlayerSettings` in `play.rs` → `cover::Settings`). The daemon parses and ignores them; like every setting, the daemon reads the variables after the session check, so an invalid `TIDAL_PLAYER_COVER_IMG*` stops a daemon only once it is logged in. The TUI also reads its own `max_cover_arts`: `0` looks for nothing (old files could remain in the cache, the player does not clean it with the cache off)
   - **Spec numbers corrected**: AC1's first example is a 78 × 22 inner (an 80 × 24 terminal), text width 65 (an 80-wide inner gives 67, also a test row). AC5's 40 × 12 is *not* too narrow by the stated limits (38 ≥ 12 + 1 + 20, 10 ≥ 6 + 2): its snapshot shows the cover active with a 25-column text side, and the "too narrow" case is checked at 34 × 12 (32 < 33) and "too short" at 80 × 9, both equal to today's drawing
   - **The keys help** (at least 40 × 10) can reach over the playback window when the page is short even though there is a page area; the rule "anything drawn over the cover area: the cover is not drawn" handles it (`pages::help_rect`, AC7's test)
-  - **`ratatui-image` 11.1 facts** (from its source): `from_query_stdio`'s timeout is 2 s (`STDIN_READ_TIMEOUT_MILLIS`, restarted by each "busy" step), not "well under a second"; real terminals answer at once (the query ends with a DSR every terminal answers), so only a terminal that never answers waits it out. A terminal that answers without a cell size (xterm with window ops disallowed) gets the crate's default halfblocks picker, so `auto` gives none there and `cover_img_protocol = "sixel"` is the fix; with no answer it falls back to the window-size ioctl for the cell and to environment hints (iTerm2/WezTerm) for the protocol. Konsole and WezTerm have kitty and sixel blacklisted (WezTerm then uses iTerm2 from `TERM_PROGRAM`; Konsole gets halfblocks, so none under `auto`). tmux is detected from `TERM` (`tmux…`) or `TERM_PROGRAM=tmux`, not `$TMUX`, and the crate itself runs `tmux set -p allow-passthrough on` for its pane; documented. `default-features = false` keeps `from_query_stdio` (it needs only `rustix` on Unix, always on) and drops `chafa`
+  - **`ratatui-image` 11.1 facts** (from its source): `from_query_stdio`'s timeout is 2 s (`STDIN_READ_TIMEOUT_MILLIS`, restarted by each "busy" step), not "well under a second"; real terminals answer at once (the query ends with a DSR every terminal answers), so only a terminal that never answers waits it out. A terminal that answers without a cell size (xterm with window ops disallowed) gets the crate's default halfblocks picker, so `auto` gives none there and `cover_img_protocol = "sixel"` is the fix; with no answer it falls back to the window-size ioctl for the cell and to environment hints (iTerm2/WezTerm) for the protocol. Konsole and WezTerm have kitty and sixel blacklisted (WezTerm then uses iTerm2 from `TERM_PROGRAM`; Konsole gets halfblocks, so none under `auto`). tmux is detected from `TERM` (`tmux…`) or `TERM_PROGRAM=tmux`, not `$TMUX`, and the crate itself runs `tmux set -p allow-passthrough on` for its pane. These are now in "Facts vs. assumptions", Behaviour (Protocol), Edge cases and the docs; AC1 and AC5 were corrected in place. `default-features = false` keeps `from_query_stdio` (it needs only `rustix` on Unix, always on) and drops `chafa`
   - **Known limit**: if a terminal never answers, the crate's query thread can stay blocked reading stdin after the timeout and swallow the first key pressed (read from its source, not reproduced); to check by hand on the Linux console at acceptance

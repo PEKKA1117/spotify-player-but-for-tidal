@@ -64,8 +64,8 @@
   | iTerm2 inline images | iTerm2、WezTerm |
 
   回答不支援任何一種的終端機（GNOME Terminal 與其他未內建 sixel 的 VTE 終端機、Linux 主控台）不顯示封面；Konsole 也一樣，因為它的 sixel 不被信任（可以試試 `cover_img_protocol = "sixel"`）：視窗是一般的 4 列。`cover_img_protocol = "halfblocks"` 會在任何彩色終端機中以彩色 `▀` 字元繪製低解析度的封面
-- **強制使用某個協定**：`cover_img_protocol`（`auto`、`sixel`、`kitty`、`iterm2`、`halfblocks`）不論終端機如何回答都使用指定的協定，適用於回答有誤的終端機（例如 xterm 可能不回報字元格大小，`auto` 因此找不到協定：請設為 `"sixel"`）。TUI 看不到終端機實際畫出什麼：如果封面顯示亂碼或什麼都沒有，請改用其他協定或關閉封面
-- **tmux**：圖片會穿過 tmux 送到外層終端機，這需要 passthrough。TUI 會為自己的窗格開啟它（`tmux set -p allow-passthrough on`）；如果你的 tmux 不接受，請在 `tmux.conf` 加上 `set -g allow-passthrough on`。協定是外層終端機的，也就是 TUI 啟動時找到的那一種。tmux 以 `TERM`（`tmux-…`）或 `TERM_PROGRAM=tmux` 辨識
+- **強制使用某個協定**：`cover_img_protocol`（`auto`、`sixel`、`kitty`、`iterm2`、`halfblocks`）不論終端機如何回答都使用指定的協定，適用於回答有誤的終端機（例如 xterm 在不允許視窗操作時（這是它的預設）回答時不附字元格大小，`auto` 因此找不到協定：請設為 `"sixel"`）。TUI 看不到終端機實際畫出什麼：如果封面顯示亂碼或什麼都沒有，請改用其他協定或關閉封面
+- **tmux**：圖片會穿過 tmux 送到外層終端機，這需要 passthrough。TUI 啟動時會自動為自己的窗格開啟它（`tmux set -p allow-passthrough on`），所以通常不需要做任何事；只有在失敗時（例如 tmux 版本太舊、不支援窗格層級的選項），才需要在 `tmux.conf` 加上 `set -g allow-passthrough on`。協定是外層終端機的，也就是 TUI 啟動時找到的那一種。tmux 以 `TERM`（`tmux-…`）或 `TERM_PROGRAM=tmux` 辨識
 - **關閉**：`cover_img = false`（或 `TIDAL_PLAYER_COVER_IMG=off`）：TUI 不會傳送任何東西給終端機，畫面與沒有封面時完全相同。三項設定見[設定](config.md#apptoml)
 - **圖片從哪裡來**：TUI 從不下載封面。播放器（獨立模式，或連上的 TUI 所顯示的常駐程式）會把目前曲目的封面存放在它的封面快取中（見[專輯封面](mpris.md#album-covers)），TUI 從那裡讀取；曲目第一次播放時，封面會稍後才出現。因此 `max_cover_arts = 0` 時不顯示封面，而且 TUI 與它的常駐程式必須使用同一個快取目錄：`TIDAL_PLAYER_CACHE_DIR` 要嘛兩者都設定，要嘛都不設定
 - 無法讀取或解碼的封面，該曲目的區域會維持空白，記錄檔會說明原因一次
