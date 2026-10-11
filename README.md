@@ -1,4 +1,4 @@
-English | [繁體中文](README.zh-TW.md)
+English | [正體中文](README.zh-TW.md)
 
 vibe WIP tui project for tidal mimicing [spotify-player](https://github.com/aome510/spotify-player)
 

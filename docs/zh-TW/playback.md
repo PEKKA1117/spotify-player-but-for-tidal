@@ -1,4 +1,4 @@
-[English](../playback.md) | 繁體中文
+[English](../playback.md) | 正體中文
 
 <a id="playing-tracks"></a>
 # 播放曲目

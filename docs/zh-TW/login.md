@@ -1,4 +1,4 @@
-[English](../login.md) | 繁體中文
+[English](../login.md) | 正體中文
 
 <a id="logging-in"></a>
 # 登入

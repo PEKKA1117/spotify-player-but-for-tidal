@@ -1,4 +1,4 @@
-English | [繁體中文](zh-TW/playback.md)
+English | [正體中文](zh-TW/playback.md)
 
 # Playing tracks
 

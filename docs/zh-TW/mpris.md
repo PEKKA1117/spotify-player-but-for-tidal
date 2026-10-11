@@ -1,4 +1,4 @@
-[English](../mpris.md) | 繁體中文
+[English](../mpris.md) | 正體中文
 
 <a id="desktop-controls-and-media-keys-mpris"></a>
 # 桌面控制與多媒體鍵 (MPRIS)

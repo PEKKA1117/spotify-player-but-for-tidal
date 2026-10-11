@@ -1,4 +1,4 @@
-English | [繁體中文](zh-TW/mpris.md)
+English | [正體中文](zh-TW/mpris.md)
 
 # Desktop controls and media keys (MPRIS)
 

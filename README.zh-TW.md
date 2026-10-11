@@ -1,4 +1,4 @@
-[English](README.md) | 繁體中文
+[English](README.md) | 正體中文
 
 仿照 [spotify-player](https://github.com/aome510/spotify-player) 的 Tidal 終端機播放器，邊做邊試（vibe）的開發中專案。
 
