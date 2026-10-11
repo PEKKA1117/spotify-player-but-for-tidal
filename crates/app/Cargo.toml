@@ -21,8 +21,10 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
 directories = { workspace = true }
+image = { workspace = true }
 keyring = { workspace = true }
 ratatui = { workspace = true }
+ratatui-image = { workspace = true }
 reqwest = { workspace = true }
 rpassword = { workspace = true }
 serde = { workspace = true }

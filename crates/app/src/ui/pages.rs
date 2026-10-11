@@ -808,10 +808,9 @@ const HELP_FOOTER: &str = "/ filter · enter run · esc close";
 /// Draws the keys help, if open, over everything else: centred on the page
 /// area (the inside of the frame when there is none), 80 % of it, at least
 /// 40 × 10, clipped to `screen`.
-pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, screen: Rect) {
-    let Some(open) = state.help.as_ref() else {
-        return;
-    };
+/// Where the keys help is drawn, when it is open.
+pub(super) fn help_rect(state: &State, page: Option<Rect>, screen: Rect) -> Option<Rect> {
+    state.help.as_ref()?;
     let page = page.unwrap_or_else(|| Block::bordered().inner(screen));
     let size = |side: u16, min: u16, room: u16| {
         (u32::from(side) * u32::from(HELP_PERCENT) / 100)
@@ -832,6 +831,13 @@ pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, 
         y: place(page.y, page.height, height, screen.y, screen.height),
         width,
         height,
+    };
+    Some(rect)
+}
+
+pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, screen: Rect) {
+    let (Some(open), Some(rect)) = (state.help.as_ref(), help_rect(state, page, screen)) else {
+        return;
     };
     let block = Block::bordered().title(Line::styled(
         fit("Keys", usize::from(rect.width).saturating_sub(2)),

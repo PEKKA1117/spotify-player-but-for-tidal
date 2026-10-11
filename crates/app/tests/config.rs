@@ -14,6 +14,9 @@ fn bin(tmp: &Path) -> Command {
     cmd.env("TIDAL_PLAYER_STATE_DIR", tmp.join("state"))
         .env("TIDAL_PLAYER_RUNTIME_DIR", tmp.join("run"))
         .env("TIDAL_PLAYER_ASOUND_DIR", tmp.join("asound"))
+        // Never the developer's cover cache, never the network (0016).
+        .env("TIDAL_PLAYER_CACHE_DIR", tmp.join("cache"))
+        .env("TIDAL_PLAYER_IMAGES_BASE", "http://127.0.0.1:9")
         .env("TIDAL_PLAYER_NO_KEYRING", "1")
         .env("TIDAL_PLAYER_API_BASE", "http://127.0.0.1:9")
         .env("HTTPS_PROXY", "http://127.0.0.1:9")
@@ -35,6 +38,9 @@ fn bin(tmp: &Path) -> Command {
         "PAGE_SIZE",
         "SEARCH_PAGE_SIZE",
         "HIDE_VERSIONS",
+        "COVER_IMG",
+        "COVER_IMG_ROWS",
+        "COVER_IMG_PROTOCOL",
     ] {
         cmd.env_remove(format!("TIDAL_PLAYER_{var}"));
     }
@@ -259,5 +265,82 @@ fn ac12_unsupported_keymap_starts() {
             (1, "Not logged in: run \"tidal-player login\"\n"),
             "{args:?}"
         );
+    }
+}
+
+/// 0016 AC9: the cover's settings are the TUI's: the daemon and `play`
+/// accept them in `app.toml` and get as far as the login check; an
+/// invalid value in the file or the environment stops them with exit 2,
+/// naming the key or the variable.
+#[test]
+fn ac9_cover_settings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    std::fs::create_dir(&config).unwrap();
+    std::fs::write(
+        config.join("app.toml"),
+        "cover_img = false\ncover_img_rows = 8\ncover_img_protocol = \"kitty\"\n",
+    )
+    .unwrap();
+    for args in [&["daemon"][..], &["play", "1"][..]] {
+        let mut cmd = bin(tmp.path());
+        cmd.args(args).arg("-c").arg(&config);
+        let (code, _, stderr) = run(cmd);
+        assert_eq!(
+            (code, stderr.as_str()),
+            (1, "Not logged in: run \"tidal-player login\"\n"),
+            "{args:?}"
+        );
+    }
+    // (file, variable, value, what stderr names)
+    type Bad<'a> = (&'a str, Option<(&'a str, &'a str)>, &'a str);
+    let bad: &[Bad] = &[
+        ("cover_img_rows = 3\n", None, "invalid cover_img_rows"),
+        ("cover_img_rows = 21\n", None, "invalid cover_img_rows"),
+        (
+            "cover_img_protocol = \"ascii\"\n",
+            None,
+            "auto, sixel, kitty, iterm2 or halfblocks",
+        ),
+        (
+            "",
+            Some(("TIDAL_PLAYER_COVER_IMG_ROWS", "3")),
+            "TIDAL_PLAYER_COVER_IMG_ROWS",
+        ),
+        (
+            "",
+            Some(("TIDAL_PLAYER_COVER_IMG", "yes")),
+            "TIDAL_PLAYER_COVER_IMG",
+        ),
+        (
+            "",
+            Some(("TIDAL_PLAYER_COVER_IMG_PROTOCOL", "ascii")),
+            "TIDAL_PLAYER_COVER_IMG_PROTOCOL",
+        ),
+    ];
+    for (file, var, message) in bad {
+        std::fs::write(config.join("app.toml"), file).unwrap();
+        // The TUI exits before raw mode; the daemon reads the file before
+        // the session, the variables after it (as every setting's).
+        let commands: &[&[&str]] = if var.is_some() {
+            &[&[]]
+        } else {
+            &[&[], &["daemon"]]
+        };
+        for args in commands {
+            let mut cmd = bin(tmp.path());
+            cmd.args(*args).arg("-c").arg(&config);
+            if let Some((var, value)) = var {
+                cmd.env(var, value);
+            }
+            let (code, stdout, stderr) = run(cmd);
+            let label = format!("{file:?} {var:?} {args:?}: {stderr:?}");
+            assert_eq!(code, 2, "{label}");
+            assert!(stderr.contains(message), "{label}");
+            assert!(
+                !stdout.contains('\u{1b}') && !stderr.contains('\u{1b}'),
+                "{label}"
+            );
+        }
     }
 }

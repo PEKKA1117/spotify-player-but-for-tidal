@@ -44,12 +44,15 @@ Flat keys, every one optional.
 | `max_cover_arts` | integer 0–1000 (`0`: no cover cache) | `20` | `TIDAL_PLAYER_MAX_COVER_ARTS` | player |
 | `key_hints` | `true`, `false` | `true` | `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`) | TUI |
 | `key_hints_delay_ms` | integer 0–10 000 (ms; `0`: at once) | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `cover_img` | `true`, `false` | `true` | `TIDAL_PLAYER_COVER_IMG` (`on`, `off`) | TUI |
+| `cover_img_rows` | integer 4–20 (the playback window's rows with the cover) | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
+| `cover_img_protocol` | `"auto"`, `"sixel"`, `"kitty"`, `"iterm2"`, `"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
 | `page_size` | integer 1–10 000 | `100` | `TIDAL_PLAYER_PAGE_SIZE` | player, TUI |
 | `search_page_size` | integer 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | player, TUI |
 | `hide_versions` | array of strings (`[]` hides nothing) | the sixteen words of [Settings](playback.md#settings) | `TIDAL_PLAYER_HIDE_VERSIONS` | player |
 | `[layout] library = { playlist_percent, album_percent }` | integers 1–98 each, sum at most 99; *Artists* takes the rest | `40`, `40` | | TUI |
 
-What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
+What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
 
 ```toml
 # ~/.config/tidal-player/app.toml

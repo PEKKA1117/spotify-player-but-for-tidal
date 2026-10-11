@@ -20,6 +20,7 @@ use tidal_player::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
     },
     config::{self, AppConfig},
+    cover::{self, Cover, Loader},
     daemon::{forward_signals, notify_ready},
     input::event_to_action,
     ipc::{
@@ -43,7 +44,7 @@ use tidal_player::{
     },
     player_runtime::{PlayerRuntime, TokioJobs, parse_items, spawn_runtime, time_seed},
     store_setup::StorePlan,
-    ui::{HintTimer, render},
+    ui::{CoverFrame, CoverGeometry, CoverImage, HintTimer, render_with_cover},
 };
 use tidal_player_api::auth::{
     AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
@@ -198,6 +199,7 @@ fn run<C: Connector>(
     session: &mut Session<C>,
     mut state: State,
     hint_delay: Duration,
+    mut cover: Option<TuiCover>,
 ) -> Result<()> {
     let mut actions = Vec::new();
     // Spec 0013: the hint shows once a sequence has been pending this long.
@@ -209,10 +211,9 @@ fn run<C: Connector>(
     let mut list_height = None;
     loop {
         let size = terminal.size()?;
-        let height = tidal_player::ui::list_height(
-            ratatui::layout::Rect::new(0, 0, size.width, size.height),
-            state.login_required,
-        );
+        let screen = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+        let geometry = cover.as_ref().map(|c| c.geometry);
+        let height = tidal_player::ui::list_height(screen, state.login_required, geometry);
         if list_height != Some(height) {
             list_height = Some(height);
             actions.push(Action::Resize {
@@ -231,7 +232,26 @@ fn run<C: Connector>(
             }
         }
         let hint = hint_timer.update(&state.pending, Instant::now());
-        terminal.draw(|frame| render(&state, frame, hint))?;
+        // Spec 0016: the loader follows the current cover and the cover
+        // area; a ready image is drawn, nothing waits for one.
+        if let Some(cover) = &mut cover {
+            let area = tidal_player::ui::cover_area(screen, state.login_required, geometry);
+            let current = state
+                .current()
+                .and_then(|entry| entry.track.album.as_ref())
+                .and_then(|album| album.cover.as_deref());
+            cover
+                .cover
+                .update(current, area.map(|a| a.as_size()), Instant::now());
+        }
+        let frame_cover = cover.as_ref().map(|c| CoverFrame {
+            geometry: c.geometry,
+            image: c
+                .cover
+                .image()
+                .map(|(size, image)| (size, image as &dyn CoverImage)),
+        });
+        terminal.draw(|frame| render_with_cover(&state, frame, hint, frame_cover.as_ref()))?;
         if event::poll(FRAME)? {
             actions.extend(event_to_action(event::read()?));
         } else {
@@ -489,6 +509,7 @@ fn tui_main(
             open,
             state,
             player_settings.key_hints_delay,
+            cover::Settings::from_player(&player_settings),
         ),
         Ok(Role::Player(lock)) => standalone(
             lock,
@@ -542,9 +563,10 @@ fn attached(
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
     hint_delay: Duration,
+    cover: cover::Settings,
 ) -> Result<ExitCode> {
     let mut session = Session::new(SocketConnector::new(socket), connection, open);
-    let result = tui(&mut session, state, hint_delay);
+    let result = tui(&mut session, state, hint_delay, &cover);
     restore_terminal();
     result.map(|()| ExitCode::SUCCESS)
 }
@@ -640,7 +662,8 @@ fn standalone(
         .map_err(|e| anyhow::anyhow!("cannot join the player: {e}"))?;
     let mut session = Session::new(connector, link, open);
 
-    let result = tui(&mut session, state, player_settings.key_hints_delay);
+    let cover = cover::Settings::from_player(&player_settings);
+    let result = tui(&mut session, state, player_settings.key_hints_delay, &cover);
     // Quit: the player stops and releases the device first; its other
     // clients are told it shut down.
     player.shutdown();
@@ -653,15 +676,52 @@ fn standalone(
     result.map(|()| ExitCode::SUCCESS)
 }
 
+/// The TUI's album cover (spec 0016): its geometry and its loader.
+struct TuiCover {
+    geometry: CoverGeometry,
+    cover: Cover<ratatui_image::protocol::Protocol>,
+}
+
 /// Runs the TUI until the user quits; the terminal is left for the caller
 /// to restore.
-fn tui<C: Connector>(session: &mut Session<C>, state: State, hint_delay: Duration) -> Result<()> {
+fn tui<C: Connector>(
+    session: &mut Session<C>,
+    state: State,
+    hint_delay: Duration,
+    cover: &cover::Settings,
+) -> Result<()> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
     execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
         .context("cannot enter the alternate screen")?;
+    let cover = start_cover(cover);
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    run(&mut terminal, session, state, hint_delay)
+    run(&mut terminal, session, state, hint_delay, cover)
+}
+
+/// Spec 0016 "Protocol": on the alternate screen and before the first
+/// event is read, asks the terminal (only with `cover_img` on) and starts
+/// the loader for the protocol chosen; `None`: no cover.
+fn start_cover(settings: &cover::Settings) -> Option<TuiCover> {
+    let mut queried = None;
+    let choice = cover::protocol(settings.enabled, settings.protocol, || {
+        let (picker, answer) = cover::query_terminal()?;
+        queried = Some(picker);
+        Some(answer)
+    })?;
+    let warn: cover::Warn = Arc::new(|line| tracing::warn!("{line}"));
+    let loader = Loader::spawn(
+        settings.cache_dir.clone(),
+        cover::picker_for(choice, queried),
+        warn,
+    );
+    Some(TuiCover {
+        geometry: CoverGeometry {
+            rows: settings.rows,
+            cell: choice.cell,
+        },
+        cover: Cover::new(loader, settings.cache_on),
+    })
 }
 
 fn env_var(key: &str) -> Option<String> {

@@ -1,6 +1,6 @@
-//! The cover cache (spec 0010 "The cover cache"): the current entry's
+//! The cover cache (spec 0010 "The cover cache", 0016): the current entry's
 //! album cover downloaded into `<cache dir>/covers/<cover>.jpg`, so every
-//! MPRIS consumer gets a `file://` URL. The decisions (what to delete, which
+//! MPRIS consumer gets a `file://` URL and a TUI can read the image. The decisions (what to delete, which
 //! URL, where the directory is) are pure; the download sits behind
 //! [`CoverCache`].
 
@@ -46,6 +46,13 @@ pub fn process_cache_dir() -> PathBuf {
         std::env::var("XDG_CACHE_HOME").ok().as_deref(),
         home.as_deref(),
     )
+}
+
+/// The file `cover` has in the cache under `cache_dir`, for a reader that
+/// never writes to it (the TUI, spec 0016); `None` for what is not a cover
+/// ID, so no other path is ever read.
+pub fn cached_file(cache_dir: &Path, cover: &str) -> Option<PathBuf> {
+    is_cover_id(cover).then(|| cache_dir.join("covers").join(format!("{cover}.jpg")))
 }
 
 /// Where a cover stands for the current entry.

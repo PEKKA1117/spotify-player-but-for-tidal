@@ -3,12 +3,12 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），以及 [spec 0014](../specs/0014-device-selection.md)（輸出裝置）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），以及 [spec 0016](../specs/0016-cover-art.md)（專輯封面）。
 
 <a id="the-screen"></a>
 ## 畫面
 
-一個標題為 `tidal-player` 的外框，頂端是**播放視窗**（4 列），下方是一個**頁面**。第一個頁面是**播放佇列**；其他頁面列於[頁面](#pages)：
+一個標題為 `tidal-player` 的外框，頂端是**播放視窗**（4 列，顯示[專輯封面](#album-cover)時更多），下方是一個**頁面**。第一個頁面是**播放佇列**；其他頁面列於[頁面](#pages)：
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -34,9 +34,43 @@
    - 開啟隨機播放時顯示 `shuffle`，開啟重複播放時顯示 `repeat: queue` 或 `repeat: track`，開啟自動播放時顯示 `autoplay`，接著是音量（`80%`）或 `muted`
 2. 專輯
 3. 播放方式：Tidal 提供的音質、格式、輸出裝置，以及 `bit-perfect` 或不是位元完美（bit-perfect）的原因（與 [`play`](playback.md#output-kinds-and-bit-perfect) 的「Track」與「Output」兩行相同）；暫停期間若裝置已[釋放](daemon.md#releasing-the-device-while-paused)，後面會加上 ` · device released`。出錯時，訊息會取代這一列（見[失敗處理](#failures)）；連上播放器的 TUI 與播放器失去連線時，這一列也會顯示 `Disconnected from the player: reconnecting…`
-4. 進度條、目前位置與長度。若 Tidal 未提供長度，則不顯示進度條：`1:23 / ?:??`
+4. 進度條、目前位置與長度。若 Tidal 未提供長度，則不顯示進度條：`1:23 / ?:??`。顯示[專輯封面](#album-cover)時視窗較高，進度條在最後一列
 
 啟動時播放器會接續上次的工作階段：原本的佇列，以 `■` 停止在相同的位置，模式與音量也相同；按 `Space` 從那裡開始播放（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
+
+<a id="album-cover"></a>
+#### 專輯封面
+
+當終端機能夠繪製圖片時，專輯封面會畫在這幾列的左側；顯示封面時播放視窗會變高（`cover_img_rows`，預設 6 列），讓封面呈正方形：
+
+```
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│████████████ ▶ Hell Above · Pierce The Veil        shuffle  repeat: queue  80%│
+│████████████   Collide With The Sky                                           │
+│████████████   LOSSLESS FLAC 16-bit 44.1… · not bit-perfect: volume below 100%│
+│████████████                                                                  │
+│████████████                                                                  │
+│████████████   ━━━━━━━━━━━━━━━━━━━━──────────────────────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────────────────────────────────────────────┐│
+```
+
+- **何時顯示**：`cover_img` 開啟（預設），終端機能以下列其中一種協定繪製圖片，且終端機夠大：外框內至少 `cover_img_rows + 2` 列，以及封面寬度再加 21 欄。終端機較小時，播放視窗是一般的 4 列；終端機調大後封面會立刻回來。顯示封面期間，不論播放什麼都會保留它的位置：沒有播放、曲目沒有封面或封面載入中時，該區域是空白的，視窗仍然維持較高，因此下方的頁面不會隨曲目跳動
+- **協定**：TUI 啟動時會詢問終端機支援哪一種（只問一次，最多等 2 秒）：
+
+  | 協定 | 終端機 |
+  |---|---|
+  | kitty graphics | kitty、Ghostty |
+  | sixel | foot、xterm（以 `-ti vt340` 啟動）、mlterm |
+  | iTerm2 inline images | iTerm2、WezTerm |
+
+  目前實際試過的有：foot（sixel）、kitty、WezTerm（iTerm2），以及在 foot 中執行的 tmux 3.8。表中其他終端機是依 `ratatui-image` 的相容性說明列出，尚未實際試過；GNOME Terminal 與 `halfblocks` 也還沒試過。若有終端機的表現與這裡描述的不同，請開 issue 回報
+
+  回答不支援任何一種的終端機（GNOME Terminal 與其他未內建 sixel 的 VTE 終端機、Linux 主控台）不顯示封面；Konsole 也一樣，因為它的 sixel 不被信任（可以試試 `cover_img_protocol = "sixel"`）：視窗是一般的 4 列。`cover_img_protocol = "halfblocks"` 會在任何彩色終端機中以彩色 `▀` 字元繪製低解析度的封面
+- **強制使用某個協定**：`cover_img_protocol`（`auto`、`sixel`、`kitty`、`iterm2`、`halfblocks`）不論終端機如何回答都使用指定的協定，適用於回答有誤的終端機（例如 xterm 在不允許視窗操作時（這是它的預設）回答時不附字元格大小，`auto` 因此找不到協定：請設為 `"sixel"`）。TUI 看不到終端機實際畫出什麼：如果封面顯示亂碼或什麼都沒有，請改用其他協定或關閉封面
+- **tmux**：圖片會穿過 tmux 送到外層終端機，這需要 passthrough。TUI 啟動時會自動為自己的窗格開啟它（`tmux set -p allow-passthrough on`），所以通常不需要做任何事；只有在失敗時（例如 tmux 版本太舊、不支援窗格層級的選項），才需要在 `tmux.conf` 加上 `set -g allow-passthrough on`。協定是外層終端機的，也就是 TUI 啟動時找到的那一種。tmux 以 `TERM`（`tmux-…`）或 `TERM_PROGRAM=tmux` 辨識
+- **關閉**：`cover_img = false`（或 `TIDAL_PLAYER_COVER_IMG=off`）：TUI 不會傳送任何東西給終端機，畫面與沒有封面時完全相同。三項設定見[設定](config.md#apptoml)
+- **圖片從哪裡來**：TUI 從不下載封面。播放器（獨立模式，或連上的 TUI 所顯示的常駐程式）會把目前曲目的封面存放在它的封面快取中（見[專輯封面](mpris.md#album-covers)），TUI 從那裡讀取；曲目第一次播放時，封面會稍後才出現。因此 `max_cover_arts = 0` 時不顯示封面，而且 TUI 與它的常駐程式必須使用同一個快取目錄：`TIDAL_PLAYER_CACHE_DIR` 要嘛兩者都設定，要嘛都不設定
+- 無法讀取或解碼的封面，該曲目的區域會維持空白，記錄檔會說明原因一次
 
 <a id="queue"></a>
 ### 佇列

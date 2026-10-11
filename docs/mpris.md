@@ -64,11 +64,11 @@ A restored player ([Resuming the last session](playback.md#resuming-the-last-ses
 
 ## Album covers
 
-The player downloads the current track's album cover into its **cache directory** and gives the desktop the file, so every widget and notification shows it:
+The player downloads the current track's album cover into its **cache directory** and gives the desktop the file, so every widget and notification shows it. The TUI draws its [album cover](tui.md#album-cover) from the same files. The player keeps this cache whether MPRIS is on or not: with `mpris = false`, or with no session bus, it still downloads the current cover, so an attached TUI shows covers from any daemon ([spec 0016](specs/0016-cover-art.md)):
 
 - **Where**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player`; the covers are in `covers/`, one `<cover>.jpg` each (640×640)
 - **How many**: at most `max_cover_arts` (in [`app.toml`](config.md#apptoml), default `20`, `0` to `1000`), or `TIDAL_PLAYER_MAX_COVER_ARTS`; the least recently used go first. A lowered limit takes effect at the next start
-- **`max_cover_arts = 0`**: nothing is downloaded or written; the desktop gets Tidal's image address and fetches it itself (GNOME and KDE do; some notification daemons only show local files)
+- **`max_cover_arts = 0`**: nothing is downloaded or written; the desktop gets Tidal's image address and fetches it itself (GNOME and KDE do; some notification daemons only show local files), and the TUI shows no cover
 - While a cover downloads, the track shows without one, then with it. A cover that cannot be downloaded or written is shown from Tidal's address instead, and the log says why once
 - `tidal-player logout` leaves the cache: covers are public images, not your account's data. Delete the directory to empty it
 
@@ -100,7 +100,7 @@ Leave out `-p tidal_player` to control whichever player `playerctl` picks. The T
 
 ## Turning it off
 
-`mpris = false` in [`app.toml`](config.md#apptoml), or `TIDAL_PLAYER_MPRIS=off`: the player does not connect to the session bus for MPRIS (and downloads no covers). Playback, the TUI and the daemon's clients are unaffected.
+`mpris = false` in [`app.toml`](config.md#apptoml), or `TIDAL_PLAYER_MPRIS=off`: the player does not connect to the session bus for MPRIS; it still keeps the [cover cache](#album-covers) for the TUI (`max_cover_arts = 0` turns that off). Playback, the TUI and the daemon's clients are unaffected.
 
 ## No session bus
 

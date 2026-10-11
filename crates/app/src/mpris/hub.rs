@@ -17,9 +17,9 @@ use tidal_player_core::protocol::{
 };
 use tokio::sync::oneshot;
 
-use super::covers::{Art, CoverCache, CoverWorker, art_url};
 use super::model::{self, Call, CallError, PositionClock, Properties};
 use super::{Level, Log};
+use crate::covers::{Art, CoverCache, CoverWorker, art_url};
 use crate::ipc::server::{ClientId, ClientInput, OUTBOX, Peer, next_client_id};
 use crate::player_runtime::RuntimeInput;
 

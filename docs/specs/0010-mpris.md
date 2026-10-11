@@ -109,7 +109,7 @@ Tidal returns the album's cover image ID with every track (`album.cover`, a UUID
 The player (never a client) downloads the current entry's cover and gives the desktop a local file, so every MPRIS consumer shows it, notification daemons that take only `file://` included (decision 6). This is the one on-disk cache the player keeps; 0009 decision 3 (no metadata cache) is otherwise unchanged.
 
 - **Where**: the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player`; covers in `covers/` (created `0700`), one file per cover ID: `<cover>.jpg`
-- **When**: when an entry becomes current with a cover that is not cached, the player downloads it (one at a time; a newer current entry's cover replaces a waiting one; nothing is downloaded with no current entry or while MPRIS is off or unavailable). The download does not wait for the track: `Metadata` is published at once without `mpris:artUrl`, then again (`PropertiesChanged`) with the `file://` URL when the file is in place, if that entry is still current
+- **When**: when an entry becomes current with a cover that is not cached, the player downloads it (one at a time; a newer current entry's cover replaces a waiting one; nothing is downloaded with no current entry; 0016 has the player download whether MPRIS is on, off or unavailable, so the TUI can show the cover). The download does not wait for the track: `Metadata` is published at once without `mpris:artUrl`, then again (`PropertiesChanged`) with the `file://` URL when the file is in place, if that entry is still current
 - **Download**: `GET` the `640x640` URL with no Tidal credentials, a 10 s timeout and a 5 MB limit; anything but a `200` with an `image/*` body under the limit is a failure. The file is written as `<cover>.jpg.tmp`, then renamed, so the cache never holds half a file
 - **Limit**: `max_cover_arts` in `app.toml` (default **20**, integer 0–1000), or `TIDAL_PLAYER_MAX_COVER_ARTS`, with 0008's precedence. After each new file, the least recently used covers are deleted until at most `max_cover_arts` remain; using a cached cover (it becomes current again) makes it the most recently used (its modification time is touched). The current entry's cover is never deleted. `0` turns the cache off: nothing is downloaded or written, and `mpris:artUrl` is the `https://` URL
 - **Failures**: a failed download or an unwritable cache directory gives the `https://` URL for that entry (the desktop may still fetch it), is logged at `warn` once per cover, and is retried only when that cover becomes current again. Never the player's message: a missing cover must not cover a playback failure
@@ -303,7 +303,7 @@ Assumptions, checked at acceptance:
 ## Out of scope
 
 - `org.mpris.MediaPlayer2.TrackList` and `Playlists` (decision 6)
-- **The cover in the TUI** (spotify-player's `image` feature, tidalt's Kitty/sixel panel): its own spec, reusing this spec's `cover`, `cover_url` and cover cache
+- **The cover in the TUI** (spotify-player's `image` feature, tidalt's Kitty/sixel panel): [0016](0016-cover-art.md), reading this spec's cover cache
 - Prefetching the next entry's cover; other image sizes; a `.desktop` file (`DesktopEntry`)
 - Media keys read by the TUI itself (decision 4)
 - Autoplay over MPRIS (no standard property)

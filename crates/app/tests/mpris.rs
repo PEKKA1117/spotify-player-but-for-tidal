@@ -267,6 +267,8 @@ struct Machine {
     /// Keeps the mock API running.
     _tokio: tokio::runtime::Runtime,
     api: String,
+    /// The mock API, to count the requests it got.
+    server: std::sync::Arc<wiremock::MockServer>,
     bus: String,
 }
 
@@ -336,8 +338,10 @@ impl Machine {
             api
         });
         let uri = api.uri();
+        let server = std::sync::Arc::new(api);
+        let held = std::sync::Arc::clone(&server);
         tokio.spawn(async move {
-            let _api = api;
+            let _api = held;
             std::future::pending::<()>().await;
         });
         let run = state.path().join("run");
@@ -350,11 +354,22 @@ impl Machine {
             pass_file,
             _tokio: tokio,
             api: uri,
+            server,
             bus: bus.map_or_else(
                 || "unix:path=/nonexistent/bus".to_owned(),
                 |b| b.address.clone(),
             ),
         }
+    }
+
+    /// How many requests for a cover image the mock API got.
+    fn image_requests(&self) -> usize {
+        self._tokio
+            .block_on(self.server.received_requests())
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path().starts_with("/images/"))
+            .count()
     }
 
     /// Writes `app.toml`.
@@ -728,8 +743,6 @@ fn ac11_no_bus() {
     let (code, stderr) = stop(&machine, &mut daemon);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(stderr.matches(UNAVAILABLE).count(), 1, "{stderr}");
-    // Nothing was cached without MPRIS.
-    assert!(!machine.cache.path().join("covers").exists());
 }
 
 /// AC12: with the name taken, the daemon takes `…tidal_player.instance<pid>`
@@ -814,7 +827,6 @@ fn ac13_mpris_off() {
         Vec::<String>::new(),
         "{seen:?}"
     );
-    assert!(!machine.cache.path().join("covers").exists());
 
     // The variable over the file: `TIDAL_PLAYER_MPRIS=off`.
     let machine = Machine::new(Some(&bus));
@@ -865,4 +877,59 @@ fn ac14_clients_stay_off_the_bus() {
         "{seen:?}"
     );
     assert_eq!(names(&me), before);
+}
+
+/// 0016 AC11: the player caches the current entry's cover without MPRIS:
+/// with `mpris = false`, with no session bus, and not at all (no file, no
+/// request) with `max_cover_arts = 0`.
+#[test]
+fn ac11_cache_without_mpris() {
+    // (name, bus, app.toml, cached)
+    let rows = [
+        ("mpris off", true, "mpris = false\n", true),
+        ("no session bus", false, "mpris = true\n", true),
+        (
+            "cache off, mpris off",
+            true,
+            "mpris = false\nmax_cover_arts = 0\n",
+            false,
+        ),
+        (
+            "cache off, no bus",
+            false,
+            "mpris = true\nmax_cover_arts = 0\n",
+            false,
+        ),
+    ];
+    for (name, with_bus, toml, cached) in rows {
+        let bus = with_bus.then(PrivateBus::start);
+        let machine = Machine::new(bus.as_ref());
+        machine.app_toml(toml);
+        let mut daemon = machine.spawn(&["daemon"]);
+        let (mut client, _) = subscribe(&machine.socket());
+        request(
+            &mut client,
+            1,
+            PlayerCommand::LoadQueue {
+                tracks: vec![track(1, Some(COVER))],
+                start: 0,
+            },
+        )
+        .expect("the queue");
+        let file = machine.cache.path().join(format!("covers/{COVER}.jpg"));
+        let deadline = std::time::Instant::now() + Duration::from_secs(if cached { 10 } else { 1 });
+        while !file.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(file.exists(), cached, "{name}: {}", file.display());
+        if cached {
+            assert_eq!(std::fs::read(&file).unwrap(), b"JPEG", "{name}");
+            assert_eq!(machine.image_requests(), 1, "{name}");
+        } else {
+            assert!(!machine.cache.path().join("covers").exists(), "{name}");
+            assert_eq!(machine.image_requests(), 0, "{name}");
+        }
+        let (code, stderr) = stop(&machine, &mut daemon);
+        assert_eq!(code, Some(0), "{name}: {stderr}");
+    }
 }

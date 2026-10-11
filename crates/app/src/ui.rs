@@ -1,13 +1,15 @@
 //! Rendering of the pure UI model (spec 0004 "TUI"): one bordered frame
-//! titled `tidal-player`, the playback window (4 rows) at the top and the
-//! queue below it. The two never share rows: the queue list always spans
-//! the full width of its own rows.
+//! titled `tidal-player`, the playback window (4 rows, taller with the
+//! album cover of spec 0016) at the top and the queue below it. The two
+//! never share rows: the queue list always spans the full width of its own
+//! rows.
 
 use std::time::{Duration, Instant};
 
 use ratatui::{
     Frame,
-    layout::Rect,
+    buffer::Buffer,
+    layout::{Rect, Size},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
@@ -23,6 +25,8 @@ mod pages;
 const PLAYBACK_ROWS: u16 = 4;
 /// Below this many rows inside the frame only the playback window is drawn.
 const MIN_ROWS_WITH_QUEUE: u16 = 6;
+/// The fewest rows the page keeps below the playback window.
+const MIN_PAGE_ROWS: u16 = MIN_ROWS_WITH_QUEUE - PLAYBACK_ROWS;
 /// The narrowest the title side of a row gets before the indicators (or
 /// the bit-perfect verdict) make way for it.
 const MIN_LEFT: usize = 20;
@@ -34,12 +38,16 @@ struct Areas {
     /// The session-expired line (0002 AC17).
     status: Option<Rect>,
     playback: Rect,
+    /// The album cover's area while it is active (spec 0016).
+    cover: Option<Rect>,
+    /// The playback window's lines: right of the cover, or all of it.
+    text: Rect,
     /// The page below the playback window; none when the terminal is too
     /// short for it.
     page: Option<Rect>,
 }
 
-fn areas(area: Rect, login_required: bool) -> Areas {
+fn areas(area: Rect, login_required: bool, cover: Option<CoverGeometry>) -> Areas {
     let mut inner = Block::bordered().inner(area);
     // The status line takes the last row inside the border, when there is
     // one.
@@ -52,6 +60,94 @@ fn areas(area: Rect, login_required: bool) -> Areas {
             ..inner
         });
     }
+    let layout = cover_layout(inner, cover);
+    Areas {
+        status,
+        playback: layout.playback,
+        cover: layout.cover,
+        text: layout.text,
+        page: layout.page,
+    }
+}
+
+/// The rows a list window shows in a terminal of `terminal`'s size: what
+/// `Action::Resize` carries (spec 0006 "Lists load as you scroll"); with
+/// `cover`, the taller playback window while it is active (spec 0016).
+pub fn list_height(terminal: Rect, login_required: bool, cover: Option<CoverGeometry>) -> usize {
+    areas(terminal, login_required, cover)
+        .page
+        .map_or(0, pages::list_height)
+}
+
+// --- the album cover (spec 0016) ---------------------------------------------------
+
+/// What sizes the cover: `cover_img_rows` and the terminal's cell size in
+/// pixels (width, height), when known. Given only while the cover can be
+/// active (`cover_img` on and a protocol).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoverGeometry {
+    pub rows: u16,
+    pub cell: Option<(u16, u16)>,
+}
+
+/// An image ready to draw, encoded for its area: the seam between the
+/// frame and `ratatui-image`.
+pub trait CoverImage {
+    /// Draws into `area` of `buf`.
+    fn draw(&self, area: Rect, buf: &mut Buffer);
+}
+
+/// The cover for one frame: its geometry, and the ready image with the
+/// area size it was encoded for.
+#[derive(Clone, Copy)]
+pub struct CoverFrame<'a> {
+    pub geometry: CoverGeometry,
+    pub image: Option<(Size, &'a dyn CoverImage)>,
+}
+
+/// The playback window's parts and the page, inside the frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoverLayout {
+    pub playback: Rect,
+    /// The cover area; none when the cover is not active.
+    pub cover: Option<Rect>,
+    /// Where the playback window's lines go.
+    pub text: Rect,
+    pub page: Option<Rect>,
+}
+
+/// The layout of `inner` (the frame's inside, the status line taken out)
+/// with `cover` (`None`: not active), spec 0016 "Layout".
+pub fn cover_layout(inner: Rect, cover: Option<CoverGeometry>) -> CoverLayout {
+    if let Some(geometry) = cover {
+        let rows = geometry.rows;
+        let cols = cover_columns(geometry);
+        if inner.height >= rows.saturating_add(MIN_PAGE_ROWS)
+            && usize::from(inner.width) >= usize::from(cols) + 1 + MIN_LEFT
+        {
+            let playback = Rect {
+                height: rows,
+                ..inner
+            };
+            return CoverLayout {
+                playback,
+                cover: Some(Rect {
+                    width: cols,
+                    ..playback
+                }),
+                text: Rect {
+                    x: inner.x + cols + 1,
+                    width: inner.width - cols - 1,
+                    ..playback
+                },
+                page: Some(Rect {
+                    y: inner.y + rows,
+                    height: inner.height - rows,
+                    ..inner
+                }),
+            };
+        }
+    }
     let playback = Rect {
         height: inner.height.min(PLAYBACK_ROWS),
         ..inner
@@ -61,19 +157,36 @@ fn areas(area: Rect, login_required: bool) -> Areas {
         height: inner.height - PLAYBACK_ROWS,
         ..inner
     });
-    Areas {
-        status,
+    CoverLayout {
         playback,
+        cover: None,
+        text: playback,
         page,
     }
 }
 
-/// The rows a list window shows in a terminal of `terminal`'s size: what
-/// `Action::Resize` carries (spec 0006 "Lists load as you scroll").
-pub fn list_height(terminal: Rect, login_required: bool) -> usize {
-    areas(terminal, login_required)
-        .page
-        .map_or(0, pages::list_height)
+/// The cover area in a terminal of `terminal`'s size; none when the cover
+/// is not active there.
+pub fn cover_area(
+    terminal: Rect,
+    login_required: bool,
+    cover: Option<CoverGeometry>,
+) -> Option<Rect> {
+    areas(terminal, login_required, cover).cover
+}
+
+/// The cover's width: square in pixels, `round(rows x cell height / cell
+/// width)`; 2 columns per row with no cell size known.
+fn cover_columns(geometry: CoverGeometry) -> u16 {
+    let rows = u32::from(geometry.rows);
+    let cols = match geometry.cell {
+        Some((w, h)) if w > 0 && h > 0 => {
+            let (w, h) = (u32::from(w), u32::from(h));
+            (2 * rows * h + w) / (2 * w)
+        }
+        _ => 2 * rows,
+    };
+    u16::try_from(cols.max(1)).unwrap_or(u16::MAX)
 }
 
 /// When to draw the key-sequence hint (spec 0013 "When the hint shows"):
@@ -116,14 +229,19 @@ impl HintTimer {
 /// Draws `state` into `frame`; `hint`: the key-sequence hint is due
 /// ([`HintTimer`]), drawn when the state has one (spec 0013).
 pub fn render(state: &State, frame: &mut Frame, hint: bool) {
+    render_with_cover(state, frame, hint, None);
+}
+
+/// [`render`] with the album cover (spec 0016); `None`: not active.
+pub fn render_with_cover(state: &State, frame: &mut Frame, hint: bool, cover: Option<&CoverFrame>) {
     let area = frame.area();
-    let areas = areas(area, state.login_required);
+    let areas = areas(area, state.login_required, cover.map(|c| c.geometry));
     frame.render_widget(Block::bordered().title("tidal-player"), area);
     if let Some(status) = areas.status {
         frame.render_widget(Paragraph::new(STATUS), status);
     }
 
-    render_playback(state, frame, areas.playback);
+    render_playback(state, frame, areas.text);
 
     let prompt_row = if let Some(page) = areas.page {
         if state.page().kind == PageKind::Queue {
@@ -146,6 +264,15 @@ pub fn render(state: &State, frame: &mut Frame, hint: bool) {
         pages::render_hint(state, frame, areas.page);
     }
     pages::render_help(state, frame, areas.page, area);
+
+    // Last, and only where nothing else was drawn over it: popups and the
+    // hint stay in the page; the keys help may not.
+    if let (Some(rect), Some((size, image))) = (areas.cover, cover.and_then(|c| c.image))
+        && size == rect.as_size()
+        && pages::help_rect(state, areas.page, area).is_none_or(|help| !help.intersects(rect))
+    {
+        image.draw(rect, frame.buffer_mut());
+    }
 }
 
 // --- the playback window -----------------------------------------------------------
@@ -174,11 +301,18 @@ fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
                     .unwrap_or_default(),
             ),
         });
-        lines.push(Line::raw(progress(
-            state.position,
-            entry.track.duration,
-            width,
-        )));
+        let bar = Line::raw(progress(state.position, entry.track.duration, width));
+        if area.height > PLAYBACK_ROWS {
+            // The taller window (spec 0016): the bar on its last row.
+            let last = Rect {
+                y: area.bottom() - 1,
+                height: 1,
+                ..area
+            };
+            frame.render_widget(Paragraph::new(bar), last);
+        } else {
+            lines.push(bar);
+        }
     } else if let Some(message) = state.message() {
         lines.push(Line::raw(""));
         lines.push(Line::styled(
@@ -1058,6 +1192,384 @@ mod tests {
         }
     }
 
+    // --- spec 0016: the album cover ------------------------------------------------
+
+    const GEOMETRY: CoverGeometry = CoverGeometry {
+        rows: 6,
+        cell: Some((10, 20)),
+    };
+
+    fn rect(x: u16, y: u16, width: u16, height: u16) -> Rect {
+        Rect::new(x, y, width, height)
+    }
+
+    /// AC1: the rects per inner size, `cover_img_rows` and cell size; under
+    /// the size limits, or not active, today's 4-row layout.
+    #[test]
+    fn ac1_cover_layout() {
+        let geometry = |rows, cell| Some(CoverGeometry { rows, cell });
+        let today = |inner: Rect| CoverLayout {
+            playback: Rect {
+                height: inner.height.min(4),
+                ..inner
+            },
+            cover: None,
+            text: Rect {
+                height: inner.height.min(4),
+                ..inner
+            },
+            page: (inner.height >= 6).then(|| Rect {
+                y: inner.y + 4,
+                height: inner.height - 4,
+                ..inner
+            }),
+        };
+        // (name, inner, geometry, expected)
+        let rows: Vec<(&str, Rect, Option<CoverGeometry>, CoverLayout)> = vec![
+            (
+                "80x24 terminal (78x22 inner), 6 rows, 10x20 px",
+                rect(1, 1, 78, 22),
+                geometry(6, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(1, 1, 78, 6),
+                    cover: Some(rect(1, 1, 12, 6)),
+                    text: rect(14, 1, 65, 6),
+                    page: Some(rect(1, 7, 78, 16)),
+                },
+            ),
+            (
+                "80x22 inner",
+                rect(0, 0, 80, 22),
+                geometry(6, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(0, 0, 80, 6),
+                    cover: Some(rect(0, 0, 12, 6)),
+                    text: rect(13, 0, 67, 6),
+                    page: Some(rect(0, 6, 80, 16)),
+                },
+            ),
+            (
+                "8x18 px: round(6 x 18 / 8) = 14 columns",
+                rect(0, 0, 78, 22),
+                geometry(6, Some((8, 18))),
+                CoverLayout {
+                    playback: rect(0, 0, 78, 6),
+                    cover: Some(rect(0, 0, 14, 6)),
+                    text: rect(15, 0, 63, 6),
+                    page: Some(rect(0, 6, 78, 16)),
+                },
+            ),
+            (
+                "no cell size: 2 columns per row",
+                rect(0, 0, 78, 22),
+                geometry(6, None),
+                CoverLayout {
+                    playback: rect(0, 0, 78, 6),
+                    cover: Some(rect(0, 0, 12, 6)),
+                    text: rect(13, 0, 65, 6),
+                    page: Some(rect(0, 6, 78, 16)),
+                },
+            ),
+            (
+                "a zero cell width counts as unknown",
+                rect(0, 0, 78, 22),
+                geometry(6, Some((0, 20))),
+                CoverLayout {
+                    playback: rect(0, 0, 78, 6),
+                    cover: Some(rect(0, 0, 12, 6)),
+                    text: rect(13, 0, 65, 6),
+                    page: Some(rect(0, 6, 78, 16)),
+                },
+            ),
+            (
+                "4 rows: 8 columns",
+                rect(0, 0, 78, 22),
+                geometry(4, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(0, 0, 78, 4),
+                    cover: Some(rect(0, 0, 8, 4)),
+                    text: rect(9, 0, 69, 4),
+                    page: Some(rect(0, 4, 78, 18)),
+                },
+            ),
+            (
+                "8 rows at 118x28",
+                rect(1, 1, 118, 28),
+                geometry(8, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(1, 1, 118, 8),
+                    cover: Some(rect(1, 1, 16, 8)),
+                    text: rect(18, 1, 101, 8),
+                    page: Some(rect(1, 9, 118, 20)),
+                },
+            ),
+            (
+                "rows + 2 rows: active, the page keeps 2",
+                rect(0, 0, 78, 8),
+                geometry(6, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(0, 0, 78, 6),
+                    cover: Some(rect(0, 0, 12, 6)),
+                    text: rect(13, 0, 65, 6),
+                    page: Some(rect(0, 6, 78, 2)),
+                },
+            ),
+            (
+                "cols + 21 columns: active, 20 for the text",
+                rect(0, 0, 33, 22),
+                geometry(6, Some((10, 20))),
+                CoverLayout {
+                    playback: rect(0, 0, 33, 6),
+                    cover: Some(rect(0, 0, 12, 6)),
+                    text: rect(13, 0, 20, 6),
+                    page: Some(rect(0, 6, 33, 16)),
+                },
+            ),
+        ];
+        for (name, inner, geometry, want) in &rows {
+            assert_eq!(cover_layout(*inner, *geometry), *want, "{name}");
+        }
+        // Not active, or too small: today's layout.
+        let today_rows: &[(&str, Rect, Option<CoverGeometry>)] = &[
+            ("not active", rect(1, 1, 78, 22), None),
+            (
+                "under rows + 2 rows",
+                rect(0, 0, 78, 7),
+                geometry(6, Some((10, 20))),
+            ),
+            (
+                "under cols + 21 columns",
+                rect(0, 0, 32, 22),
+                geometry(6, Some((10, 20))),
+            ),
+            (
+                "14 columns need 35",
+                rect(0, 0, 34, 22),
+                geometry(6, Some((8, 18))),
+            ),
+            ("20 rows in 21", rect(0, 0, 78, 21), geometry(20, None)),
+            ("tiny", rect(1, 1, 3, 2), geometry(6, None)),
+            ("empty", rect(0, 0, 0, 0), geometry(6, None)),
+        ];
+        for (name, inner, geometry) in today_rows {
+            assert_eq!(cover_layout(*inner, *geometry), today(*inner), "{name}");
+        }
+    }
+
+    /// AC2: with the cover active a list shows `cover_img_rows - 4` rows
+    /// fewer; under the limits, as today.
+    #[test]
+    fn ac2_list_height_with_cover() {
+        let geometry = |rows| {
+            Some(CoverGeometry {
+                rows,
+                cell: Some((10, 20)),
+            })
+        };
+        // (terminal, login line, geometry, rows fewer than without)
+        type Row = ((u16, u16), bool, Option<CoverGeometry>, usize);
+        let rows: &[Row] = &[
+            ((80, 24), false, geometry(6), 2),
+            ((80, 24), true, geometry(6), 2),
+            ((120, 30), false, geometry(8), 4),
+            ((80, 24), false, geometry(4), 0),
+            ((80, 40), false, geometry(20), 16),
+            ((80, 24), false, None, 0),
+            // Too narrow (32 inner < 33) or too short (7 inner < 8).
+            ((34, 24), false, geometry(6), 0),
+            ((80, 9), false, geometry(6), 0),
+        ];
+        for ((w, h), login, geometry, fewer) in rows {
+            let terminal = rect(0, 0, *w, *h);
+            let without = list_height(terminal, *login, None);
+            let with = list_height(terminal, *login, *geometry);
+            assert_eq!(without - with, *fewer, "{w}x{h} {login} {geometry:?}");
+        }
+        assert_eq!(list_height(rect(0, 0, 80, 24), false, geometry(6)), 13);
+    }
+
+    /// Records the rect it is drawn in.
+    struct FakeCover {
+        drawn: std::cell::RefCell<Vec<Rect>>,
+    }
+
+    impl FakeCover {
+        fn new() -> Self {
+            Self {
+                drawn: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl CoverImage for FakeCover {
+        fn draw(&self, area: Rect, _buf: &mut Buffer) {
+            self.drawn.borrow_mut().push(area);
+        }
+    }
+
+    fn draw_cover(
+        state: &State,
+        width: u16,
+        height: u16,
+        geometry: CoverGeometry,
+        image: Option<(Size, &dyn CoverImage)>,
+    ) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let cover = CoverFrame { geometry, image };
+        terminal
+            .draw(|frame| render_with_cover(state, frame, true, Some(&cover)))
+            .unwrap();
+        buffer_text(&terminal)
+    }
+
+    /// The cells of `rows` rows from the top inside the frame, `cols`
+    /// columns from its left (the cover area, and the blank column).
+    fn blank_area(text: &str, rows: usize, cols: usize) {
+        for r in 1..=rows {
+            let line: String = row(text, r).chars().skip(1).take(cols).collect();
+            assert!(
+                line.chars().all(|c| c == ' '),
+                "row {r}: cover area not blank: {line:?}\n{text}"
+            );
+        }
+    }
+
+    /// AC5: the taller window: the text after the cover and a blank
+    /// column, the header, album and details on the first three rows, the
+    /// progress bar on the last; the reserved area blank.
+    #[test]
+    fn ac5_cover_window() {
+        // Playing, 80x24, 6 rows.
+        let text = draw_cover(&state_of(playing()), 80, 24, GEOMETRY, None);
+        blank_area(&text, 6, 13);
+        let text_col = |r: usize| row(&text, r).chars().skip(14).collect::<String>();
+        assert!(
+            text_col(1).starts_with("▶ Hell Above · Pierce The Veil"),
+            "{text}"
+        );
+        assert_contains(&text_col(1), &["80%"]);
+        assert!(text_col(2).starts_with("  Collide With The Sky"), "{text}");
+        assert_contains(&text_col(3), &["LOSSLESS", "not bit-perfect"]);
+        assert!(
+            text_col(4).trim_end_matches('│').trim().is_empty(),
+            "{text}"
+        );
+        assert!(
+            text_col(5).trim_end_matches('│').trim().is_empty(),
+            "{text}"
+        );
+        assert_contains(&text_col(6), &["━", "1:23 / 3:32"]);
+        assert_contains(row(&text, 7), &["Queue (12)"]);
+        insta::assert_snapshot!("ac5_cover_playing_80x24", text);
+
+        // Paused, 120x30, 8 rows.
+        let snapshot = PlayerSnapshot {
+            state: PlaybackState::Paused,
+            ..playing()
+        };
+        let geometry = CoverGeometry {
+            rows: 8,
+            ..GEOMETRY
+        };
+        let text = draw_cover(&state_of(snapshot), 120, 30, geometry, None);
+        blank_area(&text, 8, 17);
+        assert!(
+            row(&text, 1)
+                .chars()
+                .skip(18)
+                .collect::<String>()
+                .starts_with("⏸ Hell Above"),
+            "{text}"
+        );
+        assert_contains(row(&text, 8), &["1:23 / 3:32"]);
+        assert_contains(row(&text, 9), &["Queue (12)"]);
+        insta::assert_snapshot!("ac5_cover_paused_120x30", text);
+
+        // Nothing playing: blank, the window still tall.
+        let snapshot = PlayerSnapshot {
+            queue: vec![],
+            current: None,
+            state: PlaybackState::Stopped,
+            position: Duration::ZERO,
+            now_playing: None,
+            ..playing()
+        };
+        let text = draw_cover(&state_of(snapshot), 80, 24, GEOMETRY, None);
+        blank_area(&text, 6, 13);
+        assert_contains(row(&text, 1), &["Nothing playing"]);
+        assert_contains(row(&text, 7), &["Queue (0)"]);
+        insta::assert_snapshot!("ac5_cover_nothing_80x24", text);
+
+        // A message on the third row.
+        let snapshot = PlayerSnapshot {
+            state: PlaybackState::Stopped,
+            message: Some("Output hw:1,0 was lost".into()),
+            ..playing()
+        };
+        let text = draw_cover(&state_of(snapshot), 80, 24, GEOMETRY, None);
+        blank_area(&text, 6, 13);
+        assert_contains(row(&text, 3), &["Output hw:1,0 was lost"]);
+        assert_contains(row(&text, 6), &["1:23 / 3:32"]);
+        insta::assert_snapshot!("ac5_cover_message_80x24", text);
+
+        // 40x12 is wide enough by the limits (38 >= 12 + 1 + 20): the
+        // text side narrows to 25 and is cut by 0004's rules.
+        let text = draw_cover(&state_of(playing()), 40, 12, GEOMETRY, None);
+        blank_area(&text, 6, 13);
+        assert_contains(row(&text, 1), &["▶ Hell Above", "…"]);
+        assert_contains(row(&text, 6), &["1:23 / 3:32"]);
+        insta::assert_snapshot!("ac5_cover_narrow_40x12", text);
+
+        // 34x12 is too narrow (32 < 33): today's window, the same text
+        // as without the cover.
+        let text = draw_cover(&state_of(playing()), 34, 12, GEOMETRY, None);
+        assert_eq!(text, draw(&state_of(playing()), 34, 12));
+        assert_contains(row(&text, 4), &["1:23 / 3:32"]);
+        // Too short (7 inner < 8): today's window.
+        let text = draw_cover(&state_of(playing()), 80, 9, GEOMETRY, None);
+        assert_eq!(text, draw(&state_of(playing()), 80, 9));
+    }
+
+    /// AC7: the ready image is drawn exactly in the cover rect, and not
+    /// when its size is not the rect's, when there is none, when the cover
+    /// is not active or when the keys help covers it.
+    #[test]
+    fn ac7_cover_drawn_in_rect() {
+        let state = state_of(playing());
+        let fake = FakeCover::new();
+        draw_cover(&state, 80, 24, GEOMETRY, Some((Size::new(12, 6), &fake)));
+        assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 12, 6)]);
+
+        let fake = FakeCover::new();
+        let geometry = CoverGeometry {
+            rows: 8,
+            cell: Some((8, 18)),
+        };
+        draw_cover(&state, 120, 30, geometry, Some((Size::new(18, 8), &fake)));
+        assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 18, 8)]);
+
+        // Encoded for another size (after a resize): not drawn.
+        let fake = FakeCover::new();
+        draw_cover(&state, 80, 24, GEOMETRY, Some((Size::new(16, 8), &fake)));
+        assert!(fake.drawn.borrow().is_empty());
+        // Too small for the cover: not drawn.
+        let fake = FakeCover::new();
+        draw_cover(&state, 34, 12, GEOMETRY, Some((Size::new(12, 6), &fake)));
+        assert!(fake.drawn.borrow().is_empty());
+        // The keys help over the cover (a short page): not drawn; over the
+        // page only: drawn.
+        let help = with_help(state_of(playing()), &[]);
+        let fake = FakeCover::new();
+        draw_cover(&help, 80, 12, GEOMETRY, Some((Size::new(12, 6), &fake)));
+        assert!(fake.drawn.borrow().is_empty());
+        let fake = FakeCover::new();
+        draw_cover(&help, 80, 40, GEOMETRY, Some((Size::new(12, 6), &fake)));
+        assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 12, 6)]);
+        // No image: nothing, and the area is blank.
+        let text = draw_cover(&state, 80, 24, GEOMETRY, None);
+        blank_area(&text, 6, 13);
+    }
+
     /// AC28: the open prompt is drawn over the queue's top row.
     #[test]
     fn ac28_prompt_rendered() {
@@ -1791,6 +2303,36 @@ mod tests {
                 .chain(&filters)
             {
                 draw(state, width, height);
+            }
+        }
+        // 0016 AC6: with the cover active, at sizes from 1x1 to 200x60
+        // (every width and height around the limits), with an image ready
+        // for the size's cover area.
+        let fake = FakeCover::new();
+        let tall = CoverGeometry {
+            rows: 20,
+            cell: None,
+        };
+        let sizes = (1..=200u16)
+            .step_by(7)
+            .flat_map(|w| (1..=60u16).step_by(3).map(move |h| (w, h)))
+            .chain((1..=40).map(|w| (w, 24)))
+            .chain((1..=30).map(|h| (80, h)))
+            .chain([(200, 60)]);
+        for (width, height) in sizes {
+            let terminal = rect(0, 0, width, height);
+            let geometry = if (width + height) % 2 == 0 {
+                GEOMETRY
+            } else {
+                tall
+            };
+            for (i, state) in states.iter().chain(&help).chain(&hints).enumerate() {
+                if i % 3 != usize::from((width + height) % 3) {
+                    continue;
+                }
+                let area = cover_area(terminal, state.login_required, Some(geometry));
+                let image = area.map(|a| (a.as_size(), &fake as &dyn CoverImage));
+                draw_cover(state, width, height, geometry, image);
             }
         }
     }

@@ -59,6 +59,12 @@ pub struct AppConfig {
     pub key_hints: Option<bool>,
     /// Spec 0013: how long a sequence is pending before its hint shows.
     pub key_hints_delay_ms: Option<u64>,
+    /// Spec 0016: whether the TUI draws the album cover.
+    pub cover_img: Option<bool>,
+    /// Spec 0016: the playback window's height with the cover.
+    pub cover_img_rows: Option<u16>,
+    /// Spec 0016: the graphics protocol.
+    pub cover_img_protocol: Option<crate::cover::ProtocolSetting>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -192,6 +198,36 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             },
             "key_hints_delay_ms" => {
                 config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
+            }
+            "cover_img" => match value.as_bool() {
+                Some(on) => config.cover_img = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "cover_img_rows" => {
+                config.cover_img_rows = Some(int_in(path, key, value, 4, 20)? as u16);
+            }
+            "cover_img_protocol" => {
+                match value
+                    .as_str()
+                    .and_then(crate::cover::ProtocolSetting::parse)
+                {
+                    Some(protocol) => config.cover_img_protocol = Some(protocol),
+                    None => {
+                        return Err(invalid(
+                            key,
+                            format!(
+                                "expected {}, got {}",
+                                crate::cover::PROTOCOL_NAMES,
+                                describe(value)
+                            ),
+                        ));
+                    }
+                }
             }
             "max_cover_arts" => {
                 config.max_cover_arts = Some(int_in(path, key, value, 0, 1000)? as u16);
@@ -379,11 +415,11 @@ fn line_column(text: &str, offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::play::{
-        AUTOPLAY_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR,
-        MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR,
-        RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR,
-        VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
-        resolve_settings_with,
+        AUTOPLAY_VAR, COVER_IMG_PROTOCOL_VAR, COVER_IMG_ROWS_VAR, COVER_IMG_VAR, DEVICE_VAR,
+        HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR, MAX_COVER_ARTS_VAR, MPRIS_VAR,
+        PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR, RELEASE_PAUSED_VAR,
+        REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR, VOLUME_STEP_VAR,
+        resolve_play_config_with, resolve_player_config_with, resolve_settings_with,
     };
 
     const PATH: &str = "/c/app.toml";
@@ -499,6 +535,8 @@ mod tests {
             ("max_cover_arts", 0, 1000),
             // Spec 0013 AC7.
             ("key_hints_delay_ms", 0, 10_000),
+            // Spec 0016 AC9.
+            ("cover_img_rows", 4, 20),
         ] {
             rows.extend(bounds(key, min, max));
         }
@@ -594,6 +632,54 @@ mod tests {
                 "key_hints_delay_ms = 250",
                 |c| format!("{:?}", c.key_hints_delay_ms),
                 "Some(250)",
+            ),
+            (
+                "cover_img true",
+                "cover_img = true",
+                |c| format!("{:?}", c.cover_img),
+                "Some(true)",
+            ),
+            (
+                "cover_img false",
+                "cover_img = false",
+                |c| format!("{:?}", c.cover_img),
+                "Some(false)",
+            ),
+            (
+                "cover_img_rows 6",
+                "cover_img_rows = 6",
+                |c| format!("{:?}", c.cover_img_rows),
+                "Some(6)",
+            ),
+            (
+                "cover_img_protocol auto",
+                "cover_img_protocol = \"auto\"",
+                |c| format!("{:?}", c.cover_img_protocol),
+                "Some(Auto)",
+            ),
+            (
+                "cover_img_protocol sixel",
+                "cover_img_protocol = \"sixel\"",
+                |c| format!("{:?}", c.cover_img_protocol),
+                "Some(Sixel)",
+            ),
+            (
+                "cover_img_protocol kitty",
+                "cover_img_protocol = \"kitty\"",
+                |c| format!("{:?}", c.cover_img_protocol),
+                "Some(Kitty)",
+            ),
+            (
+                "cover_img_protocol iterm2",
+                "cover_img_protocol = \"iterm2\"",
+                |c| format!("{:?}", c.cover_img_protocol),
+                "Some(Iterm2)",
+            ),
+            (
+                "cover_img_protocol halfblocks",
+                "cover_img_protocol = \"halfblocks\"",
+                |c| format!("{:?}", c.cover_img_protocol),
+                "Some(Halfblocks)",
             ),
             (
                 "max_cover_arts 20",
@@ -764,6 +850,31 @@ mod tests {
                 "key_hints number",
                 "key_hints = 0",
                 "/c/app.toml: invalid key_hints: expected true or false, got 0",
+            ),
+            (
+                "cover_img type",
+                "cover_img = \"on\"",
+                "/c/app.toml: invalid cover_img: expected true or false, got \"on\"",
+            ),
+            (
+                "cover_img_rows 3",
+                "cover_img_rows = 3",
+                "/c/app.toml: invalid cover_img_rows: expected an integer from 4 to 20, got 3",
+            ),
+            (
+                "cover_img_rows 21",
+                "cover_img_rows = 21",
+                "/c/app.toml: invalid cover_img_rows: expected an integer from 4 to 20, got 21",
+            ),
+            (
+                "cover_img_protocol ascii",
+                "cover_img_protocol = \"ascii\"",
+                "/c/app.toml: invalid cover_img_protocol: expected auto, sixel, kitty, iterm2 or halfblocks, got \"ascii\"",
+            ),
+            (
+                "cover_img_protocol type",
+                "cover_img_protocol = 1",
+                "/c/app.toml: invalid cover_img_protocol: expected auto, sixel, kitty, iterm2 or halfblocks, got 1",
             ),
             (
                 "mpris number",
@@ -1187,6 +1298,84 @@ mod tests {
                     ]);
                     rows
                 },
+            ),
+            (
+                "cover_img",
+                |_, p| p.cover_img.to_string(),
+                vec![
+                    Row::new("default", "", &[], Ok("true")),
+                    Row::new("file false", "cover_img = false", &[], Ok("false")),
+                    Row::new(
+                        "env off over file true",
+                        "cover_img = true",
+                        &[(COVER_IMG_VAR, "off")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "env on over file false",
+                        "cover_img = false",
+                        &[(COVER_IMG_VAR, "On")],
+                        Ok("true"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "cover_img = false",
+                        &[(COVER_IMG_VAR, "")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "cover_img = true",
+                        &[(COVER_IMG_VAR, "yes")],
+                        Err(COVER_IMG_VAR),
+                    ),
+                ],
+            ),
+            ("cover_img_rows", |_, p| p.cover_img_rows.to_string(), {
+                let mut rows = ranged("cover_img_rows", COVER_IMG_ROWS_VAR, ("6", "10", "15"));
+                rows.extend([
+                    Row::new("env 4", "", &[(COVER_IMG_ROWS_VAR, "4")], Ok("4")),
+                    Row::new("env 20", "", &[(COVER_IMG_ROWS_VAR, "20")], Ok("20")),
+                    Row::new(
+                        "env 3",
+                        "",
+                        &[(COVER_IMG_ROWS_VAR, "3")],
+                        Err(COVER_IMG_ROWS_VAR),
+                    ),
+                    Row::new(
+                        "env 21",
+                        "",
+                        &[(COVER_IMG_ROWS_VAR, "21")],
+                        Err(COVER_IMG_ROWS_VAR),
+                    ),
+                ]);
+                rows
+            }),
+            (
+                "cover_img_protocol",
+                |_, p| format!("{:?}", p.cover_img_protocol),
+                vec![
+                    Row::new("default", "", &[], Ok("Auto")),
+                    Row::new("file", "cover_img_protocol = \"kitty\"", &[], Ok("Kitty")),
+                    Row::new(
+                        "env over file",
+                        "cover_img_protocol = \"kitty\"",
+                        &[(COVER_IMG_PROTOCOL_VAR, "halfblocks")],
+                        Ok("Halfblocks"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "cover_img_protocol = \"sixel\"",
+                        &[(COVER_IMG_PROTOCOL_VAR, "")],
+                        Ok("Sixel"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "cover_img_protocol = \"sixel\"",
+                        &[(COVER_IMG_PROTOCOL_VAR, "ascii")],
+                        Err(COVER_IMG_PROTOCOL_VAR),
+                    ),
+                ],
             ),
             ("max_cover_arts", |_, p| p.max_cover_arts.to_string(), {
                 let mut rows = ranged("max_cover_arts", MAX_COVER_ARTS_VAR, ("20", "10", "15"));

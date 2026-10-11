@@ -1,13 +1,12 @@
 //! MPRIS2 (spec 0010): the player published on the session bus as
 //! `org.mpris.MediaPlayer2.tidal_player`, for desktop widgets, media keys
-//! and `playerctl`. [`model`] is the pure view, [`covers`] the cover cache,
+//! and `playerctl`. [`model`] is the pure view, [`crate::covers`] the cover cache,
 //! [`hub`] the adapter as a client of the player, [`bus`] the zbus layer.
 //!
 //! [`start`] after the player is spawned and before its socket serves;
 //! [`Mpris::close`] after the socket server is dropped.
 
 pub mod bus;
-pub mod covers;
 pub mod hub;
 pub mod model;
 #[cfg(test)]
@@ -73,22 +72,24 @@ impl Settings {
         Self {
             enabled: player.mpris,
             max_cover_arts: player.max_cover_arts,
-            cache_dir: covers::process_cache_dir(),
+            cache_dir: crate::covers::process_cache_dir(),
             images_base,
         }
     }
 }
 
-/// The player on the session bus.
+/// The player's hub client for covers and, when it is on and there is a
+/// bus, the player on the session bus.
 pub struct Mpris {
     adapter: hub::Adapter,
-    name: String,
+    name: Option<String>,
 }
 
 impl Mpris {
-    /// The bus name it owns.
-    pub fn name(&self) -> &str {
-        &self.name
+    /// The bus name it owns; `None` when it only follows the player for
+    /// the cover cache (MPRIS off, or no bus).
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     /// Stops taking calls and closes the bus connection (releasing the
@@ -98,57 +99,65 @@ impl Mpris {
     }
 }
 
-/// Publishes the player reading `inputs` on the session bus; `None` when
-/// it is off, or when there is no bus (one `info` line, never retried).
+/// Starts what follows the player reading `inputs`: its one cover worker
+/// whenever the cache is on (`max_cover_arts > 0`, spec 0016 AC11), and
+/// when MPRIS is on its place on the session bus (one `info` line when
+/// there is no bus, never retried). `None` when there is nothing to do.
 pub fn start(
     settings: &Settings,
     inputs: Sender<RuntimeInput>,
     runtime: &tokio::runtime::Handle,
     log: Log,
 ) -> Option<Mpris> {
-    if !settings.enabled {
-        return None;
-    }
     let cache = (settings.max_cover_arts > 0).then(|| {
-        let cache = covers::CoverCache::new(&settings.cache_dir, settings.max_cover_arts.into());
+        let cache =
+            crate::covers::CoverCache::new(&settings.cache_dir, settings.max_cover_arts.into());
         match &settings.images_base {
             Some(base) => cache.with_base(base),
             None => cache,
         }
     });
+    if !settings.enabled && cache.is_none() {
+        return None;
+    }
+    if let Some(cache) = &cache
+        && let Err(e) = cache.start()
+    {
+        log(
+            Level::Warn,
+            &format!(
+                "Cannot clean the cover cache {}: {e}",
+                cache.dir().display()
+            ),
+        );
+    }
     let adapter = hub::Adapter::new(
         inputs,
         hub::Options {
             deadline: hub::DEADLINE,
-            covers: cache.clone().map(|c| (c, runtime.clone())),
+            covers: cache.map(|c| (c, runtime.clone())),
             log: Arc::clone(&log),
         },
     );
-    let connected = runtime.block_on(bus::connect(
-        adapter.clone(),
-        runtime.clone(),
-        Arc::clone(&log),
-    ));
-    match connected {
-        Ok((emitter, name)) => {
-            if let Some(cache) = cache
-                && let Err(e) = cache.start()
-            {
-                log(
-                    Level::Warn,
-                    &format!(
-                        "Cannot clean the cover cache {}: {e}",
-                        cache.dir().display()
-                    ),
-                );
+    let name = if settings.enabled {
+        let connected = runtime.block_on(bus::connect(
+            adapter.clone(),
+            runtime.clone(),
+            Arc::clone(&log),
+        ));
+        match connected {
+            Ok((emitter, name)) => {
+                adapter.set_bus(emitter);
+                Some(name)
             }
-            adapter.set_bus(emitter);
-            adapter.attach();
-            Some(Mpris { adapter, name })
+            Err(e) => {
+                log(Level::Info, &format!("MPRIS is not available: {e}"));
+                None
+            }
         }
-        Err(e) => {
-            log(Level::Info, &format!("MPRIS is not available: {e}"));
-            None
-        }
-    }
+    } else {
+        None
+    };
+    adapter.attach();
+    Some(Mpris { adapter, name })
 }
