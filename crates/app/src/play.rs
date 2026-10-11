@@ -378,6 +378,12 @@ pub const KEY_HINTS_VAR: &str = "TIDAL_PLAYER_KEY_HINTS";
 /// How long a key sequence is pending before its hint shows, 0 to 10 000
 /// ms (spec 0013).
 pub const KEY_HINTS_DELAY_VAR: &str = "TIDAL_PLAYER_KEY_HINTS_DELAY_MS";
+/// `on` or `off`: whether the TUI draws the album cover (spec 0016).
+pub const COVER_IMG_VAR: &str = "TIDAL_PLAYER_COVER_IMG";
+/// The playback window's rows with the cover, 4 to 20 (spec 0016).
+pub const COVER_IMG_ROWS_VAR: &str = "TIDAL_PLAYER_COVER_IMG_ROWS";
+/// The cover's graphics protocol (spec 0016).
+pub const COVER_IMG_PROTOCOL_VAR: &str = "TIDAL_PLAYER_COVER_IMG_PROTOCOL";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,6 +439,13 @@ pub struct PlayerSettings {
     pub key_hints: bool,
     /// How long a sequence is pending before its hint shows (spec 0013).
     pub key_hints_delay: Duration,
+    /// Whether the TUI draws the album cover (spec 0016); read by the TUI
+    /// only, as the two below.
+    pub cover_img: bool,
+    /// The playback window's rows while the cover is active.
+    pub cover_img_rows: u16,
+    /// The cover's graphics protocol.
+    pub cover_img_protocol: crate::cover::ProtocolSetting,
 }
 
 impl Default for PlayerSettings {
@@ -449,6 +462,9 @@ impl Default for PlayerSettings {
             max_cover_arts: 20,
             key_hints: true,
             key_hints_delay: DEFAULT_KEY_HINTS_DELAY,
+            cover_img: true,
+            cover_img_rows: 6,
+            cover_img_protocol: crate::cover::ProtocolSetting::Auto,
         }
     }
 }

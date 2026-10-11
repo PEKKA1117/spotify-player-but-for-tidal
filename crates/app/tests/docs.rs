@@ -158,6 +158,54 @@ fn ac7_key_hints_documented() {
     assert!(zh.contains("key_hints_delay_ms"), "docs/zh-TW/tui.md");
 }
 
+/// 0016 AC10: the cover's three settings (with their variables) in the
+/// `app.toml` table of `docs/config.md` and of its zh-TW copy; the "Album
+/// cover" section of `docs/tui.md` with tmux's `allow-passthrough`, in both
+/// copies; `docs/mpris.md` says the player caches covers with MPRIS off.
+#[test]
+fn ac10_cover_documented() {
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        for (key, var) in [
+            ("cover_img", "TIDAL_PLAYER_COVER_IMG"),
+            ("cover_img_rows", "TIDAL_PLAYER_COVER_IMG_ROWS"),
+            ("cover_img_protocol", "TIDAL_PLAYER_COVER_IMG_PROTOCOL"),
+        ] {
+            let found = rows(&config, key);
+            assert!(
+                found.iter().any(|row| row.contains(var)),
+                "docs/{name}: no {key} row with {var}: {found:?}"
+            );
+        }
+    }
+    let tui = doc("tui.md");
+    assert!(
+        tui.contains("### Album cover"),
+        "docs/tui.md: Album cover section"
+    );
+    for needed in [
+        "allow-passthrough",
+        "cover_img_protocol",
+        "halfblocks",
+        "max_cover_arts",
+    ] {
+        assert!(tui.contains(needed), "docs/tui.md: {needed}");
+    }
+    let zh = doc("zh-TW/tui.md");
+    assert!(
+        zh.contains("<a id=\"album-cover\"></a>"),
+        "docs/zh-TW/tui.md: the album-cover anchor"
+    );
+    assert!(zh.contains("allow-passthrough"), "docs/zh-TW/tui.md");
+    for name in ["mpris.md", "zh-TW/mpris.md"] {
+        let mpris = doc(name);
+        assert!(
+            mpris.contains("mpris = false") && mpris.contains("0016"),
+            "docs/{name}: covers cached with MPRIS off (0016)"
+        );
+    }
+}
+
 /// 0014 AC12: the output device is documented: `D` and its popup in
 /// `docs/tui.md`, `SwitchDevice` in `docs/config.md`, `playback device` in
 /// `docs/daemon.md` and `docs/playback.md`, in English and in the zh-TW

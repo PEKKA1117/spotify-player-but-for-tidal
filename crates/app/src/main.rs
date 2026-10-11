@@ -212,6 +212,7 @@ fn run<C: Connector>(
         let height = tidal_player::ui::list_height(
             ratatui::layout::Rect::new(0, 0, size.width, size.height),
             state.login_required,
+            None,
         );
         if list_height != Some(height) {
             list_height = Some(height);
