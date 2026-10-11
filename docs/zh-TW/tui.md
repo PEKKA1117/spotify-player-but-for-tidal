@@ -63,6 +63,8 @@
   | sixel | foot、xterm（以 `-ti vt340` 啟動）、mlterm |
   | iTerm2 inline images | iTerm2、WezTerm |
 
+  目前實際試過的有：foot（sixel）、kitty、WezTerm（iTerm2），以及在 foot 中執行的 tmux 3.8。表中其他終端機是依 `ratatui-image` 的相容性說明列出，尚未實際試過；GNOME Terminal 與 `halfblocks` 也還沒試過。若有終端機的表現與這裡描述的不同，請開 issue 回報
+
   回答不支援任何一種的終端機（GNOME Terminal 與其他未內建 sixel 的 VTE 終端機、Linux 主控台）不顯示封面；Konsole 也一樣，因為它的 sixel 不被信任（可以試試 `cover_img_protocol = "sixel"`）：視窗是一般的 4 列。`cover_img_protocol = "halfblocks"` 會在任何彩色終端機中以彩色 `▀` 字元繪製低解析度的封面
 - **強制使用某個協定**：`cover_img_protocol`（`auto`、`sixel`、`kitty`、`iterm2`、`halfblocks`）不論終端機如何回答都使用指定的協定，適用於回答有誤的終端機（例如 xterm 在不允許視窗操作時（這是它的預設）回答時不附字元格大小，`auto` 因此找不到協定：請設為 `"sixel"`）。TUI 看不到終端機實際畫出什麼：如果封面顯示亂碼或什麼都沒有，請改用其他協定或關閉封面
 - **tmux**：圖片會穿過 tmux 送到外層終端機，這需要 passthrough。TUI 啟動時會自動為自己的窗格開啟它（`tmux set -p allow-passthrough on`），所以通常不需要做任何事；只有在失敗時（例如 tmux 版本太舊、不支援窗格層級的選項），才需要在 `tmux.conf` 加上 `set -g allow-passthrough on`。協定是外層終端機的，也就是 TUI 啟動時找到的那一種。tmux 以 `TERM`（`tmux-…`）或 `TERM_PROGRAM=tmux` 辨識

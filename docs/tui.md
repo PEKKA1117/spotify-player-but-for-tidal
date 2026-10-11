@@ -59,6 +59,8 @@ When the terminal can draw images, the album cover is drawn left of these lines,
   | sixel | foot, xterm (started with `-ti vt340`), mlterm |
   | iTerm2 inline images | iTerm2, WezTerm |
 
+  Tried so far: foot (sixel), kitty, WezTerm (iTerm2) and tmux 3.8 in foot. The other terminals here are listed from `ratatui-image`'s compatibility notes and have not been tried yet, nor have GNOME Terminal and `halfblocks`; if one does not behave as described, please open an issue
+
   A terminal that answers with none of them (GNOME Terminal and other VTE terminals without sixel, the Linux console) shows no cover, and so does Konsole, whose sixel is not trusted (try `cover_img_protocol = "sixel"` there): the window is the usual 4 rows. `cover_img_protocol = "halfblocks"` draws a low-resolution cover with coloured `▀` cells in any colour terminal
 - **Forcing a protocol**: `cover_img_protocol` (`auto`, `sixel`, `kitty`, `iterm2`, `halfblocks`) picks one whatever the terminal answered, for a terminal whose answer is wrong (xterm with window operations disallowed, its default, answers without its cell size, so `auto` finds nothing: set `"sixel"`). The TUI cannot see what the terminal drew: if the cover shows garbage or nothing, force another protocol or turn the cover off
 - **tmux**: the image goes through tmux to the outer terminal, which needs passthrough. The TUI switches it on for its own pane by itself at start (`tmux set -p allow-passthrough on`), so usually there is nothing to do; only if that fails (a tmux too old for per-pane options, for instance) put `set -g allow-passthrough on` in `tmux.conf`. The protocol is the outer terminal's, the one the TUI found when it started. tmux is recognized by `TERM` (`tmux-…`) or `TERM_PROGRAM=tmux`

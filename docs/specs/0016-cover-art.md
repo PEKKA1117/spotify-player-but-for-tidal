@@ -150,6 +150,26 @@ Each test is named after its criterion. Red is a failing assertion against stub 
 
 Checked by hand at acceptance on the user's machine (results in the PR description), because they need real terminals and no test can see what a terminal drew: the cover shows and changes with the track in kitty (kitty protocol), foot or WezTerm (sixel / iTerm2), and under tmux with `allow-passthrough on`; GNOME Terminal (or another terminal without a protocol) shows today's 4-row window; `cover_img_protocol = "halfblocks"` draws blocks; resizing redraws it cleanly with no leftover pixels; opening and closing popups and the keys help leaves no garbage over the cover; an attached TUI shows the daemon's track's cover; `cover_img = false` gives today's screen.
 
+Results (2026-10-12, sway, recorded in PR #37):
+
+| Terminal | Protocol | Checked |
+|---|---|---|
+| foot 1.28 | sixel | the cover drawn and laid out as specified; it follows the album on track changes; `?` and the actions popup leave no garbage; resizing below the limit gives the 4-row window with no leftover sixel, and the cover comes back |
+| kitty 0.49.2 | kitty | the cover drawn; `?` leaves no garbage; resizing redraws it cleanly |
+| WezTerm 20260716, under XWayland | iTerm2 | the cover drawn; resizing below the limit and back. WezTerm panics at start under Wayland (`no keymap`, in its own keyboard code, before the TUI runs), so it ran with `enable_wayland=false`; keys could not be sent to that window, so popups were not checked |
+| tmux 3.8 in foot | sixel through passthrough | the cover drawn with no `tmux.conf` change (the pane's `allow-passthrough` on, the global option off); `?` leaves no garbage |
+| tmux in foot, attached to a running daemon | sixel | the attached TUI shows the daemon's current track's cover from the daemon's cache |
+
+**Not checked by hand yet**:
+
+- GNOME Terminal or another terminal with no protocol (expected: today's 4-row window)
+- `cover_img_protocol = "halfblocks"`
+- `cover_img = false` on a real terminal (covered by AC3 and AC9's tests only)
+- Track changes in kitty, WezTerm and tmux (only foot); popups in WezTerm
+- Ghostty, iTerm2, xterm (`-ti vt340`, and forced `sixel` without a cell size), mlterm and Konsole, which "Behaviour" and the user docs list from `ratatui-image`'s compatibility notes
+- The Linux console, and the known limit that a terminal that never answers the query may swallow the first key
+- tmux without per-pane `allow-passthrough` (an older tmux), and tmux with `TERM=screen-256color`
+
 ## Crate placement
 
 - `tidal-player` (binary): a new `cover.rs` (the protocol choice and `Slot` (pure), the loader thread: read-only cache lookup, decode, encode, behind a seam that tests fake; it never downloads and has no HTTP client); `ui.rs` (`cover_layout`, the taller playback window, `render` taking the ready image, `list_height` with the cover's rows); `main.rs` (the query at start, the loader wired to the state and the redraw); `config.rs` (the three keys). 0010's `mpris/covers.rs` moves out of `mpris` (`crate::covers`): the player starts its `CoverWorker` whenever `max_cover_arts > 0`, independent of MPRIS, and the MPRIS adapter, when it runs, takes its results; the TUI uses only its read-only path and directory functions. Its tests move with it unchanged
