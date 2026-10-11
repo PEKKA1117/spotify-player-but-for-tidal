@@ -93,6 +93,7 @@ A change is done when: the spec is `approved` (or `implemented`) and matches the
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
 - Every change is made in a new git worktree on its own branch, cut from `origin/master`. The main checkout (the repository root) stays on `master` and is never used to edit
+- Branches are named `<kind>/<slug>`, the kind one of `feat` (a feature), `bugfix` (a bug fix), `docs` (documentation, specs, this file) or `chore` (CI, tooling, dependencies, anything else). Only `feat/*` and `bugfix/*` (and `master` and tags) run the CI build and tests (spec 0001 AC9), so a change to Rust code goes on one of those
 - Every feature and bug fix has a GitHub issue. Starting one that has none, open it first (`gh issue create`): what the feature does, or the bug's expected vs. actual behaviour, and the spec it touches, so PRs, commits and specs can link to it
 - Working on a GitHub issue: label it `whipping` when work starts (`gh issue edit N --add-label whipping`). The PR's description has `Closes #N` for each issue it resolves. When the PR is merged, swap the issue's label for `whipped` (`gh issue edit N --remove-label whipping --add-label whipped`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
