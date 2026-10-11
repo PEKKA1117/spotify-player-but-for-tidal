@@ -1,5 +1,6 @@
 # Publish the workspace crates to crates.io when a version tag is pushed, then
-# create the GitHub release with the source, a Linux binary and their SHA-256s.
+# create the GitHub release with install notes, the source, a Linux binary and
+# their SHA-256s.
 # The crates.io token lives in the repository secret CARGO_DEPLOY_KEY.
 name: Release
 
@@ -63,7 +64,14 @@ jobs:
         run: cargo publish --workspace
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_DEPLOY_KEY }}
+      # The install instructions from .github/release-notes.md go above the
+      # generated notes; only the listed variables are substituted.
       - name: Create the GitHub release
-        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes dist/*
+        run: |
+          TAG="${GITHUB_REF_NAME}" VERSION="${GITHUB_REF_NAME#v}" \
+            envsubst '${TAG} ${VERSION} ${GITHUB_REPOSITORY}' \
+            < .github/release-notes.md > release-notes.md
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes \
+            --notes-file release-notes.md dist/*
         env:
           GH_TOKEN: ${{ github.token }}
