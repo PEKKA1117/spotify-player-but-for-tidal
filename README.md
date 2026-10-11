@@ -55,6 +55,8 @@ Press `g` and wait: a hint lists the keys that can follow.
 cargo install tidal-player
 ```
 
+Or download the x86_64 Linux binary from [Releases](https://github.com/PEKKA1117/spotify-player-but-for-tidal/releases): each release lists its install steps, with SHA-256 checksums.
+
 Or from a checkout of this repository:
 
 ```sh

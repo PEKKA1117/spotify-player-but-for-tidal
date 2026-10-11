@@ -60,6 +60,8 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 cargo install tidal-player
 ```
 
+或從 [Releases](https://github.com/PEKKA1117/spotify-player-but-for-tidal/releases) 下載 x86_64 Linux 的執行檔：每個版本都列出安裝步驟，並附 SHA-256 校驗碼。
+
 或從本儲存庫的 checkout 安裝：
 
 ```sh
