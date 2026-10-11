@@ -6,15 +6,17 @@ members = ["crates/core", "crates/api", "crates/audio", "crates/app", "xtask"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
-license = "MIT"
+license = "WTFPL"
 repository = "https://github.com/PEKKA1117/spotify-player-but-for-tidal"
+keywords = ["tidal", "music", "player", "tui", "alsa"]
+categories = ["multimedia::audio", "command-line-utilities"]
 
 # Every third-party crate the workspace may use is declared here, so a slice
 # only edits its own crate's Cargo.toml (`dep = { workspace = true }`).
 [workspace.dependencies]
-tidal-player-core = { path = "crates/core" }
-tidal-player-api = { path = "crates/api" }
-tidal-player-audio = { path = "crates/audio", default-features = false }
+tidal-player-core = { path = "crates/core", version = "0.1.0" }
+tidal-player-api = { path = "crates/api", version = "0.1.0" }
+tidal-player-audio = { path = "crates/audio", version = "0.1.0", default-features = false }
 
 age = "0.12.1"
 anyhow = "1.0.104"
