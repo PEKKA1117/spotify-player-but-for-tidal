@@ -12,7 +12,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # dbus: the MPRIS tests start their own dbus-daemon (spec 0010).
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev dbus
@@ -34,7 +34,7 @@ jobs:
   audio-no-alsa:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Make sure the ALSA headers are absent
         run: |
           sudo apt-get remove -y libasound2-dev || true
