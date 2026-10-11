@@ -1,0 +1,46 @@
+# Spec 0015: publish the user docs in docs/ to the GitHub wiki. The wiki is
+# generated: edit docs/, never the wiki.
+name: Wiki
+
+on:
+  push:
+    branches: [master]
+    paths: ["docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # Fails with "repository not found" until the wiki's first page is
+      # saved on github.com.
+      - name: Check out the wiki
+        run: git clone --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.wiki.git" wiki
+      - name: Build the wiki
+        run: cargo xtask wiki wiki
+      - name: Push when it changed
+        working-directory: wiki
+        run: |
+          git add --all
+          if git diff --cached --quiet; then
+            echo "wiki unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Publish docs from ${GITHUB_SHA::7}"
+          git push

@@ -1,4 +1,4 @@
-[English](../tui.md) | 繁體中文
+[English](../tui.md) | 正體中文
 
 <a id="the-tui"></a>
 # 終端介面（TUI）

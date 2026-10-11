@@ -239,3 +239,43 @@ fn ac10_filter_documented() {
         );
     }
 }
+
+/// 0015 AC6: where a user is sent to the docs, it is the wiki: both
+/// READMEs, the daemon's unit, `daemon unit --help` and the "no
+/// passphrase" error. None of them names a user doc in `docs/`.
+#[test]
+fn ac6_pointers_to_wiki() {
+    const WIKI: &str = "https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki";
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_tidal-player"))
+        .args(["daemon", "unit", "--help"])
+        .output()
+        .expect("run tidal-player");
+    let mut texts = vec![
+        (
+            "daemon unit --help".to_string(),
+            String::from_utf8_lossy(&help.stdout).into_owned(),
+        ),
+        (
+            "unit".to_string(),
+            tidal_player::daemon::unit(Path::new("/usr/bin/tidal-player")),
+        ),
+        (
+            "passphrase error".to_string(),
+            tidal_player::passphrase::PassphraseError::Unavailable.to_string(),
+        ),
+    ];
+    for readme in ["README.md", "README.zh-TW.md"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(readme);
+        texts.push((readme.to_string(), std::fs::read_to_string(&path).unwrap()));
+    }
+    let user_docs = ["tui", "config", "playback", "login", "daemon", "mpris"]
+        .map(|page| format!("docs/{page}.md"));
+    for (name, text) in &texts {
+        assert!(text.contains(WIKI), "{name}: no link to the wiki:\n{text}");
+        for doc in user_docs.iter().map(String::as_str).chain(["docs/zh-TW"]) {
+            assert!(!text.contains(doc), "{name}: still names {doc}:\n{text}");
+        }
+    }
+}

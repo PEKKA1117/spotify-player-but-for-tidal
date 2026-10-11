@@ -1,4 +1,4 @@
-[English](../daemon.md) | 繁體中文
+[English](../daemon.md) | 正體中文
 
 <a id="the-daemon-and-clients"></a>
 # 常駐程式 (daemon) 與用戶端

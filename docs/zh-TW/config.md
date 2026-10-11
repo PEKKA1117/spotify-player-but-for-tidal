@@ -1,4 +1,4 @@
-[English](../config.md) | 繁體中文
+[English](../config.md) | 正體中文
 
 <a id="configuration"></a>
 # 設定

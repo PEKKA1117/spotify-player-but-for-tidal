@@ -127,7 +127,7 @@ struct DaemonArgs {
 enum DaemonAction {
     /// Ask the running player to shut down, and wait until it is gone.
     Stop,
-    /// Print a systemd user unit for the daemon (see docs/daemon.md).
+    /// Print a systemd user unit for the daemon (see https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon).
     Unit,
 }
 
