@@ -4201,7 +4201,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "age",
  "anyhow",
@@ -4234,7 +4234,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-api"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.23.1",
  "quick-xml",
@@ -4250,7 +4250,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-audio"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "alsa",
  "symphonia",
@@ -4260,7 +4260,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5058,7 +5058,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",
