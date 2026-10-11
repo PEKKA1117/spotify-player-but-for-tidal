@@ -1,0 +1,3 @@
+[submodule ".claude/vendor/agent-skills"]
+	path = .claude/vendor/agent-skills
+	url = https://github.com/akunzai/agent-skills
