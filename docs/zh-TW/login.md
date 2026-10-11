@@ -48,6 +48,8 @@ Waiting for approval… (Ctrl-C to cancel)
 <a id="where-the-session-is-stored"></a>
 ## 工作階段儲存在哪裡
 
+工作階段是一組存取權杖（access token）與更新權杖（refresh token），從不包含你的密碼。播放器會在存取權杖過期前（或被 Tidal 拒絕時）更新它，並立即儲存新的工作階段，因此同一台機器上的常駐程式與 TUI 會沿用彼此更新的結果。
+
 1. 系統金鑰圈（keyring）（Secret Service），服務 `tidal-player`，帳號 `session`。
 2. 若沒有 Secret Service（沒有 D-Bus 工作階段匯流排、沒有提供者在執行、已鎖定），則使用以 age 加密的檔案：`$XDG_STATE_HOME/tidal-player/session.age`，預設為 `~/.local/state/tidal-player/session.age`。它以 `0600` 權限建立在 `0700` 的資料夾中。
 
@@ -83,6 +85,23 @@ LoadCredential=tidal-player-passphrase:%h/.config/tidal-player-passphrase
 ```
 
 （`LoadCredentialEncrypted=` 的用法相同。`tidal-player daemon unit` 會印出完整的單元，其中這一行已備妥、只需取消註解：見[在 systemd 下執行常駐程式](daemon.md#running-the-daemon-under-systemd)。）
+
+<a id="how-safe-the-stored-session-is"></a>
+## 已儲存的工作階段有多安全
+
+有哪些保護：
+
+- 權杖從不以明文寫入磁碟：它們存放在金鑰圈，或以 age 加密的檔案中（以 scrypt 密語加密）。檔案先寫入暫存檔再改名，因此當機時不會留下寫到一半的檔案
+- 日誌、錯誤訊息與 panic 報告都會把權杖顯示為 `<redacted>`；播放器用完解碼後的工作階段與密語後，會把它們從記憶體中清除
+- `logout` 會移除這台機器上的每一份副本（它無法在 Tidal 端撤銷登入，見 [`tidal-player logout`](#tidal-player-logout)）
+- 原始碼中的 client ID 與 secret 是 Tidal 公開的應用程式憑證，不是你的
+
+無法防範的情況：
+
+- **以你的身分執行的程式。** 金鑰圈解鎖後（通常是你登入桌面時），任何以你的使用者身分、在工作階段匯流排上執行的程式都能讀取這筆資料：Linux 上的 Secret Service 沒有逐一應用程式的存取控制。所有把機密存放在金鑰圈的應用程式都是如此。它能讓工作階段免於其他使用者，以及只拿到你磁碟的人取得，但擋不住你自己帳號中的惡意程式
+- **弱密語。** scrypt 會讓猜測變慢，但加密檔案的強度只等同於它的密語
+- **可被讀取的密語檔案。** `TIDAL_PLAYER_PASSPHRASE_FILE` 指向的檔案以明文存放密語。若其他使用者能讀取它，播放器會發出警告但仍會使用：請把它保持在 `600` 權限，或改用 systemd credential（`LoadCredentialEncrypted=` 讓它在磁碟上保持加密）
+- **執行中播放器的記憶體。** 播放器執行時，權杖存在它的記憶體中，這是呼叫 Tidal 所必需的
 
 <a id="environment-variables"></a>
 ## 環境變數
