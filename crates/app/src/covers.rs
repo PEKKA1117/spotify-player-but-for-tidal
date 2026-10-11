@@ -1,6 +1,6 @@
-//! The cover cache (spec 0010 "The cover cache"): the current entry's
+//! The cover cache (spec 0010 "The cover cache", 0016): the current entry's
 //! album cover downloaded into `<cache dir>/covers/<cover>.jpg`, so every
-//! MPRIS consumer gets a `file://` URL. The decisions (what to delete, which
+//! MPRIS consumer gets a `file://` URL and a TUI can read the image. The decisions (what to delete, which
 //! URL, where the directory is) are pure; the download sits behind
 //! [`CoverCache`].
 

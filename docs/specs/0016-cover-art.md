@@ -189,3 +189,8 @@ Answered by the user, 2026-10-12 (approved with the spec):
 - The player telling clients where its cached cover is (decision 3)
 - Text-block (`chafa`/ASCII) renderers beyond `halfblocks`
 - Choosing the cover's position (right side) or a width independent of its height
+
+## Implementation notes
+
+- **Slice A (AC11)**: the cover worker is the MPRIS adapter's (`mpris::hub::Adapter`), which is a plain in-process hub client (attach, subscribe) that follows the current entry and drives the one `CoverWorker`. `mpris::start` now builds it whenever `max_cover_arts > 0` or MPRIS is on; the bus is connected only when MPRIS is on, and `set_bus` is simply never called when it is off or unavailable, so no second downloader exists. `cache.start()` (clean-up and limit) runs once per player start, before the bus is tried. `Mpris::name()` is `None` for a cache-only follower
+- 0010's `ac11_no_bus` and `ac13_mpris_off` asserted "nothing was cached without MPRIS", which this spec reverses; those two lines were removed (`ac11_cache_without_mpris` covers the new behaviour)

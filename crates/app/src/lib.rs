@@ -3,6 +3,7 @@
 
 pub mod client;
 pub mod config;
+pub mod covers;
 pub mod daemon;
 pub mod http_source;
 pub mod input;

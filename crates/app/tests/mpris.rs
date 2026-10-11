@@ -743,8 +743,6 @@ fn ac11_no_bus() {
     let (code, stderr) = stop(&machine, &mut daemon);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(stderr.matches(UNAVAILABLE).count(), 1, "{stderr}");
-    // Nothing was cached without MPRIS.
-    assert!(!machine.cache.path().join("covers").exists());
 }
 
 /// AC12: with the name taken, the daemon takes `…tidal_player.instance<pid>`
@@ -829,7 +827,6 @@ fn ac13_mpris_off() {
         Vec::<String>::new(),
         "{seen:?}"
     );
-    assert!(!machine.cache.path().join("covers").exists());
 
     // The variable over the file: `TIDAL_PLAYER_MPRIS=off`.
     let machine = Machine::new(Some(&bus));
