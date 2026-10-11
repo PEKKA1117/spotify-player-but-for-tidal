@@ -14,6 +14,9 @@ fn bin(tmp: &Path) -> Command {
     cmd.env("TIDAL_PLAYER_STATE_DIR", tmp.join("state"))
         .env("TIDAL_PLAYER_RUNTIME_DIR", tmp.join("run"))
         .env("TIDAL_PLAYER_ASOUND_DIR", tmp.join("asound"))
+        // Never the developer's cover cache, never the network (0016).
+        .env("TIDAL_PLAYER_CACHE_DIR", tmp.join("cache"))
+        .env("TIDAL_PLAYER_IMAGES_BASE", "http://127.0.0.1:9")
         .env("TIDAL_PLAYER_NO_KEYRING", "1")
         .env("TIDAL_PLAYER_API_BASE", "http://127.0.0.1:9")
         .env("HTTPS_PROXY", "http://127.0.0.1:9")

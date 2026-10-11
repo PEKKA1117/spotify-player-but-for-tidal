@@ -148,6 +148,9 @@ impl Machine {
         cmd.args(args)
             .env("TIDAL_PLAYER_STATE_DIR", self.state.path())
             .env("TIDAL_PLAYER_RUNTIME_DIR", &self.run)
+            // Never the developer's cover cache, never the network (0016).
+            .env("TIDAL_PLAYER_CACHE_DIR", self.state.path().join("cache"))
+            .env("TIDAL_PLAYER_IMAGES_BASE", "http://127.0.0.1:9")
             .env("TIDAL_PLAYER_NO_KEYRING", "1")
             .env("TIDAL_PLAYER_PASSPHRASE_FILE", &self.pass_file)
             .env("TIDAL_PLAYER_API_BASE", &self.api)
@@ -1388,4 +1391,21 @@ fn ac13_devices_shows_player_device() {
          hw:0,1   HDA Intel PCH: ALC892 Digital\n\
          * hw:1,0   E30 II: USB Audio\n"
     );
+}
+
+/// 0016: no test player touches the developer's cover cache or the
+/// network: the harness gives every player a cache dir of its own and an
+/// unroutable images base.
+#[test]
+fn harness_isolates_the_cover_cache() {
+    let machine = Machine::new();
+    let cmd = machine.command(&["daemon"]);
+    let env = |name: &str| {
+        cmd.get_envs()
+            .find(|(k, _)| *k == name)
+            .and_then(|(_, v)| v.map(std::path::PathBuf::from))
+    };
+    let cache = env("TIDAL_PLAYER_CACHE_DIR").expect("TIDAL_PLAYER_CACHE_DIR");
+    assert!(cache.starts_with(machine.state.path()), "{cache:?}");
+    assert!(env("TIDAL_PLAYER_IMAGES_BASE").is_some());
 }
