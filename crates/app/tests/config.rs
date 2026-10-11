@@ -293,7 +293,8 @@ fn ac9_cover_settings() {
         );
     }
     // (file, variable, value, what stderr names)
-    let bad: &[(&str, Option<(&str, &str)>, &str)] = &[
+    type Bad<'a> = (&'a str, Option<(&'a str, &'a str)>, &'a str);
+    let bad: &[Bad] = &[
         ("cover_img_rows = 3\n", None, "invalid cover_img_rows"),
         ("cover_img_rows = 21\n", None, "invalid cover_img_rows"),
         (
@@ -319,10 +320,16 @@ fn ac9_cover_settings() {
     ];
     for (file, var, message) in bad {
         std::fs::write(config.join("app.toml"), file).unwrap();
-        // The TUI exits before raw mode; the daemon too.
-        for args in [&[][..], &["daemon"][..]] {
+        // The TUI exits before raw mode; the daemon reads the file before
+        // the session, the variables after it (as every setting's).
+        let commands: &[&[&str]] = if var.is_some() {
+            &[&[]]
+        } else {
+            &[&[], &["daemon"]]
+        };
+        for args in commands {
             let mut cmd = bin(tmp.path());
-            cmd.args(args).arg("-c").arg(&config);
+            cmd.args(*args).arg("-c").arg(&config);
             if let Some((var, value)) = var {
                 cmd.env(var, value);
             }

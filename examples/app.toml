@@ -46,9 +46,23 @@ key_hints = true
 # 10000; 0 shows it at once. (TIDAL_PLAYER_KEY_HINTS_DELAY_MS)
 key_hints_delay_ms = 1000
 
-# Album covers kept in the cache directory for the desktop, least recently
-# used deleted first: 0 to 1000; 0 keeps none. (TIDAL_PLAYER_MAX_COVER_ARTS)
+# Album covers kept in the cache directory for the desktop and the TUI, least
+# recently used deleted first: 0 to 1000; 0 keeps none, and the TUI shows no
+# cover. (TIDAL_PLAYER_MAX_COVER_ARTS)
 max_cover_arts = 20
+
+# In the TUI, draw the album cover left of the playback window, when the
+# terminal can draw images: true or false. (TIDAL_PLAYER_COVER_IMG, on/off)
+cover_img = true
+
+# The playback window's height in rows while the cover shows: 4 to 20.
+# (TIDAL_PLAYER_COVER_IMG_ROWS)
+cover_img_rows = 6
+
+# How the cover is drawn: auto (what the terminal answers), sixel, kitty,
+# iterm2, or halfblocks (coloured blocks, any terminal).
+# (TIDAL_PLAYER_COVER_IMG_PROTOCOL)
+cover_img_protocol = "auto"
 
 # Release the audio device after pausing for this many seconds: 0 to 3600,
 # or "never". (TIDAL_PLAYER_RELEASE_PAUSED)

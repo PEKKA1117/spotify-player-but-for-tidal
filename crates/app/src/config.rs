@@ -199,7 +199,36 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             "key_hints_delay_ms" => {
                 config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
             }
-            "cover_img" | "cover_img_rows" | "cover_img_protocol" => {}
+            "cover_img" => match value.as_bool() {
+                Some(on) => config.cover_img = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
+            "cover_img_rows" => {
+                config.cover_img_rows = Some(int_in(path, key, value, 4, 20)? as u16);
+            }
+            "cover_img_protocol" => {
+                match value
+                    .as_str()
+                    .and_then(crate::cover::ProtocolSetting::parse)
+                {
+                    Some(protocol) => config.cover_img_protocol = Some(protocol),
+                    None => {
+                        return Err(invalid(
+                            key,
+                            format!(
+                                "expected {}, got {}",
+                                crate::cover::PROTOCOL_NAMES,
+                                describe(value)
+                            ),
+                        ));
+                    }
+                }
+            }
             "max_cover_arts" => {
                 config.max_cover_arts = Some(int_in(path, key, value, 0, 1000)? as u16);
             }

@@ -571,6 +571,19 @@ fn resolve_with(
         settings.key_hints_delay =
             Duration::from_millis(int_in(&value, KEY_HINTS_DELAY_VAR, 0, 10_000)?);
     }
+    if let Some(on) = on_off(get(COVER_IMG_VAR), COVER_IMG_VAR)? {
+        settings.cover_img = on;
+    }
+    if let Some(value) = get(COVER_IMG_ROWS_VAR) {
+        settings.cover_img_rows = int_in(&value, COVER_IMG_ROWS_VAR, 4, 20)? as u16;
+    }
+    if let Some(value) = get(COVER_IMG_PROTOCOL_VAR) {
+        settings.cover_img_protocol =
+            crate::cover::ProtocolSetting::parse(&value).ok_or_else(|| SettingsError {
+                setting: COVER_IMG_PROTOCOL_VAR.into(),
+                message: format!("expected {}, got \"{value}\"", crate::cover::PROTOCOL_NAMES),
+            })?;
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -623,6 +636,15 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(ms) = file.key_hints_delay_ms {
         settings.key_hints_delay = Duration::from_millis(ms);
+    }
+    if let Some(on) = file.cover_img {
+        settings.cover_img = on;
+    }
+    if let Some(rows) = file.cover_img_rows {
+        settings.cover_img_rows = rows;
+    }
+    if let Some(protocol) = file.cover_img_protocol {
+        settings.cover_img_protocol = protocol;
     }
     if let Some(max) = file.max_cover_arts {
         settings.max_cover_arts = max;

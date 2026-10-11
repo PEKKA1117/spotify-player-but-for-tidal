@@ -10,7 +10,14 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use image::DynamicImage;
-use ratatui::layout::Size;
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Rect, Size};
+use ratatui::widgets::Widget;
+use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::protocol::Protocol;
+use ratatui_image::{Image, Resize};
+
+use crate::ui::CoverImage;
 
 /// How long the loader waits before it looks again for a cover the player
 /// has not cached yet.
@@ -75,12 +82,57 @@ pub struct Choice {
 /// The protocol for `cover_img` and `setting`; `query` asks the terminal
 /// and is only called when `cover_img` is on. `None`: no cover.
 pub fn protocol(
-    _cover_img: bool,
-    _setting: ProtocolSetting,
+    cover_img: bool,
+    setting: ProtocolSetting,
     query: impl FnOnce() -> Option<Answer>,
 ) -> Option<Choice> {
-    let _ = query();
-    None
+    if !cover_img {
+        return None;
+    }
+    let answer = query();
+    let graphics = match setting {
+        ProtocolSetting::Auto => match answer?.graphics {
+            Graphics::Halfblocks => return None,
+            graphics => graphics,
+        },
+        ProtocolSetting::Sixel => Graphics::Sixel,
+        ProtocolSetting::Kitty => Graphics::Kitty,
+        ProtocolSetting::Iterm2 => Graphics::Iterm2,
+        ProtocolSetting::Halfblocks => Graphics::Halfblocks,
+    };
+    Some(Choice {
+        graphics,
+        cell: answer.and_then(|a| a.cell),
+    })
+}
+
+/// The TUI's cover settings (`app.toml` under the environment, spec 0016
+/// "Config") and where the player's cover cache is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// `cover_img`.
+    pub enabled: bool,
+    /// `cover_img_rows`.
+    pub rows: u16,
+    /// `cover_img_protocol`.
+    pub protocol: ProtocolSetting,
+    /// `max_cover_arts > 0`: the player caches covers.
+    pub cache_on: bool,
+    /// The cache directory (`covers/` is inside).
+    pub cache_dir: PathBuf,
+}
+
+impl Settings {
+    /// From the resolved settings and this process's environment.
+    pub fn from_player(player: &crate::play::PlayerSettings) -> Self {
+        Self {
+            enabled: player.cover_img,
+            rows: player.cover_img_rows,
+            protocol: player.cover_img_protocol,
+            cache_on: player.max_cover_arts > 0,
+            cache_dir: crate::covers::process_cache_dir(),
+        }
+    }
 }
 
 /// What the TUI asks its loader for: one cover, encoded for an area of
@@ -140,27 +192,60 @@ impl<I> Slot<I> {
     /// The current entry's cover changed (`None`: no cover, or nothing is
     /// current); what to ask the loader for.
     pub fn set_cover(&mut self, cover: Option<&str>) -> Option<Request> {
+        if self.cover.as_deref() == cover {
+            return None;
+        }
         self.cover = cover.map(str::to_owned);
-        None
+        self.ready = None;
+        self.look_at = None;
+        self.failed = false;
+        self.request()
     }
 
     /// The cover area's size changed (`None`: the cover is not active);
     /// what to ask the loader for.
     pub fn set_size(&mut self, size: Option<Size>) -> Option<Request> {
+        if self.size == size {
+            return None;
+        }
         self.size = size;
-        None
+        self.ready = None;
+        self.look_at = None;
+        self.request()
     }
 
-    /// A result from the loader, at `now`.
-    pub fn loaded(&mut self, loaded: Loaded<I>, _now: Instant) {
-        if let Outcome::Image(image) = loaded.outcome {
-            self.ready = Some((loaded.request.size, image));
+    /// A result from the loader, at `now`; dropped unless it is for the
+    /// current cover at the current size.
+    pub fn loaded(&mut self, loaded: Loaded<I>, now: Instant) {
+        let Request { cover, size } = loaded.request;
+        if self.cover.as_deref() != Some(cover.as_str()) || self.size != Some(size) {
+            return;
+        }
+        match loaded.outcome {
+            Outcome::Image(image) => self.ready = Some((size, image)),
+            Outcome::Missing => self.look_at = Some(now + LOOK_AGAIN),
+            Outcome::Failed => self.failed = true,
         }
     }
 
     /// The time passed: what to ask the loader for again.
-    pub fn tick(&mut self, _now: Instant) -> Option<Request> {
-        None
+    pub fn tick(&mut self, now: Instant) -> Option<Request> {
+        if self.look_at.is_none_or(|at| now < at) {
+            return None;
+        }
+        self.look_at = None;
+        self.request()
+    }
+
+    /// The current cover at the current size, unless it failed.
+    fn request(&self) -> Option<Request> {
+        if self.failed {
+            return None;
+        }
+        Some(Request {
+            cover: self.cover.clone()?,
+            size: self.size?,
+        })
     }
 
     /// The image to draw and the area size it was encoded for; `None`:
@@ -193,12 +278,38 @@ pub type Warn = Arc<dyn Fn(&str) + Send + Sync>;
 /// One look in the cache under `cache_dir`: the request's cover read,
 /// decoded and encoded at its size. Read-only.
 pub fn load<E: Encode>(
-    _cache_dir: &Path,
-    _request: &Request,
-    _encoder: &E,
-    _warn: &Warn,
+    cache_dir: &Path,
+    request: &Request,
+    encoder: &E,
+    warn: &Warn,
 ) -> Outcome<E::Image> {
-    Outcome::Missing
+    let cover = &request.cover;
+    let Some(path) = crate::covers::cached_file(cache_dir, cover) else {
+        warn(&format!("Not a cover ID: {cover:?}"));
+        return Outcome::Failed;
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Outcome::Missing,
+        Err(e) => {
+            warn(&format!("Cannot read the cover {}: {e}", path.display()));
+            return Outcome::Failed;
+        }
+    };
+    let image = match image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg) {
+        Ok(image) => image,
+        Err(e) => {
+            warn(&format!("Cannot decode the cover {}: {e}", path.display()));
+            return Outcome::Failed;
+        }
+    };
+    match encoder.encode(image, request.size) {
+        Ok(image) => Outcome::Image(image),
+        Err(e) => {
+            warn(&format!("Cannot draw the cover {cover}: {e}"));
+            Outcome::Failed
+        }
+    }
 }
 
 /// The loader thread: takes [`Request`]s (the newest of those waiting),
@@ -210,9 +321,28 @@ pub struct Loader<I> {
 
 impl<I: Send + 'static> Loader<I> {
     /// Starts the thread, reading covers from the cache in `cache_dir`.
-    pub fn spawn<E: Encode<Image = I>>(_cache_dir: PathBuf, _encoder: E, _warn: Warn) -> Self {
-        let (requests, _) = std::sync::mpsc::channel();
-        let (_, results) = std::sync::mpsc::channel();
+    pub fn spawn<E: Encode<Image = I>>(cache_dir: PathBuf, encoder: E, warn: Warn) -> Self {
+        let (requests, asked) = std::sync::mpsc::channel::<Request>();
+        let (answer, results) = std::sync::mpsc::channel();
+        let thread_warn = Arc::clone(&warn);
+        let spawned = std::thread::Builder::new()
+            .name("cover-loader".into())
+            .spawn(move || {
+                // Until the TUI drops its end.
+                while let Ok(mut request) = asked.recv() {
+                    // Only the newest of the requests waiting.
+                    while let Ok(newer) = asked.try_recv() {
+                        request = newer;
+                    }
+                    let outcome = load(&cache_dir, &request, &encoder, &thread_warn);
+                    if answer.send(Loaded { request, outcome }).is_err() {
+                        break;
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            warn(&format!("Cannot start the cover loader: {e}"));
+        }
         Self { requests, results }
     }
 
@@ -225,6 +355,65 @@ impl<I: Send + 'static> Loader<I> {
     /// A result, when one is there.
     pub fn try_recv(&self) -> Option<Loaded<I>> {
         self.results.try_recv().ok()
+    }
+}
+
+// --- ratatui-image ---------------------------------------------------------------
+
+/// Asks the terminal which protocol it supports and its cell size; call it
+/// once at start, on the alternate screen and before reading any event.
+/// Waits at most `ratatui-image`'s timeout. `None`: no usable answer.
+pub fn query_terminal() -> Option<(Picker, Answer)> {
+    let picker = Picker::from_query_stdio().ok()?;
+    let font = picker.font_size();
+    let answer = Answer {
+        graphics: match picker.protocol_type() {
+            ProtocolType::Sixel => Graphics::Sixel,
+            ProtocolType::Kitty => Graphics::Kitty,
+            ProtocolType::Iterm2 => Graphics::Iterm2,
+            ProtocolType::Halfblocks => Graphics::Halfblocks,
+        },
+        cell: Some((font.width, font.height)),
+    };
+    Some((picker, answer))
+}
+
+/// The encoder for `choice`: the queried picker (its cell size, tmux) or,
+/// without an answer, one with a 10 x 20 px cell (2 columns per row),
+/// drawing with the chosen protocol.
+pub fn picker_for(choice: Choice, queried: Option<Picker>) -> Picker {
+    let mut picker = queried.unwrap_or_else(Picker::halfblocks);
+    picker.set_protocol_type(match choice.graphics {
+        Graphics::Sixel => ProtocolType::Sixel,
+        Graphics::Kitty => ProtocolType::Kitty,
+        Graphics::Iterm2 => ProtocolType::Iterm2,
+        Graphics::Halfblocks => ProtocolType::Halfblocks,
+    });
+    picker
+}
+
+/// Encodes with `ratatui-image`, scaled to fit the area keeping its aspect.
+impl Encode for Picker {
+    type Image = Protocol;
+    fn encode(&self, image: DynamicImage, size: Size) -> Result<Protocol, String> {
+        self.new_protocol(image, size, Resize::Fit(None))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Drawn centred in the cover area.
+impl CoverImage for Protocol {
+    fn draw(&self, area: Rect, buf: &mut Buffer) {
+        let size = self.size();
+        let width = size.width.min(area.width);
+        let height = size.height.min(area.height);
+        let centred = Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        };
+        Image::new(self).render(centred, buf);
     }
 }
 
@@ -259,7 +448,8 @@ impl<I: Send + 'static> Cover<I> {
             self.slot.set_size(size),
             self.slot.tick(now),
         ];
-        for request in requests.into_iter().flatten() {
+        // The last is the newest: the current cover at the current size.
+        if let Some(request) = requests.into_iter().flatten().last() {
             self.loader.ask(request);
         }
     }

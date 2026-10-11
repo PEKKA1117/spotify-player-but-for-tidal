@@ -48,6 +48,13 @@ pub fn process_cache_dir() -> PathBuf {
     )
 }
 
+/// The file `cover` has in the cache under `cache_dir`, for a reader that
+/// never writes to it (the TUI, spec 0016); `None` for what is not a cover
+/// ID, so no other path is ever read.
+pub fn cached_file(cache_dir: &Path, cover: &str) -> Option<PathBuf> {
+    is_cover_id(cover).then(|| cache_dir.join("covers").join(format!("{cover}.jpg")))
+}
+
 /// Where a cover stands for the current entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Art {

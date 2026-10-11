@@ -1,7 +1,8 @@
 //! Rendering of the pure UI model (spec 0004 "TUI"): one bordered frame
-//! titled `tidal-player`, the playback window (4 rows) at the top and the
-//! queue below it. The two never share rows: the queue list always spans
-//! the full width of its own rows.
+//! titled `tidal-player`, the playback window (4 rows, taller with the
+//! album cover of spec 0016) at the top and the queue below it. The two
+//! never share rows: the queue list always spans the full width of its own
+//! rows.
 
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,8 @@ mod pages;
 const PLAYBACK_ROWS: u16 = 4;
 /// Below this many rows inside the frame only the playback window is drawn.
 const MIN_ROWS_WITH_QUEUE: u16 = 6;
+/// The fewest rows the page keeps below the playback window.
+const MIN_PAGE_ROWS: u16 = MIN_ROWS_WITH_QUEUE - PLAYBACK_ROWS;
 /// The narrowest the title side of a row gets before the indicators (or
 /// the bit-perfect verdict) make way for it.
 const MIN_LEFT: usize = 20;
@@ -35,12 +38,16 @@ struct Areas {
     /// The session-expired line (0002 AC17).
     status: Option<Rect>,
     playback: Rect,
+    /// The album cover's area while it is active (spec 0016).
+    cover: Option<Rect>,
+    /// The playback window's lines: right of the cover, or all of it.
+    text: Rect,
     /// The page below the playback window; none when the terminal is too
     /// short for it.
     page: Option<Rect>,
 }
 
-fn areas(area: Rect, login_required: bool) -> Areas {
+fn areas(area: Rect, login_required: bool, cover: Option<CoverGeometry>) -> Areas {
     let mut inner = Block::bordered().inner(area);
     // The status line takes the last row inside the border, when there is
     // one.
@@ -53,27 +60,21 @@ fn areas(area: Rect, login_required: bool) -> Areas {
             ..inner
         });
     }
-    let playback = Rect {
-        height: inner.height.min(PLAYBACK_ROWS),
-        ..inner
-    };
-    let page = (inner.height >= MIN_ROWS_WITH_QUEUE).then(|| Rect {
-        y: inner.y + PLAYBACK_ROWS,
-        height: inner.height - PLAYBACK_ROWS,
-        ..inner
-    });
+    let layout = cover_layout(inner, cover);
     Areas {
         status,
-        playback,
-        page,
+        playback: layout.playback,
+        cover: layout.cover,
+        text: layout.text,
+        page: layout.page,
     }
 }
 
 /// The rows a list window shows in a terminal of `terminal`'s size: what
 /// `Action::Resize` carries (spec 0006 "Lists load as you scroll"); with
 /// `cover`, the taller playback window while it is active (spec 0016).
-pub fn list_height(terminal: Rect, login_required: bool, _cover: Option<CoverGeometry>) -> usize {
-    areas(terminal, login_required)
+pub fn list_height(terminal: Rect, login_required: bool, cover: Option<CoverGeometry>) -> usize {
+    areas(terminal, login_required, cover)
         .page
         .map_or(0, pages::list_height)
 }
@@ -117,7 +118,36 @@ pub struct CoverLayout {
 
 /// The layout of `inner` (the frame's inside, the status line taken out)
 /// with `cover` (`None`: not active), spec 0016 "Layout".
-pub fn cover_layout(inner: Rect, _cover: Option<CoverGeometry>) -> CoverLayout {
+pub fn cover_layout(inner: Rect, cover: Option<CoverGeometry>) -> CoverLayout {
+    if let Some(geometry) = cover {
+        let rows = geometry.rows;
+        let cols = cover_columns(geometry);
+        if inner.height >= rows.saturating_add(MIN_PAGE_ROWS)
+            && usize::from(inner.width) >= usize::from(cols) + 1 + MIN_LEFT
+        {
+            let playback = Rect {
+                height: rows,
+                ..inner
+            };
+            return CoverLayout {
+                playback,
+                cover: Some(Rect {
+                    width: cols,
+                    ..playback
+                }),
+                text: Rect {
+                    x: inner.x + cols + 1,
+                    width: inner.width - cols - 1,
+                    ..playback
+                },
+                page: Some(Rect {
+                    y: inner.y + rows,
+                    height: inner.height - rows,
+                    ..inner
+                }),
+            };
+        }
+    }
     let playback = Rect {
         height: inner.height.min(PLAYBACK_ROWS),
         ..inner
@@ -142,8 +172,21 @@ pub fn cover_area(
     login_required: bool,
     cover: Option<CoverGeometry>,
 ) -> Option<Rect> {
-    let _ = (terminal, login_required, cover);
-    None
+    areas(terminal, login_required, cover).cover
+}
+
+/// The cover's width: square in pixels, `round(rows x cell height / cell
+/// width)`; 2 columns per row with no cell size known.
+fn cover_columns(geometry: CoverGeometry) -> u16 {
+    let rows = u32::from(geometry.rows);
+    let cols = match geometry.cell {
+        Some((w, h)) if w > 0 && h > 0 => {
+            let (w, h) = (u32::from(w), u32::from(h));
+            (2 * rows * h + w) / (2 * w)
+        }
+        _ => 2 * rows,
+    };
+    u16::try_from(cols.max(1)).unwrap_or(u16::MAX)
 }
 
 /// When to draw the key-sequence hint (spec 0013 "When the hint shows"):
@@ -190,20 +233,15 @@ pub fn render(state: &State, frame: &mut Frame, hint: bool) {
 }
 
 /// [`render`] with the album cover (spec 0016); `None`: not active.
-pub fn render_with_cover(
-    state: &State,
-    frame: &mut Frame,
-    hint: bool,
-    _cover: Option<&CoverFrame>,
-) {
+pub fn render_with_cover(state: &State, frame: &mut Frame, hint: bool, cover: Option<&CoverFrame>) {
     let area = frame.area();
-    let areas = areas(area, state.login_required);
+    let areas = areas(area, state.login_required, cover.map(|c| c.geometry));
     frame.render_widget(Block::bordered().title("tidal-player"), area);
     if let Some(status) = areas.status {
         frame.render_widget(Paragraph::new(STATUS), status);
     }
 
-    render_playback(state, frame, areas.playback);
+    render_playback(state, frame, areas.text);
 
     let prompt_row = if let Some(page) = areas.page {
         if state.page().kind == PageKind::Queue {
@@ -226,6 +264,15 @@ pub fn render_with_cover(
         pages::render_hint(state, frame, areas.page);
     }
     pages::render_help(state, frame, areas.page, area);
+
+    // Last, and only where nothing else was drawn over it: popups and the
+    // hint stay in the page; the keys help may not.
+    if let (Some(rect), Some((size, image))) = (areas.cover, cover.and_then(|c| c.image))
+        && size == rect.as_size()
+        && pages::help_rect(state, areas.page, area).is_none_or(|help| !help.intersects(rect))
+    {
+        image.draw(rect, frame.buffer_mut());
+    }
 }
 
 // --- the playback window -----------------------------------------------------------
@@ -254,11 +301,18 @@ fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
                     .unwrap_or_default(),
             ),
         });
-        lines.push(Line::raw(progress(
-            state.position,
-            entry.track.duration,
-            width,
-        )));
+        let bar = Line::raw(progress(state.position, entry.track.duration, width));
+        if area.height > PLAYBACK_ROWS {
+            // The taller window (spec 0016): the bar on its last row.
+            let last = Rect {
+                y: area.bottom() - 1,
+                height: 1,
+                ..area
+            };
+            frame.render_widget(Paragraph::new(bar), last);
+        } else {
+            lines.push(bar);
+        }
     } else if let Some(message) = state.message() {
         lines.push(Line::raw(""));
         lines.push(Line::styled(
@@ -1313,7 +1367,8 @@ mod tests {
             })
         };
         // (terminal, login line, geometry, rows fewer than without)
-        let rows: &[((u16, u16), bool, Option<CoverGeometry>, usize)] = &[
+        type Row = ((u16, u16), bool, Option<CoverGeometry>, usize);
+        let rows: &[Row] = &[
             ((80, 24), false, geometry(6), 2),
             ((80, 24), true, geometry(6), 2),
             ((120, 30), false, geometry(8), 4),
@@ -2250,34 +2305,34 @@ mod tests {
                 draw(state, width, height);
             }
         }
-        // 0016 AC6: with the cover active, at every size from 1x1 to
-        // 200x60, with an image ready for the size's cover area.
+        // 0016 AC6: with the cover active, at sizes from 1x1 to 200x60
+        // (every width and height around the limits), with an image ready
+        // for the size's cover area.
         let fake = FakeCover::new();
+        let tall = CoverGeometry {
+            rows: 20,
+            cell: None,
+        };
         let sizes = (1..=200u16)
-            .step_by(3)
-            .flat_map(|w| (1..=60u16).step_by(2).map(move |h| (w, h)))
+            .step_by(7)
+            .flat_map(|w| (1..=60u16).step_by(3).map(move |h| (w, h)))
             .chain((1..=40).map(|w| (w, 24)))
             .chain((1..=30).map(|h| (80, h)))
             .chain([(200, 60)]);
         for (width, height) in sizes {
-            {
-                let terminal = rect(0, 0, width, height);
-                for (i, state) in states.iter().chain(&help).chain(&hints).enumerate() {
-                    if i % 3 != usize::from((width + height) % 3) {
-                        continue;
-                    }
-                    for geometry in [
-                        GEOMETRY,
-                        CoverGeometry {
-                            rows: 20,
-                            cell: None,
-                        },
-                    ] {
-                        let area = cover_area(terminal, state.login_required, Some(geometry));
-                        let image = area.map(|a| (a.as_size(), &fake as &dyn CoverImage));
-                        draw_cover(state, width, height, geometry, image);
-                    }
+            let terminal = rect(0, 0, width, height);
+            let geometry = if (width + height) % 2 == 0 {
+                GEOMETRY
+            } else {
+                tall
+            };
+            for (i, state) in states.iter().chain(&help).chain(&hints).enumerate() {
+                if i % 3 != usize::from((width + height) % 3) {
+                    continue;
                 }
+                let area = cover_area(terminal, state.login_required, Some(geometry));
+                let image = area.map(|a| (a.as_size(), &fake as &dyn CoverImage));
+                draw_cover(state, width, height, geometry, image);
             }
         }
     }
