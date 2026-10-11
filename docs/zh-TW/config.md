@@ -47,12 +47,15 @@ cp examples/app.toml examples/keymap.toml ~/.config/tidal-player/
 | `max_cover_arts` | 整數 0–1000（`0`：不使用封面快取） | `20` | `TIDAL_PLAYER_MAX_COVER_ARTS` | 播放器 |
 | `key_hints` | `true`、`false` | `true` | `TIDAL_PLAYER_KEY_HINTS`（`on`、`off`） | TUI |
 | `key_hints_delay_ms` | 整數 0–10 000（毫秒；`0`：立即顯示） | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `cover_img` | `true`、`false` | `true` | `TIDAL_PLAYER_COVER_IMG`（`on`、`off`） | TUI |
+| `cover_img_rows` | 整數 4–20（顯示封面時播放視窗的列數） | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
+| `cover_img_protocol` | `"auto"`、`"sixel"`、`"kitty"`、`"iterm2"`、`"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
 | `page_size` | 整數 1–10 000 | `100` | `TIDAL_PLAYER_PAGE_SIZE` | 播放器、TUI |
 | `search_page_size` | 整數 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | 播放器、TUI |
 | `hide_versions` | 字串陣列（`[]` 表示不隱藏任何東西） | [設定](playback.md#settings)中列出的十六個詞 | `TIDAL_PLAYER_HIDE_VERSIONS` | 播放器 |
 | `[layout] library = { playlist_percent, album_percent }` | 各為整數 1–98，總和最多 99；*Artists*（藝人）佔用其餘部分 | `40`、`40` | | TUI |
 
-各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
+各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
 
 ```toml
 # ~/.config/tidal-player/app.toml

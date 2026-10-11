@@ -2,11 +2,11 @@ English | [正體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device) and [spec 0016](specs/0016-cover-art.md) (the album cover).
 
 ## The screen
 
-One frame titled `tidal-player`, with the **playback window** (4 rows) at the top and one **page** below it. The first page is the **queue**; [Pages](#pages) lists the others:
+One frame titled `tidal-player`, with the **playback window** (4 rows, more with the [album cover](#album-cover)) at the top and one **page** below it. The first page is the **queue**; [Pages](#pages) lists the others:
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -31,9 +31,40 @@ One frame titled `tidal-player`, with the **playback window** (4 rows) at the to
    - `shuffle` when shuffle is on, `repeat: queue` or `repeat: track` when repeat is on, `autoplay` when autoplay is on, then the volume (`80%`), or `muted`
 2. The album
 3. How it plays: the quality Tidal granted, the format, the output device, and `bit-perfect` or why it is not (as the "Track" and "Output" lines of [`play`](playback.md#output-kinds-and-bit-perfect)), then ` · device released` while paused with the device [released](daemon.md#releasing-the-device-while-paused). When something went wrong, the message takes this row instead (see [Failures](#failures)); so does `Disconnected from the player: reconnecting…` while an attached TUI has lost its player
-4. The progress bar, the position and the length. When Tidal does not give the length, there is no bar: `1:23 / ?:??`
+4. The progress bar, the position and the length. When Tidal does not give the length, there is no bar: `1:23 / ?:??`. With the [album cover](#album-cover) the window is taller and the bar is on its last row
 
 At start the player resumes the last session: the queue it had, `■` stopped at the same position, with its modes and volume; `Space` plays from there (see [Resuming the last session](playback.md#resuming-the-last-session)).
+
+#### Album cover
+
+When the terminal can draw images, the album cover is drawn left of these lines, and the playback window is taller while it shows (`cover_img_rows`, 6 rows by default) so the cover is square:
+
+```
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│████████████ ▶ Hell Above · Pierce The Veil        shuffle  repeat: queue  80%│
+│████████████   Collide With The Sky                                           │
+│████████████   LOSSLESS FLAC 16-bit 44.1… · not bit-perfect: volume below 100%│
+│████████████                                                                  │
+│████████████                                                                  │
+│████████████   ━━━━━━━━━━━━━━━━━━━━──────────────────────────────  1:23 / 3:32│
+│┌Queue (12)──────────────────────────────────────────────────────────────────┐│
+```
+
+- **When it shows**: `cover_img` is on (the default), the terminal draws images with one of the protocols below, and the terminal is large enough: at least `cover_img_rows + 2` rows inside the frame, and the cover's width plus 21 columns. In a smaller terminal the window is the usual 4 rows, and the cover comes back as soon as the terminal is resized larger. While the cover shows, its place is kept whatever plays: with nothing playing, a track without a cover, or while its cover loads, the area is blank and the window stays tall, so the page below does not jump between tracks
+- **Protocols**: at start the TUI asks the terminal which one it supports (it waits at most 2 seconds for the answer, once):
+
+  | Protocol | Terminals |
+  |---|---|
+  | kitty graphics | kitty, Ghostty |
+  | sixel | foot, xterm (started with `-ti vt340`), mlterm |
+  | iTerm2 inline images | iTerm2, WezTerm |
+
+  A terminal that answers with none of them (GNOME Terminal and other VTE terminals without sixel, the Linux console) shows no cover, and so does Konsole, whose sixel is not trusted (try `cover_img_protocol = "sixel"` there): the window is the usual 4 rows. `cover_img_protocol = "halfblocks"` draws a low-resolution cover with coloured `▀` cells in any colour terminal
+- **Forcing a protocol**: `cover_img_protocol` (`auto`, `sixel`, `kitty`, `iterm2`, `halfblocks`) picks one whatever the terminal answered, for a terminal whose answer is wrong (xterm, for instance, may not tell its cell size, so `auto` finds nothing: set `"sixel"`). The TUI cannot see what the terminal drew: if the cover shows garbage or nothing, force another protocol or turn the cover off
+- **tmux**: the image goes through tmux to the outer terminal, which needs passthrough. The TUI turns it on for its own pane (`tmux set -p allow-passthrough on`); if your tmux refuses that, put `set -g allow-passthrough on` in `tmux.conf`. The protocol is the outer terminal's, the one the TUI found when it started. tmux is recognized by `TERM` (`tmux-…`) or `TERM_PROGRAM=tmux`
+- **Turning it off**: `cover_img = false` (or `TIDAL_PLAYER_COVER_IMG=off`): the TUI sends the terminal nothing and the screen is exactly as without the cover. See [Configuration](config.md#apptoml) for the three settings
+- **Where the image comes from**: the TUI never downloads a cover. The player (standalone, or the daemon an attached TUI shows) keeps the current track's cover in its cover cache (see [Album covers](mpris.md#album-covers)), and the TUI reads it from there, a moment after the track starts the first time. So `max_cover_arts = 0` shows no cover, and the TUI and its daemon must use the same cache directory: set `TIDAL_PLAYER_CACHE_DIR` for both or for neither
+- A cover that cannot be read or decoded leaves the area blank for that track, and the log says why once
 
 ### Queue
 

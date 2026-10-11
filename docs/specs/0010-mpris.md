@@ -303,7 +303,7 @@ Assumptions, checked at acceptance:
 ## Out of scope
 
 - `org.mpris.MediaPlayer2.TrackList` and `Playlists` (decision 6)
-- **The cover in the TUI** (spotify-player's `image` feature, tidalt's Kitty/sixel panel): its own spec, reusing this spec's `cover`, `cover_url` and cover cache
+- **The cover in the TUI** (spotify-player's `image` feature, tidalt's Kitty/sixel panel): [0016](0016-cover-art.md), reading this spec's cover cache
 - Prefetching the next entry's cover; other image sizes; a `.desktop` file (`DesktopEntry`)
 - Media keys read by the TUI itself (decision 4)
 - Autoplay over MPRIS (no standard property)

@@ -18,6 +18,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 - **A real queue**: shuffle, repeat, autoplay with Tidal's suggestions when the queue runs out, and the last session (queue, position, modes, volume) restored when you start again
 - **Daemon and clients**: run the player headless as a systemd user service, attach any number of TUIs, and control it with one-shot `tidal-player playback …` commands. The audio device is released while paused. [Daemon](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon)
 - **Desktop controls**: media keys, Bluetooth headsets, GNOME/KDE media controls and `playerctl` over MPRIS, album cover included. [MPRIS](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS)
+- **Album cover**: the current track's cover beside the playback window in terminals that draw images (kitty, Ghostty, foot, WezTerm, iTerm2, and through tmux), or as coloured blocks anywhere; `cover_img = false` turns it off. [Album cover](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#album-cover)
 - **Output devices**: switch the output device while a track plays (`D` in the TUI, `tidal-player playback device` from a shell), without losing your place
 - **Your keys**: a spotify-player-compatible `keymap.toml`, a keys help (`?`) that lists the keys where you are and runs them, and hints that show what can follow `g` while you wait. [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration)
 
