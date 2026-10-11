@@ -4,7 +4,7 @@ expression: text
 ---
 [Unit]
 Description=tidal-player daemon
-Documentation=https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/main/docs/daemon.md
+Documentation=https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -16,9 +16,9 @@ RestartSec=5
 # 1: not logged in or the session store is unusable; 2: bad settings;
 # 3: another player is running. Restarting fixes none of them.
 RestartPreventExitStatus=1 2 3
-# Settings (docs/playback.md#settings), e.g.:
+# Settings (https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback#settings), e.g.:
 #Environment=TIDAL_PLAYER_DEVICE=hw:1,0
-# Passphrase for an encrypted session file (docs/login.md):
+# Passphrase for an encrypted session file (https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Login):
 #LoadCredential=tidal-player-passphrase:%h/.config/tidal-player/passphrase
 
 [Install]

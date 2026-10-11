@@ -43,7 +43,7 @@ impl fmt::Debug for Passphrase {
 pub enum PassphraseError {
     #[error(
         "Session file is encrypted and no passphrase is available: set \
-         TIDAL_PLAYER_PASSPHRASE_FILE or a systemd credential (see docs/login.md)"
+         TIDAL_PLAYER_PASSPHRASE_FILE or a systemd credential (see https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Login)"
     )]
     Unavailable,
     #[error("Wrong passphrase for the session file")]
