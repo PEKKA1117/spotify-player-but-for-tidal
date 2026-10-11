@@ -92,6 +92,8 @@ A change is done when: the spec is `approved` (or `implemented`) and matches the
 ## Conventions
 
 - Commits follow Conventional Commits (`feat(ui): …`, `fix(player): …`, `test: …`, `docs(spec): …`)
+- Every change is made in a new git worktree on its own branch, cut from `origin/master`. The main checkout (the repository root) stays on `master` and is never used to edit
+- Working on a GitHub issue: label it `whipping` when work starts (`gh issue edit N --add-label whipping`). The PR's description has `Closes #N` for each issue it resolves. When the PR is merged, swap the issue's label for `whipped` (`gh issue edit N --remove-label whipping --add-label whipped`)
 - One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
 - Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
 - User docs have a Traditional Chinese (Taiwan) translation: `README.zh-TW.md` and `docs/zh-TW/<page>.md`, one per `docs/<page>.md`. English is the source; a PR that changes `README.md` or a user doc updates its zh-TW copy in the same PR, and a new user doc gets its zh-TW copy at once. Each copy starts with a language switcher line (`English | [正體中文](…)`; the language is called 正體中文, never 繁體中文), keeps code, keys, commands, paths and config names untranslated, puts `<a id="english-slug"></a>` before each heading so English anchors keep working, and links to specs (English only) and examples by their real paths. Specs and this file are English only
