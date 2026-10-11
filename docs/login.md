@@ -42,6 +42,8 @@ Never starts a login. Without a stored session it exits 1 with `Not logged in: r
 
 ## Where the session is stored
 
+The session is an access token and a refresh token, never your password. The player refreshes the access token before it expires (or when Tidal rejects it) and saves the new session at once, so a daemon and a TUI on the same machine pick up each other's refreshes.
+
 1. The system keyring (Secret Service), service `tidal-player`, account `session`.
 2. If there is no Secret Service (no D-Bus session bus, no provider running, locked), an age-encrypted file: `$XDG_STATE_HOME/tidal-player/session.age`, by default `~/.local/state/tidal-player/session.age`. It is created with mode `0600` in a `0700` directory.
 
@@ -75,6 +77,22 @@ LoadCredential=tidal-player-passphrase:%h/.config/tidal-player-passphrase
 ```
 
 (`LoadCredentialEncrypted=` works the same way. `tidal-player daemon unit` prints a whole unit with this line ready to uncomment: see [Running the daemon under systemd](daemon.md#running-the-daemon-under-systemd).)
+
+## How safe the stored session is
+
+What protects it:
+
+- The tokens are never written to disk in clear: they sit in the keyring or in the age-encrypted file (scrypt passphrase encryption), written to a temporary file and renamed so a crash never leaves half a file
+- Logs, error messages and panic reports show the tokens as `<redacted>`, and the player wipes the decoded session and the passphrase from memory when it is done with them
+- `logout` removes every copy on this machine (it cannot revoke the login on Tidal's side, see [`tidal-player logout`](#tidal-player-logout))
+- The client ID and secret in the source are Tidal's public app credentials, not yours
+
+What it does not protect against:
+
+- **Programs running as you.** Once the keyring is unlocked (usually when you log in to the desktop), any program running as your user on the session bus can read the entry: Secret Service on Linux has no per-application access control. The same is true of every application that keeps secrets in the keyring. It keeps the session from other users and from someone who has only your disk, not from malware in your own account
+- **A weak passphrase.** scrypt makes guessing slow, but the encrypted file is only as strong as its passphrase
+- **A readable passphrase file.** The file `TIDAL_PLAYER_PASSPHRASE_FILE` points to holds the passphrase in clear. The player warns when other users can read it but still uses it: keep it at mode `600`, or use a systemd credential (`LoadCredentialEncrypted=` keeps it encrypted at rest)
+- **A running player's memory.** While the player runs, the tokens are in its memory, as they must be to call Tidal
 
 ## Environment variables
 
