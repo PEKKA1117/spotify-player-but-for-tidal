@@ -39,7 +39,7 @@ Rust toolchain pinned in `rust-toolchain.toml` (1.97, edition 2024). Run from th
 
 ## Development approach: tech-lead
 
-The primary session works as a **tech-lead**, following the `tech-lead` skill vendored at `.claude/skills/tech-lead/SKILL.md` (from [akunzai/agent-skills](https://github.com/akunzai/agent-skills/blob/main/skills/tech-lead/SKILL.md) @ `50117a94d9d7`, MIT, see its `LICENSE`). Read it, and its `references/brief-elements.md`, before starting any non-trivial feature or fix:
+The primary session works as a **tech-lead**, following the `tech-lead` skill at `.claude/skills/tech-lead/SKILL.md`, a symlink into the `.claude/vendor/agent-skills` submodule ([akunzai/agent-skills](https://github.com/akunzai/agent-skills/blob/main/skills/tech-lead/SKILL.md), MIT, see the submodule's `LICENSE`). Dependabot opens a PR when upstream moves; after cloning or pulling, run `git submodule update --init` (or set `git config submodule.recurse true`). Read it, and its `references/brief-elements.md`, before starting any non-trivial feature or fix:
 
 - Stay in the primary session for a few-line or single-file mechanical edit and for architecture decisions; delegate anything larger to implementer subagents
 - Slice the work (files each slice may touch, parallel/serial, durability), confirm parallelism and its cap with the user, isolate each slice in its own git worktree and branch, brief one implementer per slice, then accept, integrate and clean up in the primary session

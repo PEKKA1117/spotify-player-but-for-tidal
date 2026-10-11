@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Bumps the vendored agent-skills submodule (.claude/skills/tech-lead links into it)
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: chore
