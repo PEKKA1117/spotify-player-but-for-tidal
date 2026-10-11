@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/ui.rs
-assertion_line: 2194
 expression: text
 ---
 ┌tidal-player──────────────────────────┐
@@ -10,8 +9,8 @@ expression: text
 │   enter           open the playlist  │
 │   Z  C-z          add to the end of… │
 │   g a  C-space    actions on the sel…│
+│   /               filter the rows    │
 │ Lists                                │
 │   j  down  C-n    move down          │
-│   k  up  C-p      move up            │
 │ / filter · enter run · esc close     │
 └──────────────────────────────────────┘

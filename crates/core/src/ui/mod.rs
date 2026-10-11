@@ -27,9 +27,13 @@
 //!
 //! Spec 0008: keys are looked up in [`State::keymap`] ([`keymap`]); which
 //! command acts where is decided in `dispatch`.
+//!
+//! Spec 0012: each window's filter (and the queue page's) and its typing
+//! keys live in [`filter`].
 
 mod browse;
 mod dispatch;
+pub mod filter;
 pub mod help;
 pub mod keymap;
 pub mod page;
@@ -45,6 +49,7 @@ use crate::protocol::{
 use crate::track::EntryId;
 
 pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use filter::{Filter, MAX_FILTER};
 pub use help::{
     Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
 };
@@ -417,7 +422,9 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             } else if let Some(Popup::NewPlaylist { name, .. }) = state.popup.as_mut() {
                 name.extend(text);
             } else if state.popup.is_none() {
-                search::paste(state, &text.collect::<String>());
+                let text: String = text.collect();
+                search::paste(state, &text);
+                return filter::paste(state, &text);
             }
             Vec::new()
         }
@@ -524,6 +531,11 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
 
     state.position = snapshot.position;
     state.player = Some(snapshot);
+    // A filtered queue: the cursor keeps its entry while it matches, else
+    // goes to the first match (spec 0012).
+    if filter::queue_filter(state).active() {
+        filter::keep_queue_cursor(state);
+    }
 }
 
 #[cfg(test)]

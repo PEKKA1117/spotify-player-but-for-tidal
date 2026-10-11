@@ -148,7 +148,7 @@ The defaults are exactly the keys of 0004–0007, plus spotify-player's defaults
 | `LibraryPage` | `g l` | everywhere | the library |
 | `LikedTrackPage` | `g y` | everywhere | favorite tracks |
 | `SearchPage` | `g s` | everywhere | the search page (on one: its input) |
-| `Search` | `/` | the search page | back to the search input (spotify-player's in-page search; see "Out of scope") |
+| `Search` | `/` | lists | filter the rows (spotify-player's in-page search: [0012](0012-filter.md); until 0012, "back to the search input" on the search page only) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
 | `ClosePopup` | `esc` | popups, prompts, loads | close / cancel |
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
@@ -311,7 +311,7 @@ Assumptions, checked at acceptance by hand: which `C-`/`M-` keys the user's term
 
 ## Out of scope
 
-- The in-page filter (`/` on pages other than search) and sorting (decision 1)
+- The in-page filter (`/` on pages other than search) and sorting (decision 1). The filter is [0012](0012-filter.md) (implemented); sorting stays out of scope
 - Live reload of either file; a command that prints the effective config
 - Themes and colours (spotify-player's `theme.toml`), icons, border and progress-bar styles, `playback_format`
 - The playback window's position and height (spotify-player's `[layout]` rest), the artist page's split
