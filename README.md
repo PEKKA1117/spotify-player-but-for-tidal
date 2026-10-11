@@ -26,6 +26,10 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 
 *(The font is Ink Free. If I got a penny every time someone complained about it, I'd be a billionaire by now.)*
 
+In a terminal that draws images (here foot, with sixel), the current track's album cover sits beside the playback window and changes with the album.
+
+![The album cover beside the playback window](https://raw.githubusercontent.com/PEKKA1117/spotify-player-but-for-tidal/master/docs/assets/tui-album-cover.png)
+
 Press `g` and wait: a hint lists the keys that can follow.
 
 ![Key hints after g](https://raw.githubusercontent.com/PEKKA1117/spotify-player-but-for-tidal/master/docs/assets/tui-library-with-goto-hints.png)

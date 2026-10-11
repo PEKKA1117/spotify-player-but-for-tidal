@@ -29,6 +29,10 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 
 *（字型是 Ink Free。如果每次有人抱怨它我就能拿到一分錢，我現在早就是億萬富翁了。）*
 
+在能繪製圖片的終端機中（這裡是 foot，使用 sixel），目前曲目的專輯封面會顯示在播放視窗旁，並隨專輯切換。
+
+![播放視窗旁的專輯封面](https://raw.githubusercontent.com/PEKKA1117/spotify-player-but-for-tidal/master/docs/assets/tui-album-cover.png)
+
 按下 `g` 稍候：提示會列出接下來可以按的鍵。
 
 ![按下 g 後的按鍵提示](https://raw.githubusercontent.com/PEKKA1117/spotify-player-but-for-tidal/master/docs/assets/tui-library-with-goto-hints.png)
