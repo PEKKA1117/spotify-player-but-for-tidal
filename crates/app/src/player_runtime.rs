@@ -498,11 +498,14 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         seed: u64,
         settings: &PlayerSettings,
         persister: Persister,
-        engine: E,
+        mut engine: E,
         jobs: J,
     ) -> Self {
         let state = starting_state(config, seed, settings, persister.load());
         let schedule = SaveSchedule::new(state.saved(), Instant::now());
+        // The engine starts at gain 1.0: hand it the restored volume and
+        // mute (AC15), or they are shown but not heard.
+        engine.send(audio::Command::SetGain(state.gain()));
         let mut runtime = Self::with_state(state, engine, jobs);
         runtime.persistence = Some(Persistence {
             persister,
@@ -2804,7 +2807,7 @@ mod tests {
     /// Spec 0009 AC9: the standalone player restores before its first
     /// frame: the `Welcome` the TUI draws first already holds the
     /// remembered queue, stopped at its position, and nothing was resolved
-    /// or sent to the engine; a corrupt file is the player's message; quit
+    /// or sent to the engine but the restored gain (AC15); a corrupt file is the player's message; quit
     /// saves what changed.
     #[test]
     fn ac9_standalone_restores() {
@@ -2821,7 +2824,11 @@ mod tests {
             saved.current,
             "the current entry is marked"
         );
-        assert_eq!(take(&log), vec![], "nothing resolved or played");
+        assert_eq!(
+            take(&log),
+            vec![Call::SetGain(0.7f64.powi(3) as f32)],
+            "nothing resolved or played"
+        );
 
         // Quit (as `q` does): the change is saved before the player ends.
         client
