@@ -57,6 +57,7 @@ Not remembered: the playing/paused state (a restored player is always stopped, s
 - `space` (`TogglePause` on a stopped player with a current entry, 0004) plays the current entry **from the restored position**; `Next`, `Previous`, `PlayEntry` behave as on any stopped player
 - A restored position at or past the entry's known duration is restored as `0:00`. A current entry ID that is not in the queue, or a play order that is not a permutation of the entries, is repaired: no current entry and position `0:00`; the play order rebuilt from the original order with shuffle **off**. Repairs are silent (the file was written by us; a hand-edited file gets what it can)
 - Volume above 100 is clamped to 100
+- The restored volume and mute are what is heard: the player hands the audio engine their gain when it starts, before any input, so the first track plays at the restored volume (AC15)
 - `tidal-player ITEM…` with no player running restores first, then handles its `Open` as today (0005): the items replace the queue and play; shuffle, repeat, autoplay and volume stay restored
 - `tidal-player play ITEM…` (the headless foreground command, 0004) neither reads nor writes the file: it plays exactly what it was given, with its own flags
 
@@ -128,7 +129,7 @@ Reading (`tidal-player::persist`, temp dir):
 
 Runtime and modes (`tidal-player`):
 
-- **AC8** — Daemon restart (0005's daemon harness, mock API, temp state dir): load a queue, shuffle on, repeat queue, volume 70, seek to 1:23, `daemon stop`; start the daemon again: the first `Welcome` of a new client equals the saved snapshot with state `Stopped` (position within the harness's tolerance), and the mock API received no request and the fake engine no command before the client's `TogglePause`; after it, the engine's `Play` starts at the saved position
+- **AC8** — Daemon restart (0005's daemon harness, mock API, temp state dir): load a queue, shuffle on, repeat queue, volume 70, seek to 1:23, `daemon stop`; start the daemon again: the first `Welcome` of a new client equals the saved snapshot with state `Stopped` (position within the harness's tolerance), and the mock API received no request and the fake engine no command but the restored gain (AC15) before the client's `TogglePause`; after it, the engine's `Play` starts at the saved position
 - **AC9** — Standalone and one-shot: a standalone player (the in-process harness of 0004) restores before its first frame; `tidal-player ITEM` over a remembered state replaces the queue and keeps the restored modes and volume; `tidal-player play ITEM` leaves an existing `playback.json` byte-for-byte unchanged and does not create one in an empty state dir
 - **AC10** — Only the player touches the file: 0005's `ac14` test (a client's state dir stays empty) stays green unchanged, with a new row in which the player's state dir holds a `playback.json` that the client run leaves byte-for-byte unchanged
 - **AC11** — `remember_playback` (0008's `app.toml` and precedence tables gain its rows: `true`, `false`, wrong type, `TIDAL_PLAYER_REMEMBER_PLAYBACK=off` over a file's `true`, an invalid variable is an error): off → no read, no write, an existing file untouched
@@ -138,6 +139,7 @@ Runtime and modes (`tidal-player`):
 TUI and docs:
 
 - **AC14** — Rendering (`insta`, 80×24, reviewed by eye, + `contains`): a restored state shows `■`, the current track's title, `1:23 / 4:56` and the progress bar at that point, and the queue with the current entry marked; the corrupt-file message on the message row. `docs/playback.md` "Resuming the last session" (what is remembered, when it is saved, where, how to turn it off, what a corrupt file does), `docs/daemon.md`, `docs/config.md`, `docs/login.md`, their zh-TW copies, `README.md`/`README.zh-TW.md` and `CLAUDE.md` "Features" say so; the "until 0009" notes in 0004, 0005 and 0006–0008 point here. A test checks `remember_playback` appears in `docs/config.md` (0008 AC17's test, new row)
+- **AC15** — A restored player's engine starts at the restored gain (table: volume 70 → `SetGain(0.343)`; muted at 40 → `SetGain(0.0)`; no file → `SetGain(1.0)`): `PlayerRuntime::restored` sends exactly that `SetGain` and nothing else before its first input, and the `Play` after `TogglePause` follows it
 
 ## Edge cases & errors
 
@@ -176,6 +178,7 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC12 | `crates/app/src/play.rs` :: `ac12_autoplay_precedence` (table) | winning autoplay per source | stub lets `app.toml` beat the remembered mode |
 | AC13 | `crates/app/tests/cli.rs` :: the 0002 `logout` tests (unchanged) + `ac13_logout_forgets_playback` | files gone, output unchanged | stub `logout` leaves the files |
 | AC14 | `crates/app/src/ui.rs` :: `ac14_restored_80x24`, `ac14_restore_message_80x24`; `crates/app/tests/docs.rs` :: `ac17_every_command_documented` (new row) + reviewed at acceptance | `contains` + snapshots; docs | stub snapshot has no current entry |
+| AC15 | `crates/app/src/player_runtime.rs` :: `ac15_restored_gain_reaches_engine` (table) | the fake engine's first command is `SetGain` at the restored gain, before `Play` | no `SetGain` is sent: the engine stays at 1.0 |
 
 Checked by hand at acceptance on the user's machine (results in the PR description): `systemctl --user restart tidal-player` resumes the queue paused at the position and `space` plays from there on the DAC with no audible jump from 0:00; quitting and restarting the standalone TUI does the same; a reboot resumes with the daemon silent until played.
 
@@ -225,3 +228,7 @@ Assumptions, checked at acceptance: `rename(2)` within the state directory is at
 - **Wiring**: `PlayerRuntime::restored(…)` (daemon and standalone, built before the socket is bound) loads and saves; `PlayerRuntime::new` remembers nothing (`play` and the older tests)
 - **Tests**: AC8's "`Play` at the saved position" is proven with the fake engine in `player_runtime.rs :: ac8_play_at_saved_position` (the daemon under test has no audio device); `ac8_daemon_resumes` checks the `Welcome`, no mock request before play and the stream request after it. `ac9_play_leaves_state_alone` is a guard that passed in red (`play` never persisted; making it red would have needed contrived code). AC14's snapshots are `ac14_restored_80x24` and `ac14_restore_message_80x24`; `runtime_saves_on_schedule` checks the wiring of the schedule and of a failed write
 - **Cost**: each handled input (engine positions included) clones the queue for `saved()`; fine at normal sizes, a candidate for trimming if a 10 000-entry queue shows up in profiles
+
+## Bugs
+
+- **The restored volume is shown but not heard (issue #41, reported by the user, 2026-10-18).** Expected ("Starting from the remembered state"): a daemon or standalone player that restores volume 70 % plays at 70 %. Actual: the TUI, `playback` and MPRIS show 70 %, but the audio plays at 100 % until the volume is changed once. Root cause: `PlayerState::restore` sets the volume and mute in the state only; the audio engine starts at gain 1.0 and receives `SetGain` only from the `EngineSetGain` effect that volume and mute commands emit, so nothing ever told it the restored gain. AC8 said "the fake engine no command before `TogglePause`", which the bug satisfied. Fix: `PlayerRuntime::restored` sends the engine the restored state's gain before any input (a `SetGain` touches neither the network nor the device, so AC8's point, nothing fetched or opened before play, holds; its wording now allows it). New criterion: AC15. Test: `crates/app/src/player_runtime.rs` :: `ac15_restored_gain_reaches_engine` (red: no `SetGain` in the fake engine's log); `ac8_play_at_saved_position` expects that `SetGain` before `TogglePause`
