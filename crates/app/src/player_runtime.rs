@@ -2894,7 +2894,8 @@ mod tests {
         let dir = state_dir_with(&saved);
         let (mut rt, log, rx) = restored_runtime(dir.path());
         assert_eq!(rt.snapshot(), restored_snapshot(&saved));
-        assert_eq!(take(&log), vec![]);
+        // Only the restored gain (AC15): nothing fetched, nothing opened.
+        assert_eq!(take(&log), vec![Call::SetGain(0.7f64.powi(3) as f32)]);
         rt.handle(RuntimeInput::Command(Command::TogglePause));
         while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
             rt.handle(input);
@@ -2918,6 +2919,43 @@ mod tests {
             !calls.iter().any(|c| matches!(c, Call::Seek(_))),
             "{calls:?}"
         );
+    }
+
+    /// Spec 0009 AC15 (issue #41): a restored player's engine starts at the
+    /// restored gain, sent before any input; playing needs no other.
+    #[test]
+    fn ac15_restored_gain_reaches_engine() {
+        let muted = tidal_player_core::SavedPlayback {
+            volume: 40,
+            muted: true,
+            ..remembered()
+        };
+        let rows = [
+            ("volume 70", Some(remembered()), 0.7f64.powi(3) as f32),
+            ("muted at 40", Some(muted), 0.0),
+            ("no file", None, 1.0),
+        ];
+        for (name, saved, gain) in rows {
+            let dir = match &saved {
+                Some(saved) => state_dir_with(saved),
+                None => tempfile::tempdir().unwrap(),
+            };
+            let (mut rt, log, rx) = restored_runtime(dir.path());
+            assert_eq!(take(&log), vec![Call::SetGain(gain)], "{name}");
+            if saved.is_none() {
+                continue;
+            }
+            rt.handle(RuntimeInput::Command(Command::TogglePause));
+            while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
+                rt.handle(input);
+            }
+            let calls = take(&log);
+            assert!(
+                calls.iter().any(|c| matches!(c, Call::Play { .. }))
+                    && !calls.iter().any(|c| matches!(c, Call::SetGain(_))),
+                "{name}: {calls:?}"
+            );
+        }
     }
 
     /// Spec 0009 "Saving", as the runtime wires it: a volume change is
