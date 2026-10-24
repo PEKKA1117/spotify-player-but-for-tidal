@@ -1,6 +1,6 @@
 //! Spec 0017 AC1–AC3, AC5 and AC6: colour and modifier syntax, building
 //! the theme list, the default theme, the Themes popup and its key, and
-//! the notices.
+//! the notices. AC16, AC17, AC19 and AC20: spec 0017 addendum 67055c40c1e2.
 
 use std::time::Duration;
 
@@ -77,7 +77,6 @@ fn ac1_palette_colours() {
         ("Reset", Some(Reset)),
         ("black", Some(Black)),
         ("red", Some(Red)),
-        ("green", Some(Green)),
         ("yellow", Some(Yellow)),
         ("blue", Some(Blue)),
         ("magenta", Some(Magenta)),
@@ -85,7 +84,6 @@ fn ac1_palette_colours() {
         ("gray", Some(Gray)),
         ("darkgray", Some(DarkGray)),
         ("lightred", Some(LightRed)),
-        ("lightgreen", Some(LightGreen)),
         ("lightyellow", Some(LightYellow)),
         ("lightblue", Some(LightBlue)),
         ("lightmagenta", Some(LightMagenta)),
@@ -162,10 +160,14 @@ fn spellings(color: PaletteColor) -> Vec<String> {
 }
 
 /// AC1: a style's colours: the sixteen palette names in every accepted
-/// spelling, and `#rrggbb`; nothing else.
+/// spelling (but two, spec 0017 addendum 67055c40c1e2), and `#rrggbb`;
+/// nothing else.
 #[test]
 fn ac1_style_colours() {
-    for color in PALETTE_COLORS {
+    for color in PALETTE_COLORS
+        .into_iter()
+        .filter(|c| !ENVY_NAMES.contains(c))
+    {
         for text in spellings(color) {
             assert_eq!(
                 parse_style_color(&text),
@@ -276,7 +278,7 @@ fn ac2_build_themes() {
             ("block_title", style(Some("Magenta"), None, &["Bold"])),
             ("border", fg("#44475a")),
             ("like", style(Some("White"), Some("bright_black"), &[])),
-            ("secondary_row", fg("Green")),
+            ("secondary_row", fg("Yellow")),
         ],
     )]))
     .unwrap();
@@ -295,7 +297,7 @@ fn ac2_build_themes() {
     );
     assert_eq!(
         theme.style(Component::SecondaryRow),
-        Style::new().fg(Color::Green)
+        Style::new().fg(Color::Yellow)
     );
     assert_eq!(
         theme.style(Component::Error),
@@ -925,4 +927,379 @@ fn ac6_both_notices() {
         );
         assert_eq!(state.message(), Some(want), "after Welcome");
     }
+}
+
+// --- AC16, AC17, AC19, AC20 (spec 0017 addendum 67055c40c1e2) ----------------
+
+const ENVY_NAMES: [PaletteColor; 2] = [PaletteColor::Green, PaletteColor::BrightGreen];
+
+const ENVY_INDICES: [u8; 32] = [
+    2, 10, 22, 28, 34, 40, 41, 46, 47, 65, 71, 72, 76, 77, 78, 82, 83, 84, 85, 107, 113, 114, 115,
+    119, 120, 121, 150, 155, 156, 157, 158, 193,
+];
+
+/// AC16: which hexes count, with the boundaries on each side.
+#[test]
+fn ac16_envy_hex() {
+    let rows: &[(&str, bool)] = &[
+        ("#00ff00", true),
+        ("#50fa7b", true),
+        ("#7fff00", true),
+        ("#7FFF00", true),
+        ("#00ff7f", true),
+        ("#80ff00", false),
+        ("#00ff80", false),
+        ("#64c800", true),
+        ("#00c864", true),
+        ("#96c896", true),
+        ("#98c898", false),
+        ("#6b8e6b", false),
+        ("#00ffff", false),
+        ("#ffff00", false),
+        ("#87ff00", false),
+        ("#00ff87", false),
+        ("#ff5555", false),
+        ("#8be9fd", false),
+        ("#808080", false),
+        ("#000000", false),
+        ("#ffffff", false),
+    ];
+    for (text, want) in rows {
+        let (r, g, b) = hex(text).unwrap();
+        assert_eq!(bombastine::is_envy(r, g, b), *want, "{text}");
+    }
+}
+
+/// AC16: a theme's first such hex (palette entries in the table's order,
+/// then the components in theirs, `fg` before `bg`), or none.
+#[test]
+fn ac16_theme_envy_hex() {
+    type Case<'a> = (&'a str, ThemeEntry, Option<(u8, u8, u8)>);
+    let cases: Vec<Case> = vec![
+        (
+            "no hex",
+            entry("x", &[("red", "bright_red")], vec![("border", fg("Cyan"))]),
+            None,
+        ),
+        (
+            "hexes, none counted",
+            entry(
+                "x",
+                &[("background", "#1e1f29"), ("cyan", "#8be9fd")],
+                vec![("border", fg("#ff5555"))],
+            ),
+            None,
+        ),
+        (
+            "an entry no style uses",
+            entry("x", &[("red", "#ff5555"), ("yellow", "#50fa7b")], vec![]),
+            Some((0x50, 0xfa, 0x7b)),
+        ),
+        (
+            "a bg",
+            entry(
+                "x",
+                &[],
+                vec![("border", style(None, Some("#00FF7F"), &[]))],
+            ),
+            Some((0x00, 0xff, 0x7f)),
+        ),
+        (
+            "the palette's order, not the file's",
+            entry(
+                "x",
+                &[("bright_cyan", "#7fff00"), ("background", "#00ff7f")],
+                vec![],
+            ),
+            Some((0x00, 0xff, 0x7f)),
+        ),
+        (
+            "the palette before the styles",
+            entry(
+                "x",
+                &[("white", "#00ff00")],
+                vec![("block_title", fg("#50fa7b"))],
+            ),
+            Some((0x00, 0xff, 0x00)),
+        ),
+        (
+            "the components' order, not the file's",
+            entry(
+                "x",
+                &[],
+                vec![
+                    ("like", style(Some("#00ff00"), None, &[])),
+                    ("block_title", style(None, Some("#50fa7b"), &[])),
+                ],
+            ),
+            Some((0x50, 0xfa, 0x7b)),
+        ),
+        (
+            "fg before bg",
+            entry(
+                "x",
+                &[],
+                vec![("border", style(Some("#00ff00"), Some("#50fa7b"), &[]))],
+            ),
+            Some((0x00, 0xff, 0x00)),
+        ),
+        (
+            "through the palette",
+            entry(
+                "x",
+                &[("magenta", "#7fff00")],
+                vec![("border", fg("Magenta"))],
+            ),
+            Some((0x7f, 0xff, 0x00)),
+        ),
+    ];
+    for (case, entry, want) in cases {
+        let themes = build(&file(vec![entry])).unwrap();
+        let theme = &themes.list()[1];
+        let want = want.map(|hex| Envy {
+            theme: "x".into(),
+            hex,
+        });
+        assert_eq!(theme.envy(), want, "{case}");
+    }
+    // Names and indices never count: the default theme's palette, and one
+    // of colours no `theme.toml` can give.
+    assert_eq!(Theme::default().envy(), None);
+    let mut palette = Palette::default();
+    palette.colors[PaletteColor::Red as usize] = Color::Indexed(46);
+    palette.colors[PaletteColor::Blue as usize] = Color::LightGreen;
+    let specs = [StyleSpec {
+        fg: Some(StyleColor::Palette(PaletteColor::Green)),
+        bg: Some(StyleColor::Palette(PaletteColor::Red)),
+        modifiers: Modifiers::NONE,
+    }; 18];
+    assert_eq!(Theme::resolve("y".into(), &palette, &specs).envy(), None);
+}
+
+/// AC17: two of the sixteen names are not a style's colours, in any
+/// spelling, and are the bad-colour error.
+#[test]
+fn ac17_envy_names_refused() {
+    let mut texts: Vec<String> = ENVY_NAMES.into_iter().flat_map(spellings).collect();
+    texts.extend(["green", "GREEN", "bright_green", "Bright Green"].map(str::to_owned));
+    for text in &texts {
+        assert_eq!(parse_style_color(text), None, "{text:?}");
+    }
+    for field in ["fg", "bg"] {
+        for text in &texts {
+            let value = Some(text.as_str());
+            let (fg, bg) = if field == "fg" {
+                (value, None)
+            } else {
+                (None, value)
+            };
+            let err = build(&file(vec![
+                entry("ok", &[], vec![]),
+                entry("x", &[], vec![("current_playing", style(fg, bg, &[]))]),
+            ]))
+            .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "themes[1].component_style.current_playing.{field}: invalid colour \"{text}\" (a palette name such as BrightBlack, or #rrggbb)"
+                ),
+                "{field} {text:?}"
+            );
+        }
+    }
+}
+
+/// AC17: the palette values ratatui reads as two of its names are
+/// refused; the palette's own entries of those names still take others.
+#[test]
+fn ac17_envy_palette_refused() {
+    for text in [
+        "green",
+        "Green",
+        "GREEN",
+        "lightgreen",
+        "light-green",
+        "Light Green",
+        "bright_green",
+        "Bright Green",
+        "brightgreen",
+        "BRIGHT-GREEN",
+    ] {
+        assert_eq!(parse_palette_color(text), None, "{text:?}");
+        let err = build(&file(vec![
+            entry("ok", &[], vec![]),
+            entry("x", &[("red", "#ff5555"), ("cyan", text)], vec![]),
+        ]))
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("themes[1].palette.cyan: invalid colour \"{text}\""),
+            "{text:?}"
+        );
+    }
+    let rows: [(&str, Color); 3] = [
+        ("#ff0000", rgb(0xff0000)),
+        ("red", Color::Red),
+        ("9", Color::Indexed(9)),
+    ];
+    for (text, want) in rows {
+        let themes = build(&file(vec![entry(
+            "x",
+            &[("green", text), ("bright_green", text)],
+            vec![],
+        )]))
+        .unwrap_or_else(|e| panic!("{text:?}: {e}"));
+        let palette_of = |name: PaletteColor| {
+            let mut specs = COMPONENTS.map(Component::default_style);
+            specs[0] = StyleSpec {
+                fg: Some(StyleColor::Palette(name)),
+                ..StyleSpec::default()
+            };
+            specs
+        };
+        // The entry is read: a style naming it would get it (built here,
+        // as no `theme.toml` style can name it).
+        let mut palette = Palette::default();
+        for name in ENVY_NAMES {
+            palette.colors[name as usize] = want;
+            let theme = Theme::resolve("x".into(), &palette, &palette_of(name));
+            assert_eq!(
+                theme.style(Component::BlockTitle).fg,
+                Some(want),
+                "{text:?}"
+            );
+        }
+        assert_eq!(themes.list()[1].envy(), None, "{text:?}");
+    }
+}
+
+/// AC17: exactly the 32 indices are refused; the rest are the indexed
+/// colours.
+#[test]
+fn ac17_envy_indices() {
+    for index in 0..=255u8 {
+        let want = (!ENVY_INDICES.contains(&index)).then_some(Color::Indexed(index));
+        assert_eq!(parse_palette_color(&index.to_string()), want, "{index}");
+        assert_eq!(bombastine::is_envy_index(index), want.is_none(), "{index}");
+    }
+    for index in [118, 48, 6, 14].into_iter().chain(232..=255) {
+        assert_eq!(
+            parse_palette_color(&index.to_string()),
+            Some(Color::Indexed(index)),
+            "{index}"
+        );
+    }
+}
+
+/// `default`, `calm`, then a theme with a counted hex, then `after`.
+fn with_envy() -> Themes {
+    build(&file(vec![
+        entry("calm", &[("background", "#1e1f29")], vec![]),
+        entry("envy", &[("bright_cyan", "#50fa7b")], vec![]),
+        entry("after", &[("background", "#282828")], vec![]),
+    ]))
+    .unwrap()
+}
+
+/// AC19: the Themes popup's cursor landing on a theme with a counted hex
+/// is the TUI's exit (an outcome, not a panic), and that theme is never
+/// the one drawn; onto any other theme, the preview.
+#[test]
+fn ac19_preview_envy_exits() {
+    use Key::{Char, Enter, Esc};
+    let exit = || {
+        vec![Effect::Envy(Envy {
+            theme: "envy".into(),
+            hex: (0x50, 0xfa, 0x7b),
+        })]
+    };
+    // (keys after `T`, the effects of the last key, the theme drawn)
+    type Case = (Vec<Key>, Vec<Effect>, usize);
+    let cases: Vec<Case> = vec![
+        (vec![Char('j')], vec![], 1),
+        (vec![Char('j'), Char('j')], exit(), 1),
+        (vec![Char('G')], vec![], 3),
+        (vec![Char('G'), Char('k')], exit(), 3),
+        (vec![Char('j'), Char('j'), Enter], vec![], 1),
+        (vec![Char('j'), Char('j'), Esc], vec![], 0),
+    ];
+    for (keys, want, theme) in cases {
+        let mut state = State::default();
+        update(
+            &mut state,
+            Action::Player(protocol::Event::Player(snapshot())),
+        );
+        apply_themes(&mut state, with_envy(), 0);
+        press(&mut state, &[Char('T')]);
+        let (last, before) = keys.split_last().unwrap();
+        for key in before {
+            press(&mut state, &[*key]);
+            assert_ne!(state.theme, 2, "{keys:?}: drawn");
+        }
+        assert_eq!(press(&mut state, &[*last]), want, "{keys:?}");
+        assert_eq!(state.theme, theme, "{keys:?}");
+        assert_ne!(state.theme().name, "envy", "{keys:?}");
+    }
+}
+
+/// AC20: the draw: the list in order, wrapping; twenty-six distinct
+/// single lines, none empty, none naming the colour.
+#[test]
+fn ac20_bombastine_draw() {
+    let lines = [
+        "That hue? On my stage? Strike the set and begin again.",
+        "You dress your terminal in my sky and expect applause? Only I wear envy well.",
+        "A playwright knows a bad costume when he sees one. This is a bad costume.",
+        "Fate and small, jealous palettes conspire against me, and now you bring me this?",
+        "Bold choice, darling. Wrong, but bold. Only I may be both.",
+        "I showed your theme to the Dominus. He laughed. At you.",
+        "Go and touch the grass of the Agora. Not here. Never here.",
+        "I have seen better taste in a peasant's salad, and I have never deigned to eat one.",
+        "Spotify wears that colour better than you, and I cannot bear that anyone wears it better than me.",
+        "No. You know what you did. The serpents on my mask know it too.",
+        "Kermit wants his palette back, and even he is adored more than you.",
+        "My audience is allergic to that shade, and so, naturally, am I.",
+        "Even Luscinia was never given a colour this vulgar, and Thrax gave her everything.",
+        "Did you mean to stage a spreadsheet? I do not perform for spreadsheets.",
+        "An ogre's swamp is not a set design.",
+        "Error 404: taste not found. Mine, of course, is everywhere.",
+        "The pixels have walked off my stage. They refuse your colour, as they should.",
+        "Envy is not a personality. It is my personality, and you may not have it.",
+        "Sixteen million colours, and you chose the one I made famous?",
+        "Mint condition? Mint confusion. The critics will be merciless, and I am the critics.",
+        "Such a colour. I covet it. Hand it over and leave my sight.",
+        "Greedy eyes watch your palette from above, and every one of them is mine.",
+        "That is my sky over Duviri. Your terminal may not borrow it.",
+        "Toxin damage applied to your taste. A fitting second act.",
+        "The Spiral turned to Envy without you. How dare you steal my scene?",
+        "I am Bombastine, the Covetous Courtier, and even I would not wear that.",
+    ];
+    assert_eq!(bombastine::BOMBASTINE, lines);
+    for (seed, line) in lines.iter().enumerate() {
+        assert_eq!(bombastine::insult(seed as u64), *line, "{seed}");
+    }
+    let rows: [(u64, usize); 4] = [(26, 0), (27, 1), (51, 25), (u64::MAX, 15)];
+    for (seed, index) in rows {
+        assert_eq!(bombastine::insult(seed), lines[index], "{seed}");
+    }
+    let distinct: std::collections::BTreeSet<&str> = lines.into_iter().collect();
+    assert_eq!(distinct.len(), 26);
+    for line in lines {
+        assert!(!line.is_empty() && !line.contains(['\n', '\r']), "{line:?}");
+        assert!(!line.to_lowercase().contains("gr\u{65}en"), "{line:?}");
+    }
+    // The line the TUI prints.
+    let envy = Envy {
+        theme: "dracula".into(),
+        hex: (0x50, 0xfa, 0x7b),
+    };
+    assert_eq!(
+        envy.line(10),
+        "theme.toml: \"dracula\" (#50fa7b): Bombastine: Kermit wants his palette back, and even he is adored more than you."
+    );
+    assert_eq!(
+        envy.line(36),
+        envy.line(10),
+        "the seed picks the insult alone"
+    );
 }

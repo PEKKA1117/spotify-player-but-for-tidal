@@ -148,7 +148,7 @@ fn ac14_example_theme_toml_loads() {
         Some(&["default", "spotify_player"][..]),
         "{names:?}"
     );
-    for sample in ["dracula", "gruvbox_dark", "catppuccin_mocha", "tokyonight"] {
+    for sample in ["solarized_dark", "solarized_light", "tokyonight"] {
         assert!(names.contains(&sample), "{sample}: {names:?}");
     }
     assert!(
@@ -170,7 +170,7 @@ fn ac14_example_theme_toml_loads() {
         (PlaybackMetadata, Style::new().fg(Color::DarkGray)),
         (
             PlaybackProgressBar,
-            Style::new().fg(Color::Green).bg(Color::DarkGray),
+            Style::new().fg(Color::Cyan).bg(Color::DarkGray),
         ),
         (
             PlaybackProgressBarUnfilled,
@@ -178,7 +178,7 @@ fn ac14_example_theme_toml_loads() {
         ),
         (
             CurrentPlaying,
-            Style::new().fg(Color::Green).add(Modifiers::BOLD),
+            Style::new().fg(Color::Cyan).add(Modifiers::BOLD),
         ),
         (PageDesc, cyan_bold),
         (
@@ -195,6 +195,10 @@ fn ac14_example_theme_toml_loads() {
         (Error, Style::new().fg(Color::Red)),
         (Prompt, Style::new().add(Modifiers::BOLD)),
     ];
+    // Spec 0017 addendum 67055c40c1e2.
+    for theme in themes.list() {
+        assert_eq!(theme.envy(), None, "{}", theme.name);
+    }
     let theme = &themes.list()[1];
     assert_eq!(theme.screen, Style::new());
     for (component, want) in column {

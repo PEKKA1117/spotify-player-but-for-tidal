@@ -658,3 +658,94 @@ fn ac7_missing_theme_toml_runs() {
     let (code, stdout, stderr) = run(cmd);
     assert_runs(code, &stdout, &stderr, "missing directory");
 }
+
+// --- spec 0017 addendum 67055c40c1e2 AC18 -----------------------------------------
+
+/// A `theme.toml` whose second theme has a counted hex in its palette.
+const ENVY_THEMES: &[u8] = b"[[themes]]\nname = \"calm\"\n[themes.palette]\nbackground = \"#1e1f29\"\n\n[[themes]]\nname = \"dracula\"\n[themes.palette]\nred = \"#ff5555\"\nyellow = \"#50FA7B\"\n";
+
+/// AC18: the chosen theme with a counted hex ends the TUI at start, from
+/// each source: exit 2, one line, before anything starts.
+#[test]
+fn ac18_envy_theme_exits_2() {
+    use tidal_player_core::ui::theme::bombastine::BOMBASTINE;
+    // (case, app.toml, the variable, the flag)
+    type Case<'a> = (&'a str, &'a [u8], Option<&'a str>, &'a [&'a str]);
+    let cases: [Case; 3] = [
+        ("app.toml", b"theme = \"dracula\"\n", None, &[]),
+        ("the variable", b"", Some("dracula"), &[]),
+        ("the flag", b"theme = \"calm\"\n", None, &["-t", "dracula"]),
+    ];
+    let prefix = "theme.toml: \"dracula\" (#50fa7b): Bombastine: ";
+    for (case, app, var, flag) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = config_dir(
+            tmp.path(),
+            &[("app.toml", app), ("theme.toml", ENVY_THEMES)],
+        );
+        let mut cmd = themed_bin(tmp.path());
+        cmd.arg("-c").arg(&config).args(flag);
+        if let Some(var) = var {
+            cmd.env("TIDAL_PLAYER_THEME", var);
+        }
+        let (code, stdout, stderr) = run(cmd);
+        let label = format!("{case}: {stdout:?} {stderr:?}");
+        assert_eq!(code, 2, "{label}");
+        assert_eq!(stderr.lines().count(), 1, "{label}");
+        let insult = stderr
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix('\n'))
+            .unwrap_or_else(|| panic!("{label}"));
+        assert!(BOMBASTINE.contains(&insult), "{label}");
+        assert!(
+            !stderr.contains("panicked") && !stderr.contains("backtrace"),
+            "{label}"
+        );
+        assert!(
+            !stdout.contains('\u{1b}') && !stderr.contains('\u{1b}'),
+            "{label}"
+        );
+        assert!(!stdout.contains("Not logged in."), "{label}");
+        assert!(!tmp.path().join("run").exists(), "nothing started: {label}");
+    }
+}
+
+/// AC18: a theme with a counted hex that is not chosen does nothing.
+#[test]
+fn ac18_unchosen_envy_theme_starts() {
+    for app in [&b""[..], b"theme = \"calm\"\n"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = config_dir(
+            tmp.path(),
+            &[("app.toml", app), ("theme.toml", ENVY_THEMES)],
+        );
+        let mut cmd = themed_bin(tmp.path());
+        cmd.arg("-c").arg(&config);
+        let (code, stdout, stderr) = run(cmd);
+        assert_runs(code, &stdout, &stderr, &String::from_utf8_lossy(app));
+    }
+}
+
+/// AC18: `daemon` and `play` do not read `theme.toml`, so the chosen
+/// theme's colours change nothing for them.
+#[test]
+fn ac18_daemon_ignores_envy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = config_dir(
+        tmp.path(),
+        &[
+            ("app.toml", b"theme = \"dracula\"\n"),
+            ("theme.toml", ENVY_THEMES),
+        ],
+    );
+    for args in [&["daemon"][..], &["play", "1"][..]] {
+        let mut cmd = themed_bin(tmp.path());
+        cmd.args(args).arg("-c").arg(&config);
+        let (code, _, stderr) = run(cmd);
+        assert_eq!(
+            (code, stderr.as_str()),
+            (1, "Not logged in: run \"tidal-player login\"\n"),
+            "{args:?}"
+        );
+    }
+}

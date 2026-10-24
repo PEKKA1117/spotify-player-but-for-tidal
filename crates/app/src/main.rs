@@ -1,6 +1,7 @@
 //! `tidal-player` binary: CLI parsing and terminal wiring. Logic lives in the
 //! library (see docs/specs/0001-architecture.md).
 
+use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -54,6 +55,7 @@ use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
+use tidal_player_core::ui::theme::Envy;
 use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, Themes, update};
 
 /// Terminal Tidal player.
@@ -197,14 +199,14 @@ const FRAME: Duration = Duration::from_millis(100);
 /// The TUI, as a client of a player (spec 0005 "The TUI as a client"):
 /// the standalone TUI's own player in-process, or another process's over
 /// the socket. Keys become commands; the screen changes with the player's
-/// messages only.
+/// messages only. `Some`: it ended on [`Effect::Envy`].
 fn run<C: Connector>(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     session: &mut Session<C>,
     mut state: State,
     hint_delay: Duration,
     mut cover: Option<TuiCover>,
-) -> Result<()> {
+) -> Result<Option<Envy>> {
     let mut actions = Vec::new();
     // Spec 0013: the hint shows once a sequence has been pending this long.
     let mut hint_timer = HintTimer::new(hint_delay);
@@ -228,10 +230,11 @@ fn run<C: Connector>(
         for action in actions.drain(..) {
             for effect in update(&mut state, action) {
                 match effect {
-                    Effect::Quit => return Ok(()),
+                    Effect::Quit => return Ok(None),
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
+                    Effect::Envy(envy) => return Ok(Some(envy)),
                 }
             }
         }
@@ -620,7 +623,7 @@ fn attached(
     let mut session = Session::new(SocketConnector::new(socket), connection, open);
     let result = tui(&mut session, state, hint_delay, &cover);
     restore_terminal();
-    result.map(|()| ExitCode::SUCCESS)
+    result.map(|envy| finish(envy.as_ref()))
 }
 
 /// The standalone player with its TUI (0004), holding `lock`: the TUI is
@@ -725,7 +728,7 @@ fn standalone(
     }
     drop(lock);
     restore_terminal();
-    result.map(|()| ExitCode::SUCCESS)
+    result.map(|envy| finish(envy.as_ref()))
 }
 
 /// The TUI's album cover (spec 0016): its geometry and its loader.
@@ -734,14 +737,14 @@ struct TuiCover {
     cover: Cover<ratatui_image::protocol::Protocol>,
 }
 
-/// Runs the TUI until the user quits; the terminal is left for the caller
-/// to restore.
+/// Runs the TUI until the user quits (see [`run`]); the terminal is left
+/// for the caller to restore.
 fn tui<C: Connector>(
     session: &mut Session<C>,
     state: State,
     hint_delay: Duration,
     cover: &cover::Settings,
-) -> Result<()> {
+) -> Result<Option<Envy>> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
     execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)
@@ -774,6 +777,26 @@ fn start_cover(settings: &cover::Settings) -> Option<TuiCover> {
         },
         cover: Cover::new(loader, settings.cache_on),
     })
+}
+
+/// The exit code and the stderr line of a TUI that ended on `envy` (spec
+/// 0017 addendum 67055c40c1e2), or on `q` (`None`).
+fn ending(envy: Option<&Envy>, seed: u64) -> (u8, Option<String>) {
+    match envy {
+        None => (0, None),
+        Some(envy) => (2, Some(envy.line(seed))),
+    }
+}
+
+/// The TUI's exit code for `envy` (see [`ending`]), its line printed; the
+/// terminal is already restored.
+fn finish(envy: Option<&Envy>) -> ExitCode {
+    let seed = RandomState::new().build_hasher().finish();
+    let (code, line) = ending(envy, seed);
+    if let Some(line) = line {
+        eprintln!("{line}");
+    }
+    ExitCode::from(code)
 }
 
 fn env_var(key: &str) -> Option<String> {
@@ -976,6 +999,10 @@ fn main() -> Result<ExitCode> {
                     return Ok(ExitCode::from(2));
                 }
             };
+            // Spec 0017 addendum 67055c40c1e2.
+            if let Some(envy) = files.themes.list().get(files.theme).and_then(|t| t.envy()) {
+                return Ok(finish(Some(&envy)));
+            }
             tui_main(&plan, &app, files, &items, mode)
         }
     }
@@ -984,6 +1011,33 @@ fn main() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 0017 addendum 67055c40c1e2 AC19: the TUI's ending, as its exit
+    /// code and its stderr line.
+    #[test]
+    fn ac19_envy_exit_code_and_message() {
+        let envy = Envy {
+            theme: "dracula".into(),
+            hex: (0x50, 0xfa, 0x7b),
+        };
+        let line = "theme.toml: \"dracula\" (#50fa7b): Bombastine: Kermit wants his palette back, and even he is adored more than you.";
+        // (the outcome, the seed, the exit code and the line)
+        type Row<'a> = (Option<&'a Envy>, u64, (u8, Option<&'a str>));
+        let rows: [Row; 4] = [
+            (None, 10, (0, None)),
+            (None, 0, (0, None)),
+            (Some(&envy), 10, (2, Some(line))),
+            (Some(&envy), 36, (2, Some(line))),
+        ];
+        for (outcome, seed, (code, message)) in rows {
+            let (got, text) = ending(outcome, seed);
+            assert_eq!(
+                (got, text.as_deref()),
+                (code, message),
+                "{outcome:?} {seed}"
+            );
+        }
+    }
 
     /// AC28: `--add-to-queue` and `--play-next` parse into the matching
     /// `at`, are mutually exclusive and need an item.

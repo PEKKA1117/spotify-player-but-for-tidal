@@ -153,9 +153,14 @@ mod tests {
             ]);
         }
         for text in rows {
+            // Two of ratatui's names are refused (spec 0017 addendum
+            // 67055c40c1e2).
+            let want = Color::from_str(&text)
+                .ok()
+                .filter(|c| !matches!(c, Color::Green | Color::LightGreen));
             assert_eq!(
                 parse_palette_color(&text).map(super::color),
-                Color::from_str(&text).ok(),
+                want,
                 "{text:?}"
             );
         }
