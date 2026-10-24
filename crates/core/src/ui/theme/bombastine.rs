@@ -31,18 +31,58 @@ pub const BOMBASTINE: [&str; 26] = [
 ];
 
 /// The line `seed` draws from [`BOMBASTINE`].
-pub fn insult(_seed: u64) -> &'static str {
-    BOMBASTINE[0]
+pub fn insult(seed: u64) -> &'static str {
+    BOMBASTINE[(seed % BOMBASTINE.len() as u64) as usize]
 }
 
 /// Spec 0017 addendum 67055c40c1e2 decision 8.
-pub fn is_envy(_r: u8, _g: u8, _b: u8) -> bool {
-    false
+pub fn is_envy(r: u8, g: u8, b: u8) -> bool {
+    if g <= r || g <= b {
+        return false;
+    }
+    let (r, g, b) = (u32::from(r), u32::from(g), u32::from(b));
+    let spread = g - r.min(b);
+    2 * r.abs_diff(b) <= spread && 4 * spread >= g
 }
 
 /// Spec 0017 addendum 67055c40c1e2 decision 12.
-pub fn is_envy_index(_index: u8) -> bool {
-    false
+pub fn is_envy_index(index: u8) -> bool {
+    let (r, g, b) = xterm(index);
+    is_envy(r, g, b)
+}
+
+/// xterm's colour for `index`.
+fn xterm(index: u8) -> (u8, u8, u8) {
+    const SYSTEM: [(u8, u8, u8); 16] = [
+        (0x00, 0x00, 0x00),
+        (0xcd, 0x00, 0x00),
+        (0x00, 0xcd, 0x00),
+        (0xcd, 0xcd, 0x00),
+        (0x00, 0x00, 0xee),
+        (0xcd, 0x00, 0xcd),
+        (0x00, 0xcd, 0xcd),
+        (0xe5, 0xe5, 0xe5),
+        (0x7f, 0x7f, 0x7f),
+        (0xff, 0x00, 0x00),
+        (0x00, 0xff, 0x00),
+        (0xff, 0xff, 0x00),
+        (0x5c, 0x5c, 0xff),
+        (0xff, 0x00, 0xff),
+        (0x00, 0xff, 0xff),
+        (0xff, 0xff, 0xff),
+    ];
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    match index {
+        0..=15 => SYSTEM[usize::from(index)],
+        16..=231 => {
+            let i = usize::from(index - 16);
+            (LEVELS[i / 36], LEVELS[i / 6 % 6], LEVELS[i % 6])
+        }
+        _ => {
+            let level = 8 + 10 * (index - 232);
+            (level, level, level)
+        }
+    }
 }
 
 /// A theme and its first colour under [`is_envy`].
@@ -54,7 +94,12 @@ pub struct Envy {
 
 impl Envy {
     /// The line on stderr, with the insult `seed` draws.
-    pub fn line(&self, _seed: u64) -> String {
-        String::new()
+    pub fn line(&self, seed: u64) -> String {
+        let (r, g, b) = self.hex;
+        format!(
+            "theme.toml: \"{}\" (#{r:02x}{g:02x}{b:02x}): Bombastine: {}",
+            self.theme,
+            insult(seed)
+        )
     }
 }

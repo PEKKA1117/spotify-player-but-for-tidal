@@ -333,7 +333,7 @@ pub fn parse_palette_color(text: &str) -> Option<Color> {
         .replace("lightblack", "darkgray")
         .replace("lightwhite", "white")
         .replace("lightgray", "white");
-    Some(match name.as_str() {
+    let color = match name.as_str() {
         "reset" => Color::Reset,
         "black" => Color::Black,
         "red" => Color::Red,
@@ -358,7 +358,13 @@ pub fn parse_palette_color(text: &str) -> Option<Color> {
                 Color::Rgb(r, g, b)
             }
         },
-    })
+    };
+    // Spec 0017 addendum 67055c40c1e2.
+    match color {
+        Color::Green | Color::LightGreen => None,
+        Color::Indexed(index) if bombastine::is_envy_index(index) => None,
+        color => Some(color),
+    }
 }
 
 /// A component style's colour: a palette name (`Black` … `BrightWhite`,
@@ -367,6 +373,8 @@ pub fn parse_style_color(text: &str) -> Option<StyleColor> {
     let name = text.to_lowercase().replace([' ', '-', '_'], "");
     PALETTE_COLORS
         .into_iter()
+        // Spec 0017 addendum 67055c40c1e2.
+        .filter(|color| !matches!(color, PaletteColor::Green | PaletteColor::BrightGreen))
         .find(|color| color.key().replace('_', "") == name)
         .map(StyleColor::Palette)
         .or_else(|| hex(text).map(|(r, g, b)| StyleColor::Rgb(r, g, b)))
@@ -523,6 +531,7 @@ pub struct Theme {
     pub name: String,
     pub screen: Style,
     styles: [Style; 18],
+    envy: Option<(u8, u8, u8)>,
 }
 
 impl Default for Theme {
@@ -547,10 +556,21 @@ impl Theme {
         if let Some(fg) = palette.foreground {
             screen = screen.fg(fg);
         }
+        let styles = specs.map(|spec| spec.resolve(palette));
+        let envy = [palette.background, palette.foreground]
+            .into_iter()
+            .flatten()
+            .chain(palette.colors)
+            .chain(styles.iter().flat_map(|s| [s.fg, s.bg]).flatten())
+            .find_map(|color| match color {
+                Color::Rgb(r, g, b) if bombastine::is_envy(r, g, b) => Some((r, g, b)),
+                _ => None,
+            });
         Self {
             name,
             screen,
-            styles: specs.map(|spec| spec.resolve(palette)),
+            styles,
+            envy,
         }
     }
 
@@ -561,7 +581,10 @@ impl Theme {
 
     /// Spec 0017 addendum 67055c40c1e2.
     pub fn envy(&self) -> Option<Envy> {
-        None
+        self.envy.map(|hex| Envy {
+            theme: self.name.clone(),
+            hex,
+        })
     }
 }
 
@@ -990,6 +1013,10 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
                 state.themes.list().len(),
                 state.list_height,
             );
+            // Spec 0017 addendum 67055c40c1e2.
+            if let Some(envy) = state.themes.list()[cursor].envy() {
+                return vec![Effect::Envy(envy)];
+            }
             state.theme = cursor;
             state.popup = Some(Popup::Themes { cursor, active });
         }
