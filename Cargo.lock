@@ -5438,6 +5438,7 @@ version = "1.1.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",
+ "serde_json",
  "tempfile",
 ]
 

@@ -68,9 +68,10 @@ jobs:
           gh run watch "${run}" --exit-status --interval 30 > /dev/null
         env:
           GH_TOKEN: ${{ github.token }}
-      # Publishes core, api, audio, then tidal-player, in dependency order.
+      # Publishes, in dependency order, the crates whose version crates.io
+      # lacks: a release bumps only the crates that changed (spec 0018).
       - name: Publish to crates.io
-        run: cargo publish --workspace
+        run: cargo xtask publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_DEPLOY_KEY }}
       # The install instructions from .github/release-notes.md go above the

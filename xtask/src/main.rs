@@ -2,7 +2,8 @@
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: cargo xtask layering | cargo xtask wiki <out-dir>";
+const USAGE: &str =
+    "usage: cargo xtask layering | cargo xtask wiki <out-dir> | cargo xtask publish [--dry-run]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -14,6 +15,8 @@ fn main() -> ExitCode {
     {
         ["layering"] => layering(),
         ["wiki", out] => wiki(std::path::Path::new(out)),
+        ["publish"] => publish(false),
+        ["publish", "--dry-run"] => publish(true),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -53,6 +56,27 @@ fn wiki(out: &std::path::Path) -> ExitCode {
         }
         Err(e) => {
             eprintln!("wiki: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `cargo xtask publish [--dry-run]`: publish the crate versions crates.io
+/// lacks (spec 0018).
+fn publish(dry_run: bool) -> ExitCode {
+    let result = xtask::publish::workspace_crates(std::path::Path::new(".")).and_then(|crates| {
+        xtask::publish::run(
+            &crates,
+            &mut xtask::publish::Curl,
+            &mut xtask::publish::Cargo,
+            dry_run,
+            &mut std::io::stdout(),
+        )
+    });
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("publish: {e:#}");
             ExitCode::FAILURE
         }
     }

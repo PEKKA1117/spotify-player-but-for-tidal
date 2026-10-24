@@ -1,6 +1,6 @@
 # 0018 — The release workflow
 
-- **Status**: approved (2026-10-24)
+- **Status**: implemented (2026-10-24)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#50](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/50)
 - **Depends on**: 0001 (implemented: the workspace's crates and their dependency rules)
@@ -66,6 +66,13 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 - **Actual**: run 40090212356 failed in "Publish to crates.io": `error: crate tidal-player-api@1.1.0 already exists on crates.io index`. Nothing was uploaded, and no release was created
 - **Root cause**: `cargo publish --workspace` publishes every publishable crate and has no option to skip a version already on crates.io; #43's rule leaves unchanged crates at their published version
 - **New criteria**: AC1 (today's case), AC4. The `v1.2.0` tag is moved to the merged fix and pushed again (AC5)
+
+## Implementation notes
+
+- Output lines: `<name> <version>: already on crates.io` for a skip, `publishing <name> <version>` before each `cargo publish`, `would publish <name> <version>` under `--dry-run`; skips print first, then `nothing to publish` when nothing is planned
+- All index fetches happen before the first `cargo publish`, so a crates.io outage uploads nothing; the skipped list is in dependency order too
+- The fetcher runs `curl -sS -w '\n%{http_code}'` and reads the status from the last line; 200 is an entry, 404 never published, anything else an error
+- The dependency order uses normal and build dependencies between members (`cargo metadata --no-deps`); ties go by name
 
 ## Out of scope
 
