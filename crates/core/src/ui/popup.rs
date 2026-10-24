@@ -1,6 +1,7 @@
 //! The popups over a page (spec 0006 "Actions popup", "Role filter"): the
 //! actions list, *Add to playlist…*, the new-playlist name prompt, a `y/n`
-//! question and the role filter. Pure data and the actions per item.
+//! question and the role filter; the devices (spec 0014) and the themes
+//! (spec 0017). Pure data and the actions per item.
 
 use crate::item::Item;
 use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
@@ -122,6 +123,9 @@ pub enum Popup {
     /// The output devices (spec 0014): the player's list, and the cursor
     /// over [`device_rows`].
     Devices { list: DeviceList, cursor: usize },
+    /// The themes (spec 0017): the cursor over [`super::State::themes`],
+    /// and the theme in use when it opened (`●`), which `Esc` goes back to.
+    Themes { cursor: usize, active: usize },
 }
 
 /// The device list of [`Popup::Devices`].

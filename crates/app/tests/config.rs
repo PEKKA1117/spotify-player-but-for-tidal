@@ -344,3 +344,317 @@ fn ac9_cover_settings() {
         }
     }
 }
+
+// --- spec 0017 AC7: theme.toml and `theme` ----------------------------------------
+
+/// [`bin`] without the developer's `TIDAL_PLAYER_THEME`.
+fn themed_bin(tmp: &Path) -> Command {
+    let mut cmd = bin(tmp);
+    cmd.env_remove("TIDAL_PLAYER_THEME");
+    cmd
+}
+
+/// A config directory under `tmp` holding `files` (name, content).
+fn config_dir(tmp: &Path, files: &[(&str, &[u8])]) -> std::path::PathBuf {
+    let config = tmp.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    for (name, content) in files {
+        std::fs::write(config.join(name), content).unwrap();
+    }
+    config
+}
+
+/// The TUI got past its config files to the session check: with no
+/// session it asks to log in, which fails without the network (not 2).
+fn assert_runs(code: i32, stdout: &str, stderr: &str, label: &str) {
+    assert_ne!(code, 2, "{label}: {stdout:?} {stderr:?}");
+    assert!(
+        stdout.contains("Not logged in."),
+        "{label}: {stdout:?} {stderr:?}"
+    );
+    assert!(!stderr.contains("theme"), "{label}: {stderr:?}");
+}
+
+/// AC7: a broken `theme.toml` makes the TUI (flag or variable for the
+/// folder) exit 2 with `<path>: <message>` on one stderr line, before
+/// anything starts and with no escape sequences.
+#[test]
+fn ac7_broken_theme_exits_2() {
+    let cases: &[(&str, &[u8], &str)] = &[
+        (
+            "syntax",
+            b"[[themes]]\nname = \"a\"\n[themes.palette]\nred = #ff5555\n",
+            "line 4, column 7",
+        ),
+        (
+            "unknown field",
+            b"[[themes]]\nname = \"a\"\n\n[[themes]]\nname = \"b\"\ncolour = \"red\"\n",
+            "themes[1]: unknown field \"colour\"",
+        ),
+        (
+            "unknown palette colour",
+            b"[[themes]]\nname = \"a\"\n[themes.palette]\norange = \"#ffaa00\"\n",
+            "themes[0].palette: unknown colour \"orange\"",
+        ),
+        (
+            "bad palette colour",
+            b"[[themes]]\nname = \"a\"\n[themes.palette]\nred = \"#ff55\"\n",
+            "themes[0].palette.red: invalid colour \"#ff55\"",
+        ),
+        (
+            "unknown style",
+            b"[[themes]]\nname = \"a\"\n[themes.component_style]\nblok_title = { fg = \"Red\" }\n",
+            "themes[0].component_style: unknown style \"blok_title\"",
+        ),
+        (
+            "unknown style field",
+            b"[[themes]]\nname = \"a\"\n[themes.component_style]\nborder = { colour = \"Red\" }\n",
+            "themes[0].component_style.border: unknown field \"colour\", expected fg, bg or modifiers",
+        ),
+        (
+            "bad style colour",
+            b"[[themes]]\nname = \"a\"\n[themes.component_style]\nborder = { fg = \"Purpel\" }\n",
+            "themes[0].component_style.border.fg: invalid colour \"Purpel\" (a palette name such as BrightBlack, or #rrggbb)",
+        ),
+        (
+            "bad modifier",
+            b"[[themes]]\nname = \"a\"\n[themes.component_style]\nselection = { modifiers = [\"Blink\"] }\n",
+            "themes[0].component_style.selection: unknown modifier \"Blink\"",
+        ),
+        (
+            "missing name",
+            b"[[themes]]\nname = \"a\"\n\n[[themes]]\n[themes.palette]\nred = \"red\"\n",
+            "themes[1]: missing name",
+        ),
+        (
+            "name taken",
+            b"[[themes]]\nname = \"a\"\n\n[[themes]]\nname = \"a\"\n",
+            "themes[1]: \"a\" is already themes[0]",
+        ),
+        ("not UTF-8", &[0xff, 0xfe, 0x00], ""),
+    ];
+    for (case, content, message) in cases {
+        for how in ["-c", "variable"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let config = config_dir(tmp.path(), &[("theme.toml", content)]);
+            let mut cmd = themed_bin(tmp.path());
+            if how == "-c" {
+                cmd.arg("-c").arg(&config);
+            } else {
+                cmd.env("TIDAL_PLAYER_CONFIG_DIR", &config);
+            }
+            let (code, stdout, stderr) = run(cmd);
+            let label = format!("{case} / {how}: {stdout:?} {stderr:?}");
+            assert_eq!(code, 2, "{label}");
+            assert!(
+                stderr.starts_with(&format!("{}: ", config.join("theme.toml").display())),
+                "{label}"
+            );
+            assert!(stderr.contains(message), "{label}");
+            assert_eq!(stderr.lines().count(), 1, "{label}");
+            assert!(
+                !stderr.contains('\u{1b}') && !stdout.contains('\u{1b}'),
+                "{label}"
+            );
+            assert!(!tmp.path().join("run").exists(), "nothing started: {label}");
+        }
+    }
+}
+
+/// AC7: a `theme` no theme has, from `app.toml`, the variable or the flag,
+/// makes the TUI exit 2 naming the source and the themes there are.
+#[test]
+fn ac7_unknown_theme_exits_2() {
+    const THEMES: &[u8] = b"[[themes]]\nname = \"dracula\"\n";
+    let known = "(themes: default, dracula)";
+    // (case, app.toml, theme.toml, variable, flag, the message after the source)
+    type Case<'a> = (
+        &'a str,
+        &'a [u8],
+        Option<&'a [u8]>,
+        Option<&'a str>,
+        &'a [&'a str],
+        String,
+    );
+    let cases: Vec<Case> = vec![
+        (
+            "app.toml",
+            b"theme = \"draculla\"\n",
+            Some(THEMES),
+            None,
+            &[],
+            format!("app.toml: unknown theme \"draculla\" {known}"),
+        ),
+        (
+            "app.toml, no theme.toml",
+            b"theme = \"dracula\"\n",
+            None,
+            None,
+            &[],
+            "app.toml: unknown theme \"dracula\" (themes: default)".to_owned(),
+        ),
+        (
+            "variable",
+            b"theme = \"dracula\"\n",
+            Some(THEMES),
+            Some("nord"),
+            &[],
+            format!("TIDAL_PLAYER_THEME: unknown theme \"nord\" {known}"),
+        ),
+        (
+            "--theme",
+            b"",
+            Some(THEMES),
+            Some("dracula"),
+            &["--theme", "nord"],
+            format!("--theme: unknown theme \"nord\" {known}"),
+        ),
+        (
+            "-t",
+            b"",
+            Some(THEMES),
+            None,
+            &["-t", "Dracula"],
+            format!("--theme: unknown theme \"Dracula\" {known}"),
+        ),
+    ];
+    for (case, app, themes, var, flag, message) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut files: Vec<(&str, &[u8])> = vec![("app.toml", app)];
+        if let Some(themes) = themes {
+            files.push(("theme.toml", themes));
+        }
+        let config = config_dir(tmp.path(), &files);
+        let mut cmd = themed_bin(tmp.path());
+        cmd.arg("-c").arg(&config).args(flag);
+        if let Some(var) = var {
+            cmd.env("TIDAL_PLAYER_THEME", var);
+        }
+        let (code, stdout, stderr) = run(cmd);
+        let label = format!("{case}: {stdout:?} {stderr:?}");
+        assert_eq!(code, 2, "{label}");
+        assert!(stderr.ends_with(&format!("{message}\n")), "{label}");
+        assert_eq!(stderr.lines().count(), 1, "{label}");
+        if case.starts_with("app.toml") {
+            assert!(
+                stderr.starts_with(&format!("{}: ", config.join("app.toml").display())),
+                "{label}"
+            );
+        }
+        assert!(!tmp.path().join("run").exists(), "nothing started: {label}");
+    }
+}
+
+/// AC7: only the TUI reads `theme.toml` and checks the name (decision 5):
+/// `daemon` and `play` start with a broken `theme.toml` and an unknown
+/// `theme`, and get as far as the login check.
+#[test]
+fn ac7_daemon_ignores_theme_toml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = config_dir(
+        tmp.path(),
+        &[
+            ("app.toml", b"theme = \"draculla\"\n"),
+            ("theme.toml", b"[[themes]]\nname = \"a\"\ncolour = 1\n"),
+        ],
+    );
+    for args in [&["daemon"][..], &["play", "1"][..]] {
+        let mut cmd = themed_bin(tmp.path());
+        cmd.args(args).arg("-c").arg(&config);
+        cmd.env("TIDAL_PLAYER_THEME", "nord");
+        let (code, _, stderr) = run(cmd);
+        assert_eq!(
+            (code, stderr.as_str()),
+            (1, "Not logged in: run \"tidal-player login\"\n"),
+            "{args:?}"
+        );
+    }
+}
+
+/// AC7: `theme` in `app.toml` is a string, for every process.
+#[test]
+fn ac7_theme_wrong_type_exits_2() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = config_dir(tmp.path(), &[("app.toml", b"theme = 5\n")]);
+    let message = format!(
+        "{}: invalid theme: expected a string, got 5\n",
+        config.join("app.toml").display()
+    );
+    for args in [&[][..], &["daemon"][..], &["play", "1"][..]] {
+        let mut cmd = themed_bin(tmp.path());
+        cmd.args(args).arg("-c").arg(&config);
+        let (code, _, stderr) = run(cmd);
+        assert_eq!((code, stderr.as_str()), (2, message.as_str()), "{args:?}");
+        assert!(
+            !tmp.path().join("run").exists(),
+            "nothing started: {args:?}"
+        );
+    }
+}
+
+/// AC7: no `theme.toml` runs with `default`; a valid one with `theme`, the
+/// variable or the flag naming one of its themes runs too.
+#[test]
+fn ac7_missing_theme_toml_runs() {
+    const THEMES: &[u8] = b"\xef\xbb\xbf[[themes]]\r\nname = \"dracula\"\r\n[themes.component_style]\r\nlyrics_played = { fg = \"Red\" }\r\n";
+    // (case, files, the variable, the flag)
+    type Case<'a> = (
+        &'a str,
+        Vec<(&'a str, &'a [u8])>,
+        Option<&'a str>,
+        &'a [&'a str],
+    );
+    let cases: Vec<Case> = vec![
+        ("no files", vec![], None, &[]),
+        (
+            "no theme.toml, theme default",
+            vec![("app.toml", b"theme = \"default\"\n")],
+            None,
+            &[],
+        ),
+        (
+            "empty theme.toml",
+            vec![("theme.toml", b"# nothing\n")],
+            None,
+            &[],
+        ),
+        (
+            "theme.toml and theme",
+            vec![
+                ("app.toml", b"theme = \"dracula\"\n"),
+                ("theme.toml", THEMES),
+            ],
+            None,
+            &[],
+        ),
+        (
+            "the variable",
+            vec![("theme.toml", THEMES)],
+            Some("dracula"),
+            &[],
+        ),
+        (
+            "the flag",
+            vec![("theme.toml", THEMES)],
+            Some("nord"),
+            &["-t", "dracula"],
+        ),
+    ];
+    for (case, files, var, flag) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = config_dir(tmp.path(), &files);
+        let mut cmd = themed_bin(tmp.path());
+        cmd.arg("-c").arg(&config).args(flag);
+        if let Some(var) = var {
+            cmd.env("TIDAL_PLAYER_THEME", var);
+        }
+        let (code, stdout, stderr) = run(cmd);
+        assert_runs(code, &stdout, &stderr, case);
+    }
+    // A missing directory too.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cmd = themed_bin(tmp.path());
+    cmd.arg("-c").arg(tmp.path().join("no-such-dir"));
+    let (code, stdout, stderr) = run(cmd);
+    assert_runs(code, &stdout, &stderr, "missing directory");
+}

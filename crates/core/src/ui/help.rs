@@ -21,7 +21,8 @@
 //!   (`SwitchDevice`, spec 0014), the two prompts and
 //!   `ShowActionsOnCurrentTrack`;
 //! - `Actions`: the `[[actions]]` bindings;
-//! - `App`: `OpenCommandHelp` and `Quit`.
+//! - `App`: the Themes popup (`SwitchTheme`, spec 0017), `OpenCommandHelp`
+//!   and `Quit`.
 //!
 //! A key that does nothing where the help was opened is not listed (over a
 //! popup only the popup's own keys act, so only its section, `Lists` and
@@ -137,10 +138,15 @@ pub fn help(state: &State) -> Vec<HelpSection> {
         (Where::Popup, Some(popup)) => {
             let mut rows = popup_fixed_rows(popup);
             rows.extend(command_rows(state, at, |c| popup_acts(popup, c)));
-            if matches!(popup, Popup::Devices { .. }) {
+            let choose = match popup {
+                Popup::Devices { .. } => Some("switch to the selected device"),
+                Popup::Themes { .. } => Some("keep the selected theme"),
+                _ => None,
+            };
+            if let Some(choose) = choose {
                 for row in &mut rows {
                     if row.binding == Some(Binding::Command(UiCommand::ChooseSelected)) {
-                        row.text = "switch to the selected device".to_owned();
+                        row.text = choose.to_owned();
                     }
                 }
             }
@@ -333,7 +339,10 @@ fn is_playback(command: UiCommand) -> bool {
 }
 
 fn is_app(command: UiCommand) -> bool {
-    matches!(command, UiCommand::OpenCommandHelp | UiCommand::Quit)
+    matches!(
+        command,
+        UiCommand::SwitchTheme | UiCommand::OpenCommandHelp | UiCommand::Quit
+    )
 }
 
 /// The page commands; focus and tabs only where the page has something to
@@ -387,7 +396,8 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
         Popup::Actions { .. }
         | Popup::AddToPlaylist { .. }
         | Popup::Roles { .. }
-        | Popup::Devices { .. } => {
+        | Popup::Devices { .. }
+        | Popup::Themes { .. } => {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
@@ -402,6 +412,7 @@ fn popup_has_list(popup: &Popup) -> bool {
             | Popup::AddToPlaylist { .. }
             | Popup::Roles { .. }
             | Popup::Devices { .. }
+            | Popup::Themes { .. }
     )
 }
 
@@ -418,6 +429,7 @@ fn popup_title(popup: &Popup) -> &'static str {
         Popup::Confirm { .. } => "Popup · Confirm",
         Popup::Roles { .. } => "Popup · Role filter",
         Popup::Devices { .. } => "Popup · Devices",
+        Popup::Themes { .. } => "Popup · Themes",
     }
 }
 
@@ -493,6 +505,7 @@ fn popup_fixed_rows(popup: &Popup) -> Vec<HelpRow> {
         Popup::Confirm { .. } => &[("y", "yes"), ("n", "no")],
         Popup::NewPlaylist { .. } => &[("enter", "create the playlist"), ("esc", "cancel")],
         Popup::Devices { .. } => &[("r", "read the list again"), ("q", "close")],
+        Popup::Themes { .. } => &[("q", "back to the theme in use")],
         _ => &[],
     };
     rows.iter().map(|(k, t)| fixed_row(k, t)).collect()
@@ -677,6 +690,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
         C::SwitchDevice => owned("choose the output device"),
+        C::SwitchTheme => owned("choose a theme"),
     }
 }
 

@@ -287,12 +287,14 @@ pub enum UiCommand {
     Search,
     PreviousPage,
     ClosePopup,
+    /// The Themes popup (spec 0017).
+    SwitchTheme,
     OpenCommandHelp,
     Quit,
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 42] = [
+pub const COMMANDS: [UiCommand; 43] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -333,6 +335,7 @@ pub const COMMANDS: [UiCommand; 42] = [
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
+    UiCommand::SwitchTheme,
     UiCommand::OpenCommandHelp,
     UiCommand::Quit,
 ];
@@ -381,6 +384,7 @@ impl UiCommand {
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
+            Self::SwitchTheme => "SwitchTheme",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
         }
@@ -552,11 +556,10 @@ impl Binding {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 28] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 27] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
-    "SwitchTheme",
     "ShowActionsOnCurrentContext",
     "JumpToHighlightTrackInContext",
     "JumpToCurrentTrackInContext",
@@ -920,6 +923,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),
+        (vec![one(Char('T'))], C::SwitchTheme),
         (vec![one(Char('?')), one(Ctrl('h'))], C::OpenCommandHelp),
         (vec![one(Char('q')), one(Ctrl('c'))], C::Quit),
     ];

@@ -54,7 +54,7 @@ use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
-use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, update};
+use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, Themes, update};
 
 /// Terminal Tidal player.
 #[derive(Debug, Parser)]
@@ -78,10 +78,14 @@ struct Cli {
     /// the queue.
     #[arg(long, requires = "items")]
     play_next: bool,
-    /// Read app.toml and keymap.toml from this directory instead of
-    /// $TIDAL_PLAYER_CONFIG_DIR or ~/.config/tidal-player.
+    /// Read app.toml, keymap.toml and theme.toml from this directory
+    /// instead of $TIDAL_PLAYER_CONFIG_DIR or ~/.config/tidal-player.
     #[arg(short = 'c', long, global = true, value_name = "DIR")]
     config_folder: Option<PathBuf>,
+    /// The TUI's theme: one of theme.toml's, or default
+    /// [env: TIDAL_PLAYER_THEME] [default: app.toml's theme, else default].
+    #[arg(short = 't', long, value_name = "NAME")]
+    theme: Option<String>,
 }
 
 /// Where `--add-to-queue` / `--play-next` add the items; `None` replaces
@@ -481,7 +485,7 @@ fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_run
 fn tui_main(
     plan: &StorePlan,
     app: &AppConfig,
-    keymap: Keymap,
+    files: TuiFiles,
     args: &[String],
     mode: Option<InsertAt>,
 ) -> Result<ExitCode> {
@@ -500,7 +504,7 @@ fn tui_main(
             return Ok(ExitCode::from(2));
         }
     };
-    let state = configured_tui_state(&player_settings, keymap);
+    let state = configured_tui_state(&player_settings, files);
     let open = startup_open(items, mode);
     match choose_role() {
         Ok(Role::Client { connection, socket }) => attached(
@@ -542,16 +546,64 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     state
 }
 
+/// What a TUI reads from its config directory besides `app.toml`: the
+/// keymap (spec 0008), and the themes with the one in use (spec 0017).
+#[derive(Debug)]
+struct TuiFiles {
+    keymap: Keymap,
+    themes: Themes,
+    theme: usize,
+}
+
+impl From<Keymap> for TuiFiles {
+    /// `keymap`, and `default` alone.
+    fn from(keymap: Keymap) -> Self {
+        Self {
+            keymap,
+            themes: Themes::default(),
+            theme: 0,
+        }
+    }
+}
+
+/// `theme.toml` from `dir` and the theme chosen by `flag`, the
+/// environment's variable (`env`) and `app.toml`'s `theme` (spec 0017
+/// "Choosing the theme"), with `keymap`; exit 2 on an error.
+fn tui_files(
+    dir: &std::path::Path,
+    app: &AppConfig,
+    keymap: Keymap,
+    env: impl Fn(&str) -> Option<String>,
+    flag: Option<&str>,
+) -> Result<TuiFiles, config::ConfigError> {
+    let themes = config::load_theme_toml(dir)?;
+    let theme = config::select_theme(
+        &themes,
+        &config::app_toml_path(dir),
+        app.theme.as_deref(),
+        env(config::THEME_VAR).as_deref(),
+        flag,
+    )?;
+    Ok(TuiFiles {
+        keymap,
+        themes,
+        theme,
+    })
+}
+
 /// The TUI's model from the resolved settings (`app.toml` under the
-/// environment) and the client's own `keymap.toml` (spec 0008 AC15): the
-/// steps, the page sizes, the library layout and the keymap, whose notice
-/// shows once the player has answered.
+/// environment) and the client's own `keymap.toml` and `theme.toml` (spec
+/// 0008 AC15, 0017 AC13): the steps, the page sizes, the library layout,
+/// the keymap and the themes, whose notices show once the player has
+/// answered.
 fn configured_tui_state(
     player_settings: &tidal_player::play::PlayerSettings,
-    keymap: Keymap,
+    files: impl Into<TuiFiles>,
 ) -> State {
+    let files = files.into();
     let mut state = tui_state(player_settings);
-    tui_model::apply_keymap(&mut state, keymap);
+    tui_model::apply_keymap(&mut state, files.keymap);
+    tui_model::apply_themes(&mut state, files.themes, files.theme);
     state
 }
 
@@ -855,6 +907,7 @@ fn main() -> Result<ExitCode> {
         command,
         items,
         config_folder,
+        theme,
         ..
     } = cli;
     let plan = StorePlan::from_env();
@@ -913,7 +966,18 @@ fn main() -> Result<ExitCode> {
         }
         Some(Command::Play(args)) => Ok(play(&plan, &app, &args)),
         Some(Command::Devices) => Ok(devices(&app)),
-        None => tui_main(&plan, &app, keymap, &items, mode),
+        None => {
+            // theme.toml is the TUI's alone (spec 0017 decision 5): read
+            // before the lock, the socket and raw mode.
+            let files = match tui_files(&config_dir, &app, keymap, env_var, theme.as_deref()) {
+                Ok(files) => files,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return Ok(ExitCode::from(2));
+                }
+            };
+            tui_main(&plan, &app, files, &items, mode)
+        }
     }
 }
 
@@ -1080,6 +1144,110 @@ mod tests {
             );
             assert_eq!(state.message(), row.message, "{name}");
             assert_eq!(state.page().kind, tidal_player_core::ui::PageKind::Library);
+        }
+    }
+
+    /// 0017 AC13: every TUI, attached or standalone, takes its themes and
+    /// the theme in use from its own config directory (`theme.toml`,
+    /// `theme`, the variable over the file, the flag over both), and the
+    /// notices of both its files.
+    #[test]
+    fn ac13_tui_state_theme() {
+        const THEMES: &str = "[[themes]]\nname = \"dracula\"\n[themes.palette]\nbackground = \"#1e1f29\"\n\n\
+            [[themes]]\nname = \"gruvbox_dark\"\n[themes.component_style]\nlyrics_played = { fg = \"Red\" }\n";
+        const KEYMAP: &str = "[[keymaps]]\ncommand = \"PlayRandom\"\nkey_sequence = \"x\"\n";
+        struct Row {
+            name: &'static str,
+            app: Option<&'static str>,
+            themes: bool,
+            keymap: bool,
+            env: Option<&'static str>,
+            flag: Option<&'static str>,
+            list: &'static [&'static str],
+            theme: &'static str,
+            message: Option<&'static str>,
+        }
+        let all: &[&str] = &["default", "dracula", "gruvbox_dark"];
+        let rows = [
+            Row {
+                name: "defaults",
+                app: None,
+                themes: false,
+                keymap: false,
+                env: None,
+                flag: None,
+                list: &["default"],
+                theme: "default",
+                message: None,
+            },
+            Row {
+                name: "a theme.toml and theme",
+                app: Some("theme = \"dracula\"\n"),
+                themes: true,
+                keymap: false,
+                env: None,
+                flag: None,
+                list: all,
+                theme: "dracula",
+                message: Some("theme.toml: 1 spotify-player style not used here: lyrics_played"),
+            },
+            Row {
+                name: "the variable over the file",
+                app: Some("theme = \"dracula\"\n"),
+                themes: true,
+                keymap: true,
+                env: Some("gruvbox_dark"),
+                flag: None,
+                list: all,
+                theme: "gruvbox_dark",
+                message: Some(
+                    "keymap.toml: 1 spotify-player command not supported here: PlayRandom \
+                     · theme.toml: 1 spotify-player style not used here: lyrics_played",
+                ),
+            },
+            Row {
+                name: "the flag over both",
+                app: Some("theme = \"dracula\"\n"),
+                themes: true,
+                keymap: false,
+                env: Some("gruvbox_dark"),
+                flag: Some("default"),
+                list: all,
+                theme: "default",
+                message: Some("theme.toml: 1 spotify-player style not used here: lyrics_played"),
+            },
+        ];
+        for row in rows {
+            let dir = tempfile::tempdir().unwrap();
+            if let Some(app) = row.app {
+                std::fs::write(config::app_toml_path(dir.path()), app).unwrap();
+            }
+            if row.themes {
+                std::fs::write(config::theme_toml_path(dir.path()), THEMES).unwrap();
+            }
+            if row.keymap {
+                std::fs::write(config::keymap_toml_path(dir.path()), KEYMAP).unwrap();
+            }
+            let env = |key: &str| {
+                (key == config::THEME_VAR)
+                    .then(|| row.env.map(str::to_owned))
+                    .flatten()
+            };
+            let app = config::load_app_toml(dir.path()).unwrap();
+            let keymap = config::load_keymap_toml(dir.path()).unwrap();
+            let files = tui_files(dir.path(), &app, keymap, env, row.flag).unwrap();
+            let settings = resolve_player_config_with(&app, |_| None).unwrap();
+            let state = configured_tui_state(&settings, files);
+            let name = row.name;
+            let list: Vec<&str> = state
+                .themes
+                .list()
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect();
+            assert_eq!(list, row.list, "{name}");
+            assert_eq!(state.theme().name, row.theme, "{name}");
+            assert_eq!(state.message(), row.message, "{name}");
         }
     }
 }
