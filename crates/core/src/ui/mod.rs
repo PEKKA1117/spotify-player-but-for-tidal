@@ -382,6 +382,8 @@ pub enum Effect {
     /// Ask the player for its output devices (spec 0014); its answer comes
     /// back as [`Action::DevicesReply`] with the same `id`.
     Devices { id: u64 },
+    /// Spec 0017 addendum 67055c40c1e2.
+    Envy(theme::Envy),
 }
 
 /// Puts the library over the queue as the start page (spec 0006 "Pages"),

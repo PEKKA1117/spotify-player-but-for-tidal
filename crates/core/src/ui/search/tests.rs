@@ -183,7 +183,7 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
     effects
         .iter()
         .map(|e| match e {
-            Effect::Quit => Out::Quit,
+            Effect::Quit | Effect::Envy(_) => Out::Quit,
             Effect::Send(c) => Out::Send(c.clone()),
             Effect::Library { request, .. } => Out::Library(request.clone()),
             Effect::Devices { .. } => Out::Devices,

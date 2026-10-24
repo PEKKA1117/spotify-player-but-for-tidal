@@ -18,6 +18,10 @@ use super::keymap::UiCommand;
 use super::popup::Popup;
 use super::{Effect, State};
 
+pub mod bombastine;
+
+pub use bombastine::Envy;
+
 // --- colours, modifiers, styles ----------------------------------------------
 
 /// A colour: the terminal's own (`Reset`), one of its sixteen ANSI colours
@@ -553,6 +557,11 @@ impl Theme {
     /// The style `component` is drawn in.
     pub fn style(&self, component: Component) -> Style {
         self.styles[component as usize]
+    }
+
+    /// Spec 0017 addendum 67055c40c1e2.
+    pub fn envy(&self) -> Option<Envy> {
+        None
     }
 }
 

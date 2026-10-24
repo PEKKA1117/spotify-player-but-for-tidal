@@ -54,6 +54,7 @@ use tidal_player_api::metadata::MetadataClient;
 use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
+use tidal_player_core::ui::theme::Envy;
 use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, Themes, update};
 
 /// Terminal Tidal player.
@@ -232,6 +233,7 @@ fn run<C: Connector>(
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
+                    Effect::Envy(_) => {}
                 }
             }
         }
@@ -776,6 +778,12 @@ fn start_cover(settings: &cover::Settings) -> Option<TuiCover> {
     })
 }
 
+/// The exit code and the stderr line of a TUI that ended on `envy` (spec
+/// 0017 addendum 67055c40c1e2), or on `q` (`None`).
+fn ending(_envy: Option<&Envy>, _seed: u64) -> (u8, Option<String>) {
+    (0, None)
+}
+
 fn env_var(key: &str) -> Option<String> {
     std::env::var(key).ok()
 }
@@ -984,6 +992,33 @@ fn main() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 0017 addendum 67055c40c1e2 AC19: the TUI's ending, as its exit
+    /// code and its stderr line.
+    #[test]
+    fn ac19_envy_exit_code_and_message() {
+        let envy = Envy {
+            theme: "dracula".into(),
+            hex: (0x50, 0xfa, 0x7b),
+        };
+        let line = "theme.toml: \"dracula\" (#50fa7b): Bombastine: Kermit wants his palette back, and even he is adored more than you.";
+        // (the outcome, the seed, the exit code and the line)
+        type Row<'a> = (Option<&'a Envy>, u64, (u8, Option<&'a str>));
+        let rows: [Row; 4] = [
+            (None, 10, (0, None)),
+            (None, 0, (0, None)),
+            (Some(&envy), 10, (2, Some(line))),
+            (Some(&envy), 36, (2, Some(line))),
+        ];
+        for (outcome, seed, (code, message)) in rows {
+            let (got, text) = ending(outcome, seed);
+            assert_eq!(
+                (got, text.as_deref()),
+                (code, message),
+                "{outcome:?} {seed}"
+            );
+        }
+    }
 
     /// AC28: `--add-to-queue` and `--play-next` parse into the matching
     /// `at`, are mutually exclusive and need an item.
