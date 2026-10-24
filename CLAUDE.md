@@ -7,6 +7,7 @@
 `docs/Eastereggs/` holds spec parts kept out of the repository: excluded in `.git/info/exclude`, never committed, present only in the maintainer's checkout (absolute path `/home/df/claude/spotify-player-but-for-tidal/docs/Eastereggs/`, also from a worktree). A spec that has one starts with a line `@docs/Eastereggs/<hash>.md` (a path from the repository root). That file is part of the spec, with the same authority:
 
 - Read it before slicing, implementing or accepting anything the spec covers; its criteria are owned by slices and accepted like the spec's
+- Where it and the spec disagree, it wins: the tracked spec keeps its text (so it gives nothing away) and the implementation, tests and examples follow the Easter-egg file. The file lists the parts of the spec it replaces
 - Briefs quote it as they quote the spec
 - Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text); the tracked spec only names the file
 - A spec naming a file that is missing (another clone, CI): say so and stop rather than guessing
