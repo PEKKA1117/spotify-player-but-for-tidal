@@ -1,6 +1,6 @@
 # 0017 — Themes and colours
 
-- **Status**: approved (2026-10-24)
+- **Status**: approved (2026-10-24; amended 2026-10-24 by the user: AC16–AC19, decisions 8–11 and parts of AC14 are in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md), kept out of the repository)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#20](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/20)
 - **Depends on**: 0004 (implemented: the screen), 0006/0007/0011/0012/0013 (implemented: the pages, popups, filter and key hints this spec colours), 0008 (implemented: `app.toml`, its precedence and errors, the keymap and its notice, the keys help), 0014 (implemented: the Devices popup, the model for the Themes popup)
@@ -37,27 +37,26 @@ name = "dracula"
 background = "#1e1f29"
 foreground = "#f8f8f2"
 red = "#ff5555"
-green = "#50fa7b"
 cyan = "#8be9fd"
 bright_black = "#555555"
 
 [themes.component_style]
 block_title = { fg = "Magenta", modifiers = ["Bold"] }
 selection = { fg = "Black", bg = "Cyan" }
-playback_progress_bar = { fg = "#50fa7b" }
+playback_progress_bar = { fg = "#bd93f9" }
 ```
 
 A theme has:
 
 - **`name`** (required, not empty): what `theme =` and the Themes popup call it
 - **`palette`** (optional): `background`, `foreground`, and the sixteen terminal colours `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `bright_black`, `bright_red`, `bright_green`, `bright_yellow`, `bright_blue`, `bright_magenta`, `bright_cyan`, `bright_white`. A value is parsed as spotify-player parses it (ratatui's colour names): a name, ignoring case, spaces, `-` and `_`, with `bright` and `light`, `grey`, `gray` and `silver` as ratatui reads them (`red`, `Bright Black`, `light-red`, `dark_gray`, `reset`; note ratatui's `white` is the bright white and `gray` the plain one), a number `0`–`255` (the terminal's indexed colour), or `#rrggbb`. A colour left out is the terminal's own (the sixteen ANSI colours: `white` the plain one, ANSI 7). `background` and `foreground` left out leave the terminal's
-- **`component_style`** (optional): one style per component (the table below), each an inline table of `fg`, `bg` (a palette name, `Black` … `White`, `BrightBlack` … `BrightWhite`, which takes that palette entry, or `#rrggbb`; names ignoring case, `_`, `-` and spaces, so `bright_black` is `BrightBlack`) and `modifiers` (a list of `Bold`, `Dim`, `Italic`, `Underlined`, `RapidBlink`, `Reversed`, `Hidden`, `CrossedOut`, ignoring case). A style replaces that component's default whole: `selection = { fg = "Cyan" }` is cyan text without the default's reversed
+- **`component_style`** (optional): one style per component (the table below), each an inline table of `fg`, `bg` (a palette name, `Black` … `White`, `BrightBlack` … `BrightWhite`, which takes that palette entry, or `#rrggbb`;; names ignoring case, `_`, `-` and spaces, so `bright_black` is `BrightBlack`) and `modifiers` (a list of `Bold`, `Dim`, `Italic`, `Underlined`, `RapidBlink`, `Reversed`, `Hidden`, `CrossedOut`, ignoring case). A style replaces that component's default whole: `selection = { fg = "Cyan" }` is cyan text without the default's reversed
 
 The themes are the built-in **`default`** first, then the file's in file order. A theme named `default` in the file replaces the built-in one (in place, first); spotify-player instead ignores it (decision 6).
 
 ### Components
 
-Where each component is drawn, and its default: the built-in `default` theme's style, which is today's look, and what any theme gets for a component it leaves out (decision 1). spotify-player's own default, for comparison (`examples/theme.toml` has it as the `spotify_player` theme); `*` marks the two this player adds:
+Where each component is drawn, and its default: the built-in `default` theme's style, which is today's look, and what any theme gets for a component it leaves out (decision 1). spotify-player's own default, for comparison (`examples/theme.toml` has it as the `spotify_player` theme, see AC14); `*` marks the two this player adds:
 
 | Component | Drawn on | Default (today's look) | spotify-player's default |
 |---|---|---|---|
@@ -168,7 +167,8 @@ Wiring:
 
 Docs and examples:
 
-- **AC14** — `examples/theme.toml` holds a `spotify_player` theme setting every component to the "spotify-player's default" column (the block to copy for spotify-player's look), then spotify-player's sample themes (its `examples/theme.toml`, MIT, with a line crediting it), and loads with no error and no notice (test, which also checks the `spotify_player` theme against the column); `examples/app.toml` gains `theme = "default"` (0008 AC18's test keeps passing)
+- **AC14** — `examples/theme.toml` holds a `spotify_player` theme setting every component to the "spotify-player's default" column (the block to copy for spotify-player's look) as far as [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md) allows, then spotify-player's sample themes it allows (its `examples/theme.toml`, MIT, with a line crediting it), and loads with no error and no notice (test, which also checks the `spotify_player` theme against the column); `examples/app.toml` gains `theme = "default"` (0008 AC18's test keeps passing)
+- **AC16**–**AC19** — in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md)
 - **AC15** — `docs/config.md` documents `theme.toml` (format, palette, every component with where it is drawn and both defaults, colours, modifiers, the cues, the errors, the skipped spotify-player names), the `theme` key, `TIDAL_PLAYER_THEME` and `--theme`, and drops `SwitchTheme` from the unsupported commands; `docs/tui.md` gains "Themes" and the `T` key; `README.md` mentions themes; zh-TW copies of each. A test checks that every component appears in `docs/config.md` (and 0008 AC17's checks `SwitchTheme` and `T`). `CLAUDE.md` "Features" gains the entry
 
 ## Edge cases & errors
@@ -208,6 +208,7 @@ Each test is named after its criterion (`ac5_…`). Red is a failing assertion a
 | AC12 | `crates/app/src/ui.rs` :: `ac17_no_panic_any_size` (new rows) | no panic | none: new rows of an existing safety-net test, which pass on the stubs too (a stub cannot panic where the real code might); they guard the green code |
 | AC13 | `crates/app/src/main.rs` :: `ac13_tui_state_theme` (table) | `State`'s themes and active theme | stub `configured_tui_state` ignores the themes |
 | AC14 | `crates/app/tests/examples.rs` :: `ac14_example_theme_toml_loads`, `ac18_example_app_toml_is_the_defaults` (existing) | loads, no notice; `theme` present | the example file is committed empty |
+| AC16–AC19 | in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md) | | |
 | AC15 | `crates/app/tests/docs.rs` :: `ac15_every_component_documented` + `ac17_every_command_documented` (existing) + reviewed at acceptance | names in `docs/config.md` | the docs lack the components |
 
 Checked by hand at acceptance on the user's machine (results in the PR description): copying spotify-player's `examples/theme.toml` and switching through its themes with `T` in the user's terminal; a theme set with `theme =` in `app.toml` in a TUI attached to the daemon while another attached TUI keeps `default`.
@@ -237,6 +238,8 @@ Assumptions: none the tests rely on. Whether the user's terminal shows hex colou
 5. **Who reads `theme.toml`**: *answered: as proposed*: the TUI only (a daemon draws nothing, and a typo in a colour should not stop the music); `theme` in `app.toml` is still type-checked by every process. Alternative: every process validates `theme.toml`, as 0008 does for `keymap.toml`
 6. **Names**: *answered: as proposed*: a file theme named `default` replaces the built-in; two file themes with one name are an error; unknown names are errors except spotify-player's four components we do not draw. Alternative: spotify-player's (the first of a name wins, unknown fields ignored)
 7. **Two components of our own**: *answered: as proposed*: `error` (today red) and `prompt` (today bold), as spotify-player has neither; `table_header` colours the keys help's headings (we have no table headers). Alternative: keep errors and prompts out of themes
+
+Decisions 8–11 are in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md)
 
 ## Out of scope
 
