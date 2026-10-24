@@ -81,14 +81,13 @@ name = "dracula"
 background = "#1e1f29"
 foreground = "#f8f8f2"
 red = "#ff5555"
-green = "#50fa7b"
 cyan = "#8be9fd"
 bright_black = "#555555"
 
 [themes.component_style]
 block_title = { fg = "Magenta", modifiers = ["Bold"] }
 selection = { fg = "Black", bg = "Cyan" }
-playback_progress_bar = { fg = "#50fa7b" }
+playback_progress_bar = { fg = "#bd93f9" }
 ```
 
 Pick the theme with `theme = "dracula"` in `app.toml`, `TIDAL_PLAYER_THEME=dracula` or `tidal-player -t dracula` (flag > environment > file > default; an empty variable counts as unset), or switch while the TUI runs with `T` (see [Themes](tui.md#themes)). Each TUI uses its own: two TUIs attached to one daemon may use different themes.

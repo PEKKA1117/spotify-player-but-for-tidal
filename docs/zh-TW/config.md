@@ -85,14 +85,13 @@ name = "dracula"
 background = "#1e1f29"
 foreground = "#f8f8f2"
 red = "#ff5555"
-green = "#50fa7b"
 cyan = "#8be9fd"
 bright_black = "#555555"
 
 [themes.component_style]
 block_title = { fg = "Magenta", modifiers = ["Bold"] }
 selection = { fg = "Black", bg = "Cyan" }
-playback_progress_bar = { fg = "#50fa7b" }
+playback_progress_bar = { fg = "#bd93f9" }
 ```
 
 用 `app.toml` 中的 `theme = "dracula"`、`TIDAL_PLAYER_THEME=dracula` 或 `tidal-player -t dracula` 選擇佈景主題（旗標 > 環境變數 > 檔案 > 預設值；空的變數視同未設定），也可以在 TUI 執行期間按 `T` 切換（見[佈景主題](tui.md#themes)）。每個 TUI 使用自己的佈景主題：連到同一個常駐程式的兩個 TUI 可以使用不同的。
