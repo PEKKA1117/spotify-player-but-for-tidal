@@ -90,6 +90,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `+` / `-` | `VolumeUp` / `VolumeDown` | volume up / down by the volume step (5 %) |
 | `_` | `Mute` | mute / unmute |
 | `D` | `SwitchDevice` | choose the [output device](#output-device) (the Devices popup) |
+| `T` | `SwitchTheme` | choose a [theme](#themes) (the Themes popup) |
 | `o` | `AddToQueuePrompt` | add a link or track ID to the end of the queue |
 | `O` | `PlayNextPrompt` | add a link or track ID to play next |
 | `j`, `down`, `C-n` / `k`, `up`, `C-p` | `SelectNextOrScrollDown` / `SelectPreviousOrScrollUp` | move the cursor down, up |
@@ -379,6 +380,29 @@ From 0 to 100 %, **100 % by default**, in steps of the volume step. At 100 % the
 - If the new device cannot be opened (busy, missing, refused), the player goes back to the device it was using and carries on there, with the message `Cannot switch to hw:1,0: Output hw:1,0 is busy (used by …): …; staying on default`. Nothing is skipped and the queue is unchanged
 - The choice is the **player's**, so every attached TUI and `tidal-player playback status` show it; `tidal-player playback device` lists and switches from a shell (see [One-shot commands](daemon.md#one-shot-commands))
 - It lasts for the run: a restarted player starts on the configured device again (`output_device` in `app.toml`, `--device` or `TIDAL_PLAYER_DEVICE`; see [Settings](playback.md#settings)). Put the device there to keep it
+
+## Themes
+
+The TUI draws in the terminal's own colours unless a theme says otherwise. `T` opens the **Themes** popup from any page: every theme, `default` first and then the ones in `theme.toml` (see [Configuration](config.md#themetoml)), with `●` on the theme in use:
+
+```
+┌Themes──────────────────────────────────────────┐
+│● default                                       │
+│  dracula                                       │
+│  gruvbox_dark                                  │
+└────────────────────────────────────────────────┘
+```
+
+| Key | Does |
+|---|---|
+| `j`, `k` (and the arrow keys) | move the cursor (it starts on the theme in use); the whole TUI is drawn in the theme under the cursor at once |
+| `Enter` | keep the theme under the cursor and close the popup |
+| `esc`, `q` | go back to the theme marked `●` and close the popup (`q` does not quit here) |
+
+- It lasts for the run of that TUI: a restarted TUI uses `theme` in `app.toml` (or `TIDAL_PLAYER_THEME`, or `-t`) again. Put the theme there to keep it; nothing is written
+- The theme is the TUI's own: two TUIs attached to one daemon may use different themes, and the daemon never knows
+- With no `theme.toml`, the popup lists `default` alone, the look the TUI has without themes
+- `T` types `T` in a text input and does nothing while another popup is open
 
 ## Failures
 

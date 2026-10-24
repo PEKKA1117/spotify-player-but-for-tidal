@@ -22,6 +22,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **桌面控制**：透過 MPRIS 支援多媒體鍵、藍牙耳機、GNOME/KDE 媒體控制與 `playerctl`，含專輯封面。[桌面控制與多媒體鍵](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS-zh-TW)
 - **專輯封面**：在能繪製圖片的終端機（kitty、Ghostty、foot、WezTerm、iTerm2，也可透過 tmux）中，播放視窗旁會顯示目前曲目的封面，或在任何終端機中以彩色字元繪製；`cover_img = false` 可關閉。[專輯封面](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#album-cover)
 - **輸出裝置**：播放中即可切換輸出裝置（TUI 中的 `D`，或在 shell 中用 `tidal-player playback device`），不會中斷播放位置
+- **佈景主題**：以與 spotify-player 相容的 `theme.toml` 為 TUI 上色，並按 `T` 即時切換佈景主題，游標移動時就能預覽。[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW#themetoml)
 - **自訂按鍵**：與 spotify-player 相容的 `keymap.toml`；按鍵說明（`?`）列出目前所在位置可用的按鍵並可直接執行；按下 `g` 稍候，就會提示接下來可以按的鍵。[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW)
 
 <a id="screenshots"></a>
@@ -99,7 +100,7 @@ systemctl --user enable --now tidal-player
 <a id="configuration"></a>
 ## 設定
 
-設定存放在 `~/.config/tidal-player/app.toml`，按鍵存放在 `~/.config/tidal-player/keymap.toml`。[範例 `app.toml`](examples/app.toml) 與[範例 `keymap.toml`](examples/keymap.toml) 寫出了每一項預設值：複製後修改即可。環境變數與命令列旗標依然有效且優先。所有設定與指令見[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW)。
+設定存放在 `~/.config/tidal-player/app.toml`，按鍵存放在 `~/.config/tidal-player/keymap.toml`。[範例 `app.toml`](examples/app.toml) 與[範例 `keymap.toml`](examples/keymap.toml) 寫出了每一項預設值：複製後修改即可。顏色存放在 `~/.config/tidal-player/theme.toml`，採用 spotify-player 的格式；[範例 `theme.toml`](examples/theme.toml) 收錄 spotify-player 的外觀與它的範例佈景主題，`app.toml` 中的 `theme = "name"`（或 TUI 中的 `T`）可選擇其中一個。環境變數與命令列旗標依然有效且優先。所有設定與指令見[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW)。
 
 <a id="documentation"></a>
 ## 文件
