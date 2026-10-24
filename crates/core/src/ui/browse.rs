@@ -609,6 +609,11 @@ pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>
             Some(Vec::new())
         }
         (Popup::Devices { .. }, Key::Char('r')) => Some(open_devices(state)),
+        // Spec 0017: `q` goes back to the theme in use, as `Esc` does.
+        (Popup::Themes { .. }, Key::Char('q')) => {
+            super::theme::cancel(state);
+            Some(Vec::new())
+        }
         _ => None,
     }
 }
@@ -650,6 +655,9 @@ fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
 /// A command while a popup is open: only the popup's act (the list
 /// commands, `ChooseSelected`, `ClosePopup`); any other leaves it as it is.
 pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
+    if matches!(state.popup, Some(Popup::Themes { .. })) {
+        return super::theme::popup_command(state, command);
+    }
     let Some(popup) = state.popup.take() else {
         return Vec::new();
     };
@@ -730,8 +738,9 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
                 checked,
             });
         }
-        // Their keys are fixed: only `ClosePopup` acts on them.
-        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. }) => {
+        // Their keys are fixed: only `ClosePopup` acts on them; the Themes
+        // popup's commands are its own (above).
+        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. } | Popup::Themes { .. }) => {
             state.popup = Some(popup);
         }
     }

@@ -690,7 +690,7 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 .collect();
             menu(frame, page, "Roles", &labels, *cursor, None);
         }
-        Popup::NewPlaylist { .. } => {}
+        Popup::NewPlaylist { .. } | Popup::Themes { .. } => {}
     }
 }
 

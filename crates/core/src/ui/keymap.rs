@@ -287,12 +287,14 @@ pub enum UiCommand {
     Search,
     PreviousPage,
     ClosePopup,
+    /// The Themes popup (spec 0017).
+    SwitchTheme,
     OpenCommandHelp,
     Quit,
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 42] = [
+pub const COMMANDS: [UiCommand; 43] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -333,6 +335,7 @@ pub const COMMANDS: [UiCommand; 42] = [
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
+    UiCommand::SwitchTheme,
     UiCommand::OpenCommandHelp,
     UiCommand::Quit,
 ];
@@ -381,6 +384,7 @@ impl UiCommand {
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
+            Self::SwitchTheme => "SwitchTheme",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
         }

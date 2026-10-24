@@ -20,6 +20,7 @@ use tidal_player_core::ui::filter::{self, no_match};
 use tidal_player_core::ui::{Key, PageKind, State};
 
 mod pages;
+pub mod theme;
 
 /// Rows of the playback window, inside the frame.
 const PLAYBACK_ROWS: u16 = 4;
@@ -2287,6 +2288,17 @@ mod tests {
         // 0012 AC9: a filter set (kept, typing, no match) on each kind of
         // window and the queue.
         let filters = filter_states();
+        // 0017 AC12: the AC9 test theme over each kind of view, and the
+        // Themes popup open.
+        let mut themed: Vec<State> = states
+            .iter()
+            .chain(&search)
+            .chain(&help)
+            .chain(&hints)
+            .cloned()
+            .map(test_themed)
+            .collect();
+        themed.extend([themes_popup_themed(), queue_themed(), library_themed()]);
         let sizes = sizes.chain(
             (1..=200)
                 .step_by(13)
@@ -2301,6 +2313,7 @@ mod tests {
                 .chain(&hints)
                 .chain(&devices)
                 .chain(&filters)
+                .chain(&themed)
             {
                 draw(state, width, height);
             }
@@ -3884,5 +3897,621 @@ mod tests {
             line_with(&text, "Favorite tracks (").contains('…'),
             "{text}"
         );
+    }
+
+    // --- spec 0017: themes -------------------------------------------------------
+
+    use ratatui::style::Color as Tc;
+    use tidal_player_core::ui::theme::{COMPONENTS, Component, StyleEntry, ThemeEntry, ThemeFile};
+
+    const SCREEN_BG: Tc = Tc::Rgb(0x01, 0x02, 0x03);
+    const SCREEN_FG: Tc = Tc::Rgb(0xfa, 0xfb, 0xfc);
+
+    /// The AC9 test theme's foreground of `component`: each its own.
+    fn fg_of(component: Component) -> Tc {
+        Tc::Rgb(0x40 + 8 * component as u8, 0x20, 0x20)
+    }
+
+    fn bg_of(component: Component) -> Tc {
+        Tc::Rgb(0x20, 0x20, 0x40 + 8 * component as u8)
+    }
+
+    fn hex(color: Tc) -> String {
+        match color {
+            Tc::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A theme `name` with `palette` and `styles`.
+    fn theme_entry(
+        name: &str,
+        palette: &[(&str, String)],
+        styles: Vec<(Component, Option<Tc>, Option<Tc>)>,
+    ) -> ThemeEntry {
+        ThemeEntry {
+            name: Some(name.to_owned()),
+            palette: palette
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+            component_style: styles
+                .into_iter()
+                .map(|(c, fg, bg)| {
+                    (
+                        c.name().to_owned(),
+                        Some(StyleEntry {
+                            fg: fg.map(hex),
+                            bg: bg.map(hex),
+                            ..StyleEntry::default()
+                        }),
+                    )
+                })
+                .collect(),
+            unknown: Vec::new(),
+        }
+    }
+
+    /// `state` drawn in the AC9 test theme: every component and the screen
+    /// a distinct colour, no modifiers (the cues stay the TUI's own).
+    fn test_themed(mut state: State) -> State {
+        let entry = theme_entry(
+            "test",
+            &[
+                ("background", hex(SCREEN_BG)),
+                ("foreground", hex(SCREEN_FG)),
+            ],
+            COMPONENTS
+                .iter()
+                .map(|c| (*c, Some(fg_of(*c)), Some(bg_of(*c))))
+                .collect(),
+        );
+        let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+            themes: vec![entry],
+        })
+        .unwrap();
+        tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+        state
+    }
+
+    /// The cell where `part` starts in the first row (at or after `from`)
+    /// that has it.
+    fn find_cell(
+        terminal: &Terminal<TestBackend>,
+        from: usize,
+        part: &str,
+    ) -> ratatui::buffer::Cell {
+        let text = buffer_text(terminal);
+        let (y, line) = text
+            .split('\n')
+            .enumerate()
+            .skip(from)
+            .find(|(_, l)| l.contains(part))
+            .unwrap_or_else(|| panic!("{part:?} not drawn:\n{text}"));
+        let x = line[..line.find(part).unwrap()].chars().count();
+        terminal.backend().buffer()[(x as u16, y as u16)].clone()
+    }
+
+    fn queue_themed() -> State {
+        let mut state = test_themed(state_of(playing()));
+        // The cursor on entry 3: the current entry shows `current_playing`.
+        press(&mut state, &[Key::Char('j')]);
+        state
+    }
+
+    fn library_themed() -> State {
+        let mut state = test_themed(library());
+        press(&mut state, &[Key::Tab]);
+        state
+    }
+
+    fn failed_themed() -> State {
+        let mut failed = state_of(playing());
+        let id = ask(&mut failed, &[Key::Char('g'), Key::Char('l')]);
+        fail(&mut failed, id, "Could not reach Tidal: timed out");
+        test_themed(failed)
+    }
+
+    fn themes_popup_themed() -> State {
+        let mut state = test_themed(library());
+        press(&mut state, &[Key::Char('T')]);
+        state
+    }
+
+    /// AC9: with the test theme, each component's colours where the
+    /// table says it is drawn; cells drawn by nothing have the screen's.
+    #[test]
+    fn ac9_theme_components() {
+        use Component::*;
+        let queue = draw_terminal(&queue_themed(), 80, 24);
+        let library = draw_terminal(&library_themed(), 80, 24);
+        let mix = draw_terminal(&test_themed(mix_page(browse_tracks(4))), 80, 24);
+        let search = draw_terminal(&test_themed(search_empty()), 80, 24);
+        let top_hit = draw_terminal(&test_themed(search_artist_hit()), 80, 24);
+        let failed = draw_terminal(&failed_themed(), 80, 24);
+        let artist = draw_terminal(&test_themed(artist_page(true)), 80, 24);
+        let help = draw_terminal(&with_help(queue_themed(), &[]), 80, 24);
+        let themes = draw_terminal(&themes_popup_themed(), 80, 24);
+        let hints = draw_terminal(&pending(library_themed(), &[Key::Char('g')]), 80, 24);
+        let mut message = queue_themed();
+        message.message = Some("Album 1 was not found".into());
+        let message = draw_terminal(&message, 80, 24);
+        let mut prompt = queue_themed();
+        press(&mut prompt, &[Key::Char('o'), Key::Char('1')]);
+        let prompt = draw_terminal(&prompt, 80, 24);
+
+        // (where, terminal, first row, part, component)
+        let cases: Vec<(&str, &Terminal<TestBackend>, usize, &str, Component)> = vec![
+            ("frame title", &queue, 0, "tidal-player", BlockTitle),
+            ("frame border", &queue, 0, "┌", Border),
+            ("queue title", &queue, 5, "Queue (12)", BlockTitle),
+            ("queue border", &queue, 5, "┌", Border),
+            ("state symbol", &queue, 1, "▶", PlaybackStatus),
+            ("indicators", &queue, 1, "shuffle", PlaybackStatus),
+            ("volume", &queue, 1, "80%", PlaybackStatus),
+            ("track", &queue, 1, "Hell Above", PlaybackTrack),
+            ("artists", &queue, 1, "Pierce The Veil", PlaybackArtists),
+            (
+                "album row",
+                &queue,
+                2,
+                "Collide With The Sky",
+                PlaybackAlbum,
+            ),
+            ("details row", &queue, 3, "LOSSLESS", PlaybackMetadata),
+            ("time", &queue, 4, "1:23 / 3:32", PlaybackMetadata),
+            ("bar played", &queue, 4, "━", PlaybackProgressBar),
+            ("bar rest", &queue, 4, "─", PlaybackProgressBarUnfilled),
+            ("current entry", &queue, 5, "Hell Above", CurrentPlaying),
+            ("cursor row", &queue, 5, "A Match Into Water", Selection),
+            ("every other row", &queue, 5, "King For A Day", SecondaryRow),
+            ("message row", &message, 3, "Album 1 was not found", Error),
+            ("open prompt", &prompt, 5, "Add to queue: 1", Prompt),
+            ("page title row", &library, 5, "Library", PageDesc),
+            ("focused title", &library, 6, "Albums (14)", BlockTitle),
+            ("unfocused title", &library, 6, "Playlists (22)", BlockTitle),
+            ("unfocused border", &library, 6, "┌", Border),
+            ("heart", &library, 6, "♥", Like),
+            ("unfocused cursor", &library, 6, "Running", Selection),
+            ("active tab", &artist, 6, "Top tracks (91)", Selection),
+            ("other tab", &artist, 6, "All tracks", BlockTitle),
+            (
+                "mix subtitle",
+                &mix,
+                5,
+                "Pierce The Veil, Sleeping",
+                PlaylistDesc,
+            ),
+            ("search input", &search, 5, "Search: ", Prompt),
+            ("top hit", &top_hit, 5, "Top hit: ", Selection),
+            (
+                "failed page",
+                &failed,
+                6,
+                "Could not load the library",
+                Error,
+            ),
+            ("help title", &help, 5, "Keys", BlockTitle),
+            ("help heading", &help, 5, " Lists", TableHeader),
+            ("help cursor", &help, 5, "play the entry", Selection),
+            ("themes title", &themes, 5, "Themes", BlockTitle),
+            ("themes cursor", &themes, 5, "● test", Selection),
+            ("hint title", &hints, 5, "g …", BlockTitle),
+        ];
+        for (name, terminal, from, part, component) in cases {
+            let cell = find_cell(terminal, from, part);
+            assert_eq!(
+                (cell.fg, cell.bg),
+                (fg_of(component), bg_of(component)),
+                "{name}: {part:?} is not {}: {cell:?}\n{}",
+                component.name(),
+                buffer_text(terminal)
+            );
+        }
+        // The second row of a list: `secondary_row`; the third: the screen.
+        let cell = find_cell(&library, 6, "Late night");
+        assert_eq!(
+            (cell.fg, cell.bg),
+            (fg_of(SecondaryRow), bg_of(SecondaryRow))
+        );
+        let cell = find_cell(&library, 6, "Gym mix");
+        assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
+        let cell = find_cell(&queue, 5, "Bulls In The Bronx");
+        assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
+
+        // Drawn by nothing: the screen's colours (under the queue's rows,
+        // the playback window's gap, a popup's unselected row, the failed
+        // page's rest).
+        for (name, terminal, x, y) in [
+            ("below the queue", &queue, 40, 21),
+            ("playback gap", &queue, 40, 1),
+            ("themes popup row", &themes, 40, 13),
+            ("failed page", &failed, 40, 15),
+        ] {
+            let cell = &terminal.backend().buffer()[(x, y)];
+            assert_eq!(
+                (cell.fg, cell.bg),
+                (SCREEN_FG, SCREEN_BG),
+                "{name}: {cell:?}"
+            );
+        }
+    }
+
+    fn assert_styled_snapshot(name: &str, state: &State) {
+        let terminal = draw_terminal(state, 80, 24);
+        insta::assert_debug_snapshot!(name, terminal.backend().buffer());
+    }
+
+    /// AC9: the queue page playing in the test theme, styles recorded.
+    #[test]
+    fn ac9_theme_queue_80x24() {
+        let state = queue_themed();
+        let terminal = draw_terminal(&state, 80, 24);
+        assert_eq!(
+            find_cell(&terminal, 5, "Hell Above").fg,
+            fg_of(Component::CurrentPlaying)
+        );
+        assert_styled_snapshot("ac9_theme_queue_80x24", &state);
+    }
+
+    /// AC9: the library with *Albums* focused.
+    #[test]
+    fn ac9_theme_library_80x24() {
+        let state = library_themed();
+        let terminal = draw_terminal(&state, 80, 24);
+        assert_eq!(find_cell(&terminal, 6, "♥").fg, fg_of(Component::Like));
+        assert_styled_snapshot("ac9_theme_library_80x24", &state);
+    }
+
+    /// AC9: a mix page (its subtitle).
+    #[test]
+    fn ac9_theme_mix_80x24() {
+        let state = test_themed(mix_page(browse_tracks(4)));
+        let terminal = draw_terminal(&state, 80, 24);
+        assert_eq!(
+            find_cell(&terminal, 5, "Pierce The Veil, Sleeping").fg,
+            fg_of(Component::PlaylistDesc)
+        );
+        assert_styled_snapshot("ac9_theme_mix_80x24", &state);
+    }
+
+    /// AC9: the search page, its input focused, then its top hit selected.
+    #[test]
+    fn ac9_theme_search_80x24() {
+        let input = test_themed(search_empty());
+        let terminal = draw_terminal(&input, 80, 24);
+        assert_eq!(
+            find_cell(&terminal, 5, "Search: ").fg,
+            fg_of(Component::Prompt)
+        );
+        assert_styled_snapshot("ac9_theme_search_input_80x24", &input);
+        let top_hit = test_themed(search_artist_hit());
+        let terminal = draw_terminal(&top_hit, 80, 24);
+        assert_eq!(
+            find_cell(&terminal, 5, "Top hit: ").fg,
+            fg_of(Component::Selection)
+        );
+        assert_styled_snapshot("ac9_theme_search_top_hit_80x24", &top_hit);
+    }
+
+    /// AC9: a failed page.
+    #[test]
+    fn ac9_theme_failed_80x24() {
+        let state = failed_themed();
+        let terminal = draw_terminal(&state, 80, 24);
+        assert_eq!(
+            find_cell(&terminal, 6, "Could not load").fg,
+            fg_of(Component::Error)
+        );
+        assert_styled_snapshot("ac9_theme_failed_80x24", &state);
+    }
+
+    /// AC9: the actions popup, the keys help, the Themes popup and the key
+    /// hints.
+    #[test]
+    fn ac9_theme_popups_80x24() {
+        let actions = test_themed(actions_popup());
+        let help = with_help(queue_themed(), &[]);
+        let themes = themes_popup_themed();
+        let hints = pending(library_themed(), &[Key::Char('g')]);
+        for (state, part) in [
+            (&actions, "Open"),
+            (&help, "Keys"),
+            (&themes, "Themes"),
+            (&hints, "g …"),
+        ] {
+            let terminal = draw_terminal(state, 80, 24);
+            let cell = find_cell(&terminal, 5, part);
+            assert!(
+                cell.fg == fg_of(Component::BlockTitle) || cell.fg == fg_of(Component::Selection),
+                "{part:?}: {cell:?}"
+            );
+        }
+        assert_styled_snapshot("ac9_theme_actions_popup_80x24", &actions);
+        assert_styled_snapshot("ac9_theme_help_80x24", &help);
+        assert_styled_snapshot("ac9_theme_themes_popup_80x24", &themes);
+        assert_styled_snapshot("ac9_theme_key_hints_80x24", &hints);
+    }
+
+    /// AC10: the focus, playing and dim cues are the TUI's, on top of a
+    /// theme that sets colours only.
+    #[test]
+    fn ac10_cues_on_top() {
+        let colours = |mut state: State| {
+            let entry = theme_entry(
+                "colours",
+                &[],
+                [
+                    Component::Selection,
+                    Component::BlockTitle,
+                    Component::Border,
+                    Component::CurrentPlaying,
+                    Component::Prompt,
+                ]
+                .into_iter()
+                .map(|c| (c, Some(fg_of(c)), Some(bg_of(c))))
+                .collect(),
+            );
+            let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+                themes: vec![entry],
+            })
+            .unwrap();
+            tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+            state
+        };
+        let albums = draw_terminal(&colours(library_albums()), 80, 24);
+        let favorites = draw_terminal(&colours(favorites()), 80, 24);
+        let actions = draw_terminal(&colours(actions_popup()), 80, 24);
+        let help = draw_terminal(&with_help(colours(state_of(playing())), &[]), 80, 24);
+        let mut themes = colours(library());
+        press(&mut themes, &[Key::Char('T')]);
+        let themes = draw_terminal(&themes, 80, 24);
+        let hints = draw_terminal(&pending(colours(library()), &[Key::Char('g')]), 80, 24);
+        let typing = draw_terminal(
+            &colours(with_filter(state_of(playing()), "you", false)),
+            80,
+            24,
+        );
+        let kept = draw_terminal(
+            &colours(with_filter(state_of(playing()), "you", true)),
+            80,
+            24,
+        );
+        let input = draw_terminal(&colours(search_empty()), 80, 24);
+        let top_hit = draw_terminal(&colours(search_artist_hit()), 80, 24);
+        let queue = draw_terminal(&colours(state_of(playing())), 80, 24);
+
+        let (bold, dim) = (Mod::BOLD, Mod::DIM);
+        // (cue, terminal, first row, part, the component's colours, has, has not)
+        type Cue<'a> = (
+            &'a str,
+            &'a Terminal<TestBackend>,
+            usize,
+            &'a str,
+            Option<Component>,
+            Mod,
+            Mod,
+        );
+        let cues: Vec<Cue> = vec![
+            (
+                "unfocused title",
+                &albums,
+                6,
+                "Playlists (22)",
+                Some(Component::BlockTitle),
+                dim,
+                bold,
+            ),
+            (
+                "unfocused border",
+                &albums,
+                6,
+                "┌",
+                Some(Component::Border),
+                dim,
+                Mod::empty(),
+            ),
+            (
+                "focused title",
+                &albums,
+                6,
+                "Albums (14)",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "unfocused cursor",
+                &albums,
+                6,
+                "Running",
+                Some(Component::Selection),
+                dim,
+                Mod::empty(),
+            ),
+            (
+                "focused cursor",
+                &albums,
+                6,
+                "Collide With",
+                Some(Component::Selection),
+                Mod::empty(),
+                dim,
+            ),
+            (
+                "unplayable row",
+                &favorites,
+                6,
+                "Not Streamable Here",
+                None,
+                dim,
+                Mod::empty(),
+            ),
+            (
+                "playable row",
+                &favorites,
+                6,
+                "Song 2",
+                None,
+                Mod::empty(),
+                dim,
+            ),
+            (
+                "popup title",
+                &actions,
+                5,
+                "Collide With The Sky",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "help title",
+                &help,
+                5,
+                "Keys",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "themes title",
+                &themes,
+                5,
+                "Themes",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "hint title",
+                &hints,
+                5,
+                "g …",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "queue title typing",
+                &typing,
+                5,
+                "Queue (12 · /you▏",
+                Some(Component::BlockTitle),
+                bold,
+                dim,
+            ),
+            (
+                "queue title kept",
+                &kept,
+                5,
+                "Queue (12 · /you ·",
+                Some(Component::BlockTitle),
+                Mod::empty(),
+                bold,
+            ),
+            (
+                "current entry",
+                &queue,
+                5,
+                "Hell Above",
+                Some(Component::Selection),
+                Mod::empty(),
+                dim,
+            ),
+            (
+                "suggestion",
+                &queue,
+                5,
+                "Can You Feel My Heart",
+                None,
+                dim,
+                Mod::empty(),
+            ),
+            (
+                "divider",
+                &queue,
+                5,
+                "── Suggested",
+                None,
+                dim,
+                Mod::empty(),
+            ),
+            (
+                "focused input",
+                &input,
+                5,
+                "Search: ",
+                Some(Component::Prompt),
+                bold,
+                dim,
+            ),
+            (
+                "unfocused input",
+                &top_hit,
+                5,
+                "Search: ",
+                Some(Component::Prompt),
+                dim,
+                bold,
+            ),
+        ];
+        for (cue, terminal, from, part, component, has, has_not) in cues {
+            let cell = find_cell(terminal, from, part);
+            assert!(cell.modifier.contains(has), "{cue}: {cell:?}");
+            assert!(
+                has_not.is_empty() || !cell.modifier.intersects(has_not),
+                "{cue}: {cell:?}"
+            );
+            if let Some(component) = component {
+                assert_eq!(
+                    (cell.fg, cell.bg),
+                    (fg_of(component), bg_of(component)),
+                    "{cue}: {cell:?}"
+                );
+            }
+        }
+        // The current entry (not under the cursor) has `current_playing`.
+        let mut moved = colours(state_of(playing()));
+        press(&mut moved, &[Key::Char('j')]);
+        let moved = draw_terminal(&moved, 80, 24);
+        let cell = find_cell(&moved, 5, "Hell Above");
+        assert_eq!(
+            (cell.fg, cell.bg),
+            (
+                fg_of(Component::CurrentPlaying),
+                bg_of(Component::CurrentPlaying)
+            )
+        );
+    }
+
+    /// AC11: moving the Themes popup's cursor draws the frame in the theme
+    /// under it; `Esc` draws the theme in use again.
+    #[test]
+    fn ac11_preview_draws_theme() {
+        let screen = |name: &str, bg: Tc| theme_entry(name, &[("background", hex(bg))], vec![]);
+        let one = Tc::Rgb(0x11, 0x11, 0x11);
+        let two = Tc::Rgb(0x22, 0x22, 0x22);
+        let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+            themes: vec![screen("one", one), screen("two", two)],
+        })
+        .unwrap();
+        let mut state = library();
+        tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+        let before = draw_terminal(&state, 80, 24);
+        assert_eq!(before.backend().buffer()[(40, 1)].bg, one);
+
+        press(&mut state, &[Key::Char('T'), Key::Char('j')]);
+        let preview = draw_terminal(&state, 80, 24);
+        for (x, y) in [(0, 0), (40, 1), (40, 20), (79, 23)] {
+            assert_eq!(preview.backend().buffer()[(x, y)].bg, two, "({x}, {y})");
+        }
+        press(&mut state, &[Key::Char('k'), Key::Char('k')]);
+        let default = draw_terminal(&state, 80, 24);
+        assert_eq!(default.backend().buffer()[(40, 20)].bg, Tc::Reset);
+
+        press(&mut state, &[Key::Esc]);
+        let after = draw_terminal(&state, 80, 24);
+        assert_eq!(after.backend().buffer(), before.backend().buffer());
     }
 }

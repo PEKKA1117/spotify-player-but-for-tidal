@@ -1,10 +1,12 @@
 //! Spec 0008 AC18: `examples/app.toml` and `examples/keymap.toml` spell out
-//! every default, so copying them changes nothing.
+//! every default, so copying them changes nothing. Spec 0017 AC14:
+//! `examples/theme.toml` loads, its `spotify_player` theme is
+//! spotify-player's default look.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use tidal_player::config::{AppConfig, parse_app_toml, parse_keymap_toml};
+use tidal_player::config::{AppConfig, parse_app_toml, parse_keymap_toml, parse_theme_toml};
 use tidal_player::play::{resolve_player_config_with, resolve_settings_with};
 use tidal_player_core::ui::Keymap;
 use tidal_player_core::ui::keymap::{Binding, defaults};
@@ -126,4 +128,93 @@ fn ac18_example_keymap_is_the_defaults() {
 
     let keymap = parse_keymap_toml(&path, &text).expect("examples/keymap.toml builds");
     assert_eq!(keymap, Keymap::default());
+}
+
+/// Spec 0017 AC14: `examples/theme.toml` loads with no error and no
+/// notice; its first theme, `spotify_player`, sets every component to
+/// spotify-player's default ("spotify-player's default" column), followed
+/// by spotify-player's sample themes with their credit; `examples/app.toml`
+/// sets `theme = "default"`.
+#[test]
+fn ac14_example_theme_toml_loads() {
+    use tidal_player_core::ui::theme::{COMPONENTS, Color, Component, Modifiers, Style};
+
+    let (path, text) = example("theme.toml");
+    let themes = parse_theme_toml(&path, &text).expect("examples/theme.toml loads");
+    assert_eq!(themes.notice(), None, "{:?}", themes.skipped());
+    let names: Vec<&str> = themes.list().iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names.get(..2),
+        Some(&["default", "spotify_player"][..]),
+        "{names:?}"
+    );
+    for sample in ["dracula", "gruvbox_dark", "catppuccin_mocha", "tokyonight"] {
+        assert!(names.contains(&sample), "{sample}: {names:?}");
+    }
+    assert!(
+        text.contains("aome510/spotify-player") && text.contains("MIT"),
+        "the credit line"
+    );
+
+    // The column, through the default palette (the terminal's colours).
+    use Component::*;
+    let none = Style::new();
+    let cyan_bold = Style::new().fg(Color::Cyan).add(Modifiers::BOLD);
+    let column: [(Component, Style); 18] = [
+        (BlockTitle, Style::new().fg(Color::Magenta)),
+        (Border, none),
+        (PlaybackStatus, cyan_bold),
+        (PlaybackTrack, cyan_bold),
+        (PlaybackArtists, cyan_bold),
+        (PlaybackAlbum, Style::new().fg(Color::Yellow)),
+        (PlaybackMetadata, Style::new().fg(Color::DarkGray)),
+        (
+            PlaybackProgressBar,
+            Style::new().fg(Color::Green).bg(Color::DarkGray),
+        ),
+        (
+            PlaybackProgressBarUnfilled,
+            Style::new().bg(Color::DarkGray),
+        ),
+        (
+            CurrentPlaying,
+            Style::new().fg(Color::Green).add(Modifiers::BOLD),
+        ),
+        (PageDesc, cyan_bold),
+        (
+            PlaylistDesc,
+            Style::new().fg(Color::DarkGray).add(Modifiers::DIM),
+        ),
+        (TableHeader, Style::new().fg(Color::Blue)),
+        (
+            Selection,
+            Style::new().add(Modifiers::REVERSED | Modifiers::BOLD),
+        ),
+        (SecondaryRow, none),
+        (Like, none),
+        (Error, Style::new().fg(Color::Red)),
+        (Prompt, Style::new().add(Modifiers::BOLD)),
+    ];
+    let theme = &themes.list()[1];
+    assert_eq!(theme.screen, Style::new());
+    for (component, want) in column {
+        assert_eq!(theme.style(component), want, "{}", component.name());
+    }
+    // Every component is spelled out in the block, so it reads as the
+    // whole list to copy.
+    let block = text
+        .split("[[themes]]")
+        .find(|t| t.contains("name = \"spotify_player\""))
+        .expect("the spotify_player block");
+    for component in COMPONENTS {
+        assert!(
+            block.contains(&format!("\n{} = ", component.name())),
+            "{} not in the spotify_player block",
+            component.name()
+        );
+    }
+
+    let (path, text) = example("app.toml");
+    let file = parse_app_toml(&path, &text).unwrap();
+    assert_eq!(file.theme.as_deref(), Some("default"));
 }
