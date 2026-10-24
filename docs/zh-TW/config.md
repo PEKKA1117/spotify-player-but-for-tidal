@@ -19,7 +19,7 @@ tidal-player 由三個選用檔案設定：**`app.toml`** 存放設定，**`keym
 
 資料夾和三個檔案都可以不存在：此時使用預設值，程式也絕不會在那裡建立或寫入任何東西。檔案只在**啟動時讀取一次**；常駐程式 (daemon) 要重新啟動（`systemctl --user restart tidal-player`）才會讀到修改過的檔案。
 
-**起點**：[`examples/app.toml`](../../examples/app.toml) 和 [`examples/keymap.toml`](../../examples/keymap.toml) 列出了所有預設值（每項設定附上範圍，每個按鍵綁定附上命令），[`examples/theme.toml`](../../examples/theme.toml) 則收錄 spotify-player 的外觀與它的範例佈景主題，可供複製。原封不動複製過去不會改變任何東西；修改你想改的部分，其餘刪掉即可：
+**起點**：[`examples/app.toml`](../../examples/app.toml) 和 [`examples/keymap.toml`](../../examples/keymap.toml) 列出了所有預設值（每項設定附上範圍，每個按鍵綁定附上命令），[`examples/theme.toml`](../../examples/theme.toml) 則收錄 spotify-player 的外觀與它的部分範例佈景主題，可供複製。原封不動複製過去不會改變任何東西；修改你想改的部分，其餘刪掉即可：
 
 ```sh
 mkdir -p ~/.config/tidal-player

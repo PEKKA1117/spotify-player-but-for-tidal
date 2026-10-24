@@ -17,7 +17,7 @@ An empty variable counts as unset. The flag goes **after** the subcommand: `tida
 
 The directory and all three files may be missing: the defaults are used, and nothing is ever created or written there. The files are read **once, at start**; a daemon picks up a changed file when restarted (`systemctl --user restart tidal-player`).
 
-**Starting points**: [`examples/app.toml`](../examples/app.toml) and [`examples/keymap.toml`](../examples/keymap.toml) spell out every default (each setting with its range, each key binding with its command), and [`examples/theme.toml`](../examples/theme.toml) holds spotify-player's look and its sample themes to copy from. Copied as they are they change nothing; edit what you want and delete the rest:
+**Starting points**: [`examples/app.toml`](../examples/app.toml) and [`examples/keymap.toml`](../examples/keymap.toml) spell out every default (each setting with its range, each key binding with its command), and [`examples/theme.toml`](../examples/theme.toml) holds spotify-player's look and some of its sample themes to copy from. Copied as they are they change nothing; edit what you want and delete the rest:
 
 ```sh
 mkdir -p ~/.config/tidal-player

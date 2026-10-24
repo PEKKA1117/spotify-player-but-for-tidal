@@ -100,7 +100,7 @@ systemctl --user enable --now tidal-player
 <a id="configuration"></a>
 ## 設定
 
-設定存放在 `~/.config/tidal-player/app.toml`，按鍵存放在 `~/.config/tidal-player/keymap.toml`。[範例 `app.toml`](examples/app.toml) 與[範例 `keymap.toml`](examples/keymap.toml) 寫出了每一項預設值：複製後修改即可。顏色存放在 `~/.config/tidal-player/theme.toml`，採用 spotify-player 的格式；[範例 `theme.toml`](examples/theme.toml) 收錄 spotify-player 的外觀與它的範例佈景主題，`app.toml` 中的 `theme = "name"`（或 TUI 中的 `T`）可選擇其中一個。環境變數與命令列旗標依然有效且優先。所有設定與指令見[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW)。
+設定存放在 `~/.config/tidal-player/app.toml`，按鍵存放在 `~/.config/tidal-player/keymap.toml`。[範例 `app.toml`](examples/app.toml) 與[範例 `keymap.toml`](examples/keymap.toml) 寫出了每一項預設值：複製後修改即可。顏色存放在 `~/.config/tidal-player/theme.toml`，採用 spotify-player 的格式；[範例 `theme.toml`](examples/theme.toml) 收錄 spotify-player 的外觀與它的部分範例佈景主題，`app.toml` 中的 `theme = "name"`（或 TUI 中的 `T`）可選擇其中一個。環境變數與命令列旗標依然有效且優先。所有設定與指令見[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW)。
 
 <a id="documentation"></a>
 ## 文件

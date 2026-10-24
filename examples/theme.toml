@@ -8,7 +8,7 @@
 # out keeps the default look: a palette-only theme changes the background,
 # the foreground and the red of errors.
 
-# spotify-player's own look: every component at spotify-player's default.
+# spotify-player's own look, every component set as spotify-player sets it.
 # The block to copy for it.
 [[themes]]
 name = "spotify_player"
