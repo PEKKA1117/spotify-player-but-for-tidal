@@ -137,7 +137,7 @@ Whatever the theme, the TUI adds these state cues over the component styles, so 
 
 - **Rows**: a row starts in the screen's style, or `secondary_row` on every other row; the queue's current entry has `current_playing` laid over; an unplayable track, an autoplay suggestion and the `── Suggested` divider add `Dim`; the cursor row has `selection` laid over and adds `Dim` when its window does not have the focus
 - **Windows**: the focused window's title adds `Bold`; another window's title and border add `Dim`. Popup, keys-help and key-hint titles add `Bold`, and so does the queue's title while its filter is typed. The frame's title adds nothing
-- **The search input**: `prompt` while it has the focus; without it, `prompt` without `Bold`, plus `Dim`
+- **The search input**: `prompt` with `Bold` added while it has the focus; without it, `prompt` without `Bold`, plus `Dim`
 - **Status text** (`Loading…`, `Loading more…`, empty lists, `No rows match …`, popup statuses, the keys help's footer and dim rows, the key hints' dim rows): `Dim` added to the row's style
 
 With the `default` theme this is exactly the TUI's look without themes.

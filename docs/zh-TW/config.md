@@ -144,7 +144,7 @@ playback_progress_bar = { fg = "#bd93f9" }
 
 - **列**：每列從畫面的樣式開始，或在每隔一列使用 `secondary_row`；佇列的目前項目疊上 `current_playing`；無法播放的曲目、自動播放建議和 `── Suggested` 分隔線加上 `Dim`；游標所在列疊上 `selection`，且當它的視窗沒有焦點時加上 `Dim`
 - **視窗**：有焦點的視窗標題加上 `Bold`；其他視窗的標題和邊框加上 `Dim`。彈出視窗、按鍵說明和按鍵提示的標題加上 `Bold`，輸入佇列篩選時佇列的標題也是。外框的標題不加任何東西
-- **搜尋輸入框**：有焦點時為 `prompt`；沒有焦點時為去掉 `Bold` 的 `prompt`，再加上 `Dim`
+- **搜尋輸入框**：有焦點時為加上 `Bold` 的 `prompt`；沒有焦點時為去掉 `Bold` 的 `prompt`，再加上 `Dim`
 - **狀態文字**（`Loading…`、`Loading more…`、空清單、`No rows match …`、彈出視窗的狀態、按鍵說明的頁尾與變暗的列、按鍵提示中變暗的列）：在該列的樣式上加 `Dim`
 
 使用 `default` 佈景主題時，這就是沒有佈景主題時 TUI 的外觀。
