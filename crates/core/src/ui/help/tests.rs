@@ -237,7 +237,8 @@ const PLAYBACK: [&str; 16] = [
     "PlayNextPrompt",
     "ShowActionsOnCurrentTrack",
 ];
-const APP: [&str; 2] = ["OpenCommandHelp", "Quit"];
+// Spec 0017 adds `SwitchTheme`.
+const APP: [&str; 3] = ["SwitchTheme", "OpenCommandHelp", "Quit"];
 const ROWS: [&str; 3] = [
     "ChooseSelected",
     "AddSelectedItemToQueue",

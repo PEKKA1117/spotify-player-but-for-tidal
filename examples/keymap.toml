@@ -241,6 +241,11 @@ key_sequence = "C-q"
 command = "ClosePopup"
 key_sequence = "esc"
 
+# SwitchTheme: choose a theme (everywhere)
+[[keymaps]]
+command = "SwitchTheme"
+key_sequence = "T"
+
 # OpenCommandHelp: this help (everywhere)
 [[keymaps]]
 command = "OpenCommandHelp"

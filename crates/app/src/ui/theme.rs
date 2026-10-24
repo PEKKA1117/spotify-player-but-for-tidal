@@ -6,14 +6,46 @@ use tidal_player_core::ui::theme::{self as model, Component, Theme};
 
 /// The terminal colour of `color`.
 pub fn color(color: model::Color) -> Color {
-    let _ = color;
-    Color::Reset
+    use model::Color as C;
+    match color {
+        C::Reset => Color::Reset,
+        C::Black => Color::Black,
+        C::Red => Color::Red,
+        C::Green => Color::Green,
+        C::Yellow => Color::Yellow,
+        C::Blue => Color::Blue,
+        C::Magenta => Color::Magenta,
+        C::Cyan => Color::Cyan,
+        C::Gray => Color::Gray,
+        C::DarkGray => Color::DarkGray,
+        C::LightRed => Color::LightRed,
+        C::LightGreen => Color::LightGreen,
+        C::LightYellow => Color::LightYellow,
+        C::LightBlue => Color::LightBlue,
+        C::LightMagenta => Color::LightMagenta,
+        C::LightCyan => Color::LightCyan,
+        C::White => Color::White,
+        C::Indexed(index) => Color::Indexed(index),
+        C::Rgb(r, g, b) => Color::Rgb(r, g, b),
+    }
 }
 
 /// The terminal modifiers of `modifiers`.
 pub fn modifiers(modifiers: model::Modifiers) -> Modifier {
-    let _ = modifiers;
-    Modifier::empty()
+    use model::Modifiers as M;
+    [
+        (M::BOLD, Modifier::BOLD),
+        (M::DIM, Modifier::DIM),
+        (M::ITALIC, Modifier::ITALIC),
+        (M::UNDERLINED, Modifier::UNDERLINED),
+        (M::RAPID_BLINK, Modifier::RAPID_BLINK),
+        (M::REVERSED, Modifier::REVERSED),
+        (M::HIDDEN, Modifier::HIDDEN),
+        (M::CROSSED_OUT, Modifier::CROSSED_OUT),
+    ]
+    .into_iter()
+    .filter(|(m, _)| modifiers.contains(*m))
+    .fold(Modifier::empty(), |all, (_, m)| all | m)
 }
 
 /// The terminal style of `style`: its colours where set, its modifiers
@@ -129,7 +161,7 @@ mod tests {
         }
         // A style's hex colour is read the same way.
         for text in ["#50fa7b", "#50FA7B", "#fff", "#ggg000"] {
-            let core = parse_style_color(&text).map(|c| match c {
+            let core = parse_style_color(text).map(|c| match c {
                 model::StyleColor::Rgb(r, g, b) => Color::Rgb(r, g, b),
                 model::StyleColor::Palette(_) => Color::Reset,
             });

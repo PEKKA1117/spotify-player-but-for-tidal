@@ -603,6 +603,7 @@ fn configured_tui_state(
     let files = files.into();
     let mut state = tui_state(player_settings);
     tui_model::apply_keymap(&mut state, files.keymap);
+    tui_model::apply_themes(&mut state, files.themes, files.theme);
     state
 }
 

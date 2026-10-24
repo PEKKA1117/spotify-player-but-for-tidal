@@ -269,7 +269,15 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             }
             "hide_versions" => config.hide_versions = Some(words(path, key, value)?),
             "layout" => config.layout = layout(path, value)?,
-            "theme" => {}
+            "theme" => match value.as_str() {
+                Some(name) => config.theme = Some(name.to_owned()),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected a string, got {}", describe(value)),
+                    ));
+                }
+            },
             _ => return Err(unknown(path, key)),
         }
     }
@@ -317,8 +325,13 @@ pub fn parse_theme_toml(path: &Path, text: &str) -> Result<Themes, ConfigError> 
 
 /// Reads and validates `<dir>/theme.toml`; a missing file or directory is
 /// `default` alone, a file that cannot be read is `<path>: <io error>`.
-pub fn load_theme_toml(_dir: &Path) -> Result<Themes, ConfigError> {
-    Ok(Themes::default())
+pub fn load_theme_toml(dir: &Path) -> Result<Themes, ConfigError> {
+    let path = theme_toml_path(dir);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse_theme_toml(&path, &text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Themes::default()),
+        Err(e) => Err(ConfigError::at(&path, e)),
+    }
 }
 
 /// The theme in use (spec 0017 "Choosing the theme"): `--theme`, else
@@ -332,8 +345,15 @@ pub fn select_theme(
     var: Option<&str>,
     flag: Option<&str>,
 ) -> Result<usize, ConfigError> {
-    let _ = (themes, app_toml, file, var, flag);
-    Ok(0)
+    let (source, name) = match (flag, var.filter(|v| !v.is_empty()), file) {
+        (Some(flag), _, _) => ("--theme".to_owned(), flag),
+        (None, Some(var), _) => (THEME_VAR.to_owned(), var),
+        (None, None, Some(file)) => (app_toml.display().to_string(), file),
+        (None, None, None) => return Ok(0),
+    };
+    themes
+        .find(name)
+        .ok_or_else(|| ConfigError(format!("{source}: {}", themes.unknown(name))))
 }
 
 /// `<path>: line L, column C: <parser message>`.

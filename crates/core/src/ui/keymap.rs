@@ -556,11 +556,10 @@ impl Binding {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 28] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 27] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
-    "SwitchTheme",
     "ShowActionsOnCurrentContext",
     "JumpToHighlightTrackInContext",
     "JumpToCurrentTrackInContext",
@@ -924,6 +923,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),
+        (vec![one(Char('T'))], C::SwitchTheme),
         (vec![one(Char('?')), one(Ctrl('h'))], C::OpenCommandHelp),
         (vec![one(Char('q')), one(Ctrl('c'))], C::Quit),
     ];

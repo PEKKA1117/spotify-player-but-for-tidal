@@ -2,7 +2,8 @@
 //! titled `tidal-player`, the playback window (4 rows, taller with the
 //! album cover of spec 0016) at the top and the queue below it. The two
 //! never share rows: the queue list always spans the full width of its own
-//! rows.
+//! rows. Everything is drawn in the active theme's styles (spec 0017), with
+//! the focus, playing and dim cues on top.
 
 use std::time::{Duration, Instant};
 
@@ -10,14 +11,17 @@ use ratatui::{
     Frame,
     buffer::Buffer,
     layout::{Rect, Size},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
 use tidal_player_core::Track;
 use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
 use tidal_player_core::ui::filter::{self, no_match};
-use tidal_player_core::ui::{Key, PageKind, State};
+use tidal_player_core::ui::theme::Component;
+use tidal_player_core::ui::{Key, PageKind, State, Theme};
+
+use theme::of;
 
 mod pages;
 pub mod theme;
@@ -237,7 +241,20 @@ pub fn render(state: &State, frame: &mut Frame, hint: bool) {
 pub fn render_with_cover(state: &State, frame: &mut Frame, hint: bool, cover: Option<&CoverFrame>) {
     let area = frame.area();
     let areas = areas(area, state.login_required, cover.map(|c| c.geometry));
-    frame.render_widget(Block::bordered().title("tidal-player"), area);
+    let look = state.theme();
+    // Every cell starts in the screen's style (spec 0017 "Components").
+    frame
+        .buffer_mut()
+        .set_style(area, theme::style(look.screen));
+    frame.render_widget(
+        Block::bordered()
+            .border_style(of(look, Component::Border))
+            .title(Line::styled(
+                "tidal-player",
+                of(look, Component::BlockTitle),
+            )),
+        area,
+    );
     if let Some(status) = areas.status {
         frame.render_widget(Paragraph::new(STATUS), status);
     }
@@ -281,28 +298,30 @@ pub fn render_with_cover(state: &State, frame: &mut Frame, hint: bool, cover: Op
 fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
     let width = usize::from(area.width);
     let entry = state.current();
-    let mut lines = vec![Line::styled(
-        header(state, entry, width),
-        Style::new().add_modifier(Modifier::BOLD),
-    )];
+    let look = state.theme();
+    let mut lines = vec![header(state, entry, width)];
     if let Some(entry) = entry {
         let album = entry.track.album_title().unwrap_or_default();
-        lines.push(Line::raw(fit(&format!("  {album}"), width)));
+        lines.push(Line::styled(
+            fit(&format!("  {album}"), width),
+            of(look, Component::PlaybackAlbum),
+        ));
         lines.push(match state.message() {
             Some(message) => Line::styled(
                 fit(&format!("  {message}"), width),
-                Style::new().fg(Color::Red),
+                of(look, Component::Error),
             ),
-            None => Line::raw(
+            None => Line::styled(
                 state
                     .player
                     .as_ref()
                     .and_then(|p| p.now_playing.as_ref())
                     .map(|np| details(np, width))
                     .unwrap_or_default(),
+                of(look, Component::PlaybackMetadata),
             ),
         });
-        let bar = Line::raw(progress(state.position, entry.track.duration, width));
+        let bar = progress(state.position, entry.track.duration, width, look);
         if area.height > PLAYBACK_ROWS {
             // The taller window (spec 0016): the bar on its last row.
             let last = Rect {
@@ -318,7 +337,7 @@ fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
         lines.push(Line::raw(""));
         lines.push(Line::styled(
             fit(&format!("  {message}"), width),
-            Style::new().fg(Color::Red),
+            of(look, Component::Error),
         ));
     }
     frame.render_widget(Paragraph::new(lines), area);
@@ -326,9 +345,13 @@ fn render_playback(state: &State, frame: &mut Frame, area: Rect) {
 
 /// `▶ Title · Artists` on the left, the indicators flush right; the
 /// indicators shrink to the volume, then go, before the title gets
-/// narrower than [`MIN_LEFT`].
-fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> String {
-    let left = match (entry, state.player.as_ref()) {
+/// narrower than [`MIN_LEFT`]. The symbol and indicators are in
+/// `playback_status`, the title in `playback_track`, ` · ` and the artists
+/// in `playback_artists`; the gap between is the screen's.
+fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> Line<'static> {
+    let look = state.theme();
+    let status = of(look, Component::PlaybackStatus);
+    let parts: Vec<(String, Style)> = match (entry, state.player.as_ref()) {
         (Some(entry), Some(player)) => {
             let symbol = match player.state {
                 PlaybackState::Playing => "▶",
@@ -336,17 +359,30 @@ fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> String {
                 PlaybackState::Loading | PlaybackState::Buffering => "…",
                 PlaybackState::Stopped => "■",
             };
+            let mut parts = vec![
+                (format!("{symbol} "), status),
+                (
+                    entry.track.title.clone(),
+                    of(look, Component::PlaybackTrack),
+                ),
+            ];
             let artists = entry.track.artist_names();
-            if artists.is_empty() {
-                format!("{symbol} {}", entry.track.title)
-            } else {
-                format!("{symbol} {} · {artists}", entry.track.title)
+            if !artists.is_empty() {
+                parts.push((
+                    format!(" · {artists}"),
+                    of(look, Component::PlaybackArtists),
+                ));
             }
+            parts
         }
-        _ => "Nothing playing".to_owned(),
+        _ => vec![(
+            "Nothing playing".to_owned(),
+            of(look, Component::PlaybackTrack),
+        )],
     };
+    let left: String = parts.iter().map(|(text, _)| text.as_str()).collect();
     let Some(player) = state.player.as_ref() else {
-        return fit(&left, width);
+        return Line::from(fit_spans(&parts, &fit(&left, width)));
     };
     let volume = if player.muted {
         "muted".to_owned()
@@ -366,25 +402,66 @@ fn header(state: &State, entry: Option<&QueueEntry>, width: usize) -> String {
         all.push("autoplay".to_owned());
     }
     all.push(volume.clone());
-    [all.join("  "), volume]
-        .iter()
-        .find_map(|right| split_row(&left, right, width))
-        .unwrap_or_else(|| fit(&left, width))
+    let row = [all.join("  "), volume]
+        .into_iter()
+        .find_map(|right| split_row(&left, &right, width).map(|(left, gap)| (left, gap, right)));
+    let Some((shown, gap, right)) = row else {
+        return Line::from(fit_spans(&parts, &fit(&left, width)));
+    };
+    let mut spans = fit_spans(&parts, &shown);
+    spans.push(Span::raw(" ".repeat(gap)));
+    spans.push(Span::styled(right, status));
+    Line::from(spans)
 }
 
-/// `left` and `right` on one row of `width`, `right` flush right; `None`
-/// when `right` would leave `left` fewer than [`MIN_LEFT`] columns it needs.
-fn split_row(left: &str, right: &str, width: usize) -> Option<String> {
+/// `left` and `right` on one row of `width`, `right` flush right: `left`
+/// (cut to fit) and the gap before `right`; `None` when `right` would leave
+/// `left` fewer than [`MIN_LEFT`] columns it needs.
+fn split_row(left: &str, right: &str, width: usize) -> Option<(String, usize)> {
     let (lw, rw) = (text_width(left), text_width(right));
     if lw + 1 + rw <= width {
-        return Some(format!("{left}{}{right}", " ".repeat(width - lw - rw)));
+        return Some((left.to_owned(), width - lw - rw));
     }
     if width >= rw + 1 + MIN_LEFT {
         let left = fit(left, width - rw - 1);
         let pad = width - text_width(&left) - rw;
-        return Some(format!("{left}{}{right}", " ".repeat(pad)));
+        return Some((left, pad));
     }
     None
+}
+
+/// `parts` (text and style) shown as `shown`: their concatenation, or what
+/// [`fit`] cut it to, the `…` in the style of the last part kept.
+fn fit_spans(parts: &[(String, Style)], shown: &str) -> Vec<Span<'static>> {
+    let whole: String = parts.iter().map(|(text, _)| text.as_str()).collect();
+    if shown == whole {
+        return parts
+            .iter()
+            .map(|(text, style)| Span::styled(text.clone(), *style))
+            .collect();
+    }
+    // A cut row: a prefix of `whole`, then `…` (or nothing at width 0).
+    let Some(kept) = shown.strip_suffix('…') else {
+        return Vec::new();
+    };
+    let mut left = kept.chars().count();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (text, style) in parts {
+        if left == 0 {
+            break;
+        }
+        let part: String = text.chars().take(left).collect();
+        left -= part.chars().count();
+        spans.push(Span::styled(part, *style));
+    }
+    match spans.last_mut() {
+        Some(last) => last.content.to_mut().push('…'),
+        None => spans.push(Span::styled(
+            "…",
+            parts.first().map_or_else(Style::new, |(_, style)| *style),
+        )),
+    }
+    spans
 }
 
 /// `LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: <reason>`:
@@ -418,14 +495,22 @@ fn details(np: &NowPlaying, width: usize) -> String {
 }
 
 /// `━━━━━────  1:23 / 3:32`; no bar when the duration is unknown
-/// (`1:23 / ?:??`, tidalt bug 6).
-fn progress(position: Duration, duration: Option<Duration>, width: usize) -> String {
+/// (`1:23 / ?:??`, tidalt bug 6). The played part in
+/// `playback_progress_bar`, the rest in `playback_progress_bar_unfilled`,
+/// the time in `playback_metadata`.
+fn progress(
+    position: Duration,
+    duration: Option<Duration>,
+    width: usize,
+    look: &Theme,
+) -> Line<'static> {
     let time = format!(
         "{} / {}",
         clock(position),
         duration.map_or_else(|| "?:??".to_owned(), clock)
     );
     let tw = text_width(&time);
+    let metadata = of(look, Component::PlaybackMetadata);
     match duration {
         Some(duration) if width > 2 + 2 + tw => {
             let bar = width - 2 - 2 - tw;
@@ -435,10 +520,22 @@ fn progress(position: Duration, duration: Option<Duration>, width: usize) -> Str
                 let ratio = position.as_secs_f64() / duration.as_secs_f64();
                 ((bar as f64 * ratio).round() as usize).min(bar)
             };
-            format!("  {}{}  {time}", "━".repeat(done), "─".repeat(bar - done))
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("━".repeat(done), of(look, Component::PlaybackProgressBar)),
+                Span::styled(
+                    "─".repeat(bar - done),
+                    of(look, Component::PlaybackProgressBarUnfilled),
+                ),
+                Span::raw("  "),
+                Span::styled(time, metadata),
+            ])
         }
-        _ if width >= tw => format!("{}{time}", " ".repeat(width - tw)),
-        _ => fit(&time, width),
+        _ if width >= tw => Line::from(vec![
+            Span::raw(" ".repeat(width - tw)),
+            Span::styled(time, metadata),
+        ]),
+        _ => Line::styled(fit(&time, width), metadata),
     }
 }
 
@@ -459,23 +556,27 @@ pub(crate) fn clock(d: Duration) -> String {
 enum Row<'a> {
     /// Before a run of autoplay suggestions.
     Suggested,
-    Entry(usize, &'a QueueEntry),
+    /// The entry's queue position, its place among the entries shown
+    /// (`secondary_row` on every other one) and the entry.
+    Entry(usize, usize, &'a QueueEntry),
 }
 
 fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
     let queue = state.queue();
     let filter = filter::queue_filter(state);
     let width = usize::from(area.width.saturating_sub(2));
+    let look = state.theme();
     // Bold while its filter is typed (spec 0012 "Drawing").
-    let title_style = if filter.typing {
-        Style::new().add_modifier(Modifier::BOLD)
-    } else {
-        Style::new()
-    };
-    let block = Block::bordered().title(Line::styled(
-        fit(&filter::queue_title(state), width),
-        title_style,
-    ));
+    let mut title_style = of(look, Component::BlockTitle);
+    if filter.typing {
+        title_style = title_style.add_modifier(Modifier::BOLD);
+    }
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(
+            fit(&filter::queue_title(state), width),
+            title_style,
+        ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -492,13 +593,13 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
     }
     let mut rows = Vec::with_capacity(shown.len() + 1);
     let mut suggested = false;
-    for i in shown {
+    for (n, i) in shown.into_iter().enumerate() {
         let entry = &queue[i];
         if entry.suggested && !suggested {
             rows.push(Row::Suggested);
         }
         suggested = entry.suggested;
-        rows.push(Row::Entry(i, entry));
+        rows.push(Row::Entry(i, n, entry));
     }
 
     // Keep the anchor (the current entry when it changed, the cursor when
@@ -510,7 +611,7 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
         .flatten()
         .find_map(|id| {
             rows.iter()
-                .position(|r| matches!(r, Row::Entry(_, e) if e.id == id))
+                .position(|r| matches!(r, Row::Entry(_, _, e) if e.id == id))
         })
         .unwrap_or(0);
     let offset = anchor
@@ -528,16 +629,21 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
                 fit(&divider(width), width),
                 Style::new().add_modifier(Modifier::DIM),
             ),
-            Row::Entry(i, entry) => {
-                let mut style = Style::new();
+            Row::Entry(i, n, entry) => {
+                // Spec 0017 "State cues on top of the theme".
+                let mut style = if n % 2 == 1 {
+                    of(look, Component::SecondaryRow)
+                } else {
+                    Style::new()
+                };
+                if Some(entry.id) == current {
+                    style = style.patch(of(look, Component::CurrentPlaying));
+                }
                 if entry.suggested {
                     style = style.add_modifier(Modifier::DIM);
                 }
-                if Some(entry.id) == current {
-                    style = style.add_modifier(Modifier::BOLD);
-                }
                 if Some(entry.id) == state.cursor {
-                    style = style.add_modifier(Modifier::REVERSED);
+                    style = style.patch(of(look, Component::Selection));
                 }
                 Line::styled(columns.row(*i, entry, Some(entry.id) == current), style)
             }
@@ -639,12 +745,12 @@ fn render_prompt(state: &State, frame: &mut Frame, area: Rect) {
         InsertAt::End => "Add to queue: ",
         InsertAt::Next => "Play next: ",
     };
-    draw_prompt(frame, area, label, &prompt.text);
+    draw_prompt(frame, area, state.theme(), label, &prompt.text);
 }
 
-/// One row of `label` and `text`, the end of the text kept in view, with
-/// the cursor after it.
-fn draw_prompt(frame: &mut Frame, area: Rect, label: &str, text: &str) {
+/// One row of `label` and `text` in `prompt`, the end of the text kept in
+/// view, with the cursor after it.
+fn draw_prompt(frame: &mut Frame, area: Rect, look: &Theme, label: &str, text: &str) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -658,15 +764,24 @@ fn draw_prompt(frame: &mut Frame, area: Rect, label: &str, text: &str) {
     };
     let line = fit(&format!("{label}{text}"), width);
     let x = area.x + u16::try_from(text_width(&line)).unwrap_or(area.width);
-    frame.render_widget(Clear, area);
+    clear(frame, area, look);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             line,
-            Style::new().add_modifier(Modifier::BOLD),
+            of(look, Component::Prompt),
         )])),
         area,
     );
     frame.set_cursor_position((x.min(area.right().saturating_sub(1)), area.y));
+}
+
+/// Clears `area` to the screen's style (what is drawn over it starts there,
+/// spec 0017).
+fn clear(frame: &mut Frame, area: Rect, look: &Theme) {
+    frame.render_widget(Clear, area);
+    frame
+        .buffer_mut()
+        .set_style(area, theme::style(look.screen));
 }
 
 // --- text ------------------------------------------------------------------------------

@@ -318,18 +318,62 @@ impl StyleSpec {
 /// with `bright`/`light`, `grey`/`gray`/`silver` read as ratatui reads
 /// them; a number 0–255; or `#rrggbb`.
 pub fn parse_palette_color(text: &str) -> Option<Color> {
-    hex(text).map(|(r, g, b)| Color::Rgb(r, g, b))
+    // ratatui-core 0.1.2's `Color::from_str`, step by step (the binary's
+    // `ac1_palette_matches_ratatui` checks the two agree).
+    let name = text
+        .to_lowercase()
+        .replace([' ', '-', '_'], "")
+        .replace("bright", "light")
+        .replace("grey", "gray")
+        .replace("silver", "gray")
+        .replace("lightblack", "darkgray")
+        .replace("lightwhite", "white")
+        .replace("lightgray", "white");
+    Some(match name.as_str() {
+        "reset" => Color::Reset,
+        "black" => Color::Black,
+        "red" => Color::Red,
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "blue" => Color::Blue,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" => Color::Gray,
+        "darkgray" => Color::DarkGray,
+        "lightred" => Color::LightRed,
+        "lightgreen" => Color::LightGreen,
+        "lightyellow" => Color::LightYellow,
+        "lightblue" => Color::LightBlue,
+        "lightmagenta" => Color::LightMagenta,
+        "lightcyan" => Color::LightCyan,
+        "white" => Color::White,
+        _ => match text.parse::<u8>() {
+            Ok(index) => Color::Indexed(index),
+            Err(_) => {
+                let (r, g, b) = hex(text)?;
+                Color::Rgb(r, g, b)
+            }
+        },
+    })
 }
 
 /// A component style's colour: a palette name (`Black` … `BrightWhite`,
 /// ignoring case, `_`, `-` and spaces) or `#rrggbb`.
 pub fn parse_style_color(text: &str) -> Option<StyleColor> {
-    hex(text).map(|(r, g, b)| StyleColor::Rgb(r, g, b))
+    let name = text.to_lowercase().replace([' ', '-', '_'], "");
+    PALETTE_COLORS
+        .into_iter()
+        .find(|color| color.key().replace('_', "") == name)
+        .map(StyleColor::Palette)
+        .or_else(|| hex(text).map(|(r, g, b)| StyleColor::Rgb(r, g, b)))
 }
 
 /// A modifier's name, ignoring case.
-pub fn parse_modifier(_text: &str) -> Option<Modifiers> {
-    None
+pub fn parse_modifier(text: &str) -> Option<Modifiers> {
+    Modifiers::ALL
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(text))
+        .map(|(_, modifier)| modifier)
 }
 
 /// `#rrggbb`, as ratatui and spotify-player read it.
@@ -433,7 +477,33 @@ impl Component {
     /// The default: the built-in theme's style, today's look, and what a
     /// theme gets for a component it leaves out (spec 0017 decision 1).
     pub fn default_style(self) -> StyleSpec {
-        StyleSpec::default()
+        let with = |modifiers| StyleSpec {
+            modifiers,
+            ..StyleSpec::default()
+        };
+        match self {
+            Self::PlaybackStatus
+            | Self::PlaybackTrack
+            | Self::PlaybackArtists
+            | Self::CurrentPlaying
+            | Self::PageDesc
+            | Self::TableHeader
+            | Self::Prompt => with(Modifiers::BOLD),
+            Self::PlaylistDesc => with(Modifiers::DIM),
+            Self::Selection => with(Modifiers::REVERSED),
+            Self::Error => StyleSpec {
+                fg: Some(StyleColor::Palette(PaletteColor::Red)),
+                ..StyleSpec::default()
+            },
+            Self::BlockTitle
+            | Self::Border
+            | Self::PlaybackAlbum
+            | Self::PlaybackMetadata
+            | Self::PlaybackProgressBar
+            | Self::PlaybackProgressBarUnfilled
+            | Self::SecondaryRow
+            | Self::Like => StyleSpec::default(),
+        }
     }
 }
 
@@ -522,7 +592,18 @@ impl Themes {
 
     /// The message row's line about the skipped names, if there are any.
     pub fn notice(&self) -> Option<String> {
-        None
+        let names = &self.skipped;
+        match names.len() {
+            0 => None,
+            1 => Some(format!(
+                "theme.toml: 1 spotify-player style not used here: {}",
+                names[0]
+            )),
+            n => Some(format!(
+                "theme.toml: {n} spotify-player styles not used here: {}",
+                names.join(", ")
+            )),
+        }
     }
 
     /// `unknown theme "x" (themes: default, dracula)`: what the binary
@@ -753,14 +834,133 @@ pub enum ThemeError {
 /// built-in `default` first (replaced in place by an entry of that name),
 /// then the entries in file order; what an entry leaves out keeps the
 /// default (decision 1).
-pub fn build(_file: &ThemeFile) -> Result<Themes, ThemeError> {
-    Ok(Themes::default())
+pub fn build(file: &ThemeFile) -> Result<Themes, ThemeError> {
+    let mut themes = Themes::default();
+    let mut names: Vec<&str> = Vec::new();
+    for (index, entry) in file.themes.iter().enumerate() {
+        if let Some(field) = entry.unknown.first() {
+            return Err(ThemeError::UnknownField {
+                index,
+                field: field.clone(),
+            });
+        }
+        let name = entry
+            .name
+            .as_deref()
+            .ok_or(ThemeError::MissingName { index })?;
+        if name.is_empty() {
+            return Err(ThemeError::EmptyName { index });
+        }
+        if let Some(first) = names.iter().position(|n| *n == name) {
+            return Err(ThemeError::DuplicateName {
+                index,
+                name: name.to_owned(),
+                first,
+            });
+        }
+        names.push(name);
+        let palette = palette(index, &entry.palette)?;
+        let mut specs = COMPONENTS.map(Component::default_style);
+        for (style, value) in &entry.component_style {
+            if let Some(component) = Component::from_name(style) {
+                let value = value.clone().unwrap_or_default();
+                specs[component as usize] = spec(index, style, &value)?;
+            } else if SKIPPED_COMPONENTS.contains(&style.as_str()) {
+                if !themes.skipped.contains(style) {
+                    themes.skipped.push(style.clone());
+                }
+            } else {
+                return Err(ThemeError::UnknownStyle {
+                    index,
+                    name: style.clone(),
+                });
+            }
+        }
+        let theme = Theme::resolve(name.to_owned(), &palette, &specs);
+        if name == DEFAULT_THEME {
+            themes.themes[0] = theme;
+        } else {
+            themes.themes.push(theme);
+        }
+    }
+    Ok(themes)
+}
+
+/// Entry `index`'s palette: the terminal's colours with `entries` set.
+fn palette(index: usize, entries: &[(String, String)]) -> Result<Palette, ThemeError> {
+    let mut palette = Palette::default();
+    for (key, value) in entries {
+        let color = || {
+            parse_palette_color(value).ok_or_else(|| ThemeError::InvalidPaletteColor {
+                index,
+                key: key.clone(),
+                value: value.clone(),
+            })
+        };
+        match key.as_str() {
+            "background" => palette.background = Some(color()?),
+            "foreground" => palette.foreground = Some(color()?),
+            _ => {
+                let name = PALETTE_COLORS
+                    .into_iter()
+                    .find(|c| c.key() == key)
+                    .ok_or_else(|| ThemeError::UnknownPaletteColor {
+                        index,
+                        key: key.clone(),
+                    })?;
+                palette.colors[name as usize] = color()?;
+            }
+        }
+    }
+    Ok(palette)
+}
+
+/// Entry `index`'s style of `style`, as written.
+fn spec(index: usize, style: &str, entry: &StyleEntry) -> Result<StyleSpec, ThemeError> {
+    if let Some(field) = entry.unknown.first() {
+        return Err(ThemeError::UnknownStyleField {
+            index,
+            style: style.to_owned(),
+            field: field.clone(),
+        });
+    }
+    let color = |field: &'static str, value: &Option<String>| {
+        value
+            .as_deref()
+            .map(|value| {
+                parse_style_color(value).ok_or_else(|| ThemeError::InvalidStyleColor {
+                    index,
+                    style: style.to_owned(),
+                    field,
+                    value: value.to_owned(),
+                })
+            })
+            .transpose()
+    };
+    let mut modifiers = Modifiers::NONE;
+    for name in &entry.modifiers {
+        modifiers = modifiers
+            | parse_modifier(name).ok_or_else(|| ThemeError::UnknownModifier {
+                index,
+                style: style.to_owned(),
+                name: name.clone(),
+            })?;
+    }
+    Ok(StyleSpec {
+        fg: color("fg", &entry.fg)?,
+        bg: color("bg", &entry.bg)?,
+        modifiers,
+    })
 }
 
 // --- the Themes popup (`T`) --------------------------------------------------
 
 /// Opens the Themes popup with the cursor on the theme in use.
-pub(super) fn open(_state: &mut State) -> Vec<Effect> {
+pub(super) fn open(state: &mut State) -> Vec<Effect> {
+    state.popup = Some(Popup::Themes {
+        cursor: state.theme,
+        active: state.theme,
+    });
     Vec::new()
 }
 
@@ -768,8 +968,24 @@ pub(super) fn open(_state: &mut State) -> Vec<Effect> {
 /// cursor and preview the theme under it; `ChooseSelected` keeps it,
 /// `ClosePopup` goes back to the one in use before; nothing else acts.
 pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
-    let _ = (step, command);
-    let _ = state;
+    let Some(Popup::Themes { cursor, active }) = state.popup else {
+        return Vec::new();
+    };
+    match command {
+        UiCommand::ChooseSelected => state.popup = None,
+        UiCommand::ClosePopup => cancel(state),
+        _ if command.is_list_move() => {
+            let cursor = step(
+                command,
+                cursor,
+                state.themes.list().len(),
+                state.list_height,
+            );
+            state.theme = cursor;
+            state.popup = Some(Popup::Themes { cursor, active });
+        }
+        _ => {}
+    }
     Vec::new()
 }
 

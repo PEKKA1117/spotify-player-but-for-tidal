@@ -597,7 +597,14 @@ fn ac7_theme_wrong_type_exits_2() {
 #[test]
 fn ac7_missing_theme_toml_runs() {
     const THEMES: &[u8] = b"\xef\xbb\xbf[[themes]]\r\nname = \"dracula\"\r\n[themes.component_style]\r\nlyrics_played = { fg = \"Red\" }\r\n";
-    let cases: Vec<(&str, Vec<(&str, &[u8])>, Option<&str>, &[&str])> = vec![
+    // (case, files, the variable, the flag)
+    type Case<'a> = (
+        &'a str,
+        Vec<(&'a str, &'a [u8])>,
+        Option<&'a str>,
+        &'a [&'a str],
+    );
+    let cases: Vec<Case> = vec![
         ("no files", vec![], None, &[]),
         (
             "no theme.toml, theme default",

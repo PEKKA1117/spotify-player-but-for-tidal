@@ -608,7 +608,8 @@ fn themes_popup(state: &State) -> Option<(usize, usize)> {
 fn ac5_themes_popup() {
     use Key::{Char, Down, Enter, Esc, Up};
     // (keys after `T`, popup after (cursor, active), the theme drawn)
-    let cases: Vec<(Vec<Key>, Option<(usize, usize)>, usize)> = vec![
+    type Case = (Vec<Key>, Option<(usize, usize)>, usize);
+    let cases: Vec<Case> = vec![
         (vec![], Some((1, 1)), 1),
         (vec![Char('j')], Some((2, 1)), 2),
         (vec![Down], Some((2, 1)), 2),

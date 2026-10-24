@@ -339,7 +339,10 @@ fn is_playback(command: UiCommand) -> bool {
 }
 
 fn is_app(command: UiCommand) -> bool {
-    matches!(command, UiCommand::OpenCommandHelp | UiCommand::Quit)
+    matches!(
+        command,
+        UiCommand::SwitchTheme | UiCommand::OpenCommandHelp | UiCommand::Quit
+    )
 }
 
 /// The page commands; focus and tabs only where the page has something to

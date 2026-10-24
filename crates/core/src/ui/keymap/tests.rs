@@ -341,7 +341,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 42] = [
+const DEFAULTS: [(&[&str], &str); 43] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -382,6 +382,8 @@ const DEFAULTS: [(&[&str], &str); 42] = [
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
+    // Spec 0017: the Themes popup.
+    (&["T"], "SwitchTheme"),
     (&["?", "C-h"], "OpenCommandHelp"),
     (&["q", "C-c"], "Quit"),
     // The first default `[[actions]]` binding (spec 0011).
@@ -1254,11 +1256,12 @@ fn ac12_unsupported_notice() {
                 entry("g n", "NextTrack"),
                 entry("y", "LyricsPage"),
                 entry("w", "PlayRandom"),
+                // Spec 0017: a command here now, no longer skipped.
                 entry("v", "SwitchTheme"),
             ],
             vec![],
             Some(
-                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SwitchTheme",
+                "keymap.toml: 2 spotify-player commands not supported here: PlayRandom, LyricsPage",
             ),
         ),
         (

@@ -400,6 +400,11 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
 /// through the player's first `Welcome`.
 pub fn apply_keymap(state: &mut State, keymap: Keymap) {
     if let Some(notice) = keymap.notice() {
+        // Before `theme.toml`'s, if that is in already (spec 0017 AC6).
+        let notice = match state.notice.take() {
+            Some(themes) => format!("{notice} · {themes}"),
+            None => notice,
+        };
         state.message = Some(notice.clone());
         state.notice = Some(notice);
     }
@@ -411,8 +416,16 @@ pub fn apply_keymap(state: &mut State, keymap: Keymap) {
 /// (spec 0017); `theme.toml`'s notice of skipped spotify-player names joins
 /// the keymap's, after it (AC6).
 pub fn apply_themes(state: &mut State, themes: Themes, active: usize) {
+    if let Some(notice) = themes.notice() {
+        let notice = match state.notice.take() {
+            Some(keymap) => format!("{keymap} · {notice}"),
+            None => notice,
+        };
+        state.message = Some(notice.clone());
+        state.notice = Some(notice);
+    }
+    state.theme = active.min(themes.list().len() - 1);
     state.themes = themes;
-    state.theme = active;
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.
