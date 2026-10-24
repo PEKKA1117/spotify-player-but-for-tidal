@@ -2,6 +2,15 @@
 
 **tidal-player**: a terminal Tidal player modelled on [spotify-player](https://github.com/aome510/spotify-player). This is a from-scratch rebuild of [tidalt](https://github.com/PEKKA1117/tidalt), which grew too buggy to keep patching. Nothing is carried over as code; behaviour worth keeping is re-specified and re-tested here first.
 
+## Easter-egg specs
+
+`docs/Eastereggs/` holds spec parts kept out of the repository: excluded in `.git/info/exclude`, never committed, present only in the maintainer's checkout (absolute path `/home/df/claude/spotify-player-but-for-tidal/docs/Eastereggs/`, also from a worktree). A spec that has one starts with a line `@docs/Eastereggs/<hash>.md` (a path from the repository root). That file is part of the spec, with the same authority:
+
+- Read it before slicing, implementing or accepting anything the spec covers; its criteria are owned by slices and accepted like the spec's
+- Briefs quote it as they quote the spec
+- Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text); the tracked spec only names the file
+- A spec naming a file that is missing (another clone, CI): say so and stop rather than guessing
+
 ## Status
 
 Rust workspace (toolchain and checks under "Build & tooling"). The features below exist today. Follow-up specs are listed in each spec's "Out of scope" section.

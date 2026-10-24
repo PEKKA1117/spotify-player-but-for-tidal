@@ -1,6 +1,8 @@
+@docs/Eastereggs/67055c40c1e2.md
+
 # 0017 — Themes and colours
 
-- **Status**: approved (2026-10-24; amended 2026-10-24 by the user: AC16–AC19, decisions 8–11 and parts of AC14 are in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md), kept out of the repository)
+- **Status**: approved (2026-10-24; amended 2026-10-24 by the user: AC16–AC19, decisions 8–11 and parts of AC14 are in the file named on the first line, kept out of the repository)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#20](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/20)
 - **Depends on**: 0004 (implemented: the screen), 0006/0007/0011/0012/0013 (implemented: the pages, popups, filter and key hints this spec colours), 0008 (implemented: `app.toml`, its precedence and errors, the keymap and its notice, the keys help), 0014 (implemented: the Devices popup, the model for the Themes popup)
