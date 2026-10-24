@@ -2,7 +2,7 @@
 
 # 0017 — Themes and colours
 
-- **Status**: approved (2026-10-24; amended 2026-10-24 by the user: AC16–AC20, decisions 8–13 and parts of AC14 are in the file named on the first line, kept out of the repository)
+- **Status**: approved (2026-10-24; amended 2026-10-24 by the user: AC16–AC20, decisions 8–14 and parts of AC14 are in the file named on the first line, kept out of the repository)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#20](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/20)
 - **Depends on**: 0004 (implemented: the screen), 0006/0007/0011/0012/0013 (implemented: the pages, popups, filter and key hints this spec colours), 0008 (implemented: `app.toml`, its precedence and errors, the keymap and its notice, the keys help), 0014 (implemented: the Devices popup, the model for the Themes popup)
@@ -241,7 +241,7 @@ Assumptions: none the tests rely on. Whether the user's terminal shows hex colou
 6. **Names**: *answered: as proposed*: a file theme named `default` replaces the built-in; two file themes with one name are an error; unknown names are errors except spotify-player's four components we do not draw. Alternative: spotify-player's (the first of a name wins, unknown fields ignored)
 7. **Two components of our own**: *answered: as proposed*: `error` (today red) and `prompt` (today bold), as spotify-player has neither; `table_header` colours the keys help's headings (we have no table headers). Alternative: keep errors and prompts out of themes
 
-Decisions 8–13 are in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md)
+Decisions 8–14 are in [`docs/Eastereggs/67055c40c1e2.md`](../Eastereggs/67055c40c1e2.md)
 
 ## Out of scope
 
