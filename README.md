@@ -20,6 +20,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 - **Desktop controls**: media keys, Bluetooth headsets, GNOME/KDE media controls and `playerctl` over MPRIS, album cover included. [MPRIS](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS)
 - **Album cover**: the current track's cover beside the playback window in terminals that draw images (kitty, Ghostty, foot, WezTerm, iTerm2, and through tmux), or as coloured blocks anywhere; `cover_img = false` turns it off. [Album cover](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#album-cover)
 - **Output devices**: switch the output device while a track plays (`D` in the TUI, `tidal-player playback device` from a shell), without losing your place
+- **Themes**: colour the TUI with a spotify-player-compatible `theme.toml` and switch themes live with `T`, previewing each as you move. [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration#themetoml)
 - **Your keys**: a spotify-player-compatible `keymap.toml`, a keys help (`?`) that lists the keys where you are and runs them, and hints that show what can follow `g` while you wait. [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration)
 
 ## Screenshots
@@ -92,7 +93,7 @@ Then `tidal-player` attaches a TUI to it, and `tidal-player playback next` (and 
 
 ## Configuration
 
-Settings live in `~/.config/tidal-player/app.toml` and keys in `~/.config/tidal-player/keymap.toml`. The [example `app.toml`](https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/master/examples/app.toml) and [example `keymap.toml`](https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/master/examples/keymap.toml) spell out every default: copy them and edit. Environment variables and command-line flags still work and take precedence. Every setting and command is in [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration).
+Settings live in `~/.config/tidal-player/app.toml` and keys in `~/.config/tidal-player/keymap.toml`. The [example `app.toml`](https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/master/examples/app.toml) and [example `keymap.toml`](https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/master/examples/keymap.toml) spell out every default: copy them and edit. Colours live in `~/.config/tidal-player/theme.toml`, spotify-player's format; the [example `theme.toml`](https://github.com/PEKKA1117/spotify-player-but-for-tidal/blob/master/examples/theme.toml) holds spotify-player's look and some of its sample themes, and `theme = "name"` in `app.toml` (or `T` in the TUI) picks one. Environment variables and command-line flags still work and take precedence. Every setting and command is in [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration).
 
 ## Documentation
 

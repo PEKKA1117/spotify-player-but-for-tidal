@@ -1,13 +1,15 @@
 //! The config directory and `app.toml` (spec 0008 "Where the files are",
-//! "`app.toml`"): pure functions over strings and a fake environment, so
-//! the table tests need no files. Nothing is ever written.
+//! "`app.toml`"), `keymap.toml`, and the TUI's `theme.toml` and theme
+//! choice (spec 0017): pure functions over strings and a fake environment,
+//! so the table tests need no files. Nothing is ever written.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tidal_player_core::AudioQuality;
-use tidal_player_core::ui::Keymap;
 use tidal_player_core::ui::keymap::{self, KeymapFile};
+use tidal_player_core::ui::theme::{self, ThemeFile};
+use tidal_player_core::ui::{Keymap, Themes};
 
 /// Overrides the config directory (below `--config-folder`).
 pub const CONFIG_DIR_VAR: &str = "TIDAL_PLAYER_CONFIG_DIR";
@@ -15,6 +17,11 @@ pub const CONFIG_DIR_VAR: &str = "TIDAL_PLAYER_CONFIG_DIR";
 pub const APP_TOML: &str = "app.toml";
 /// The keymap file's name in the config directory (read by the TUI).
 pub const KEYMAP_TOML: &str = "keymap.toml";
+/// The themes file's name in the config directory (read by the TUI only,
+/// spec 0017 decision 5).
+pub const THEME_TOML: &str = "theme.toml";
+/// The TUI's theme, over `theme` in `app.toml` (spec 0017).
+pub const THEME_VAR: &str = "TIDAL_PLAYER_THEME";
 
 /// A config file that cannot be used (exit 2); the text already starts
 /// with the file's path.
@@ -65,6 +72,9 @@ pub struct AppConfig {
     pub cover_img_rows: Option<u16>,
     /// Spec 0016: the graphics protocol.
     pub cover_img_protocol: Option<crate::cover::ProtocolSetting>,
+    /// Spec 0017: the TUI's theme, by name (checked against `theme.toml`
+    /// by the TUI only).
+    pub theme: Option<String>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -112,6 +122,11 @@ pub fn app_toml_path(dir: &Path) -> PathBuf {
 /// `<dir>/keymap.toml`.
 pub fn keymap_toml_path(dir: &Path) -> PathBuf {
     dir.join(KEYMAP_TOML)
+}
+
+/// `<dir>/theme.toml`.
+pub fn theme_toml_path(dir: &Path) -> PathBuf {
+    dir.join(THEME_TOML)
 }
 
 /// Parses the text of `app.toml` (`path` only names it in errors). Every
@@ -254,6 +269,15 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             }
             "hide_versions" => config.hide_versions = Some(words(path, key, value)?),
             "layout" => config.layout = layout(path, value)?,
+            "theme" => match value.as_str() {
+                Some(name) => config.theme = Some(name.to_owned()),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected a string, got {}", describe(value)),
+                    ));
+                }
+            },
             _ => return Err(unknown(path, key)),
         }
     }
@@ -289,6 +313,47 @@ pub fn load_keymap_toml(dir: &Path) -> Result<Keymap, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Keymap::default()),
         Err(e) => Err(ConfigError::at(&path, e)),
     }
+}
+
+/// Parses the text of `theme.toml` (`path` only names it in errors) and
+/// builds the theme list (spec 0017 "`theme.toml`").
+pub fn parse_theme_toml(path: &Path, text: &str) -> Result<Themes, ConfigError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let file: ThemeFile = toml::from_str(text).map_err(|e| syntax_error(path, text, &e))?;
+    theme::build(&file).map_err(|e| ConfigError::at(path, e))
+}
+
+/// Reads and validates `<dir>/theme.toml`; a missing file or directory is
+/// `default` alone, a file that cannot be read is `<path>: <io error>`.
+pub fn load_theme_toml(dir: &Path) -> Result<Themes, ConfigError> {
+    let path = theme_toml_path(dir);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse_theme_toml(&path, &text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Themes::default()),
+        Err(e) => Err(ConfigError::at(&path, e)),
+    }
+}
+
+/// The theme in use (spec 0017 "Choosing the theme"): `--theme`, else
+/// `TIDAL_PLAYER_THEME` (empty counts as unset), else `theme` in `app.toml`
+/// (`app_toml` names it in errors), else `default`; a name no theme has is
+/// an error naming where it came from and the themes there are.
+pub fn select_theme(
+    themes: &Themes,
+    app_toml: &Path,
+    file: Option<&str>,
+    var: Option<&str>,
+    flag: Option<&str>,
+) -> Result<usize, ConfigError> {
+    let (source, name) = match (flag, var.filter(|v| !v.is_empty()), file) {
+        (Some(flag), _, _) => ("--theme".to_owned(), flag),
+        (None, Some(var), _) => (THEME_VAR.to_owned(), var),
+        (None, None, Some(file)) => (app_toml.display().to_string(), file),
+        (None, None, None) => return Ok(0),
+    };
+    themes
+        .find(name)
+        .ok_or_else(|| ConfigError(format!("{source}: {}", themes.unknown(name))))
 }
 
 /// `<path>: line L, column C: <parser message>`.
@@ -1529,5 +1594,119 @@ mod tests {
             Row::new("empty env falls through", file, empty_env, leak_ok(vals.1)),
             Row::new("invalid env, valid file", file, bad_env, Err(var)),
         ]
+    }
+
+    /// Spec 0017 AC4: the theme in use: `default`; `app.toml`'s `theme`;
+    /// the variable over the file; the flag over both; an empty variable
+    /// falls through; an unknown or empty name from each source is an
+    /// error naming the source and the themes there are. `theme` in
+    /// `app.toml` is a string.
+    #[test]
+    fn ac4_theme_precedence() {
+        let themes = parse_theme_toml(
+            Path::new("/c/theme.toml"),
+            "[[themes]]\nname = \"dracula\"\n\n[[themes]]\nname = \"gruvbox_dark\"\n",
+        )
+        .unwrap();
+        let known = "(themes: default, dracula, gruvbox_dark)";
+        // (case, app.toml, variable, flag, the index or the error)
+        type Case<'a> = (
+            &'a str,
+            &'a str,
+            Option<&'a str>,
+            Option<&'a str>,
+            Result<usize, String>,
+        );
+        let cases: Vec<Case> = vec![
+            ("default", "", None, None, Ok(0)),
+            ("app.toml", "theme = \"gruvbox_dark\"", None, None, Ok(2)),
+            ("app.toml default", "theme = \"default\"", None, None, Ok(0)),
+            (
+                "variable over the file",
+                "theme = \"gruvbox_dark\"",
+                Some("dracula"),
+                None,
+                Ok(1),
+            ),
+            ("variable alone", "", Some("gruvbox_dark"), None, Ok(2)),
+            (
+                "flag over both",
+                "theme = \"gruvbox_dark\"",
+                Some("dracula"),
+                Some("default"),
+                Ok(0),
+            ),
+            (
+                "empty variable falls through",
+                "theme = \"dracula\"",
+                Some(""),
+                None,
+                Ok(1),
+            ),
+            (
+                "unknown in app.toml",
+                "theme = \"draculla\"",
+                None,
+                None,
+                Err(format!("/c/app.toml: unknown theme \"draculla\" {known}")),
+            ),
+            (
+                "empty in app.toml",
+                "theme = \"\"",
+                None,
+                None,
+                Err(format!("/c/app.toml: unknown theme \"\" {known}")),
+            ),
+            (
+                "unknown variable, valid file",
+                "theme = \"dracula\"",
+                Some("nord"),
+                None,
+                Err(format!("{THEME_VAR}: unknown theme \"nord\" {known}")),
+            ),
+            (
+                "unknown flag",
+                "theme = \"dracula\"",
+                Some("dracula"),
+                Some("Dracula"),
+                Err(format!("--theme: unknown theme \"Dracula\" {known}")),
+            ),
+            (
+                "empty flag",
+                "",
+                None,
+                Some(""),
+                Err(format!("--theme: unknown theme \"\" {known}")),
+            ),
+        ];
+        for (case, text, var, flag, want) in cases {
+            let file = parse_app_toml(Path::new(PATH), text).unwrap();
+            let got = select_theme(&themes, Path::new(PATH), file.theme.as_deref(), var, flag)
+                .map_err(|e| e.to_string());
+            assert_eq!(got, want, "{case}");
+        }
+        // No `theme.toml`: `default` alone.
+        let alone = Themes::default();
+        assert_eq!(
+            select_theme(&alone, Path::new(PATH), None, None, None),
+            Ok(0)
+        );
+        assert_eq!(
+            select_theme(&alone, Path::new(PATH), Some("dracula"), None, None)
+                .map_err(|e| e.to_string()),
+            Err("/c/app.toml: unknown theme \"dracula\" (themes: default)".to_owned())
+        );
+        // `theme` is a string, in every process.
+        assert_eq!(
+            parse_app_toml(Path::new(PATH), "theme = 5").map_err(|e| e.to_string()),
+            Err("/c/app.toml: invalid theme: expected a string, got 5".to_owned())
+        );
+        assert_eq!(
+            parse_app_toml(Path::new(PATH), "theme = \"dracula\"")
+                .unwrap()
+                .theme
+                .as_deref(),
+            Some("dracula")
+        );
     }
 }

@@ -9,7 +9,7 @@ use crate::item::parse_item;
 use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, UiCommand};
-use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search};
+use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, theme};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
@@ -141,6 +141,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::ClosePopup => return filter::clear(state),
         C::OpenCommandHelp => return Vec::new(),
         C::SwitchDevice => return browse::open_devices(state),
+        C::SwitchTheme => return theme::open(state),
         C::Queue => return browse::open(state, PageKind::Queue),
         C::LibraryPage => return browse::open(state, PageKind::Library),
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),

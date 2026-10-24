@@ -30,6 +30,9 @@
 //!
 //! Spec 0012: each window's filter (and the queue page's) and its typing
 //! keys live in [`filter`].
+//!
+//! Spec 0017: the theme list, the theme in use and the Themes popup live
+//! in [`theme`]; the TUI draws [`State::theme`].
 
 mod browse;
 mod dispatch;
@@ -39,6 +42,7 @@ pub mod keymap;
 pub mod page;
 pub mod popup;
 pub mod search;
+pub mod theme;
 
 use std::time::Duration;
 
@@ -63,6 +67,7 @@ pub use popup::{
     PLAYLIST_NAME, Popup, TrackSource, device_rows,
 };
 pub use search::{DEFAULT_SEARCH_PAGE_SIZE, MAX_QUERY, Search, SearchFocus};
+pub use theme::{Theme, Themes};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,8 +191,9 @@ pub struct State {
     /// reply); shown instead of the player's while set.
     pub message: Option<String>,
     /// The keymap's notice of skipped spotify-player names (spec 0008
-    /// decision 3), kept until the first `Welcome`, which shows it as the
-    /// message instead of clearing it.
+    /// decision 3), and `theme.toml`'s after it (spec 0017), kept until the
+    /// first `Welcome`, which shows it as the message instead of clearing
+    /// it.
     pub notice: Option<String>,
     /// The library page's window widths (spec 0008 "The library layout").
     pub library_layout: LibraryLayout,
@@ -229,6 +235,12 @@ pub struct State {
     pub next_request: u64,
     /// The start page waits for the first `Welcome` to be fetched.
     pub start_pending: bool,
+    /// The themes (spec 0017), `default` first; `default` alone until
+    /// [`apply_themes`].
+    pub themes: Themes,
+    /// The index in [`State::themes`] of the theme drawn: the one in use,
+    /// or the one under the Themes popup's cursor while it is open.
+    pub theme: usize,
 }
 
 impl Default for State {
@@ -259,6 +271,8 @@ impl Default for State {
             list_height: 20,
             next_request: 1,
             start_pending: false,
+            themes: Themes::default(),
+            theme: 0,
         }
     }
 }
@@ -305,6 +319,12 @@ impl State {
     /// The page shown: the top of the history.
     pub fn page(&self) -> &Page {
         self.history.last().expect("the queue page is never popped")
+    }
+
+    /// The theme the TUI draws in (spec 0017).
+    pub fn theme(&self) -> &Theme {
+        let list = self.themes.list();
+        list.get(self.theme).unwrap_or(&list[0])
     }
 }
 
@@ -362,6 +382,8 @@ pub enum Effect {
     /// Ask the player for its output devices (spec 0014); its answer comes
     /// back as [`Action::DevicesReply`] with the same `id`.
     Devices { id: u64 },
+    /// Spec 0017 addendum 67055c40c1e2.
+    Envy(theme::Envy),
 }
 
 /// Puts the library over the queue as the start page (spec 0006 "Pages"),
@@ -380,11 +402,32 @@ pub fn start_on_library(state: &mut State) -> Vec<Effect> {
 /// through the player's first `Welcome`.
 pub fn apply_keymap(state: &mut State, keymap: Keymap) {
     if let Some(notice) = keymap.notice() {
+        // Before `theme.toml`'s, if that is in already (spec 0017 AC6).
+        let notice = match state.notice.take() {
+            Some(themes) => format!("{notice} · {themes}"),
+            None => notice,
+        };
         state.message = Some(notice.clone());
         state.notice = Some(notice);
     }
     state.keymap = keymap;
     dispatch::set_pending(state, Vec::new());
+}
+
+/// Puts `themes` in force with `active` (an index in it) the theme in use
+/// (spec 0017); `theme.toml`'s notice of skipped spotify-player names joins
+/// the keymap's, after it (AC6).
+pub fn apply_themes(state: &mut State, themes: Themes, active: usize) {
+    if let Some(notice) = themes.notice() {
+        let notice = match state.notice.take() {
+            Some(keymap) => format!("{keymap} · {notice}"),
+            None => notice,
+        };
+        state.message = Some(notice.clone());
+        state.notice = Some(notice);
+    }
+    state.theme = active.min(themes.list().len() - 1);
+    state.themes = themes;
 }
 
 /// Applies `action` to `state` and returns the effects the caller must run.

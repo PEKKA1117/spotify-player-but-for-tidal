@@ -2,6 +2,16 @@
 
 **tidal-player**: a terminal Tidal player modelled on [spotify-player](https://github.com/aome510/spotify-player). This is a from-scratch rebuild of [tidalt](https://github.com/PEKKA1117/tidalt), which grew too buggy to keep patching. Nothing is carried over as code; behaviour worth keeping is re-specified and re-tested here first.
 
+## Easter-egg specs
+
+`docs/Eastereggs/` holds spec parts kept out of the repository: excluded in `.git/info/exclude`, never committed, present only in the maintainer's checkout (absolute path `/home/df/claude/spotify-player-but-for-tidal/docs/Eastereggs/`, also from a worktree). A spec that has one starts with a line `@docs/Eastereggs/<hash>.md` (a path from the repository root). That file is part of the spec, with the same authority:
+
+- Read it before slicing, implementing or accepting anything the spec covers; its criteria are owned by slices and accepted like the spec's
+- Where it and the spec disagree, it wins: the tracked spec keeps its text (so it gives nothing away) and the implementation, tests and examples follow the Easter-egg file. The file lists the parts of the spec it replaces
+- Briefs quote it as they quote the spec
+- Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text); the tracked spec only names the file
+- A spec naming a file that is missing (another clone, CI): say so and stop rather than guessing
+
 ## Status
 
 Rust workspace (toolchain and checks under "Build & tooling"). The features below exist today. Follow-up specs are listed in each spec's "Out of scope" section.
@@ -25,6 +35,7 @@ One entry per implemented spec: an introduction to the feature, so a reader new 
 - **Desktop controls and media keys** ([0010](docs/specs/0010-mpris.md), [docs/mpris.md](docs/mpris.md)): every player (standalone, daemon, `play`) publishes itself on the session bus as the MPRIS2 player `org.mpris.MediaPlayer2.tidal_player`, so GNOME/KDE media controls, the keyboard's media keys, Bluetooth headsets and `playerctl` show and control it, album cover included (kept in a small cover cache, `max_cover_arts`). `Play`, `Pause`, `Stop` and the shuffle/repeat setters are also one-shot commands. No session bus, or `mpris = false`: the player runs as before
 - **Output device selection** ([0014](docs/specs/0014-device-selection.md), [docs/tui.md](docs/tui.md#output-device), [docs/playback.md](docs/playback.md#choosing-the-output-device)): `D` opens the Devices popup, the player's output devices read fresh from its machine with `●` on the one in use, and `Enter` moves playback there; `tidal-player playback device [NAME]` lists or switches from a shell. A playing track moves at its position with nothing lost, and a device that will not open leaves the player on the previous one with a message. The choice is the player's, shown by every client, and lasts for the run: `output_device` makes it permanent
 - **Album cover** ([0016](docs/specs/0016-cover-art.md), [docs/tui.md](docs/tui.md#album-cover)): in a terminal that draws images (kitty, sixel or iTerm2, detected at start or forced with `cover_img_protocol`, through tmux too, or `halfblocks` anywhere) the TUI draws the current track's album cover left of a taller playback window (`cover_img_rows`, default 6), which keeps its height whatever plays. The TUI never downloads: it reads the cover the player (standalone or daemon) keeps in its cover cache, now kept whether MPRIS is on or not. `cover_img = false` gives the plain 4-row window and sends the terminal nothing
+- **Themes and colours** ([0017](docs/specs/0017-themes.md), [docs/config.md](docs/config.md#themetoml), [docs/tui.md](docs/tui.md#themes)): the TUI can be coloured with a spotify-player-compatible `theme.toml` (palette and per-component styles). `T` opens the Themes popup, which previews each theme as the cursor moves; `theme` in `app.toml` (or `-t`) picks the starting one. The built-in `default` theme is the TUI's look without themes, and a theme leaves a component it does not style as it was; `examples/theme.toml` holds spotify-player's look and some of its sample themes to copy. Only the TUI reads `theme.toml`, so a typo in a colour never stops the music
 - **User docs on the wiki** ([0015](docs/specs/0015-wiki.md)): the user docs are published to the [GitHub wiki](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki), in English and 正體中文, with a home page and sidebar; README, the daemon's unit and error messages send readers there. `docs/` stays the source: `cargo xtask wiki <dir>` builds the pages (doc links become wiki links, other repository links `blob/master` URLs), and the `Wiki` workflow publishes them on every push to `master` that touches `docs/`
 
 ## Build & tooling

@@ -3,7 +3,8 @@
 //! Spec 0010 AC17 adds rows: MPRIS's settings in `docs/config.md`, the new
 //! one-shot commands in `docs/daemon.md`, and `docs/mpris.md` with its
 //! zh-TW copy. Spec 0013 AC7: the key hints' settings and their section
-//! in `docs/tui.md`, in English and in the zh-TW copies.
+//! in `docs/tui.md`, in English and in the zh-TW copies. Spec 0017 AC15:
+//! every theme component in `docs/config.md`.
 
 use std::path::Path;
 
@@ -325,5 +326,25 @@ fn ac6_pointers_to_wiki() {
         for doc in user_docs.iter().map(String::as_str).chain(["docs/zh-TW"]) {
             assert!(!text.contains(doc), "{name}: still names {doc}:\n{text}");
         }
+    }
+}
+
+/// 0017 AC15: every component of a theme is named in `docs/config.md`
+/// (as `` `name` ``), with spotify-player's four skipped names,
+/// `TIDAL_PLAYER_THEME` and `--theme`.
+#[test]
+fn ac15_every_component_documented() {
+    use tidal_player_core::ui::theme::{COMPONENTS, SKIPPED_COMPONENTS};
+    let config = config_md();
+    for name in COMPONENTS
+        .iter()
+        .map(|c| c.name())
+        .chain(SKIPPED_COMPONENTS)
+        .chain(["theme.toml", "TIDAL_PLAYER_THEME", "--theme"])
+    {
+        assert!(
+            config.contains(&format!("`{name}`")),
+            "docs/config.md: `{name}` not documented"
+        );
     }
 }

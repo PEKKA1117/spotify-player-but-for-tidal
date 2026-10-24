@@ -8,17 +8,19 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Paragraph},
+    widgets::{Block, Paragraph},
 };
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
     Header, HelpSection, Hints, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind,
-    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Window, WindowKind, device_rows,
+    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme, Window, WindowKind,
+    device_rows, theme::Component,
 };
 
-use super::{Columns, draw_prompt, fit, no_match_row, pad, tail, text_width};
+use super::theme::of;
+use super::{Columns, clear, draw_prompt, fit, no_match_row, pad, tail, text_width};
 
 /// From this many columns inside the frame a page draws its windows side
 /// by side; below, only the focused one.
@@ -84,11 +86,12 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         return;
     }
     let page = state.page();
+    let look = state.theme();
     let width = usize::from(area.width);
     frame.render_widget(
         Paragraph::new(Line::styled(
             fit(&page.title(), width),
-            Style::new().add_modifier(Modifier::BOLD),
+            of(look, Component::PageDesc),
         )),
         Rect { height: 1, ..area },
     );
@@ -108,7 +111,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         frame.render_widget(
             Paragraph::new(Line::styled(
                 fit(subtitle, width),
-                Style::new().add_modifier(Modifier::DIM),
+                of(look, Component::PlaylistDesc),
             )),
             Rect { height: 1, ..body },
         );
@@ -122,7 +125,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         return;
     }
     let body = match &page.search {
-        Some(search) => search_rows(frame, page, search, body),
+        Some(search) => search_rows(frame, look, page, search, body),
         None => body,
     };
     if body.height == 0 {
@@ -131,7 +134,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     if let Load::Failed(message) = &page.load {
         let lines: Vec<Line> = wrap(message, width)
             .into_iter()
-            .map(|l| Line::styled(l, Style::new().fg(Color::Red)))
+            .map(|l| Line::styled(l, of(look, Component::Error)))
             .collect();
         frame.render_widget(Paragraph::new(lines), body);
         return;
@@ -149,6 +152,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         }
         render_window(
             frame,
+            look,
             slot.rect,
             slot.window,
             &page.windows,
@@ -162,7 +166,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
 /// Draws a search page's input row and, when there is one, its top-hit
 /// row at the top of `body` (spec 0007 "Rendering"); returns the rows
 /// left for the windows.
-fn search_rows(frame: &mut Frame, page: &Page, search: &Search, body: Rect) -> Rect {
+fn search_rows(frame: &mut Frame, look: &Theme, page: &Page, search: &Search, body: Rect) -> Rect {
     let width = usize::from(body.width);
     let focused = search.focus == SearchFocus::Input;
     // The end of the query stays in view, one column kept for the cursor.
@@ -173,10 +177,15 @@ fn search_rows(frame: &mut Frame, page: &Page, search: &Search, body: Rect) -> R
         format!("…{}", tail(&search.input, room.saturating_sub(1)))
     };
     let cursor = if focused { SEARCH_CURSOR } else { "" };
+    // `prompt`, bold while it has the focus; else dim, not bold (spec
+    // 0017 "State cues on top of the theme").
+    let prompt = of(look, Component::Prompt);
     let style = if focused {
-        Style::new().add_modifier(Modifier::BOLD)
+        prompt.add_modifier(Modifier::BOLD)
     } else {
-        Style::new().add_modifier(Modifier::DIM)
+        prompt
+            .remove_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::DIM)
     };
     frame.render_widget(
         Paragraph::new(Line::styled(
@@ -199,7 +208,7 @@ fn search_rows(frame: &mut Frame, page: &Page, search: &Search, body: Rect) -> R
             style = style.add_modifier(Modifier::DIM);
         }
         if search.focus == SearchFocus::TopHit {
-            style = style.add_modifier(Modifier::REVERSED);
+            style = style.patch(of(look, Component::Selection));
         }
         frame.render_widget(
             Paragraph::new(Line::styled(fit(&top_hit_row(hit), width), style)),
@@ -346,8 +355,10 @@ fn pane_hint(page: &Page, pane: usize, alone: bool) -> Hint {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_window(
     frame: &mut Frame,
+    look: &Theme,
     area: Rect,
     active: usize,
     windows: &[Window],
@@ -357,9 +368,14 @@ fn render_window(
 ) {
     let window = &windows[active];
     let room = usize::from(area.width).saturating_sub(2);
-    let dim = Style::new().add_modifier(Modifier::DIM);
-    let bold = Style::new().add_modifier(Modifier::BOLD);
-    let base = if focused { bold } else { dim };
+    // The focused window's title is bold; another's title and border dim
+    // (spec 0017 "State cues on top of the theme").
+    let title = of(look, Component::BlockTitle);
+    let base = if focused {
+        title.add_modifier(Modifier::BOLD)
+    } else {
+        title.add_modifier(Modifier::DIM)
+    };
     let title = match hint {
         Hint::None => Line::styled(fit(&window.title(), room), base),
         Hint::Tab => Line::styled(fit(&format!("{} {TAB}", window.title()), room), base),
@@ -381,7 +397,7 @@ fn render_window(
                     let title = window.title();
                     spans.push(Span::styled(
                         title.clone(),
-                        base.add_modifier(Modifier::REVERSED),
+                        base.patch(of(look, Component::Selection)),
                     ));
                     title
                 } else {
@@ -404,8 +420,13 @@ fn render_window(
             }
         }
     };
+    let border = of(look, Component::Border);
     let block = Block::bordered()
-        .border_style(if focused { Style::new() } else { dim })
+        .border_style(if focused {
+            border
+        } else {
+            border.add_modifier(Modifier::DIM)
+        })
         .title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -413,6 +434,7 @@ fn render_window(
         return;
     }
     let lines = window_lines(
+        look,
         window,
         fill,
         focused,
@@ -431,15 +453,15 @@ fn message_lines(text: &str, width: usize, style: Style) -> Vec<Line<'static>> {
 
 /// The visible rows of `window`, scrolled to keep the cursor in view.
 fn window_lines(
+    look: &Theme,
     window: &Window,
     fill: Fill,
     focused: bool,
     width: usize,
     height: usize,
 ) -> Vec<Line<'static>> {
-    let plain = Style::new();
     let dim = Style::new().add_modifier(Modifier::DIM);
-    let red = Style::new().fg(Color::Red);
+    let red = of(look, Component::Error);
     if fill == Fill::Blank {
         return Vec::new();
     }
@@ -472,15 +494,20 @@ fn window_lines(
     let columns = Columns::new(width, number);
     let credits_columns =
         (width >= ROLES_WIDE).then(|| Columns::new(width.saturating_sub(2 + ROLES_COLUMN), number));
-    let mut rows: Vec<(String, Style)> = (0..count)
+    let mut rows: Vec<Line<'static>> = (0..count)
         .filter_map(|i| {
             let row = window.row(i)?;
-            let mut style = plain;
+            // Spec 0017 "State cues on top of the theme".
+            let mut style = if i % 2 == 1 {
+                of(look, Component::SecondaryRow)
+            } else {
+                Style::new()
+            };
             if row.track().is_some_and(|t| !t.streamable) {
                 style = style.add_modifier(Modifier::DIM);
             }
             if i == window.cursor {
-                style = style.add_modifier(Modifier::REVERSED);
+                style = style.patch(of(look, Component::Selection));
                 if !focused {
                     style = style.add_modifier(Modifier::DIM);
                 }
@@ -515,21 +542,28 @@ fn window_lines(
                     None => fit(&mix.title, width),
                 },
             };
-            Some((text, style))
+            // A followed playlist's `♥` in `like`.
+            Some(match text.strip_prefix(HEART) {
+                Some(rest) => Line::from(vec![
+                    Span::styled(HEART, of(look, Component::Like)),
+                    Span::raw(rest.to_owned()),
+                ])
+                .style(style),
+                None => Line::styled(text, style),
+            })
         })
         .collect();
     match &window.load {
         Load::Idle => {}
-        Load::Loading { .. } => rows.push(("Loading more…".into(), dim)),
-        Load::Failed(message) => rows.push((fit(message, width), red)),
+        Load::Loading { .. } => rows.push(Line::styled("Loading more…", dim)),
+        Load::Failed(message) => rows.push(Line::styled(fit(message, width), red)),
     }
     let offset = scroll(window.cursor, height, rows.len());
-    rows.into_iter()
-        .skip(offset)
-        .take(height)
-        .map(|(text, style)| Line::styled(text, style))
-        .collect()
+    rows.into_iter().skip(offset).take(height).collect()
 }
+
+/// The heart before a favorite (followed) playlist.
+const HEART: &str = "♥";
 
 /// The first row shown: the cursor stays in the middle of the view once
 /// the list scrolls.
@@ -621,8 +655,9 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
     let Some(popup) = state.popup.as_ref() else {
         return;
     };
+    let look = state.theme();
     if let Popup::NewPlaylist { name, .. } = popup {
-        draw_prompt(frame, prompt_row, PLAYLIST_NAME, name);
+        draw_prompt(frame, prompt_row, look, PLAYLIST_NAME, name);
         return;
     }
     let Some(page) = page else {
@@ -641,7 +676,24 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 })
                 .collect();
             let status = list.status().map(|text| (text, Modifier::DIM));
-            list_popup(frame, page, "Devices", &labels, *cursor, status, "", 6);
+            list_popup(
+                frame, look, page, "Devices", &labels, *cursor, status, "", 6,
+            );
+        }
+        Popup::Themes { cursor, active } => {
+            // Spec 0017 "The Themes popup": `●` on the theme in use when it
+            // opened.
+            let labels: Vec<String> = state
+                .themes
+                .list()
+                .iter()
+                .enumerate()
+                .map(|(i, theme)| {
+                    let mark = if i == *active { '●' } else { ' ' };
+                    format!("{mark} {}", theme.name)
+                })
+                .collect();
+            list_popup(frame, look, page, "Themes", &labels, *cursor, None, "", 6);
         }
         Popup::Actions {
             title,
@@ -649,7 +701,7 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
             cursor,
         } => {
             let labels: Vec<String> = actions.iter().map(|a| a.label()).collect();
-            menu(frame, page, title, &labels, *cursor, None);
+            menu(frame, look, page, title, &labels, *cursor, None);
         }
         Popup::AddToPlaylist {
             playlists, cursor, ..
@@ -661,16 +713,24 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 Load::Loading { .. } => Some(("Loading…".to_owned(), Modifier::DIM)),
                 Load::Failed(message) => Some((message.clone(), Modifier::empty())),
             };
-            menu(frame, page, "Add to playlist", &labels, *cursor, status);
+            menu(
+                frame,
+                look,
+                page,
+                "Add to playlist",
+                &labels,
+                *cursor,
+                status,
+            );
         }
         Popup::Confirm { question, .. } => {
             let inner_width = question_width(question, page);
             let lines = wrap(question, inner_width);
             let want_w = lines.iter().map(|l| text_width(l)).max().unwrap_or(0) + 4;
             let rect = centred(page, want_w, lines.len() + 2);
-            let block = Block::bordered();
+            let block = Block::bordered().border_style(of(look, Component::Border));
             let inner = block.inner(rect);
-            frame.render_widget(Clear, rect);
+            clear(frame, rect, look);
             frame.render_widget(block, rect);
             frame.render_widget(
                 Paragraph::new(
@@ -688,7 +748,7 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 .zip(checked)
                 .map(|(category, on)| format!("[{}] {category:?}", if *on { 'x' } else { ' ' }))
                 .collect();
-            menu(frame, page, "Roles", &labels, *cursor, None);
+            menu(frame, look, page, "Roles", &labels, *cursor, None);
         }
         Popup::NewPlaylist { .. } => {}
     }
@@ -704,13 +764,14 @@ fn question_width(question: &str, page: Rect) -> usize {
 /// optional status row below them.
 fn menu(
     frame: &mut Frame,
+    look: &Theme,
     page: Rect,
     title: &str,
     labels: &[String],
     cursor: usize,
     status: Option<(String, Modifier)>,
 ) {
-    list_popup(frame, page, title, labels, cursor, status, " ", 4);
+    list_popup(frame, look, page, title, labels, cursor, status, " ", 4);
 }
 
 /// [`menu`], with each row (and the status row) after `lead`, and `extra`
@@ -718,6 +779,7 @@ fn menu(
 #[allow(clippy::too_many_arguments)]
 fn list_popup(
     frame: &mut Frame,
+    look: &Theme,
     page: Rect,
     title: &str,
     labels: &[String],
@@ -735,12 +797,14 @@ fn list_popup(
         .unwrap_or(0);
     let rows = labels.len() + usize::from(status.is_some());
     let rect = centred(page, (widest + extra).max(24), rows + 2);
-    let block = Block::bordered().title(Line::styled(
-        fit(title, usize::from(rect.width).saturating_sub(2)),
-        Style::new().add_modifier(Modifier::BOLD),
-    ));
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(
+            fit(title, usize::from(rect.width).saturating_sub(2)),
+            of(look, Component::BlockTitle).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(rect);
-    frame.render_widget(Clear, rect);
+    clear(frame, rect, look);
     frame.render_widget(block, rect);
     if inner.width == 0 || inner.height == 0 {
         return;
@@ -752,7 +816,7 @@ fn list_popup(
         .enumerate()
         .map(|(i, label)| {
             let style = if i == cursor {
-                Style::new().add_modifier(Modifier::REVERSED)
+                of(look, Component::Selection)
             } else {
                 Style::new()
             };
@@ -839,12 +903,15 @@ pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, 
     let (Some(open), Some(rect)) = (state.help.as_ref(), help_rect(state, page, screen)) else {
         return;
     };
-    let block = Block::bordered().title(Line::styled(
-        fit("Keys", usize::from(rect.width).saturating_sub(2)),
-        Style::new().add_modifier(Modifier::BOLD),
-    ));
+    let look = state.theme();
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(
+            fit("Keys", usize::from(rect.width).saturating_sub(2)),
+            of(look, Component::BlockTitle).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(rect);
-    frame.render_widget(Clear, rect);
+    clear(frame, rect, look);
     frame.render_widget(block, rect);
     if inner.width == 0 || inner.height == 0 {
         return;
@@ -871,7 +938,7 @@ pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, 
             )],
             None,
         ),
-        None => help_lines(&sections, open.cursor, width),
+        None => help_lines(look, &sections, open.cursor, width),
     };
     // The highlighted row stays in view; the top shows first.
     let offset = highlighted
@@ -896,6 +963,7 @@ pub(super) fn render_help(state: &State, frame: &mut Frame, page: Option<Rect>, 
 /// the index of the highlighted row's line. The key column is as wide as
 /// the widest keys; the help text is cut to what is left.
 fn help_lines(
+    look: &Theme,
     sections: &[HelpSection],
     cursor: usize,
     width: usize,
@@ -912,7 +980,7 @@ fn help_lines(
     for (s, section) in sections.iter().enumerate() {
         lines.push((
             fit(&format!(" {}", section.title), width),
-            Style::new().add_modifier(Modifier::BOLD),
+            of(look, Component::TableHeader),
         ));
         for (r, row) in section.rows.iter().enumerate() {
             let keys = format!("   {}  ", pad(&row.keys, keys_width));
@@ -923,7 +991,7 @@ fn help_lines(
                 style = style.add_modifier(Modifier::DIM);
             }
             if at == Some((s, r)) {
-                style = style.add_modifier(Modifier::REVERSED);
+                style = style.patch(of(look, Component::Selection));
                 highlighted = Some(lines.len());
             }
             lines.push((pad(&text, width), style));
@@ -1078,12 +1146,15 @@ pub(super) fn render_hint(state: &State, frame: &mut Frame, page: Option<Rect>) 
     let Some(hint) = hint_layout(&hints, page) else {
         return;
     };
-    let block = Block::bordered().title(Line::styled(
-        hint.title.clone(),
-        Style::new().add_modifier(Modifier::BOLD),
-    ));
+    let look = state.theme();
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(
+            hint.title.clone(),
+            of(look, Component::BlockTitle).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(hint.rect);
-    frame.render_widget(Clear, hint.rect);
+    clear(frame, hint.rect, look);
     frame.render_widget(block, hint.rect);
     let dim = Style::new().add_modifier(Modifier::DIM);
     let lines: Vec<Line> = hint
