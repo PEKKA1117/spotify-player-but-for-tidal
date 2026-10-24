@@ -47,6 +47,7 @@ Rust toolchain pinned in `rust-toolchain.toml` (1.97, edition 2024). Run from th
 - **Build**: `cargo build --workspace`
 - **Test**: `cargo test --workspace`; one crate: `cargo test -p <crate>` (`tidal-player-core`, `tidal-player-api`, `tidal-player-audio`, `tidal-player`, `xtask`); one test: `cargo test -p <crate> <name>`. Snapshot (`insta`) changes are reviewed, never blindly accepted: read the `.snap.new`, then accept it (`INSTA_UPDATE=always`, or `cargo insta accept`). Never commit `.snap.new`
 - **System deps**: `pkg-config` and `libasound2-dev` (only for the default `alsa` feature of `tidal-player-audio`). `cargo test -p tidal-player-audio --no-default-features` works without them
+- **Release publish**: `cargo xtask publish` publishes the crates whose version crates.io lacks, in dependency order (the release workflow runs it); `--dry-run` prints the plan and publishes nothing
 - **Dependencies**: every third-party crate is declared once in the root `[workspace.dependencies]`; crates use `dep = { workspace = true }`. Merges regenerate `Cargo.lock` with cargo, never by hand
 
 ## Development approach: tech-lead
