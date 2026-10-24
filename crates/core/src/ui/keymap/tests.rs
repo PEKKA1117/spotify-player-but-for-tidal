@@ -1256,12 +1256,13 @@ fn ac12_unsupported_notice() {
                 entry("g n", "NextTrack"),
                 entry("y", "LyricsPage"),
                 entry("w", "PlayRandom"),
-                // Spec 0017: a command here now, no longer skipped.
-                entry("v", "SwitchTheme"),
+                // Spec 0017: `SwitchTheme` is a command now; another
+                // skipped name takes its place.
+                entry("v", "SortTrackByTitle"),
             ],
             vec![],
             Some(
-                "keymap.toml: 2 spotify-player commands not supported here: PlayRandom, LyricsPage",
+                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SortTrackByTitle",
             ),
         ),
         (
