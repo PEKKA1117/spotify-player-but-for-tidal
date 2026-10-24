@@ -96,6 +96,7 @@
 | `+` / `-` | `VolumeUp` / `VolumeDown` | 依音量間隔（5 %）調高／調低音量 |
 | `_` | `Mute` | 靜音／取消靜音 |
 | `D` | `SwitchDevice` | 選擇[輸出裝置](#output-device)（Devices 彈出視窗） |
+| `T` | `SwitchTheme` | 選擇[佈景主題](#themes)（Themes 彈出視窗） |
 | `o` | `AddToQueuePrompt` | 將連結或曲目 ID 加到佇列尾端 |
 | `O` | `PlayNextPrompt` | 將連結或曲目 ID 加入為下一首播放 |
 | `j`, `down`, `C-n` / `k`, `up`, `C-p` | `SelectNextOrScrollDown` / `SelectPreviousOrScrollUp` | 游標下移、上移 |
@@ -403,6 +404,30 @@
 - 若新裝置無法開啟（忙碌、不存在、被拒絕），播放器會回到原本使用的裝置並在那裡繼續播放，並顯示訊息 `Cannot switch to hw:1,0: Output hw:1,0 is busy (used by …): …; staying on default`。不會跳過任何曲目，佇列也不變
 - 這個選擇屬於**播放器**，因此每個連上的 TUI 與 `tidal-player playback status` 都會顯示它；在 shell 中可用 `tidal-player playback device` 列出與切換（見[單次指令](daemon.md#one-shot-commands)）
 - 只在這次執行期間有效：重新啟動的播放器會再次從設定的裝置開始（`app.toml` 中的 `output_device`、`--device` 或 `TIDAL_PLAYER_DEVICE`；見[設定](playback.md#settings)）。要保留某個裝置，請設定在那裡
+
+<a id="themes"></a>
+## 佈景主題
+
+除非佈景主題另有指定，TUI 使用終端機本身的顏色。在任何頁面按 `T` 會開啟 **Themes** 彈出視窗：列出所有佈景主題，先是 `default`，接著是 `theme.toml` 中的（見[設定](config.md#themetoml)），並以 `●` 標示目前使用的佈景主題：
+
+```
+┌Themes──────────────────────────────────────────┐
+│● default                                       │
+│  dracula                                       │
+│  gruvbox_dark                                  │
+└────────────────────────────────────────────────┘
+```
+
+| 按鍵 | 作用 |
+|---|---|
+| `j`、`k`（以及方向鍵） | 移動游標（一開始位於使用中的佈景主題）；整個 TUI 會立刻以游標所在的佈景主題繪製 |
+| `Enter` | 保留游標所在的佈景主題並關閉彈出視窗 |
+| `esc`、`q` | 回到標有 `●` 的佈景主題並關閉彈出視窗（在這裡 `q` 不會離開程式） |
+
+- 只在該 TUI 的這次執行期間有效：重新啟動的 TUI 會再次使用 `app.toml` 中的 `theme`（或 `TIDAL_PLAYER_THEME`、`-t`）。把佈景主題寫在那裡就能保留；不會寫入任何東西
+- 佈景主題屬於 TUI 自己：連到同一個常駐程式的兩個 TUI 可以使用不同的佈景主題，常駐程式完全不知道
+- 沒有 `theme.toml` 時，彈出視窗只列出 `default`，也就是沒有佈景主題時 TUI 的外觀
+- 在文字輸入框中，`T` 就是輸入 `T`；已有其他彈出視窗開啟時，`T` 不會有任何作用
 
 <a id="failures"></a>
 ## 失敗處理
