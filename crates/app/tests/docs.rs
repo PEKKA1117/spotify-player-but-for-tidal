@@ -173,15 +173,20 @@ fn ac8_confirm_removals_documented() {
                 .any(|row| row.contains("TIDAL_PLAYER_CONFIRM_REMOVALS")),
             "docs/{name}: confirm_removals: no table row naming its variable: {found:?}"
         );
-        let remove = rows(&config, "RemoveFromQueue");
+        let remove = rows(&config, "RemoveSelectedItem");
         assert!(
             remove.iter().any(|row| row.contains("`d d`")),
-            "docs/{name}: RemoveFromQueue is not `d d`: {remove:?}"
+            "docs/{name}: RemoveSelectedItem is not `d d`: {remove:?}"
+        );
+        let queue = rows(&config, "RemoveFromQueue");
+        assert!(
+            !queue.is_empty() && queue.iter().all(|row| !row.contains("`d d`")),
+            "docs/{name}: RemoveFromQueue still has a default key: {queue:?}"
         );
     }
     for name in ["tui.md", "zh-TW/tui.md"] {
         let tui = doc(name);
-        for needed in ["confirm_removals", "`d d`", "(y/n)"] {
+        for needed in ["confirm_removals", "`d d`", "(y/n)", "RemoveSelectedItem"] {
             assert!(tui.contains(needed), "docs/{name}: {needed}");
         }
         assert!(

@@ -13,7 +13,8 @@
 # enter space tab backtab backspace esc left right up down insert delete
 # home end page_up page_down f1..f12, optionally prefixed with C- (Control)
 # or M- (Alt); sequences are keys separated by spaces ("g l").
-# A sequence may not be the start of another one ("g" next to "g l").
+# Two sequences of this file may not start one another ("g" next to "g l");
+# one that starts a default binding replaces it, and the TUI says so at start.
 # Every command, action and rule: docs/config.md.
 
 # ResumePause: play / pause (everywhere)
@@ -155,9 +156,10 @@ key_sequence = "Z"
 command = "AddSelectedItemToQueue"
 key_sequence = "C-z"
 
-# RemoveFromQueue: remove from the queue (the queue)
+# RemoveSelectedItem: remove the row from its list: the queue, your playlists,
+# your favorites (lists of yours)
 [[keymaps]]
-command = "RemoveFromQueue"
+command = "RemoveSelectedItem"
 key_sequence = "d d"
 
 # ShowActionsOnSelectedItem: actions on the selected row (lists)

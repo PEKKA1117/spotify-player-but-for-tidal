@@ -271,6 +271,9 @@ pub enum UiCommand {
     SelectLastOrScrollToBottom,
     ChooseSelected,
     AddSelectedItemToQueue,
+    /// Removes the row under the cursor from the list it is in (spec
+    /// 0019 AC10); ours.
+    RemoveSelectedItem,
     RemoveFromQueue,
     ShowActionsOnSelectedItem,
     ShowActionsOnCurrentTrack,
@@ -294,7 +297,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 43] = [
+pub const COMMANDS: [UiCommand; 44] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -319,6 +322,7 @@ pub const COMMANDS: [UiCommand; 43] = [
     UiCommand::SelectLastOrScrollToBottom,
     UiCommand::ChooseSelected,
     UiCommand::AddSelectedItemToQueue,
+    UiCommand::RemoveSelectedItem,
     UiCommand::RemoveFromQueue,
     UiCommand::ShowActionsOnSelectedItem,
     UiCommand::ShowActionsOnCurrentTrack,
@@ -368,6 +372,7 @@ impl UiCommand {
             Self::SelectLastOrScrollToBottom => "SelectLastOrScrollToBottom",
             Self::ChooseSelected => "ChooseSelected",
             Self::AddSelectedItemToQueue => "AddSelectedItemToQueue",
+            Self::RemoveSelectedItem => "RemoveSelectedItem",
             Self::RemoveFromQueue => "RemoveFromQueue",
             Self::ShowActionsOnSelectedItem => "ShowActionsOnSelectedItem",
             Self::ShowActionsOnCurrentTrack => "ShowActionsOnCurrentTrack",

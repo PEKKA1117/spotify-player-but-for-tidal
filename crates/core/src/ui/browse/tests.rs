@@ -2807,3 +2807,156 @@ fn ac6_d_alone_does_nothing() {
         Some("Remove T103 from the queue? (y/n)")
     );
 }
+
+// --- spec 0019 AC10: d d removes the row from its list ----------------------------
+
+/// AC10: `RemoveSelectedItem` (`d d`) per window: the queue, an own
+/// playlist's tracks, favorite tracks, the library's Albums, Artists and
+/// Playlists (a followed one leaves the favorites, one of yours is
+/// deleted, whatever `confirm_removals` says) ask and `y` sends the
+/// removal; every other window and an empty one do nothing.
+#[test]
+fn ac10_remove_selected_item() {
+    use Key::{Char, Tab};
+    let dd = [Char('d'), Char('d')];
+    // (name, state, keys that select the row, the question, what `y` sends)
+    type Case = (&'static str, fn() -> State, Vec<Key>, &'static str, Out);
+    let cases: Vec<Case> = vec![
+        (
+            "the queue",
+            || with_queue(&[7, 3, 9], Some(3)),
+            vec![],
+            "Remove T103 from the queue? (y/n)",
+            Out::Send(Command::RemoveFromQueue(EntryId(3))),
+        ),
+        (
+            "an own playlist's tracks",
+            || playlist_page(true),
+            vec![Char('j')],
+            "Remove T6 from Mine? (y/n)",
+            Out::Library(LibraryRequest::RemoveFromPlaylist {
+                uuid: "p1".into(),
+                index: 1,
+                etag: "e1".into(),
+            }),
+        ),
+        (
+            "favorite tracks",
+            fav_page,
+            vec![],
+            "Remove T1 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Track,
+                "1".into(),
+            )),
+        ),
+        (
+            "library albums",
+            library,
+            vec![Tab],
+            "Remove Al10 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Album,
+                "10".into(),
+            )),
+        ),
+        (
+            "library artists",
+            library,
+            vec![Tab, Tab],
+            "Remove Ar20 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Artist,
+                "20".into(),
+            )),
+        ),
+        (
+            "library, a followed playlist",
+            library,
+            vec![Char('j')],
+            "Remove Theirs from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Playlist,
+                "p2".into(),
+            )),
+        ),
+        (
+            "library, an own playlist",
+            library,
+            vec![],
+            "Delete Mine? (y/n)",
+            Out::Library(LibraryRequest::DeletePlaylist { uuid: "p1".into() }),
+        ),
+    ];
+    for (name, setup, select, question, sent) in cases {
+        for confirm in [true, false] {
+            let context = format!("{name}, confirm_removals {confirm}");
+            let mut state = setup();
+            state.confirm_removals = confirm;
+            press(&mut state, &select);
+            // Deleting a playlist asks whatever the setting says.
+            let asks = confirm || name == "library, an own playlist";
+            let effects = press(&mut state, &dd);
+            if asks {
+                assert_eq!(effects, vec![], "{context}: nothing before y");
+                assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
+                let effects = press(&mut state, &[Char('y')]);
+                assert_eq!(outs(&effects), vec![sent.clone()], "{context}");
+            } else {
+                assert_eq!(state.popup, None, "{context}: asked");
+                assert_eq!(outs(&effects), vec![sent.clone()], "{context}");
+            }
+        }
+        // `n` sends nothing.
+        let mut state = setup();
+        press(&mut state, &select);
+        press(&mut state, &dd);
+        assert_eq!(press(&mut state, &[Char('n')]), vec![], "{name}: n");
+    }
+
+    // Lists that are not yours, and an empty one: nothing, and nothing
+    // changes.
+    let album_page = || {
+        let mut state = library();
+        open(
+            &mut state,
+            &[Tab, Key::Enter],
+            PageData::Album {
+                album: album(10),
+                tracks: list(tracks(1..4), 0, 3),
+            },
+        );
+        state
+    };
+    let artist_window = |window: usize| {
+        let mut state = library();
+        open(&mut state, &[Tab, Tab, Key::Enter], artist_data(20));
+        state.history.last_mut().unwrap().focus = window;
+        state
+    };
+    let nothing: Vec<(&str, State)> = vec![
+        ("a followed playlist's tracks", playlist_page(false)),
+        ("an album's tracks", album_page()),
+        ("artist top tracks", artist_window(0)),
+        ("artist albums", artist_window(1)),
+        ("artist appears on", artist_window(2)),
+        ("mixes", mixes_page()),
+        ("a mix", mix_page()),
+        ("a track radio", track_radio_page()),
+        ("an artist radio", artist_radio_page()),
+        ("empty favorite tracks", {
+            let mut state = State::default();
+            open(&mut state, &GY, fav_data(vec![], 0));
+            state
+        }),
+        ("an empty queue", State::default()),
+    ];
+    for (name, mut state) in nothing {
+        let before = state.clone();
+        assert_eq!(press(&mut state, &dd), vec![], "{name}");
+        assert_eq!(state.popup, None, "{name}");
+        state.pending.clear();
+        state.pending_g = false;
+        assert_eq!(state, before, "{name}: state");
+    }
+}

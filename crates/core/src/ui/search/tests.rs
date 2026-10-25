@@ -1076,3 +1076,31 @@ fn ac10_disconnected() {
         other => panic!("{other:?}"),
     }
 }
+
+/// Spec 0019 AC10: `d d` does nothing in any window of the search page,
+/// the top hit included (a search playlist is never the user's own).
+#[test]
+fn ac10_remove_selected_item_nothing() {
+    use Key::Char;
+    let data = data(Some(TopHit::Artist(artist(9))), [3, 3, 3, 3], 3);
+    for focus in [SearchFocus::TopHit, SearchFocus::Windows] {
+        for window in 0..4 {
+            let mut state = searched(with_queue(), "abc", data.clone());
+            {
+                let page = state.history.last_mut().unwrap();
+                page.search.as_mut().unwrap().focus = focus;
+                page.focus = window;
+            }
+            let before = state.clone();
+            assert_eq!(
+                press(&mut state, &[Char('d'), Char('d')]),
+                vec![],
+                "{focus:?} {window}"
+            );
+            assert_eq!(state.popup, None, "{focus:?} {window}");
+            state.pending.clear();
+            state.pending_g = false;
+            assert_eq!(state, before, "{focus:?} {window}");
+        }
+    }
+}

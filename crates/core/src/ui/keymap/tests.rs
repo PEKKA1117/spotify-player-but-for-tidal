@@ -367,7 +367,7 @@ const DEFAULTS: [(&[&str], &str); 43] = [
     (&["enter"], "ChooseSelected"),
     (&["Z", "C-z"], "AddSelectedItemToQueue"),
     // Spec 0019: two keys, so that `d` alone stays free.
-    (&["d d"], "RemoveFromQueue"),
+    (&["d d"], "RemoveSelectedItem"),
     (&["g a", "C-space"], "ShowActionsOnSelectedItem"),
     (&["a"], "ShowActionsOnCurrentTrack"),
     (&["tab"], "FocusNextWindow"),
@@ -1473,18 +1473,34 @@ fn ac8_switch_device_supported() {
 
 // --- spec 0019 AC6 -----------------------------------------------------------
 
-/// Spec 0019 AC6: `RemoveFromQueue` is bound to `d d` by default and
-/// nothing to `d`, which is the start of that binding.
+/// Spec 0019 AC6: `RemoveSelectedItem` is bound to `d d` by default and
+/// nothing to `d`; `RemoveFromQueue` has no default key but is still a
+/// command a `keymap.toml` can bind.
 #[test]
-fn ac6_remove_from_queue_is_d_d() {
+fn ac6_remove_selected_item_is_d_d() {
     let keymap = Keymap::default();
     let d = Key::Char('d');
     assert_eq!(keymap.get(&[d]), None, "d alone is unbound");
     assert!(keymap.starts(&[d]), "d starts a sequence");
     assert_eq!(
         keymap.get(&[d, d]),
+        Some(Binding::Command(UiCommand::RemoveSelectedItem))
+    );
+    assert!(
+        keymap
+            .sequences(Binding::Command(UiCommand::RemoveFromQueue))
+            .is_empty(),
+        "RemoveFromQueue has no default key"
+    );
+    let bound = keymap_of(vec![entry("x", "RemoveFromQueue")]);
+    assert_eq!(
+        bound.get(&[Key::Char('x')]),
         Some(Binding::Command(UiCommand::RemoveFromQueue))
     );
+}
+
+fn keymap_of(entries: Vec<KeymapEntry>) -> Keymap {
+    keymap(entries, vec![])
 }
 
 // --- spec 0019 AC9 -----------------------------------------------------------
@@ -1507,14 +1523,17 @@ fn ac9_file_beats_conflicting_defaults() {
         (
             "no conflict, no notice",
             file(vec![entry("x", "NextTrack")], vec![]),
-            vec![("x", cmd(C::NextTrack)), ("d d", cmd(C::RemoveFromQueue))],
+            vec![
+                ("x", cmd(C::NextTrack)),
+                ("d d", cmd(C::RemoveSelectedItem)),
+            ],
             None,
         ),
         (
             "an old keymap binding d",
             file(vec![entry("d", "RemoveFromQueue")], vec![]),
             vec![("d", cmd(C::RemoveFromQueue)), ("d d", None)],
-            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)"#),
+            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)"#),
         ),
         (
             "a g drops every g sequence, in the defaults' order",
@@ -1537,7 +1556,7 @@ fn ac9_file_beats_conflicting_defaults() {
                 vec![action("d", "RemoveFromQueue", Target::SelectedItem)],
             ),
             vec![("d d", None)],
-            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)"#),
+            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)"#),
         ),
         (
             "one clause per file sequence",
@@ -1547,7 +1566,7 @@ fn ac9_file_beats_conflicting_defaults() {
             ),
             vec![("d d", None), ("r", None)],
             Some(
-                r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue); "r x" replaces the default "r" (GoToRadio)"#,
+                r#"keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem); "r x" replaces the default "r" (GoToRadio)"#,
             ),
         ),
         (
@@ -1558,7 +1577,7 @@ fn ac9_file_beats_conflicting_defaults() {
             ),
             vec![("d d", None)],
             Some(
-                r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue) · keymap.toml: 1 spotify-player command not supported here: PlayRandom"#,
+                r#"keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem) · keymap.toml: 1 spotify-player command not supported here: PlayRandom"#,
             ),
         ),
         (

@@ -1223,3 +1223,79 @@ fn ac9_titles_in_model() {
     press(&mut state, &kept("love"));
     assert_eq!(queue_title(&state), "Queue (4 · /love · 2 matches)");
 }
+
+/// Spec 0019 AC10: with a filter kept, `d d` asks about the filtered row
+/// under the cursor, in a list of yours: favorite tracks and an own
+/// playlist (by its position in the whole playlist).
+#[test]
+fn ac10_remove_selected_item_filtered() {
+    use Key::Char;
+    let mut state = favorites();
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert!(
+        matches!(
+            &state.popup,
+            Some(Popup::Confirm { question, .. })
+                if question == "Remove Lovely from favorites? (y/n)"
+        ),
+        "{:?}",
+        state.popup
+    );
+    let effects = press(&mut state, &[Char('y')]);
+    assert_eq!(
+        requests(&effects)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>(),
+        vec![LibraryRequest::RemoveFavorite(
+            crate::library::FavoriteKind::Track,
+            "3".into()
+        )]
+    );
+
+    let mut state = State::default();
+    open(
+        &mut state,
+        &[Char('g'), Char('l')],
+        PageData::Library {
+            playlists: list(vec![playlist("p1", "Running", true)], 0, 1),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+        },
+    );
+    open(
+        &mut state,
+        &[Key::Enter],
+        PageData::Playlist {
+            playlist: playlist("p1", "Running", true),
+            etag: Some("e1".into()),
+            tracks: list(four(), 0, 4),
+        },
+    );
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert!(
+        matches!(
+            &state.popup,
+            Some(Popup::Confirm { question, .. })
+                if question == "Remove Lovely from Running? (y/n)"
+        ),
+        "{:?}",
+        state.popup
+    );
+    let effects = press(&mut state, &[Char('y')]);
+    assert_eq!(
+        requests(&effects)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>(),
+        vec![LibraryRequest::RemoveFromPlaylist {
+            uuid: "p1".into(),
+            index: 2,
+            etag: "e1".into(),
+        }]
+    );
+}

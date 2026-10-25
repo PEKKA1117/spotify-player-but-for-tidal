@@ -182,6 +182,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::ChooseSelected
         | C::AddSelectedItemToQueue
         | C::RemoveFromQueue
+        | C::RemoveSelectedItem
         | C::RoleFilter
         | C::SelectNextOrScrollDown
         | C::SelectPreviousOrScrollUp
@@ -227,7 +228,8 @@ fn queue_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let selected = filter::queue_selected(state);
     let send = match command {
         UiCommand::ChooseSelected => selected.map(Command::PlayEntry),
-        UiCommand::RemoveFromQueue => {
+        // Stub (spec 0019 AC10 red step): the queue only.
+        UiCommand::RemoveFromQueue | UiCommand::RemoveSelectedItem => {
             let entry = selected.and_then(|id| state.queue().iter().find(|e| e.id == id));
             let removal = entry.map(|entry| Removal {
                 from: RemoveFrom::Queue,
