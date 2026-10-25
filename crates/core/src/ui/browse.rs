@@ -12,7 +12,10 @@ use super::page::{
     Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind, group,
     is_search_list, largest_page,
 };
-use super::popup::{self, Confirmed, DeviceList, MenuAction, Popup, TrackSource, device_rows};
+use super::popup::{
+    self, Confirmed, DeviceList, MenuAction, Popup, Removal, RemoveFrom, Removed, RemovedTarget,
+    TrackSource, device_rows,
+};
 use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State, filter};
 
 /// The message of a removal refused because the playlist changed (`412`),
@@ -549,13 +552,14 @@ pub(super) fn run_action(state: &mut State, binding: ActionBinding) -> Vec<Effec
         Target::SelectedItem => selected_actions(state),
         Target::PlayingTrack => playing_actions(state),
     };
-    let chosen = actions.and_then(|(_, actions)| {
+    let chosen = actions.and_then(|(title, actions)| {
         actions
             .into_iter()
             .find(|action| names(binding.action, action))
+            .map(|action| (title, action))
     });
     match chosen {
-        Some(action) => run(state, action),
+        Some((title, action)) => run(state, &title, action),
         None => Vec::new(),
     }
 }
@@ -673,7 +677,7 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
         } => {
             if choose {
                 if let Some(action) = actions.get(cursor).cloned() {
-                    return run(state, action);
+                    return run(state, &title, action);
                 }
             } else {
                 state.popup = Some(Popup::Actions {
@@ -803,8 +807,9 @@ fn apply_roles(state: &mut State, checked: [bool; 4]) -> Vec<Effect> {
     effects
 }
 
-/// Runs one action of the actions popup (closed by the caller).
-fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
+/// Runs one action of the actions popup (closed by the caller) on the row
+/// titled `title`.
+fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
     let queue = |item, at| {
         vec![Effect::Send(Command::Open {
             items: vec![item],
@@ -823,10 +828,15 @@ fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
             LibraryRequest::AddFavorite(kind, id),
             Write::Favorite { add: true, kind },
         ),
-        MenuAction::RemoveFavorite(kind, id) => write(
+        MenuAction::RemoveFavorite(kind, id) => ask_removal(
             state,
-            LibraryRequest::RemoveFavorite(kind, id),
-            Write::Favorite { add: false, kind },
+            Removal {
+                from: RemoveFrom::Favorites(kind),
+                items: vec![Removed {
+                    title: title.to_owned(),
+                    target: RemovedTarget::Favorite(id),
+                }],
+            },
         ),
         MenuAction::AddToPlaylist(tracks) => {
             let mut playlists = Window::new(WindowKind::Playlists, ListRef::Playlists);
@@ -849,21 +859,33 @@ fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
         }
         MenuAction::RemoveFromPlaylist {
             uuid,
-            title,
+            title: playlist,
             index,
             etag,
-        } => write(
+        } => ask_removal(
             state,
-            LibraryRequest::RemoveFromPlaylist {
-                uuid: uuid.clone(),
-                index,
-                etag: etag.unwrap_or_default(),
+            Removal {
+                from: RemoveFrom::Playlist {
+                    uuid,
+                    title: playlist,
+                    etag,
+                },
+                items: vec![Removed {
+                    title: title.to_owned(),
+                    target: RemovedTarget::Position(index),
+                }],
             },
-            Write::RemoveFromPlaylist { uuid, title },
         ),
-        MenuAction::RemoveFromQueue(entry) => {
-            vec![Effect::Send(Command::RemoveFromQueue(entry))]
-        }
+        MenuAction::RemoveFromQueue(entry) => ask_removal(
+            state,
+            Removal {
+                from: RemoveFrom::Queue,
+                items: vec![Removed {
+                    title: title.to_owned(),
+                    target: RemovedTarget::Entry(entry),
+                }],
+            },
+        ),
         MenuAction::DeletePlaylist { uuid, title } => {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),
@@ -871,6 +893,64 @@ fn run(state: &mut State, action: MenuAction) -> Vec<Effect> {
             });
             Vec::new()
         }
+    }
+}
+
+/// Opens the question for `removal`, or removes at once with
+/// `confirm_removals` off (spec 0019). The one way the popup, the
+/// `[[actions]]` bindings and the queue's key remove.
+pub(super) fn ask_removal(state: &mut State, removal: Removal) -> Vec<Effect> {
+    if !state.confirm_removals {
+        return remove(state, removal);
+    }
+    state.popup = Some(Popup::Confirm {
+        question: popup::question(&removal),
+        on_yes: Confirmed::Remove(removal),
+    });
+    Vec::new()
+}
+
+/// What `y` to a removal question does: today's request or command.
+fn remove(state: &mut State, removal: Removal) -> Vec<Effect> {
+    let Removal { from, items } = removal;
+    match from {
+        RemoveFrom::Favorites(kind) => items
+            .into_iter()
+            .filter_map(|item| match item.target {
+                RemovedTarget::Favorite(id) => Some(write(
+                    state,
+                    LibraryRequest::RemoveFavorite(kind, id),
+                    Write::Favorite { add: false, kind },
+                )),
+                _ => None,
+            })
+            .flatten()
+            .collect(),
+        RemoveFrom::Queue => items
+            .into_iter()
+            .filter_map(|item| match item.target {
+                RemovedTarget::Entry(entry) => Some(Effect::Send(Command::RemoveFromQueue(entry))),
+                _ => None,
+            })
+            .collect(),
+        RemoveFrom::Playlist { uuid, title, etag } => match items.as_slice() {
+            [item] => match item.target {
+                RemovedTarget::Position(index) => write(
+                    state,
+                    LibraryRequest::RemoveFromPlaylist {
+                        uuid: uuid.clone(),
+                        index,
+                        etag: etag.unwrap_or_default(),
+                    },
+                    Write::RemoveFromPlaylist { uuid, title },
+                ),
+                _ => Vec::new(),
+            },
+            // Several positions shift after each removal, so they are not
+            // one request each: how they go is multi-select's to specify
+            // (#71). Nothing asks about several yet.
+            _ => Vec::new(),
+        },
     }
 }
 
@@ -896,8 +976,7 @@ fn confirmed(state: &mut State, on_yes: Confirmed) -> Vec<Effect> {
             LibraryRequest::DeletePlaylist { uuid: uuid.clone() },
             Write::DeletePlaylist { uuid, title },
         ),
-        // Stub (spec 0019 red step).
-        Confirmed::Remove(_) => Vec::new(),
+        Confirmed::Remove(removal) => remove(state, removal),
     }
 }
 

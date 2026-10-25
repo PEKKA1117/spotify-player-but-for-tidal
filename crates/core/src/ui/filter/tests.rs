@@ -687,7 +687,9 @@ fn ac3_kept_filter() {
         .position(|a| matches!(a, MenuAction::RemoveFavorite(..)))
         .expect("Remove from favorites");
     press(&mut state, &vec![Char('j'); at]);
-    let effects = press(&mut state, &[Enter]);
+    // The removal asks first (spec 0019).
+    assert_eq!(press(&mut state, &[Enter]), vec![]);
+    let effects = press(&mut state, &[Char('y')]);
     let (write, _) = requests(&effects)[0].clone();
     let effects = reply(&mut state, write, LibraryResponse::Done);
     let (refetch, request) = requests(&effects)[0].clone();

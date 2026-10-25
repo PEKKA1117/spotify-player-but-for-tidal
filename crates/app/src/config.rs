@@ -213,8 +213,15 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
-            // Stub (spec 0019 red step): the key is accepted and ignored.
-            "confirm_removals" => {}
+            "confirm_removals" => match value.as_bool() {
+                Some(on) => config.confirm_removals = Some(on),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                }
+            },
             "key_hints_delay_ms" => {
                 config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
             }

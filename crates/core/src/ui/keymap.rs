@@ -865,6 +865,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
     use UiCommand as C;
     let one = |key: Key| KeySequence(vec![key]);
     let g = |c: char| KeySequence(vec![Char('g'), Char(c)]);
+    let d = |c: char| KeySequence(vec![Char('d'), Char(c)]);
     let table: Vec<(Vec<KeySequence>, UiCommand)> = vec![
         (vec![one(Char(' '))], C::ResumePause),
         (vec![one(Char('n'))], C::NextTrack),
@@ -907,7 +908,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
             vec![one(Char('Z')), one(Ctrl('z'))],
             C::AddSelectedItemToQueue,
         ),
-        (vec![one(Char('d'))], C::RemoveFromQueue),
+        (vec![d('d')], C::RemoveFromQueue),
         (vec![g('a'), one(Ctrl(' '))], C::ShowActionsOnSelectedItem),
         (vec![one(Char('a'))], C::ShowActionsOnCurrentTrack),
         (vec![one(Key::Tab)], C::FocusNextWindow),

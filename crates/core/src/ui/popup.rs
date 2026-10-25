@@ -143,8 +143,32 @@ pub enum RemovedTarget {
 
 /// The question a [`Removal`] asks (spec 0019 "Several items").
 pub fn question(removal: &Removal) -> String {
-    let _ = removal;
-    String::new()
+    let (title, count) = match removal.items.as_slice() {
+        [one] => (Some(one.title.as_str()), 1),
+        items => (None, items.len()),
+    };
+    // `Remove <title>` for one item, `Remove N <things>` for several.
+    let what = |things: &str| match title {
+        Some(title) => title.to_owned(),
+        None => format!("{count} {things}"),
+    };
+    match &removal.from {
+        RemoveFrom::Favorites(kind) => {
+            let things = match kind {
+                FavoriteKind::Track => "tracks",
+                FavoriteKind::Album => "albums",
+                FavoriteKind::Artist => "artists",
+                FavoriteKind::Playlist => "playlists",
+            };
+            format!("Remove {} from favorites? (y/n)", what(things))
+        }
+        RemoveFrom::Playlist {
+            title: playlist, ..
+        } => {
+            format!("Remove {} from {playlist}? (y/n)", what("tracks"))
+        }
+        RemoveFrom::Queue => format!("Remove {} from the queue? (y/n)", what("tracks")),
+    }
 }
 
 /// The open popup; while one is open no other key acts.

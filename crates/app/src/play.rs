@@ -573,6 +573,9 @@ fn resolve_with(
     if let Some(on) = on_off(get(KEY_HINTS_VAR), KEY_HINTS_VAR)? {
         settings.key_hints = on;
     }
+    if let Some(on) = on_off(get(CONFIRM_REMOVALS_VAR), CONFIRM_REMOVALS_VAR)? {
+        settings.confirm_removals = on;
+    }
     if let Some(value) = get(KEY_HINTS_DELAY_VAR) {
         settings.key_hints_delay =
             Duration::from_millis(int_in(&value, KEY_HINTS_DELAY_VAR, 0, 10_000)?);
@@ -639,6 +642,9 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(on) = file.key_hints {
         settings.key_hints = on;
+    }
+    if let Some(on) = file.confirm_removals {
+        settings.confirm_removals = on;
     }
     if let Some(ms) = file.key_hints_delay_ms {
         settings.key_hints_delay = Duration::from_millis(ms);

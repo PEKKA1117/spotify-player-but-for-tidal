@@ -2609,20 +2609,21 @@ fn ac2_confirm_remove_from_playlist() {
         }
     }
 
-    // The page is fetched again while the question is open: the position
-    // and ETag are the ones of the row asked about.
+    // The page is fetched again while the question is open: an earlier
+    // removal is answered, and the page comes back with a new ETag. The
+    // position and ETag are the ones of the row asked about.
     let mut state = playlist_page(true);
-    let effects = run_action(&mut state, &[Ctrl(' ')], "Remove from this playlist");
-    assert_eq!(effects, vec![]);
-    let effects = press(&mut state, &[Char('y')]);
-    let effects = answer(&mut state, &effects, LibraryResponse::Done);
-    let (page_id, _) = one_request(&effects);
-    let asked_about = run_action(
+    run_action(&mut state, &[Ctrl(' ')], "Remove from this playlist");
+    let first = press(&mut state, &[Char('y')]);
+    let (first_id, _) = one_request(&first);
+    let effects = run_action(
         &mut state,
         &[Char('j'), Ctrl(' ')],
         "Remove from this playlist",
     );
-    assert_eq!(asked_about, vec![]);
+    assert_eq!(effects, vec![]);
+    let effects = reply(&mut state, first_id, LibraryResponse::Done);
+    let (page_id, _) = one_request(&effects);
     let reloaded = PageData::Playlist {
         playlist: playlist("p1", "Mine", true),
         etag: Some("e2".into()),
@@ -2649,7 +2650,8 @@ fn ac3_confirm_remove_from_queue() {
     use Key::{Char, Esc};
     let queue = || with_queue(&[7, 3, 9], Some(3));
     let question = "Remove T103 from the queue? (y/n)";
-    let ways: Vec<(&str, fn(&mut State) -> Vec<Effect>)> = vec![
+    type Way = (&'static str, fn(&mut State) -> Vec<Effect>);
+    let ways: Vec<Way> = vec![
         ("d d", |s| press(s, &[Char('d'), Char('d')])),
         ("popup", |s| run_action(s, &GA, "Remove from queue")),
         ("binding", |s| {

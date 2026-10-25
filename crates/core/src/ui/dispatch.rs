@@ -9,6 +9,7 @@ use crate::item::parse_item;
 use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, UiCommand};
+use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
 use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, theme};
 
 /// A key press: what it does, wherever the UI is.
@@ -219,13 +220,24 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
 }
 
 /// A list command on the queue page: the cursor (by entry ID, over the
-/// entries its filter shows), `Enter` plays the entry, `d` removes it.
+/// entries its filter shows), `Enter` plays the entry, `d d` asks to remove
+/// it (spec 0019).
 fn queue_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let height = state.list_height;
     let selected = filter::queue_selected(state);
     let send = match command {
         UiCommand::ChooseSelected => selected.map(Command::PlayEntry),
-        UiCommand::RemoveFromQueue => selected.map(Command::RemoveFromQueue),
+        UiCommand::RemoveFromQueue => {
+            let entry = selected.and_then(|id| state.queue().iter().find(|e| e.id == id));
+            let removal = entry.map(|entry| Removal {
+                from: RemoveFrom::Queue,
+                items: vec![Removed {
+                    title: entry.track.title.clone(),
+                    target: RemovedTarget::Entry(entry.id),
+                }],
+            });
+            return removal.map_or_else(Vec::new, |removal| browse::ask_removal(state, removal));
+        }
         _ if command.is_list_move() => {
             filter::move_queue_cursor(state, |i, len| step(command, i, len, height));
             None

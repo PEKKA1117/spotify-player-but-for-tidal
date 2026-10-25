@@ -2299,7 +2299,7 @@ mod tests {
         let text = draw(&remove_favorite_popup(), 80, 24);
         assert_contains(
             &text,
-            &["Remove Collide With The Sky from favorites? (y/n)"],
+            &["Remove Collide With The Sky from favorites?", "(y/n)"],
         );
         insta::assert_snapshot!("ac8_confirm_removal", text);
     }

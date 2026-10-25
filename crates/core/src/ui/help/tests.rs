@@ -938,7 +938,6 @@ fn ac8_help_no_other_key_acts() {
         Key::Char('z'),
         Key::Char('a'),
         Key::Char('o'),
-        Key::Char('d'),
         Key::Char('Z'),
         Key::Char('+'),
         Key::Char('x'),
@@ -955,12 +954,21 @@ fn ac8_help_no_other_key_acts() {
         assert_eq!(press(&mut state, &[key]), vec![], "{key:?}");
         assert_eq!(state, before, "{key:?}");
     }
-    // `g l` completes a binding the help does not run.
-    let mut state = with_queue();
-    press(&mut state, &[Key::Char('?')]);
-    let before = state.clone();
-    assert_eq!(press(&mut state, &[Key::Char('g'), Key::Char('l')]), vec![]);
-    assert_eq!(state, before);
+    // `g l` and `d d` (spec 0019) complete bindings the help does not run.
+    for second in [
+        (Key::Char('g'), Key::Char('l')),
+        (Key::Char('d'), Key::Char('d')),
+    ] {
+        let mut state = with_queue();
+        press(&mut state, &[Key::Char('?')]);
+        let before = state.clone();
+        assert_eq!(
+            press(&mut state, &[second.0, second.1]),
+            vec![],
+            "{second:?}"
+        );
+        assert_eq!(state, before, "{second:?}");
+    }
 }
 
 // --- spec 0013: key-sequence hints ---------------------------------------------
