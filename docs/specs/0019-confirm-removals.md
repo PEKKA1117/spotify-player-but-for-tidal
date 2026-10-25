@@ -1,6 +1,6 @@
 # 0019 — Confirming removals
 
-- **Status**: approved (2026-10-25; amended the same day: `d d` removes the row from any list of yours, AC10)
+- **Status**: implemented (2026-10-25; amended the same day: `d d` removes the row from any list of yours, AC10; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#61](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/61)
 - **Depends on**: 0004 (implemented: the queue, `RemoveFromQueue`), 0006 (implemented: the actions popup, favorites and playlist writes, the `y/n` question), 0008 (implemented: the keymap, `[[actions]]`, `app.toml`), 0012 (implemented: the queue's filter)
