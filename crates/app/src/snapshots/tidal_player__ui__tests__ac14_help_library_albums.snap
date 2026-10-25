@@ -13,6 +13,7 @@ expression: text
 ││♥ Late │ Library · Albums                                           │g With…││
 ││  Gym m│   enter           open the album                           │e The… ││
 ││       │   Z  C-z          add to the end of the queue              │       ││
+││       │   d d             remove from the list                     │       ││
 ││       │   g a  C-space    actions on the selected row              │       ││
 ││       │   /               filter the rows                          │       ││
 ││       │ Lists                                                      │       ││
@@ -20,7 +21,6 @@ expression: text
 ││       │   k  up  C-p      move up                                  │       ││
 ││       │   C-f  page_down  move down a window                       │       ││
 ││       │   C-b  page_up    move up a window                         │       ││
-││       │   g g             move to the top                          │       ││
 ││       │ / filter · enter run · esc close                           │       ││
 ││       └────────────────────────────────────────────────────────────┘       ││
 ││                             ││                             ││              ││

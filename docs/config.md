@@ -183,7 +183,7 @@ A **key sequence** is keys separated by single spaces (`g g`, `s l a`). A key is
 - a name: `enter`, `space`, `tab`, `backtab` (Shift-Tab), `backspace`, `esc`, `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `page_up`, `page_down`, `f1` … `f12`
 - either of those after `C-` (Control) or `M-` (Alt): `C-s`, `M-enter`, `C-space`, `M-p`. `C-S` is `C-s`: terminals report Control-letters without case
 
-Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another cannot be finished, so two sequences of your file in that relation (`s` and `s l a`) are refused, see [Errors](#errors). A sequence of your file that conflicts with a **default** wins: the default is dropped, and the message row says so once at start, with the notice of skipped names below (joined by ` · `): `keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)`, or `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (all of them, in the defaults' order; one clause per sequence of yours, joined by `;`). So a `keymap.toml` copied from an earlier example, with `RemoveFromQueue` on `d`, still works next to the default `d d`.
+Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another cannot be finished, so two sequences of your file in that relation (`s` and `s l a`) are refused, see [Errors](#errors). A sequence of your file that conflicts with a **default** wins: the default is dropped, and the message row says so once at start, with the notice of skipped names below (joined by ` · `): `keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`, or `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (all of them, in the defaults' order; one clause per sequence of yours, joined by `;`). So a `keymap.toml` copied from an earlier example, with `RemoveFromQueue` on `d`, still works next to the default `d d`.
 
 **Unreliable keys**: many terminals cannot send `C-enter`, `C-tab`, `C-backspace` or Control with the arrows as distinct keys; such a binding is accepted but may never fire. A terminal sends `C-i` as `tab`, `C-m` as `enter` and `C-[` as `esc`, so bind those names instead. `M-` keys need a terminal that sends Alt as Escape + key (most do; on macOS, "Use Option as Meta"). The keys help (`?`) shows what is bound; pressing the key shows whether it arrives.
 
@@ -222,7 +222,8 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `SelectLastOrScrollToBottom` | `G`, `end` | lists, popups | move to the last loaded row |
 | `ChooseSelected` | `enter` | lists, popups | play the track with its list / open / run |
 | `AddSelectedItemToQueue` | `Z`, `C-z` | lists | add to the end of the queue |
-| `RemoveFromQueue` | `d d` | the queue | remove from the queue (asks `y/n` first) |
+| `RemoveSelectedItem`* | `d d` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove from the list (asks `y/n` first; [what it removes](tui.md#confirming-removals)) |
+| `RemoveFromQueue` | | the queue | remove from the queue (asks `y/n` first; no default key; `RemoveSelectedItem` does it) |
 | `ShowActionsOnSelectedItem` | `g a`, `C-space` | lists | actions on the selected row |
 | `ShowActionsOnCurrentTrack` | `a` | everywhere | actions on the playing track |
 | `FocusNextWindow` | `tab` | pages | next pane |
@@ -240,6 +241,8 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter) |
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
+
+`*` marks a command this player adds to spotify-player's.
 
 Commands with parameters are written as an inline table: `command = { VolumeChange = { offset = -10 } }`, `command = { SeekBackward = { duration = 15 } }`, `command = { SeekForward = { } }` (the configured step).
 

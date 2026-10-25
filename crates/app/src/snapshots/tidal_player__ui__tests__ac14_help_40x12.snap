@@ -8,9 +8,9 @@ expression: text
 │ Library · Playlists                  │
 │   enter           open the playlist  │
 │   Z  C-z          add to the end of… │
+│   d d             remove from the li…│
 │   g a  C-space    actions on the sel…│
 │   /               filter the rows    │
 │ Lists                                │
-│   j  down  C-n    move down          │
 │ / filter · enter run · esc close     │
 └──────────────────────────────────────┘

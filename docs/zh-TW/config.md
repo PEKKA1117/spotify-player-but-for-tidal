@@ -192,7 +192,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 - 名稱：`enter`、`space`、`tab`、`backtab`（Shift-Tab）、`backspace`、`esc`、`left`、`right`、`up`、`down`、`insert`、`delete`、`home`、`end`、`page_up`、`page_down`、`f1` … `f12`
 - 上述任一種加上 `C-`（Control）或 `M-`（Alt）前綴：`C-s`、`M-enter`、`C-space`、`M-p`。`C-S` 等同 `C-s`：終端機回報 Control 加字母時不分大小寫
 
-按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，在新預設 `d d` 旁仍然可用。
+按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，在新預設 `d d` 旁仍然可用。
 
 **不可靠的按鍵**：許多終端機無法將 `C-enter`、`C-tab`、`C-backspace` 或 Control 加方向鍵當作獨立的按鍵送出；這類綁定會被接受，但可能永遠不會觸發。終端機會把 `C-i` 送成 `tab`、`C-m` 送成 `enter`、`C-[` 送成 `esc`，所以請改為綁定這些名稱。`M-` 按鍵需要終端機將 Alt 送成 Escape + 按鍵（大多數終端機都如此；在 macOS 上請啟用「Use Option as Meta」）。按鍵說明（`?`）會顯示已綁定的內容；按下該按鍵即可得知它是否有送達。
 
@@ -233,7 +233,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `SelectLastOrScrollToBottom` | `G`、`end` | 清單、彈出視窗 | move to the last loaded row（移到最後一個已載入的列） |
 | `ChooseSelected` | `enter` | 清單、彈出視窗 | play the track with its list / open / run（播放曲目並連同其清單／開啟／執行） |
 | `AddSelectedItemToQueue` | `Z`、`C-z` | 清單 | add to the end of the queue（加到佇列末端） |
-| `RemoveFromQueue` | `d d` | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`） |
+| `RemoveSelectedItem`* | `d d` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove from the list（從清單移除；先詢問 `y/n`；[移除什麼](tui.md#confirming-removals)） |
+| `RemoveFromQueue` | | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`；沒有預設按鍵，由 `RemoveSelectedItem` 執行） |
 | `ShowActionsOnSelectedItem` | `g a`、`C-space` | 清單 | actions on the selected row（對選取列的動作） |
 | `ShowActionsOnCurrentTrack` | `a` | 所有地方 | actions on the playing track（對正在播放曲目的動作） |
 | `FocusNextWindow` | `tab` | 頁面 | next pane（下一個窗格） |
@@ -251,6 +252,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選） |
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help（此說明） |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches)（結束；連接中的 TUI 會中斷連接） |
+
+`*` 標示本播放器在 spotify-player 之外新增的命令。
 
 帶參數的命令寫成行內表格：`command = { VolumeChange = { offset = -10 } }`、`command = { SeekBackward = { duration = 15 } }`、`command = { SeekForward = { } }`（使用設定的幅度）。
 
