@@ -767,12 +767,17 @@ pub enum KeymapError {
     NoQuitKey,
 }
 
+/// A sequence the file binds and the default bindings it dropped because
+/// one starts the other (spec 0019 AC9), in the defaults' order.
+type Replaced = (KeySequence, Vec<(KeySequence, Binding)>);
+
 /// The effective bindings: the defaults with the file's entries merged in,
-/// and the spotify-player names the file used that this player does not
-/// have.
+/// the defaults the file's sequences replaced, and the spotify-player names
+/// the file used that this player does not have.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keymap {
     bindings: Vec<(KeySequence, Binding)>,
+    replaced: Vec<Replaced>,
     unsupported: Vec<String>,
 }
 
@@ -781,6 +786,7 @@ impl Default for Keymap {
     fn default() -> Self {
         Self {
             bindings: defaults(),
+            replaced: Vec::new(),
             unsupported: Vec::new(),
         }
     }
@@ -822,21 +828,40 @@ impl Keymap {
             .collect()
     }
 
-    /// The message row's line about the skipped names (spec 0008
-    /// decision 3), if there are any.
+    /// The message row's lines about the defaults the file replaced (spec
+    /// 0019 AC9) and the skipped names (spec 0008 decision 3), joined by
+    /// ` · `, if there are any.
     pub fn notice(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if !self.replaced.is_empty() {
+            let clauses: Vec<String> = self
+                .replaced
+                .iter()
+                .map(|(sequence, dropped)| {
+                    let list = dropped
+                        .iter()
+                        .map(|(s, b)| format!("\"{s}\" ({})", b.name()))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let plural = if dropped.len() == 1 { "" } else { "s" };
+                    format!("\"{sequence}\" replaces the default{plural} {list}")
+                })
+                .collect();
+            parts.push(format!("keymap.toml: {}", clauses.join("; ")));
+        }
         let names = &self.unsupported;
         match names.len() {
-            0 => None,
-            1 => Some(format!(
+            0 => {}
+            1 => parts.push(format!(
                 "keymap.toml: 1 spotify-player command not supported here: {}",
                 names[0]
             )),
-            n => Some(format!(
+            n => parts.push(format!(
                 "keymap.toml: {n} spotify-player commands not supported here: {}",
                 names.join(", ")
             )),
         }
+        (!parts.is_empty()).then(|| parts.join(" · "))
     }
 
     /// Binds `sequence`, replacing its binding (in place) if it has one.
@@ -956,9 +981,13 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
 /// "`keymap.toml`"): an entry replaces the binding of its sequence only,
 /// `None` removes it, later entries beat earlier ones (`[[keymaps]]`, then
 /// `[[actions]]`); spotify-player names without a counterpart are skipped
-/// and listed in [`Keymap::unsupported`].
+/// and listed in [`Keymap::unsupported`]. A sequence the file binds beats
+/// the defaults it conflicts with (either starts the other), which are
+/// dropped (spec 0019 AC9); two sequences of the file in conflict are an
+/// error.
 pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
     let mut keymap = Keymap::default();
+    let mut from_file: Vec<KeySequence> = Vec::new();
     for (index, entry) in file.keymaps.iter().enumerate() {
         let at = EntryRef {
             section: Section::Keymaps,
@@ -981,6 +1010,7 @@ pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
                 entry: at,
                 name: name.to_owned(),
             })?;
+        from_file.push(sequence.clone());
         keymap.bind(sequence, Binding::Command(command));
     }
     for (index, entry) in file.actions.iter().enumerate() {
@@ -999,6 +1029,7 @@ pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
             entry: at,
             name: name.to_owned(),
         })?;
+        from_file.push(sequence.clone());
         keymap.bind(
             sequence,
             Binding::Action(ActionBinding {
@@ -1007,6 +1038,7 @@ pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
             }),
         );
     }
+    drop_conflicting_defaults(&mut keymap, &from_file);
     check_prefixes(&keymap)?;
     if keymap
         .sequences(Binding::Command(UiCommand::Quit))
@@ -1015,6 +1047,35 @@ pub fn build(file: &KeymapFile) -> Result<Keymap, KeymapError> {
         return Err(KeymapError::NoQuitKey);
     }
     Ok(keymap)
+}
+
+/// Drops the default bindings that conflict with a sequence the file binds
+/// (either starts the other), and records them in `keymap.replaced`, one
+/// entry per file sequence in file order.
+fn drop_conflicting_defaults(keymap: &mut Keymap, from_file: &[KeySequence]) {
+    for sequence in from_file {
+        if !keymap.bindings.iter().any(|(s, _)| s == sequence) {
+            continue;
+        }
+        let conflicts = |other: &KeySequence| {
+            other.0.starts_with(&sequence.0) || sequence.0.starts_with(&other.0)
+        };
+        let dropped: Vec<(KeySequence, Binding)> = keymap
+            .bindings
+            .iter()
+            .filter(|(s, _)| !from_file.contains(s) && conflicts(s))
+            .cloned()
+            .collect();
+        if dropped.is_empty() {
+            continue;
+        }
+        keymap
+            .bindings
+            .retain(|(s, _)| !dropped.iter().any(|(d, _)| d == s));
+        if !keymap.replaced.iter().any(|(s, _)| s == sequence) {
+            keymap.replaced.push((sequence.clone(), dropped));
+        }
+    }
 }
 
 /// A bound sequence that starts a longer bound one could never be finished
