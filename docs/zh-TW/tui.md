@@ -353,7 +353,7 @@
 *Remove from favorites*、*Remove from this playlist* 與 *Remove from queue* 在執行前會先詢問，方式與 *Delete playlist* 相同：`Remove <title> from favorites? (y/n)`、`Remove <title> from <playlist>? (y/n)` 與 `Remove <title> from the queue? (y/n)`。按 `y` 執行；按 `n` 或 `Esc` 關閉詢問，不會送出任何內容。詢問針對的是你選的那一列，即使詢問開啟期間清單有變動也一樣。
 
 - 從動作選單、從 [`[[actions]]` 綁定](config.md#actions)（`DeleteFromLiked`、`DeleteFromPlaylist`、`RemoveFromQueue`）以及從佇列上的 `d d` 執行時，詢問都相同
-- 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d d  remove from the queue`
+- 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d …` 提示框，列出 `d  remove from the queue`
 - 在 `app.toml` 中設定 `confirm_removals = false`（或 `TIDAL_PLAYER_CONFIRM_REMOVALS=off`）會讓這三個動作立即執行；*Delete playlist* 與 *add again?* 的詢問仍會出現。這不會改變按鍵：`RemoveFromQueue` 仍是 `d d`。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)
 
 <a id="adding-tracks"></a>

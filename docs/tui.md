@@ -333,7 +333,7 @@ The result shows in the playback window's message row: `Added to favorites`, `Re
 *Remove from favorites*, *Remove from this playlist* and *Remove from queue* ask before they act, with the question of *Delete playlist*: `Remove <title> from favorites? (y/n)`, `Remove <title> from <playlist>? (y/n)` and `Remove <title> from the queue? (y/n)`. `y` does it; `n` or `Esc` closes the question and nothing is sent. The question is about the row you chose, even if the list moves while it is open.
 
 - It asks the same from the actions popup, from an [`[[actions]]` binding](config.md#actions) (`DeleteFromLiked`, `DeleteFromPlaylist`, `RemoveFromQueue`) and from the queue's `d d`
-- `d` alone does nothing; with [key hints](#key-hints) a `d` held for the delay shows `d d  remove from the queue` on the queue page
+- `d` alone does nothing; with [key hints](#key-hints) a `d` held for the delay shows the box `d …` with `d  remove from the queue` on the queue page
 - `confirm_removals = false` in `app.toml` (or `TIDAL_PLAYER_CONFIRM_REMOVALS=off`) makes the three act at once; *Delete playlist* and the *add again?* question still ask. It does not change the keys: `RemoveFromQueue` stays on `d d`. An attached TUI uses its own setting; see [`app.toml`](config.md#apptoml)
 
 ## Adding tracks

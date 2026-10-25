@@ -1,6 +1,6 @@
 # 0019 — Confirming removals
 
-- **Status**: approved (2026-10-25)
+- **Status**: implemented (2026-10-25; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#61](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/61)
 - **Depends on**: 0004 (implemented: the queue, `RemoveFromQueue`), 0006 (implemented: the actions popup, favorites and playlist writes, the `y/n` question), 0008 (implemented: the keymap, `[[actions]]`, `app.toml`), 0012 (implemented: the queue's filter)
@@ -146,7 +146,7 @@ Assumptions: none about external systems (no new API call).
 - **One path**: `browse::ask_removal(state, Removal)` opens the question, or removes at once with `confirm_removals` off. `browse::run` (popup `Enter` and `[[actions]]` bindings) and `dispatch::queue_command` (`RemoveFromQueue` on the queue page) call it; `run` takes the row's title from the popup's title (`selected_actions`/`playing_actions`), the queue key from the entry's track title
 - **Several items**: `y` on a removal of several favorites or queue entries sends one request or command per item. A removal of several playlist positions sends nothing yet: the positions shift after each removal, and #71 specifies how they go
 - **Help open**: while the keys help is open, `d` is collected into the pending sequence like any other first key (as `g` was); `ac8_help_no_other_key_acts` now checks `d d` as it checks `g l`
-- **Hint**: `d` held for the delay lists `d d  remove from the queue` on the queue page, which the existing key-hint snapshots (`ac14_help_queue`, `ac9_theme_help_80x24`) show with the new key
+- **Keys help and hint**: the keys help (`?`) lists `d d  remove from the queue` on the queue page, as the existing snapshots `ac14_help_queue` and `ac9_theme_help_80x24` show; a `d` held for the delay shows 0013's hint box titled `d …` with the entry `d  remove from the queue` (0013 lists the next key only)
 - **Wrapping**: the question wraps at the popup's width, so the 80 × 24 snapshot shows `Remove Collide With The Sky from favorites?` and `(y/n)` on two lines
 - **A user's old `keymap.toml`**: handled by AC9 (decision 5), added after the first acceptance run
 - **Test isolation**: `crates/app/tests/cli.rs`'s `bin_in` did not set the config directory, so its tests read the developer's own `~/.config/tidal-player` and failed there with an old `keymap.toml`; it now points `TIDAL_PLAYER_CONFIG_DIR` at the test's temp directory (0008 "Bugs")
