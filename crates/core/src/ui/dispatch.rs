@@ -228,7 +228,7 @@ fn queue_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     let selected = filter::queue_selected(state);
     let send = match command {
         UiCommand::ChooseSelected => selected.map(Command::PlayEntry),
-        // Stub (spec 0019 AC10 red step): the queue only.
+        // On the queue both are `d d`'s question (spec 0019 AC3).
         UiCommand::RemoveFromQueue | UiCommand::RemoveSelectedItem => {
             let entry = selected.and_then(|id| state.queue().iter().find(|e| e.id == id));
             let removal = entry.map(|entry| Removal {

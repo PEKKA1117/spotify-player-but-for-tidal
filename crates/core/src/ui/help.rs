@@ -36,7 +36,7 @@ use super::keymap::{ActionKind, Binding, COMMANDS, KeySequence, Target, UiComman
 use super::page::{Load, Page, WindowKind};
 use super::popup::Popup;
 use super::search::SearchFocus;
-use super::{Connection, Effect, Key, PageKind, State, filter};
+use super::{Connection, Effect, Key, PageKind, State, browse, filter};
 
 /// The help popup's state: the filter and the highlighted row. What it
 /// lists is computed from the rest of the [`State`] ([`help`],
@@ -169,7 +169,7 @@ pub fn help(state: &State) -> Vec<HelpSection> {
         (Where::Queue | Where::Window(_) | Where::TopHit, _) => {
             add(
                 &window_title(at),
-                command_rows(state, at, |c| in_window(at, c)),
+                command_rows(state, at, |c| in_window(state, at, c)),
             );
             if matches!(at, Where::Queue | Where::Window(_)) {
                 add("Lists", command_rows(state, at, UiCommand::is_list_move));
@@ -365,7 +365,7 @@ fn in_pages(page: &Page, command: UiCommand) -> bool {
 }
 
 /// The commands of the focused window's section.
-fn in_window(at: Where, command: UiCommand) -> bool {
+fn in_window(state: &State, at: Where, command: UiCommand) -> bool {
     use UiCommand as C;
     match at {
         Where::Queue => matches!(
@@ -386,6 +386,7 @@ fn in_window(at: Where, command: UiCommand) -> bool {
             | C::ShowActionsOnSelectedItem
             | C::Search => true,
             C::RoleFilter => kind == WindowKind::AllTracks,
+            C::RemoveSelectedItem => browse::removable(state.page(), kind),
             _ => false,
         },
         Where::Popup | Where::Input | Where::Typing(_) => false,

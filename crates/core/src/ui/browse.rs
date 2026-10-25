@@ -271,6 +271,7 @@ pub(super) fn list_command(state: &mut State, command: UiCommand) -> Vec<Effect>
     match command {
         UiCommand::ChooseSelected => enter(state),
         UiCommand::AddSelectedItemToQueue => queue_selected(state),
+        UiCommand::RemoveSelectedItem => remove_selected(state),
         UiCommand::RoleFilter => {
             open_role_filter(state);
             Vec::new()
@@ -279,6 +280,48 @@ pub(super) fn list_command(state: &mut State, command: UiCommand) -> Vec<Effect>
             move_window_cursor(state, |i, len| step(command, i, len, height))
         }
         _ => Vec::new(),
+    }
+}
+
+/// Whether `d d` (`RemoveSelectedItem`) acts in window `kind` of `page`:
+/// the lists that are yours (spec 0019 AC10). The queue is the dispatcher's.
+pub(super) fn removable(page: &Page, kind: WindowKind) -> bool {
+    match kind {
+        WindowKind::FavoriteTracks
+        | WindowKind::Albums
+        | WindowKind::Artists
+        | WindowKind::Playlists => true,
+        WindowKind::PlaylistTracks => page.own_playlist().is_some(),
+        _ => false,
+    }
+}
+
+/// The row's title and the removal `d d` makes on it: among the actions
+/// the popup would list, *Delete playlist* for a playlist of yours, else
+/// *Remove from favorites*; *Remove from this playlist* in an own
+/// playlist's tracks. Nothing in a list that is not yours.
+fn removal_action(state: &State) -> Option<(String, MenuAction)> {
+    let page = state.page();
+    let kind = page.focused()?.kind;
+    if !removable(page, kind) {
+        return None;
+    }
+    let (title, actions) = selected_actions(state)?;
+    let find = |wanted: fn(&MenuAction) -> bool| actions.iter().find(|a| wanted(a)).cloned();
+    let action = match kind {
+        WindowKind::PlaylistTracks => find(|a| matches!(a, MenuAction::RemoveFromPlaylist { .. })),
+        WindowKind::Playlists => find(|a| matches!(a, MenuAction::DeletePlaylist { .. }))
+            .or_else(|| find(|a| matches!(a, MenuAction::RemoveFavorite(..)))),
+        _ => find(|a| matches!(a, MenuAction::RemoveFavorite(..))),
+    }?;
+    Some((title, action))
+}
+
+/// `d d` on a browse page (spec 0019 AC10).
+fn remove_selected(state: &mut State) -> Vec<Effect> {
+    match removal_action(state) {
+        Some((title, action)) => run(state, &title, action),
+        None => Vec::new(),
     }
 }
 

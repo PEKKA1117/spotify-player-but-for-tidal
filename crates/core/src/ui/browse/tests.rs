@@ -1652,14 +1652,13 @@ fn ac16_disconnected_and_login() {
             vec![]
         );
         assert_eq!(window(&state, 0).cursor, 2);
-        // `Enter`, `Z`, `d` and the popup's actions emit nothing.
-        assert_eq!(
-            press(
-                &mut state,
-                &[Enter, Char('Z'), Ctrl('z'), Char('d'), Char('d')]
-            ),
-            vec![]
-        );
+        // `Enter`, `Z` and the popup's actions emit nothing; `d d` asks
+        // (spec 0019 AC10) and `y` sends nothing while disconnected.
+        assert_eq!(press(&mut state, &[Enter, Char('Z'), Ctrl('z')]), vec![]);
+        assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+        assert!(asked(&state).is_some(), "d d asks");
+        assert_eq!(press(&mut state, &[Char('y')]), vec![]);
+        assert!(state.writes.is_empty());
         for label in ["Add to queue", "Add to favorites", "Go to album"] {
             assert_eq!(run_action(&mut state, &GA, label), vec![], "{label}");
             if label == "Go to album" {

@@ -938,7 +938,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
             vec![one(Char('Z')), one(Ctrl('z'))],
             C::AddSelectedItemToQueue,
         ),
-        (vec![d('d')], C::RemoveFromQueue),
+        (vec![d('d')], C::RemoveSelectedItem),
         (vec![g('a'), one(Ctrl(' '))], C::ShowActionsOnSelectedItem),
         (vec![one(Char('a'))], C::ShowActionsOnCurrentTrack),
         (vec![one(Key::Tab)], C::FocusNextWindow),
