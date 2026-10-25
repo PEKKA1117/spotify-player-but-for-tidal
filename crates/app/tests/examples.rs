@@ -46,6 +46,8 @@ fn ac18_example_app_toml_is_the_defaults() {
         // Spec 0013.
         ("key_hints", file.key_hints.is_none()),
         ("key_hints_delay_ms", file.key_hints_delay_ms.is_none()),
+        // Spec 0019.
+        ("confirm_removals", file.confirm_removals.is_none()),
         // Spec 0016 AC9.
         ("cover_img", file.cover_img.is_none()),
         ("cover_img_rows", file.cover_img_rows.is_none()),

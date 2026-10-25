@@ -12,7 +12,7 @@ expression: text
 ││▶ 2   H┌Keys────────────────────────────────────────────────────────┐   3:32││
 ││  3   A│ Queue                                                      │   4:22││
 ││  4   K│   enter           play the entry                           │   3:52││
-││  5   B│   d               remove from the queue                    │   4:50││
+││  5   B│   d d             remove from the list                     │   4:50││
 ││  6   P│   g a  C-space    actions on the entry                     │   3:33││
 ││  7   T│   /               filter the rows                          │   5:04││
 ││  8   S│ Lists                                                      │   3:53││

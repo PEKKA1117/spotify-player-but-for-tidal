@@ -159,6 +159,58 @@ fn ac7_key_hints_documented() {
     assert!(zh.contains("key_hints_delay_ms"), "docs/zh-TW/tui.md");
 }
 
+/// 0019 AC8: `confirm_removals` (with its variable) in the `app.toml`
+/// table of `docs/config.md` and of its zh-TW copy; `docs/tui.md` and its
+/// zh-TW copy describe the question and `d d`, and no longer bind `d`.
+#[test]
+fn ac8_confirm_removals_documented() {
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        let found = rows(&config, "confirm_removals");
+        assert!(
+            found
+                .iter()
+                .any(|row| row.contains("TIDAL_PLAYER_CONFIRM_REMOVALS")),
+            "docs/{name}: confirm_removals: no table row naming its variable: {found:?}"
+        );
+        let remove = rows(&config, "RemoveSelectedItem");
+        assert!(
+            remove.iter().any(|row| row.contains("`d d`")),
+            "docs/{name}: RemoveSelectedItem is not `d d`: {remove:?}"
+        );
+        let queue = rows(&config, "RemoveFromQueue");
+        assert!(
+            !queue.is_empty() && queue.iter().all(|row| !row.contains("`d d`")),
+            "docs/{name}: RemoveFromQueue still has a default key: {queue:?}"
+        );
+    }
+    for name in ["tui.md", "zh-TW/tui.md"] {
+        let tui = doc(name);
+        for needed in ["confirm_removals", "`d d`", "(y/n)", "RemoveSelectedItem"] {
+            assert!(tui.contains(needed), "docs/{name}: {needed}");
+        }
+        assert!(
+            !tui.lines().any(|line| line.starts_with("| `d` |")),
+            "docs/{name}: a key table still binds `d`"
+        );
+    }
+    // AC9: the keymap section says a file binding beats a default it
+    // conflicts with, and what the notice says.
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        for needed in ["replaces the default", "`d d`"] {
+            assert!(config.contains(needed), "docs/{name}: {needed}");
+        }
+    }
+    for name in ["playback.md", "zh-TW/playback.md"] {
+        let playback = doc(name);
+        assert!(
+            playback.contains("TIDAL_PLAYER_CONFIRM_REMOVALS"),
+            "docs/{name}: the settings table"
+        );
+    }
+}
+
 /// 0016 AC10: the cover's three settings (with their variables) in the
 /// `app.toml` table of `docs/config.md` and of its zh-TW copy; the "Album
 /// cover" section of `docs/tui.md` with tmux's `allow-passthrough`, in both

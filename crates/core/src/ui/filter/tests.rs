@@ -16,8 +16,8 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
 use super::super::keymap::{CommandEntry, KeymapEntry, KeymapFile, build};
 use super::super::{
-    Action, Effect, Key, Load, MenuAction, Page, PageKind, Popup, Row, SearchFocus, State, Window,
-    WindowKind, apply_keymap, update,
+    Action, Confirmed, Effect, Key, Load, MenuAction, Page, PageKind, Popup, Removal, RemoveFrom,
+    Removed, RemovedTarget, Row, SearchFocus, State, Window, WindowKind, apply_keymap, update,
 };
 use super::{MAX_FILTER, matches, queue_shown, queue_title};
 
@@ -687,7 +687,9 @@ fn ac3_kept_filter() {
         .position(|a| matches!(a, MenuAction::RemoveFavorite(..)))
         .expect("Remove from favorites");
     press(&mut state, &vec![Char('j'); at]);
-    let effects = press(&mut state, &[Enter]);
+    // The removal asks first (spec 0019).
+    assert_eq!(press(&mut state, &[Enter]), vec![]);
+    let effects = press(&mut state, &[Char('y')]);
     let (write, _) = requests(&effects)[0].clone();
     let effects = reply(&mut state, write, LibraryResponse::Done);
     let (refetch, request) = requests(&effects)[0].clone();
@@ -781,7 +783,7 @@ fn ac4_rows_and_cursor() {
         vec![Char('Z')],
         GA.to_vec(),
         vec![Char('r')],
-        vec![Char('d')],
+        vec![Char('d'), Char('d')],
     ] {
         assert_eq!(press(&mut state, &keys), vec![], "{keys:?}");
         assert!(state.popup.is_none(), "{keys:?}");
@@ -848,7 +850,7 @@ fn ac4_rows_and_cursor() {
     // No match on the queue: nothing selected.
     press(&mut state, &kept("xyz"));
     assert_eq!(queue_shown(&state), Vec::<usize>::new());
-    for keys in [vec![Enter], vec![Char('d')], GA.to_vec()] {
+    for keys in [vec![Enter], vec![Char('d'), Char('d')], GA.to_vec()] {
         assert_eq!(press(&mut state, &keys), vec![], "{keys:?}");
         assert!(state.popup.is_none(), "{keys:?}");
     }
@@ -981,7 +983,7 @@ fn ac5_acting_on_matches() {
         .expect("Remove from this playlist");
     assert_eq!(removal, 2, "Lovely is the playlist's third track");
 
-    // The queue: `enter` and `d` on the selected match's entry.
+    // The queue: `enter` and `d d` (then `y`) on the selected match's entry.
     let mut state = queue();
     press(&mut state, &kept("love"));
     press(&mut state, &[Char('j')]);
@@ -989,9 +991,45 @@ fn ac5_acting_on_matches() {
         press(&mut state.clone(), &[Enter]),
         vec![Effect::Send(Command::PlayEntry(EntryId(3)))]
     );
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
     assert_eq!(
-        press(&mut state, &[Char('d')]),
+        press(&mut state, &[Char('y')]),
         vec![Effect::Send(Command::RemoveFromQueue(EntryId(3)))]
+    );
+}
+
+/// Spec 0019 AC3: with the queue filtered, `d d` asks about the filtered
+/// row under the cursor, by its title, and `y` removes that entry.
+#[test]
+fn ac3_confirm_remove_filtered_queue() {
+    use Key::Char;
+    let mut state = queue();
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::Confirm {
+            question: "Remove Lovely from the queue? (y/n)".into(),
+            on_yes: Confirmed::Remove(Removal {
+                from: RemoveFrom::Queue,
+                items: vec![Removed {
+                    title: "Lovely".into(),
+                    target: RemovedTarget::Entry(EntryId(3)),
+                }],
+            }),
+        })
+    );
+    // `n` sends nothing; the first match is asked about after `k`.
+    assert_eq!(press(&mut state, &[Char('n')]), vec![]);
+    press(&mut state, &[Char('k'), Char('d'), Char('d')]);
+    assert!(matches!(
+        &state.popup,
+        Some(Popup::Confirm { question, .. }) if question == "Remove Love Song from the queue? (y/n)"
+    ));
+    assert_eq!(
+        press(&mut state, &[Char('y')]),
+        vec![Effect::Send(Command::RemoveFromQueue(EntryId(1)))]
     );
 }
 
@@ -1184,4 +1222,80 @@ fn ac9_titles_in_model() {
     assert_eq!(queue_title(&state), "Queue (4)");
     press(&mut state, &kept("love"));
     assert_eq!(queue_title(&state), "Queue (4 · /love · 2 matches)");
+}
+
+/// Spec 0019 AC10: with a filter kept, `d d` asks about the filtered row
+/// under the cursor, in a list of yours: favorite tracks and an own
+/// playlist (by its position in the whole playlist).
+#[test]
+fn ac10_remove_selected_item_filtered() {
+    use Key::Char;
+    let mut state = favorites();
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert!(
+        matches!(
+            &state.popup,
+            Some(Popup::Confirm { question, .. })
+                if question == "Remove Lovely from favorites? (y/n)"
+        ),
+        "{:?}",
+        state.popup
+    );
+    let effects = press(&mut state, &[Char('y')]);
+    assert_eq!(
+        requests(&effects)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>(),
+        vec![LibraryRequest::RemoveFavorite(
+            crate::library::FavoriteKind::Track,
+            "3".into()
+        )]
+    );
+
+    let mut state = State::default();
+    open(
+        &mut state,
+        &[Char('g'), Char('l')],
+        PageData::Library {
+            playlists: list(vec![playlist("p1", "Running", true)], 0, 1),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+        },
+    );
+    open(
+        &mut state,
+        &[Key::Enter],
+        PageData::Playlist {
+            playlist: playlist("p1", "Running", true),
+            etag: Some("e1".into()),
+            tracks: list(four(), 0, 4),
+        },
+    );
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert!(
+        matches!(
+            &state.popup,
+            Some(Popup::Confirm { question, .. })
+                if question == "Remove Lovely from Running? (y/n)"
+        ),
+        "{:?}",
+        state.popup
+    );
+    let effects = press(&mut state, &[Char('y')]);
+    assert_eq!(
+        requests(&effects)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>(),
+        vec![LibraryRequest::RemoveFromPlaylist {
+            uuid: "p1".into(),
+            index: 2,
+            etag: "e1".into(),
+        }]
+    );
 }

@@ -244,6 +244,13 @@ const ROWS: [&str; 3] = [
     "AddSelectedItemToQueue",
     "ShowActionsOnSelectedItem",
 ];
+// Spec 0019: where `d d` acts, between the queue key and the actions.
+const ROWS_RM: [&str; 4] = [
+    "ChooseSelected",
+    "AddSelectedItemToQueue",
+    "RemoveSelectedItem",
+    "ShowActionsOnSelectedItem",
+];
 
 fn pages(focus: bool, tabs: bool) -> Vec<&'static str> {
     let mut pages = Vec::new();
@@ -289,6 +296,7 @@ fn ac7_help_sections() {
     // Spec 0012: `Search` (`/`) filters every window and the queue; on
     // *Top hit* it does nothing, so it is not listed there.
     let browse = [ROWS.to_vec(), vec!["Search"]].concat();
+    let browse_rm = [ROWS_RM.to_vec(), vec!["Search"]].concat();
     let search_rows = browse.clone();
     let top_hit_rows = ROWS.to_vec();
     let mut cases: Vec<(String, State, Expected)> = vec![
@@ -300,7 +308,7 @@ fn ac7_help_sections() {
                     "Queue",
                     vec![
                         "ChooseSelected",
-                        "RemoveFromQueue",
+                        "RemoveSelectedItem",
                         "ShowActionsOnSelectedItem",
                         "Search",
                     ],
@@ -312,7 +320,7 @@ fn ac7_help_sections() {
         (
             "favorite tracks".into(),
             on_page(PageKind::FavoriteTracks, |_| {}),
-            page_sections(("Favorite tracks", browse.clone()), false, false),
+            page_sections(("Favorite tracks", browse_rm.clone()), false, false),
         ),
         (
             "album".into(),
@@ -322,7 +330,7 @@ fn ac7_help_sections() {
         (
             "own playlist".into(),
             playlist_page(true),
-            page_sections(("Playlist", browse.clone()), false, false),
+            page_sections(("Playlist", browse_rm.clone()), false, false),
         ),
         (
             "followed playlist".into(),
@@ -338,7 +346,7 @@ fn ac7_help_sections() {
         cases.push((
             title.into(),
             focused(PageKind::Library, window),
-            page_sections((title, browse.clone()), true, false),
+            page_sections((title, browse_rm.clone()), true, false),
         ));
     }
     for (window, title) in [
@@ -938,7 +946,6 @@ fn ac8_help_no_other_key_acts() {
         Key::Char('z'),
         Key::Char('a'),
         Key::Char('o'),
-        Key::Char('d'),
         Key::Char('Z'),
         Key::Char('+'),
         Key::Char('x'),
@@ -955,12 +962,21 @@ fn ac8_help_no_other_key_acts() {
         assert_eq!(press(&mut state, &[key]), vec![], "{key:?}");
         assert_eq!(state, before, "{key:?}");
     }
-    // `g l` completes a binding the help does not run.
-    let mut state = with_queue();
-    press(&mut state, &[Key::Char('?')]);
-    let before = state.clone();
-    assert_eq!(press(&mut state, &[Key::Char('g'), Key::Char('l')]), vec![]);
-    assert_eq!(state, before);
+    // `g l` and `d d` (spec 0019) complete bindings the help does not run.
+    for second in [
+        (Key::Char('g'), Key::Char('l')),
+        (Key::Char('d'), Key::Char('d')),
+    ] {
+        let mut state = with_queue();
+        press(&mut state, &[Key::Char('?')]);
+        let before = state.clone();
+        assert_eq!(
+            press(&mut state, &[second.0, second.1]),
+            vec![],
+            "{second:?}"
+        );
+        assert_eq!(state, before, "{second:?}");
+    }
 }
 
 // --- spec 0013: key-sequence hints ---------------------------------------------
@@ -1351,4 +1367,47 @@ fn ac8_devices_popup_help() {
         "{effects:?}"
     );
     assert!(matches!(via.popup, Some(Popup::Devices { .. })));
+}
+
+// --- spec 0019 AC6/AC10: where `d d` is listed -------------------------------
+
+/// Spec 0019 AC6: the keys help lists `RemoveSelectedItem` (`d d`, `remove
+/// from the list`) where it acts and nowhere else, and the hint after `d`
+/// follows it.
+#[test]
+fn ac6_d_d_listed_where_it_acts() {
+    let cases: Vec<(&str, State, bool)> = vec![
+        ("queue", with_queue(), true),
+        (
+            "favorite tracks",
+            on_page(PageKind::FavoriteTracks, |_| {}),
+            true,
+        ),
+        ("own playlist", playlist_page(true), true),
+        ("followed playlist", playlist_page(false), false),
+        ("album", on_page(PageKind::Album(10), |_| {}), false),
+        ("library playlists", focused(PageKind::Library, 0), true),
+        ("library albums", focused(PageKind::Library, 1), true),
+        ("library artists", focused(PageKind::Library, 2), true),
+        ("artist top tracks", focused(PageKind::Artist(20), 0), false),
+        ("artist all tracks", focused(PageKind::Artist(20), 3), false),
+        ("mixes", on_page(PageKind::Mixes, |_| {}), false),
+        ("search tracks", search_on(SearchFocus::Windows, 0), false),
+        ("search top hit", search_on(SearchFocus::TopHit, 0), false),
+        ("search input", search_on(SearchFocus::Input, 0), false),
+    ];
+    for (name, state, listed) in cases {
+        let sections = help(&state);
+        let found = row(&sections, "RemoveSelectedItem");
+        assert_eq!(found.is_some(), listed, "{name}");
+        if let Some(found) = found {
+            assert_eq!(found.keys, "d d", "{name}");
+            assert_eq!(found.text, "remove from the list", "{name}");
+        }
+        let hint = hints(&pressed(state, &[Key::Char('d')]));
+        let entries: Option<Vec<(String, String)>> =
+            hint.map(|h| h.entries.into_iter().map(|e| (e.key, e.text)).collect());
+        let want = listed.then(|| vec![("d".to_owned(), "remove from the list".to_owned())]);
+        assert_eq!(entries, want, "{name}: hint");
+    }
 }

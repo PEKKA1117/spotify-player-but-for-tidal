@@ -48,6 +48,7 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `theme` | 佈景主題的名稱 | `"default"` | `-t`/`--theme`（TUI）、`TIDAL_PLAYER_THEME` | TUI |
 | `key_hints` | `true`、`false` | `true` | `TIDAL_PLAYER_KEY_HINTS`（`on`、`off`） | TUI |
 | `key_hints_delay_ms` | 整數 0–10 000（毫秒；`0`：立即顯示） | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `confirm_removals` | `true`、`false` | `true` | `TIDAL_PLAYER_CONFIRM_REMOVALS`（`on`、`off`） | TUI |
 | `cover_img` | `true`、`false` | `true` | `TIDAL_PLAYER_COVER_IMG`（`on`、`off`） | TUI |
 | `cover_img_rows` | 整數 4–20（顯示封面時播放視窗的列數） | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
 | `cover_img_protocol` | `"auto"`、`"sixel"`、`"kitty"`、`"iterm2"`、`"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
@@ -191,7 +192,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 - 名稱：`enter`、`space`、`tab`、`backtab`（Shift-Tab）、`backspace`、`esc`、`left`、`right`、`up`、`down`、`insert`、`delete`、`home`、`end`、`page_up`、`page_down`、`f1` … `f12`
 - 上述任一種加上 `C-`（Control）或 `M-`（Alt）前綴：`C-s`、`M-enter`、`C-space`、`M-p`。`C-S` 等同 `C-s`：終端機回報 Control 加字母時不分大小寫
 
-按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭（`g g` 已綁定時又綁定 `g`），會被拒絕，見[錯誤](#errors)。
+按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，在新預設 `d d` 旁仍然可用。
 
 **不可靠的按鍵**：許多終端機無法將 `C-enter`、`C-tab`、`C-backspace` 或 Control 加方向鍵當作獨立的按鍵送出；這類綁定會被接受，但可能永遠不會觸發。終端機會把 `C-i` 送成 `tab`、`C-m` 送成 `enter`、`C-[` 送成 `esc`，所以請改為綁定這些名稱。`M-` 按鍵需要終端機將 Alt 送成 Escape + 按鍵（大多數終端機都如此；在 macOS 上請啟用「Use Option as Meta」）。按鍵說明（`?`）會顯示已綁定的內容；按下該按鍵即可得知它是否有送達。
 
@@ -232,7 +233,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `SelectLastOrScrollToBottom` | `G`、`end` | 清單、彈出視窗 | move to the last loaded row（移到最後一個已載入的列） |
 | `ChooseSelected` | `enter` | 清單、彈出視窗 | play the track with its list / open / run（播放曲目並連同其清單／開啟／執行） |
 | `AddSelectedItemToQueue` | `Z`、`C-z` | 清單 | add to the end of the queue（加到佇列末端） |
-| `RemoveFromQueue` | `d` | 佇列 | remove from the queue（從佇列移除） |
+| `RemoveSelectedItem`* | `d d` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove from the list（從清單移除；先詢問 `y/n`；[移除什麼](tui.md#confirming-removals)） |
+| `RemoveFromQueue` | | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`；沒有預設按鍵，由 `RemoveSelectedItem` 執行） |
 | `ShowActionsOnSelectedItem` | `g a`、`C-space` | 清單 | actions on the selected row（對選取列的動作） |
 | `ShowActionsOnCurrentTrack` | `a` | 所有地方 | actions on the playing track（對正在播放曲目的動作） |
 | `FocusNextWindow` | `tab` | 頁面 | next pane（下一個窗格） |
@@ -251,6 +253,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help（此說明） |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches)（結束；連接中的 TUI 會中斷連接） |
 
+`*` 標示本播放器在 spotify-player 之外新增的命令。
+
 帶參數的命令寫成行內表格：`command = { VolumeChange = { offset = -10 } }`、`command = { SeekBackward = { duration = 15 } }`、`command = { SeekForward = { } }`（使用設定的幅度）。
 
 <a id="actions"></a>
@@ -266,11 +270,13 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `AddToQueue` | 加到佇列末端 | 曲目、專輯、播放清單 |
 | `PlayNext` | 下一首播放 | 曲目（正在播放的除外）、專輯、播放清單 |
 | `AddToLiked` | 加入收藏 | 曲目、專輯、藝人、你追蹤的播放清單 |
-| `DeleteFromLiked` | 從收藏移除 | 曲目、專輯、藝人、你追蹤的播放清單 |
+| `DeleteFromLiked` | 從收藏移除（先詢問 `y/n`） | 曲目、專輯、藝人、你追蹤的播放清單 |
 | `AddToPlaylist` | 加到播放清單…（開啟播放清單選擇器） | 曲目、專輯 |
-| `DeleteFromPlaylist` | 從此播放清單移除 | 你自己的播放清單頁面上的曲目 |
-| `RemoveFromQueue` | 從佇列移除 | 佇列項目、正在播放的曲目 |
+| `DeleteFromPlaylist` | 從此播放清單移除（先詢問 `y/n`） | 你自己的播放清單頁面上的曲目 |
+| `RemoveFromQueue` | 從佇列移除（先詢問 `y/n`） | 佇列項目、正在播放的曲目 |
 | `DeletePlaylist` | 刪除播放清單（仍會詢問 `y/n`） | 你自己的播放清單 |
+
+除非 `confirm_removals` 為 `false`，這三個移除動作都會像動作選單一樣先詢問 `y/n`，不會因為是綁定的按鍵就略過；見[移除前的確認](tui.md#confirming-removals)。*Delete playlist* 不論設定為何都會詢問。
 
 <a id="spotify-player-names-not-supported-here"></a>
 ### 此處不支援的 spotify-player 名稱
@@ -296,7 +302,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | 未知的命令或動作 | `…/keymap.toml: keymaps[4]: unknown command "NxtTrack"`（項目從 0 開始計數） |
 | 錯誤的按鍵 | `…/keymap.toml: keymaps[2]: unknown key "ctrl+s" in "ctrl+s"` |
 | 錯誤的參數 | `…/keymap.toml: keymaps[5]: VolumeChange offset must be from -25 to 25 and not 0, got 40` |
-| 某個按鍵序列是另一個序列的開頭 | `…/keymap.toml: "g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), …; unbind those with command = "None" first` |
+| 檔案中某個按鍵序列是檔案中另一個序列的開頭 | `…/keymap.toml: "s" is bound to Search and is the start of "s l a" (LibraryPage); unbind those with command = "None" first` |
 | 所有 `Quit` 按鍵都被取消綁定 | `…/keymap.toml: Quit has no key left` |
 | 無法讀取的檔案（權限、是資料夾） | `…/app.toml: <error>` |
 

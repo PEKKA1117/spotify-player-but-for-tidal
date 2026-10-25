@@ -104,7 +104,7 @@
 | `C-f`, `page_down` / `C-b`, `page_up` | `PageSelectNextOrScrollDown` / `PageSelectPreviousOrScrollUp` | 游標下移、上移一個視窗的高度 |
 | `enter` | `ChooseSelected` | 在佇列上：播放該項目；在頁面上：連同所在清單播放該曲目，或開啟專輯、播放清單或藝人（見[從頁面播放與加入佇列](#playing-and-queueing-from-a-page)）；在彈出視窗中：執行該項目 |
 | `Z`, `C-z` | `AddSelectedItemToQueue` | 將選取的曲目、專輯或播放清單加到佇列尾端 |
-| `d` | `RemoveFromQueue` | 從佇列移除游標所在的項目 |
+| `d d` | `RemoveSelectedItem`* | 在 [`y/n` 詢問](#confirming-removals)之後，從所在清單（佇列、你的播放清單、你的收藏）移除游標所在的列；`RemoveFromQueue` 在佇列上作用相同，且沒有自己的按鍵 |
 | `z` | `Queue` | 開啟佇列頁面 |
 | `g l` | `LibraryPage` | 開啟音樂庫 |
 | `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
@@ -262,7 +262,7 @@
 
 **比對方式。** 輸入的內容（包括空白）必須原樣出現在該列的某一個欄位中：曲目的曲名、版本、藝人或專輯；專輯的名稱、藝人或年份；播放清單的名稱；藝人的名字；mix 的標題或副標題。不分大小寫（`RÓS` 找得到 `Rós`），但區分重音符號（`ros` 找不到）。因此 `hell ab` 找得到 *Hell Above*，`the veil` 找得到所有 *Pierce The Veil* 的曲目，而 `pierce hell` 什麼也找不到，因為沒有單一欄位同時包含兩者。
 
-**保留的篩選。** 按 `enter` 後，按鍵照常作用於顯示的列：在曲目上按 `enter` 會從該曲開始播放**符合的曲目**（清單尚未完整載入時，會像沒有篩選時一樣先載入整份清單）；`Z`、`g a`、`r`、佇列上的 `d` 與動作都作用於選取的列。`esc` 清除篩選，`/` 編輯篩選。每個視窗有自己的篩選，切換視窗、透過歷史紀錄返回或頁面重新載入時都會保留；新開啟的頁面與新的搜尋則沒有篩選。在 *All tracks* 中，角色篩選與文字篩選會同時套用。
+**保留的篩選。** 按 `enter` 後，按鍵照常作用於顯示的列：在曲目上按 `enter` 會從該曲開始播放**符合的曲目**（清單尚未完整載入時，會像沒有篩選時一樣先載入整份清單）；`Z`、`g a`、`r`、佇列與你自己清單上的 `d d`，以及動作，都作用於選取的列。`esc` 清除篩選，`/` 編輯篩選。每個視窗有自己的篩選，切換視窗、透過歷史紀錄返回或頁面重新載入時都會保留；新開啟的頁面與新的搜尋則沒有篩選。在 *All tracks* 中，角色篩選與文字篩選會同時套用。
 
 **標題**會顯示篩選與符合的列數：`Favorite tracks (548 · /love · 12 matches)`、`Queue (40 · /veil · 9 matches)`；輸入時，文字後面會有游標。沒有符合的列時，視窗會顯示 `No rows match "xyz"`。在佇列上，項目保留它們在佇列中的位置編號，且只有在有推薦項目符合時才會顯示 `Suggested`。
 
@@ -317,7 +317,7 @@
 | `Z`, `Ctrl-z` | 曲目 | 加到佇列尾端；若沒有在播放則開始播放 |
 | `Z`, `Ctrl-z` | 專輯或播放清單 | 將其所有曲目加到佇列尾端 |
 | `Z`, `Ctrl-z` | 藝人或 mix | 沒有作用 |
-| `d` | 佇列中的項目 | 移除該項目（移除正在播放的項目時會接著播下一首） |
+| `d d` | 你自己清單中的列 | 先詢問（見[移除前的確認](#confirming-removals)）；`y` 從佇列（移除正在播放的項目時會接著播下一首）、你的播放清單或你的收藏移除該項目 |
 
 在曲目上按 `Enter` 需要完整的清單，因此只載入部分的清單會先抓取到最後：播放視窗的訊息列會顯示 `Loading 300 of 1 234…`，按 `Esc` 可取消，且不會送出任何內容。超過 40 000 首曲目的清單會被拒絕（`Too many tracks to queue at once (N)`）。
 
@@ -344,8 +344,29 @@
 
 - **Add to playlist…** 會開啟第二個選單，在 *New playlist…* 之下列出你自己的播放清單（最新的在前）；`Enter` 將該曲目，或專輯的所有曲目，加到播放清單尾端。若曲目已在播放清單中（依已載入的內容判斷），會詢問 `Already in <playlist>: add again? (y/n)`
 - **New playlist…** 會在頁面頂端那一列詢問 `Playlist name: `；`Enter` 以該名稱建立私人播放清單並將曲目加入；`Esc` 取消；名稱為空時沒有作用
-- **Remove from this playlist** 移除該位置的曲目。若播放清單在這段期間已於其他地方被更改，則不會移除任何內容（`The playlist changed: nothing was changed, try again`），並重新抓取該頁面
+- **Remove from this playlist** 會詢問 `Remove <title> from <playlist>? (y/n)`；`y` 移除該位置的曲目。若播放清單在這段期間已於其他地方被更改，則不會移除任何內容（`The playlist changed: nothing was changed, try again`），並重新抓取該頁面
 - **Delete playlist** 會詢問 `Delete <playlist>? (y/n)`；`y` 刪除，`n` 或 `Esc` 取消
+
+<a id="confirming-removals"></a>
+### 移除前的確認
+
+*Remove from favorites*、*Remove from this playlist* 與 *Remove from queue* 在執行前會先詢問，方式與 *Delete playlist* 相同：`Remove <title> from favorites? (y/n)`、`Remove <title> from <playlist>? (y/n)` 與 `Remove <title> from the queue? (y/n)`。按 `y` 執行；按 `n` 或 `Esc` 關閉詢問，不會送出任何內容。詢問針對的是你選的那一列，即使詢問開啟期間清單有變動也一樣。
+
+`d d`（`RemoveSelectedItem`）會透過同一個詢問，把游標所在的列（設定了篩選時為篩選後的列）從它所在的清單移除：
+
+| 視窗 | `d d` |
+|---|---|
+| 佇列 | *Remove from queue* |
+| 你的播放清單的曲目 | *Remove from this playlist* |
+| 收藏的曲目（`g y`） | *Remove from favorites* |
+| 音樂庫的 Albums 與 Artists | *Remove from favorites* |
+| 音樂庫的 Playlists：你追蹤的 | *Remove from favorites* |
+| 音樂庫的 Playlists：你自己的 | *Delete playlist*：`Delete <playlist>? (y/n)`，即使 `confirm_removals` 關閉也會詢問 |
+| 其他任何清單（專輯或你追蹤的播放清單的曲目、藝人頁面、搜尋結果、mix、電台） | 沒有作用：該清單不屬於你 |
+
+- 從動作選單、從 [`[[actions]]` 綁定](config.md#actions)（`DeleteFromLiked`、`DeleteFromPlaylist`、`RemoveFromQueue`）以及從 `d d` 執行時，詢問都相同
+- 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d …` 提示框，列出 `d  remove from the list`
+- 在 `app.toml` 中設定 `confirm_removals = false`（或 `TIDAL_PLAYER_CONFIRM_REMOVALS=off`）會讓這三個動作立即執行；*Delete playlist* 與 *add again?* 的詢問仍會出現。這不會改變按鍵：`RemoveSelectedItem` 仍是 `d d`。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)
 
 <a id="adding-tracks"></a>
 ## 加入曲目

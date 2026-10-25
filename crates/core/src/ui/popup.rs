@@ -93,6 +93,82 @@ pub enum Confirmed {
         uuid: String,
         title: String,
     },
+    /// Remove what the question named (spec 0019).
+    Remove(Removal),
+}
+
+/// What a removal question asks about (spec 0019): the items hold what
+/// to remove, not a cursor, so the answer is the same however the list
+/// moved meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removal {
+    pub from: RemoveFrom,
+    pub items: Vec<Removed>,
+}
+
+/// Where a [`Removal`] removes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveFrom {
+    /// The favorites of one kind.
+    Favorites(FavoriteKind),
+    /// An own playlist, with the ETag its page had when the question was
+    /// asked.
+    Playlist {
+        uuid: String,
+        title: String,
+        etag: Option<String>,
+    },
+    /// The play queue.
+    Queue,
+}
+
+/// One item of a [`Removal`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removed {
+    /// The row's title, as the list shows it.
+    pub title: String,
+    pub target: RemovedTarget,
+}
+
+/// What identifies a [`Removed`] item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemovedTarget {
+    /// A favorite's ID, as [`crate::library::LibraryRequest`] takes it.
+    Favorite(String),
+    /// A playlist track's position.
+    Position(u32),
+    /// A queue entry.
+    Entry(EntryId),
+}
+
+/// The question a [`Removal`] asks (spec 0019 "Several items").
+pub fn question(removal: &Removal) -> String {
+    let (title, count) = match removal.items.as_slice() {
+        [one] => (Some(one.title.as_str()), 1),
+        items => (None, items.len()),
+    };
+    // `Remove <title>` for one item, `Remove N <things>` for several.
+    let what = |things: &str| match title {
+        Some(title) => title.to_owned(),
+        None => format!("{count} {things}"),
+    };
+    match &removal.from {
+        RemoveFrom::Favorites(kind) => {
+            let things = match kind {
+                FavoriteKind::Track => "tracks",
+                FavoriteKind::Album => "albums",
+                FavoriteKind::Artist => "artists",
+                FavoriteKind::Playlist => "playlists",
+            };
+            format!("Remove {} from favorites? (y/n)", what(things))
+        }
+        RemoveFrom::Playlist {
+            title: playlist, ..
+        } => {
+            format!("Remove {} from {playlist}? (y/n)", what("tracks"))
+        }
+        RemoveFrom::Queue => format!("Remove {} from the queue? (y/n)", what("tracks")),
+    }
 }
 
 /// The open popup; while one is open no other key acts.
@@ -318,4 +394,93 @@ fn favorites(kind: FavoriteKind, id: String) -> [MenuAction; 2] {
         MenuAction::AddFavorite(kind, id.clone()),
         MenuAction::RemoveFavorite(kind, id),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn items(n: u32, target: impl Fn(u32) -> RemovedTarget) -> Vec<Removed> {
+        (1..=n)
+            .map(|i| Removed {
+                title: format!("T{i}"),
+                target: target(i),
+            })
+            .collect()
+    }
+
+    /// Spec 0019 AC5: the question for one and several items, for the
+    /// favorites of each kind, a playlist and the queue.
+    #[test]
+    fn ac5_removal_question() {
+        let favorites = |kind| RemoveFrom::Favorites(kind);
+        let favorite = |i: u32| RemovedTarget::Favorite(i.to_string());
+        let playlist = || RemoveFrom::Playlist {
+            uuid: "p1".into(),
+            title: "Mine".into(),
+            etag: Some("e1".into()),
+        };
+        let cases = [
+            (
+                favorites(FavoriteKind::Track),
+                1,
+                "Remove T1 from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Album),
+                1,
+                "Remove T1 from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Artist),
+                1,
+                "Remove T1 from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Playlist),
+                1,
+                "Remove T1 from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Track),
+                3,
+                "Remove 3 tracks from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Album),
+                3,
+                "Remove 3 albums from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Artist),
+                3,
+                "Remove 3 artists from favorites? (y/n)",
+            ),
+            (
+                favorites(FavoriteKind::Playlist),
+                3,
+                "Remove 3 playlists from favorites? (y/n)",
+            ),
+            (playlist(), 1, "Remove T1 from Mine? (y/n)"),
+            (playlist(), 3, "Remove 3 tracks from Mine? (y/n)"),
+            (RemoveFrom::Queue, 1, "Remove T1 from the queue? (y/n)"),
+            (
+                RemoveFrom::Queue,
+                3,
+                "Remove 3 tracks from the queue? (y/n)",
+            ),
+        ];
+        for (from, n, want) in cases {
+            let target = match &from {
+                RemoveFrom::Favorites(_) => favorite,
+                RemoveFrom::Playlist { .. } => RemovedTarget::Position,
+                RemoveFrom::Queue => |i| RemovedTarget::Entry(EntryId(u64::from(i))),
+            };
+            let removal = Removal {
+                items: items(n, target),
+                from,
+            };
+            assert_eq!(question(&removal), want, "{:?} x{n}", removal.from);
+        }
+    }
 }

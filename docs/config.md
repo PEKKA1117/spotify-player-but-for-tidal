@@ -45,6 +45,7 @@ Flat keys, every one optional.
 | `theme` | a theme's name | `"default"` | `-t`/`--theme` (TUI), `TIDAL_PLAYER_THEME` | TUI |
 | `key_hints` | `true`, `false` | `true` | `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`) | TUI |
 | `key_hints_delay_ms` | integer 0–10 000 (ms; `0`: at once) | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `confirm_removals` | `true`, `false` | `true` | `TIDAL_PLAYER_CONFIRM_REMOVALS` (`on`, `off`) | TUI |
 | `cover_img` | `true`, `false` | `true` | `TIDAL_PLAYER_COVER_IMG` (`on`, `off`) | TUI |
 | `cover_img_rows` | integer 4–20 (the playback window's rows with the cover) | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
 | `cover_img_protocol` | `"auto"`, `"sixel"`, `"kitty"`, `"iterm2"`, `"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
@@ -182,7 +183,7 @@ A **key sequence** is keys separated by single spaces (`g g`, `s l a`). A key is
 - a name: `enter`, `space`, `tab`, `backtab` (Shift-Tab), `backspace`, `esc`, `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `page_up`, `page_down`, `f1` … `f12`
 - either of those after `C-` (Control) or `M-` (Alt): `C-s`, `M-enter`, `C-space`, `M-p`. `C-S` is `C-s`: terminals report Control-letters without case
 
-Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another (`g` bound while `g g` is) is refused, see [Errors](#errors).
+Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another cannot be finished, so two sequences of your file in that relation (`s` and `s l a`) are refused, see [Errors](#errors). A sequence of your file that conflicts with a **default** wins: the default is dropped, and the message row says so once at start, with the notice of skipped names below (joined by ` · `): `keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`, or `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (all of them, in the defaults' order; one clause per sequence of yours, joined by `;`). So a `keymap.toml` copied from an earlier example, with `RemoveFromQueue` on `d`, still works next to the default `d d`.
 
 **Unreliable keys**: many terminals cannot send `C-enter`, `C-tab`, `C-backspace` or Control with the arrows as distinct keys; such a binding is accepted but may never fire. A terminal sends `C-i` as `tab`, `C-m` as `enter` and `C-[` as `esc`, so bind those names instead. `M-` keys need a terminal that sends Alt as Escape + key (most do; on macOS, "Use Option as Meta"). The keys help (`?`) shows what is bound; pressing the key shows whether it arrives.
 
@@ -221,7 +222,8 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `SelectLastOrScrollToBottom` | `G`, `end` | lists, popups | move to the last loaded row |
 | `ChooseSelected` | `enter` | lists, popups | play the track with its list / open / run |
 | `AddSelectedItemToQueue` | `Z`, `C-z` | lists | add to the end of the queue |
-| `RemoveFromQueue` | `d` | the queue | remove from the queue |
+| `RemoveSelectedItem`* | `d d` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove from the list (asks `y/n` first; [what it removes](tui.md#confirming-removals)) |
+| `RemoveFromQueue` | | the queue | remove from the queue (asks `y/n` first; no default key; `RemoveSelectedItem` does it) |
 | `ShowActionsOnSelectedItem` | `g a`, `C-space` | lists | actions on the selected row |
 | `ShowActionsOnCurrentTrack` | `a` | everywhere | actions on the playing track |
 | `FocusNextWindow` | `tab` | pages | next pane |
@@ -240,6 +242,8 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
 
+`*` marks a command this player adds to spotify-player's.
+
 Commands with parameters are written as an inline table: `command = { VolumeChange = { offset = -10 } }`, `command = { SeekBackward = { duration = 15 } }`, `command = { SeekForward = { } }` (the configured step).
 
 ### Actions
@@ -254,11 +258,13 @@ For `[[actions]]`; only `GoToRadio` has a default key (`r`, on the selected row)
 | `AddToQueue` | add to the end of the queue | tracks, albums, playlists |
 | `PlayNext` | play next | tracks (not the playing one), albums, playlists |
 | `AddToLiked` | add to favorites | tracks, albums, artists, playlists you follow |
-| `DeleteFromLiked` | remove from favorites | tracks, albums, artists, playlists you follow |
+| `DeleteFromLiked` | remove from favorites (asks `y/n` first) | tracks, albums, artists, playlists you follow |
 | `AddToPlaylist` | add to a playlist… (opens the playlist picker) | tracks, albums |
-| `DeleteFromPlaylist` | remove from this playlist | tracks on your own playlist's page |
-| `RemoveFromQueue` | remove from the queue | queue entries, the playing track |
+| `DeleteFromPlaylist` | remove from this playlist (asks `y/n` first) | tracks on your own playlist's page |
+| `RemoveFromQueue` | remove from the queue (asks `y/n` first) | queue entries, the playing track |
 | `DeletePlaylist` | delete the playlist (still asks `y/n`) | your own playlists |
+
+The three removals ask `y/n` the way the actions popup does, a bound key being no reason to skip it, unless `confirm_removals` is `false`; see [Confirming removals](tui.md#confirming-removals). *Delete playlist* asks whatever it says.
 
 ### spotify-player names not supported here
 
@@ -282,7 +288,7 @@ A broken `app.toml` or `keymap.toml` stops `tidal-player`, `tidal-player daemon`
 | Unknown command or action | `…/keymap.toml: keymaps[4]: unknown command "NxtTrack"` (entries count from 0) |
 | Bad key | `…/keymap.toml: keymaps[2]: unknown key "ctrl+s" in "ctrl+s"` |
 | Bad parameter | `…/keymap.toml: keymaps[5]: VolumeChange offset must be from -25 to 25 and not 0, got 40` |
-| A sequence that starts another | `…/keymap.toml: "g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), …; unbind those with command = "None" first` |
+| A sequence of the file that starts another sequence of the file | `…/keymap.toml: "s" is bound to Search and is the start of "s l a" (LibraryPage); unbind those with command = "None" first` |
 | Every `Quit` key unbound | `…/keymap.toml: Quit has no key left` |
 | A file that cannot be read (permissions, a directory) | `…/app.toml: <error>` |
 

@@ -545,6 +545,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     state.search_page_size = player_settings.library.search_page_size;
     state.library_layout = player_settings.layout;
     state.key_hints = player_settings.key_hints;
+    state.confirm_removals = player_settings.confirm_removals;
     tui_model::start_on_library(&mut state);
     state
 }
@@ -1091,6 +1092,19 @@ mod tests {
             };
             let state = configured_tui_state(&settings, Keymap::default());
             assert_eq!(state.key_hints, on);
+        }
+    }
+    /// 0019 AC7 (wiring): every TUI, attached or standalone, takes
+    /// `confirm_removals` from the resolved settings.
+    #[test]
+    fn ac7_tui_state_confirm_removals() {
+        for on in [true, false] {
+            let settings = tidal_player::play::PlayerSettings {
+                confirm_removals: on,
+                ..Default::default()
+            };
+            let state = configured_tui_state(&settings, Keymap::default());
+            assert_eq!(state.confirm_removals, on);
         }
     }
     /// 0008 AC15: the TUI's state takes its steps, page sizes, library

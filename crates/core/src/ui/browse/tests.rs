@@ -14,9 +14,10 @@ use crate::protocol::RepeatMode;
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
 use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
+use super::super::keymap::{ActionEntry, ActionKind, KeymapFile, Target, build};
 use super::super::{
-    Action, Confirmed, DISCONNECTED, Effect, Key, Load, MenuAction, PLAYLIST_CHANGED, PageKind,
-    Popup, SHUT_DOWN, State, TrackSource, Window, update,
+    Action, BaseKey, Confirmed, DISCONNECTED, Effect, Key, Load, MenuAction, PLAYLIST_CHANGED,
+    PageKind, Popup, SHUT_DOWN, State, TrackSource, Window, apply_keymap, update,
 };
 
 // --- fixtures ----------------------------------------------------------------
@@ -947,30 +948,37 @@ fn ac12_play_and_queue() {
         ),
         (library, vec![Tab, Tab, Char('Z')], vec![]),
         (library, vec![Tab, Tab, Ctrl('z')], vec![]),
-        (fav, vec![Char('d')], vec![]),
+        (fav, vec![Char('d'), Char('d')], vec![]),
     ];
     for (setup, keys, want) in cases {
         let mut state = setup();
         assert_eq!(outs(&press(&mut state, &keys)), want, "{keys:?}");
     }
 
-    // The queue: `d` removes the entry under the cursor, by ID; `Enter`
-    // plays it (0004).
+    // The queue: `d d` asks, and `y` removes the entry under the cursor,
+    // by ID (spec 0019); `Enter` plays it (0004).
     let mut state = with_queue(&[7, 3, 9], Some(3));
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
     assert_eq!(
-        outs(&press(&mut state, &[Char('d')])),
+        outs(&press(&mut state, &[Char('y')])),
         send(Command::RemoveFromQueue(EntryId(3)))
     );
     assert_eq!(
-        outs(&press(&mut state, &[Char('j'), Char('d')])),
+        press(&mut state, &[Char('j'), Char('d'), Char('d')]),
+        vec![]
+    );
+    assert_eq!(
+        outs(&press(&mut state, &[Char('y')])),
         send(Command::RemoveFromQueue(EntryId(9)))
     );
     assert_eq!(
         outs(&press(&mut state, &[Enter])),
         send(Command::PlayEntry(EntryId(9)))
     );
-    // `d` on an empty queue does nothing.
-    assert_eq!(press(&mut State::default(), &[Char('d')]), vec![]);
+    // `d d` on an empty queue does nothing.
+    let mut empty = State::default();
+    assert_eq!(press(&mut empty, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(empty.popup, None);
 }
 
 // --- AC13 -----------------------------------------------------------------------
@@ -1273,6 +1281,13 @@ fn ac13_actions_popup() {
     for (setup, keys, label, want, top) in runs {
         let mut state = setup();
         let got = run_action(&mut state, &keys, label);
+        // The removals ask first (spec 0019).
+        let got = if matches!(state.popup, Some(Popup::Confirm { .. })) {
+            assert_eq!(got, vec![], "{label}: asks first");
+            press(&mut state, &[Char('y')])
+        } else {
+            got
+        };
         assert_eq!(outs(&got), want, "{label}");
         assert_eq!(state.popup, None, "{label}");
         assert_eq!(state.page().kind, top, "{label}");
@@ -1460,11 +1475,13 @@ fn ac14_playlist_editing() {
         }),
         ("remove from an own playlist", || {
             let mut state = playlist_page(true);
-            let effects = run_action(
+            let asked = run_action(
                 &mut state,
                 &[Char('j'), Ctrl(' ')],
                 "Remove from this playlist",
             );
+            assert_eq!(asked, vec![], "asks first (spec 0019)");
+            let effects = press(&mut state, &[Char('y')]);
             assert_eq!(
                 outs(&effects),
                 vec![Out::Library(LibraryRequest::RemoveFromPlaylist {
@@ -1482,7 +1499,9 @@ fn ac14_playlist_editing() {
         }),
         ("a removal refused because the playlist changed", || {
             let mut state = playlist_page(true);
-            let effects = run_action(&mut state, &[Ctrl(' ')], "Remove from this playlist");
+            let asked = run_action(&mut state, &[Ctrl(' ')], "Remove from this playlist");
+            assert_eq!(asked, vec![], "asks first (spec 0019)");
+            let effects = press(&mut state, &[Char('y')]);
             let (id, _) = one_request(&effects);
             let effects = fail(&mut state, id, PLAYLIST_CHANGED);
             assert_eq!(state.message(), Some(PLAYLIST_CHANGED));
@@ -1525,7 +1544,9 @@ fn ac14_playlist_editing() {
             assert_eq!(state.message(), Some("Added to favorites"));
             assert_eq!(outs(&effects), vec![page(PageRequest::FavoriteTracks)]);
             let mut state = library();
-            let effects = run_action(&mut state, &[Tab, Ctrl(' ')], "Remove from favorites");
+            let asked = run_action(&mut state, &[Tab, Ctrl(' ')], "Remove from favorites");
+            assert_eq!(asked, vec![], "asks first (spec 0019)");
+            let effects = press(&mut state, &[Char('y')]);
             let effects = answer(&mut state, &effects, LibraryResponse::Done);
             assert_eq!(state.message(), Some("Removed from favorites"));
             assert_eq!(outs(&effects), vec![page(PageRequest::Library)]);
@@ -1631,11 +1652,13 @@ fn ac16_disconnected_and_login() {
             vec![]
         );
         assert_eq!(window(&state, 0).cursor, 2);
-        // `Enter`, `Z`, `d` and the popup's actions emit nothing.
-        assert_eq!(
-            press(&mut state, &[Enter, Char('Z'), Ctrl('z'), Char('d')]),
-            vec![]
-        );
+        // `Enter`, `Z` and the popup's actions emit nothing; `d d` asks
+        // (spec 0019 AC10) and `y` sends nothing while disconnected.
+        assert_eq!(press(&mut state, &[Enter, Char('Z'), Ctrl('z')]), vec![]);
+        assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+        assert!(asked(&state).is_some(), "d d asks");
+        assert_eq!(press(&mut state, &[Char('y')]), vec![]);
+        assert!(state.writes.is_empty());
         for label in ["Add to queue", "Add to favorites", "Go to album"] {
             assert_eq!(run_action(&mut state, &GA, label), vec![], "{label}");
             if label == "Go to album" {
@@ -2436,4 +2459,503 @@ fn ac8_devices_popup() {
     assert!(matches!(state.popup, Some(Popup::Actions { .. })));
     assert_eq!(press(&mut state, &[Key::Char('D')]), vec![]);
     assert!(matches!(state.popup, Some(Popup::Actions { .. })));
+}
+
+// --- spec 0019: confirming removals ----------------------------------------------
+
+const MX: Key = Key::Alt(BaseKey::Char('x'));
+
+/// Binds `M-x` to the `[[actions]]` entry `kind` on the selected item.
+fn bind(state: &mut State, kind: ActionKind) {
+    let file = KeymapFile {
+        keymaps: vec![],
+        actions: vec![ActionEntry {
+            action: kind.name().into(),
+            key_sequence: "M-x".into(),
+            target: Target::SelectedItem,
+        }],
+    };
+    apply_keymap(state, build(&file).unwrap_or_else(|e| panic!("{e}")));
+}
+
+/// The open question's text.
+fn asked(state: &State) -> Option<String> {
+    match &state.popup {
+        Some(Popup::Confirm { question, .. }) => Some(question.clone()),
+        _ => None,
+    }
+}
+
+/// AC1: *Remove from favorites*, from the actions popup or a
+/// `DeleteFromLiked` binding, asks first and sends nothing; `y` sends the
+/// request and remembers the write; `n` and `Esc` send nothing.
+#[test]
+fn ac1_confirm_remove_favorite() {
+    use Key::{Char, Esc, Tab};
+    // (kind, state, keys that select the row, question, request)
+    type Case = (
+        &'static str,
+        fn() -> State,
+        Vec<Key>,
+        &'static str,
+        LibraryRequest,
+    );
+    let cases: Vec<Case> = vec![
+        (
+            "track",
+            fav_page,
+            vec![],
+            "Remove T1 from favorites? (y/n)",
+            LibraryRequest::RemoveFavorite(FavoriteKind::Track, "1".into()),
+        ),
+        (
+            "album",
+            library,
+            vec![Tab],
+            "Remove Al10 from favorites? (y/n)",
+            LibraryRequest::RemoveFavorite(FavoriteKind::Album, "10".into()),
+        ),
+        (
+            "artist",
+            library,
+            vec![Tab, Tab],
+            "Remove Ar20 from favorites? (y/n)",
+            LibraryRequest::RemoveFavorite(FavoriteKind::Artist, "20".into()),
+        ),
+        (
+            "followed playlist",
+            library,
+            vec![Char('j')],
+            "Remove Theirs from favorites? (y/n)",
+            LibraryRequest::RemoveFavorite(FavoriteKind::Playlist, "p2".into()),
+        ),
+    ];
+    for (name, setup, select, question, request) in cases {
+        for via_binding in [false, true] {
+            for key in [Char('y'), Char('n'), Esc] {
+                let context = format!("{name}, binding {via_binding}, {key:?}");
+                let mut state = setup();
+                let effects = if via_binding {
+                    bind(&mut state, ActionKind::DeleteFromLiked);
+                    press(&mut state, &[select.clone(), vec![MX]].concat())
+                } else {
+                    let keys = [select.clone(), GA.to_vec()].concat();
+                    run_action(&mut state, &keys, "Remove from favorites")
+                };
+                assert_eq!(effects, vec![], "{context}: nothing before y");
+                assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
+                assert!(state.writes.is_empty(), "{context}");
+                let effects = press(&mut state, &[key]);
+                assert_eq!(state.popup, None, "{context}");
+                if key == Char('y') {
+                    let (id, got) = one_request(&effects);
+                    assert_eq!(got, request, "{context}");
+                    assert_eq!(state.writes.len(), 1, "{context}");
+                    reply(&mut state, id, LibraryResponse::Done);
+                    assert_eq!(state.message(), Some("Removed from favorites"), "{context}");
+                } else {
+                    assert_eq!(effects, vec![], "{context}");
+                    assert!(state.writes.is_empty(), "{context}");
+                }
+            }
+        }
+    }
+}
+
+/// AC2: *Remove from this playlist* asks first; `y` sends the position and
+/// the ETag the page had when the question was asked, a reload in between
+/// changing neither; `n` and `Esc` send nothing.
+#[test]
+fn ac2_confirm_remove_from_playlist() {
+    use Key::{Char, Ctrl, Esc};
+    let request = LibraryRequest::RemoveFromPlaylist {
+        uuid: "p1".into(),
+        index: 1,
+        etag: "e1".into(),
+    };
+    for via_binding in [false, true] {
+        for key in [Char('y'), Char('n'), Esc] {
+            let context = format!("binding {via_binding}, {key:?}");
+            let mut state = playlist_page(true);
+            let effects = if via_binding {
+                bind(&mut state, ActionKind::DeleteFromPlaylist);
+                press(&mut state, &[Char('j'), MX])
+            } else {
+                run_action(
+                    &mut state,
+                    &[Char('j'), Ctrl(' ')],
+                    "Remove from this playlist",
+                )
+            };
+            assert_eq!(effects, vec![], "{context}: nothing before y");
+            assert_eq!(
+                asked(&state).as_deref(),
+                Some("Remove T6 from Mine? (y/n)"),
+                "{context}"
+            );
+            let effects = press(&mut state, &[key]);
+            assert_eq!(state.popup, None, "{context}");
+            if key == Char('y') {
+                assert_eq!(
+                    outs(&effects),
+                    vec![Out::Library(request.clone())],
+                    "{context}"
+                );
+            } else {
+                assert_eq!(effects, vec![], "{context}");
+                assert!(state.writes.is_empty(), "{context}");
+            }
+        }
+    }
+
+    // The page is fetched again while the question is open: an earlier
+    // removal is answered, and the page comes back with a new ETag. The
+    // position and ETag are the ones of the row asked about.
+    let mut state = playlist_page(true);
+    run_action(&mut state, &[Ctrl(' ')], "Remove from this playlist");
+    let first = press(&mut state, &[Char('y')]);
+    let (first_id, _) = one_request(&first);
+    let effects = run_action(
+        &mut state,
+        &[Char('j'), Ctrl(' ')],
+        "Remove from this playlist",
+    );
+    assert_eq!(effects, vec![]);
+    let effects = reply(&mut state, first_id, LibraryResponse::Done);
+    let (page_id, _) = one_request(&effects);
+    let reloaded = PageData::Playlist {
+        playlist: playlist("p1", "Mine", true),
+        etag: Some("e2".into()),
+        tracks: list(tracks([9]), 0, 1),
+    };
+    reply(&mut state, page_id, LibraryResponse::Page(reloaded));
+    assert_eq!(
+        asked(&state).as_deref(),
+        Some("Remove T6 from Mine? (y/n)"),
+        "the question survives the reload"
+    );
+    assert_eq!(
+        outs(&press(&mut state, &[Char('y')])),
+        vec![Out::Library(request)]
+    );
+}
+
+/// AC3: `RemoveFromQueue` (`d d`), the popup's *Remove from queue* and a
+/// `RemoveFromQueue` binding ask first; `y` removes the entry asked about,
+/// by ID, whatever the queue did meanwhile; `n`/`Esc` send nothing; an
+/// empty queue asks nothing.
+#[test]
+fn ac3_confirm_remove_from_queue() {
+    use Key::{Char, Esc};
+    let queue = || with_queue(&[7, 3, 9], Some(3));
+    let question = "Remove T103 from the queue? (y/n)";
+    type Way = (&'static str, fn(&mut State) -> Vec<Effect>);
+    let ways: Vec<Way> = vec![
+        ("d d", |s| press(s, &[Char('d'), Char('d')])),
+        ("popup", |s| run_action(s, &GA, "Remove from queue")),
+        ("binding", |s| {
+            bind(s, ActionKind::RemoveFromQueue);
+            press(s, &[MX])
+        }),
+    ];
+    for (way, ask) in ways {
+        for key in [Char('y'), Char('n'), Esc] {
+            let context = format!("{way}, {key:?}");
+            let mut state = queue();
+            assert_eq!(ask(&mut state), vec![], "{context}: nothing before y");
+            assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
+            // The queue changes while the question is open: another entry
+            // is current now and the cursor moves with it.
+            update(
+                &mut state,
+                Action::Player(protocol::Event::Player(snapshot(&[9, 5, 3], Some(9)))),
+            );
+            let effects = press(&mut state, &[key]);
+            assert_eq!(state.popup, None, "{context}");
+            if key == Char('y') {
+                assert_eq!(
+                    outs(&effects),
+                    send(Command::RemoveFromQueue(EntryId(3))),
+                    "{context}"
+                );
+            } else {
+                assert_eq!(effects, vec![], "{context}");
+            }
+        }
+    }
+
+    // The row under the cursor, not the playing one.
+    let mut state = queue();
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(
+        asked(&state).as_deref(),
+        Some("Remove T109 from the queue? (y/n)")
+    );
+    assert_eq!(
+        outs(&press(&mut state, &[Char('y')])),
+        send(Command::RemoveFromQueue(EntryId(9)))
+    );
+
+    // An empty queue: nothing opens, whichever way.
+    for ask in [
+        |s: &mut State| press(s, &[Char('d'), Char('d')]),
+        |s: &mut State| {
+            bind(s, ActionKind::RemoveFromQueue);
+            press(s, &[MX])
+        },
+    ] {
+        let mut state = State::default();
+        assert_eq!(ask(&mut state), vec![]);
+        assert_eq!(state.popup, None);
+    }
+}
+
+/// AC4: with `confirm_removals` off the three removals act at once;
+/// *Delete playlist* and the duplicate question ask whatever the setting
+/// is (table: setting x question).
+#[test]
+fn ac4_confirm_removals_off() {
+    use Key::{Char, Ctrl, Enter};
+    // (name, state, the step that asks or acts, asks when off)
+    type Row = (
+        &'static str,
+        fn() -> State,
+        fn(&mut State) -> Vec<Effect>,
+        bool,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "remove from favorites",
+            fav_page,
+            |s| run_action(s, &GA, "Remove from favorites"),
+            false,
+        ),
+        (
+            "remove from favorites, bound",
+            || {
+                let mut state = fav_page();
+                bind(&mut state, ActionKind::DeleteFromLiked);
+                state
+            },
+            |s| press(s, &[MX]),
+            false,
+        ),
+        (
+            "remove from a playlist",
+            || playlist_page(true),
+            |s| run_action(s, &[Char('j'), Ctrl(' ')], "Remove from this playlist"),
+            false,
+        ),
+        (
+            "remove from the queue",
+            || with_queue(&[7, 3, 9], Some(3)),
+            |s| press(s, &[Char('d'), Char('d')]),
+            false,
+        ),
+        (
+            "remove from the queue, popup",
+            || with_queue(&[7, 3, 9], Some(3)),
+            |s| run_action(s, &GA, "Remove from queue"),
+            false,
+        ),
+        (
+            "delete a playlist",
+            library,
+            |s| run_action(s, &[Ctrl(' ')], "Delete playlist"),
+            true,
+        ),
+        (
+            "add a duplicate",
+            editing,
+            |s| {
+                add_to_playlist(s, &[Char('j'), Char('g'), Char('a')]);
+                press(s, &[Char('j'), Enter])
+            },
+            true,
+        ),
+    ];
+    for confirm in [true, false] {
+        for (name, setup, step, asks_when_off) in &rows {
+            let context = format!("{name}, confirm_removals {confirm}");
+            let mut state = setup();
+            state.confirm_removals = confirm;
+            let effects = step(&mut state);
+            if confirm || *asks_when_off {
+                assert_eq!(effects, vec![], "{context}: nothing before y");
+                assert!(asked(&state).is_some(), "{context}: no question");
+            } else {
+                assert_eq!(state.popup, None, "{context}: asked");
+                assert_eq!(effects.len(), 1, "{context}: {effects:?}");
+            }
+        }
+    }
+}
+
+/// AC6: `d` alone does nothing and stays pending; `d d` asks.
+#[test]
+fn ac6_d_alone_does_nothing() {
+    use Key::Char;
+    let mut state = with_queue(&[7, 3, 9], Some(3));
+    assert_eq!(press(&mut state, &[Char('d')]), vec![]);
+    assert_eq!(state.popup, None);
+    assert_eq!(state.pending, vec![Char('d')]);
+    assert_eq!(press(&mut state, &[Char('d')]), vec![]);
+    assert_eq!(
+        asked(&state).as_deref(),
+        Some("Remove T103 from the queue? (y/n)")
+    );
+}
+
+// --- spec 0019 AC10: d d removes the row from its list ----------------------------
+
+/// AC10: `RemoveSelectedItem` (`d d`) per window: the queue, an own
+/// playlist's tracks, favorite tracks, the library's Albums, Artists and
+/// Playlists (a followed one leaves the favorites, one of yours is
+/// deleted, whatever `confirm_removals` says) ask and `y` sends the
+/// removal; every other window and an empty one do nothing.
+#[test]
+fn ac10_remove_selected_item() {
+    use Key::{Char, Tab};
+    let dd = [Char('d'), Char('d')];
+    // (name, state, keys that select the row, the question, what `y` sends)
+    type Case = (&'static str, fn() -> State, Vec<Key>, &'static str, Out);
+    let cases: Vec<Case> = vec![
+        (
+            "the queue",
+            || with_queue(&[7, 3, 9], Some(3)),
+            vec![],
+            "Remove T103 from the queue? (y/n)",
+            Out::Send(Command::RemoveFromQueue(EntryId(3))),
+        ),
+        (
+            "an own playlist's tracks",
+            || playlist_page(true),
+            vec![Char('j')],
+            "Remove T6 from Mine? (y/n)",
+            Out::Library(LibraryRequest::RemoveFromPlaylist {
+                uuid: "p1".into(),
+                index: 1,
+                etag: "e1".into(),
+            }),
+        ),
+        (
+            "favorite tracks",
+            fav_page,
+            vec![],
+            "Remove T1 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Track,
+                "1".into(),
+            )),
+        ),
+        (
+            "library albums",
+            library,
+            vec![Tab],
+            "Remove Al10 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Album,
+                "10".into(),
+            )),
+        ),
+        (
+            "library artists",
+            library,
+            vec![Tab, Tab],
+            "Remove Ar20 from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Artist,
+                "20".into(),
+            )),
+        ),
+        (
+            "library, a followed playlist",
+            library,
+            vec![Char('j')],
+            "Remove Theirs from favorites? (y/n)",
+            Out::Library(LibraryRequest::RemoveFavorite(
+                FavoriteKind::Playlist,
+                "p2".into(),
+            )),
+        ),
+        (
+            "library, an own playlist",
+            library,
+            vec![],
+            "Delete Mine? (y/n)",
+            Out::Library(LibraryRequest::DeletePlaylist { uuid: "p1".into() }),
+        ),
+    ];
+    for (name, setup, select, question, sent) in cases {
+        for confirm in [true, false] {
+            let context = format!("{name}, confirm_removals {confirm}");
+            let mut state = setup();
+            state.confirm_removals = confirm;
+            press(&mut state, &select);
+            // Deleting a playlist asks whatever the setting says.
+            let asks = confirm || name == "library, an own playlist";
+            let effects = press(&mut state, &dd);
+            if asks {
+                assert_eq!(effects, vec![], "{context}: nothing before y");
+                assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
+                let effects = press(&mut state, &[Char('y')]);
+                assert_eq!(outs(&effects), vec![sent.clone()], "{context}");
+            } else {
+                assert_eq!(state.popup, None, "{context}: asked");
+                assert_eq!(outs(&effects), vec![sent.clone()], "{context}");
+            }
+        }
+        // `n` sends nothing.
+        let mut state = setup();
+        press(&mut state, &select);
+        press(&mut state, &dd);
+        assert_eq!(press(&mut state, &[Char('n')]), vec![], "{name}: n");
+    }
+
+    // Lists that are not yours, and an empty one: nothing, and nothing
+    // changes.
+    let album_page = || {
+        let mut state = library();
+        open(
+            &mut state,
+            &[Tab, Key::Enter],
+            PageData::Album {
+                album: album(10),
+                tracks: list(tracks(1..4), 0, 3),
+            },
+        );
+        state
+    };
+    let artist_window = |window: usize| {
+        let mut state = library();
+        open(&mut state, &[Tab, Tab, Key::Enter], artist_data(20));
+        state.history.last_mut().unwrap().focus = window;
+        state
+    };
+    let nothing: Vec<(&str, State)> = vec![
+        ("a followed playlist's tracks", playlist_page(false)),
+        ("an album's tracks", album_page()),
+        ("artist top tracks", artist_window(0)),
+        ("artist albums", artist_window(1)),
+        ("artist appears on", artist_window(2)),
+        ("mixes", mixes_page()),
+        ("a mix", mix_page()),
+        ("a track radio", track_radio_page()),
+        ("an artist radio", artist_radio_page()),
+        ("empty favorite tracks", {
+            let mut state = State::default();
+            open(&mut state, &GY, fav_data(vec![], 0));
+            state
+        }),
+        ("an empty queue", State::default()),
+    ];
+    for (name, mut state) in nothing {
+        let before = state.clone();
+        assert_eq!(press(&mut state, &dd), vec![], "{name}");
+        assert_eq!(state.popup, None, "{name}");
+        state.pending.clear();
+        state.pending_g = false;
+        assert_eq!(state, before, "{name}: state");
+    }
 }

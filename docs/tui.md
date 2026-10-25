@@ -98,7 +98,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `C-f`, `page_down` / `C-b`, `page_up` | `PageSelectNextOrScrollDown` / `PageSelectPreviousOrScrollUp` | move the cursor down, up by a window's height |
 | `enter` | `ChooseSelected` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)); in a popup: run the entry |
 | `Z`, `C-z` | `AddSelectedItemToQueue` | add the selected track, album or playlist to the end of the queue |
-| `d` | `RemoveFromQueue` | remove the entry under the cursor from the queue |
+| `d d` | `RemoveSelectedItem`* | remove the row under the cursor from its list (the queue, your playlists, your favorites), after a [`y/n` question](#confirming-removals); `RemoveFromQueue` does the same on the queue and has no key of its own |
 | `z` | `Queue` | open the queue page |
 | `g l` | `LibraryPage` | open the library |
 | `g y` | `LikedTrackPage` | open your favorite tracks |
@@ -248,7 +248,7 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 **What matches.** What you typed, spaces included, must appear as it is in one of the row's fields: a track's title, version, artists or album; an album's title, artists or year; a playlist's title; an artist's name; a mix's title or subtitle. Case does not matter (`RÓS` finds `Rós`), accents do (`ros` does not). So `hell ab` finds *Hell Above* and `the veil` every *Pierce The Veil* track, but `pierce hell` finds nothing, as no single field holds it.
 
-**A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d` on the queue and the actions act on the selected row. `esc` clears the filter and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
+**A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d d` on the queue and on lists of yours, and the actions act on the selected row. `esc` clears the filter and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
 
 **The title** shows the filter and how many rows match: `Favorite tracks (548 · /love · 12 matches)`, `Queue (40 · /veil · 9 matches)`; while you type, a cursor follows the text. When nothing matches, the window says `No rows match "xyz"`. On the queue the entries keep their queue positions, and `Suggested` shows only when a suggested entry matches.
 
@@ -300,7 +300,7 @@ The pages arrive whole, so they have no scroll loading, and each is fetched fres
 | `Z`, `Ctrl-z` | a track | Adds it to the end of the queue; with nothing playing it starts |
 | `Z`, `Ctrl-z` | an album or playlist | Adds all its tracks to the end of the queue |
 | `Z`, `Ctrl-z` | an artist or a mix | Nothing |
-| `d` | an entry in the queue | Removes it (removing the playing one moves on) |
+| `d d` | a row of a list of yours | Asks first (see [Confirming removals](#confirming-removals)); `y` removes it from the queue (removing the playing one moves on), your playlist or your favorites |
 
 `Enter` on a track needs the whole list, so a list that is only partly loaded is first fetched to its end: the playback window's message row says `Loading 300 of 1 234…`, and `Esc` cancels it with nothing sent. A list of more than 40 000 tracks is refused (`Too many tracks to queue at once (N)`).
 
@@ -325,8 +325,28 @@ The result shows in the playback window's message row: `Added to favorites`, `Re
 
 - **Add to playlist…** opens a second popup listing your own playlists (newest first) under *New playlist…*; `Enter` adds the track, or all the tracks of the album, at the end of the playlist. If a track is already in the playlist (as far as the loaded copy shows) it asks `Already in <playlist>: add again? (y/n)`
 - **New playlist…** asks `Playlist name: ` in the top row of the page; `Enter` creates a private playlist with that name and adds the tracks to it; `Esc` cancels; an empty name does nothing
-- **Remove from this playlist** removes the track at that position. If the playlist was changed elsewhere in the meantime, nothing is removed (`The playlist changed: nothing was changed, try again`) and the page is fetched again
+- **Remove from this playlist** asks `Remove <title> from <playlist>? (y/n)`; `y` removes the track at that position. If the playlist was changed elsewhere in the meantime, nothing is removed (`The playlist changed: nothing was changed, try again`) and the page is fetched again
 - **Delete playlist** asks `Delete <playlist>? (y/n)`; `y` deletes it, `n` or `Esc` cancels
+
+### Confirming removals
+
+*Remove from favorites*, *Remove from this playlist* and *Remove from queue* ask before they act, with the question of *Delete playlist*: `Remove <title> from favorites? (y/n)`, `Remove <title> from <playlist>? (y/n)` and `Remove <title> from the queue? (y/n)`. `y` does it; `n` or `Esc` closes the question and nothing is sent. The question is about the row you chose, even if the list moves while it is open.
+
+`d d` (`RemoveSelectedItem`) removes the row under the cursor (the filtered row when a filter is kept) from the list it is in, through the same question:
+
+| Window | `d d` |
+|---|---|
+| The queue | *Remove from queue* |
+| Your playlist's tracks | *Remove from this playlist* |
+| Favorite tracks (`g y`) | *Remove from favorites* |
+| The library's Albums and Artists | *Remove from favorites* |
+| The library's Playlists: one you follow | *Remove from favorites* |
+| The library's Playlists: one of yours | *Delete playlist*: `Delete <playlist>? (y/n)`, asked even with `confirm_removals` off |
+| Any other list (an album's or a followed playlist's tracks, an artist page, search results, mixes, a mix, a radio) | nothing: the list is not yours |
+
+- It asks the same from the actions popup, from an [`[[actions]]` binding](config.md#actions) (`DeleteFromLiked`, `DeleteFromPlaylist`, `RemoveFromQueue`) and from `d d`
+- `d` alone does nothing; with [key hints](#key-hints) a `d` held for the delay shows the box `d …` with `d  remove from the list` where `d d` acts
+- `confirm_removals = false` in `app.toml` (or `TIDAL_PLAYER_CONFIRM_REMOVALS=off`) makes the three act at once; *Delete playlist* and the *add again?* question still ask. It does not change the keys: `RemoveSelectedItem` stays on `d d`. An attached TUI uses its own setting; see [`app.toml`](config.md#apptoml)
 
 ## Adding tracks
 
