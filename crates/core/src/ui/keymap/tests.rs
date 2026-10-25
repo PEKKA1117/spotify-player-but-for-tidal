@@ -666,10 +666,20 @@ fn ac2_build_keymap() {
             ),
         ),
         (
-            "a bound g hides the g sequences",
+            // Spec 0019 AC9: the file beats the defaults it conflicts with.
+            "a bound g drops the g sequences",
             file(vec![entry("g", "LibraryPage")], vec![]),
-            Expect::Err(
-                r#""g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage); unbind those with command = "None" first"#,
+            Expect::Ok(
+                vec![
+                    ("g", cmd(C::LibraryPage)),
+                    ("g g", None),
+                    ("g a", None),
+                    ("g l", None),
+                    ("g y", None),
+                    ("g s", None),
+                    ("g m", None),
+                ],
+                vec![],
             ),
         ),
         (
@@ -1404,16 +1414,11 @@ fn ac9_mixes_and_radio_keys() {
     assert_eq!(press(&mut state, &[Key::Char('r')]), vec![], "unbound");
     assert_eq!(state.history.len(), 2);
 
-    // `r x` conflicts with the default `r` until it is unbound.
-    assert_eq!(
-        build(&file(vec![entry("r x", "NextTrack")], vec![]))
-            .err()
-            .map(|e| e.to_string())
-            .as_deref(),
-        Some(
-            r#""r" is bound to GoToRadio and is the start of "r x" (NextTrack); unbind those with command = "None" first"#
-        )
-    );
+    // `r x` drops the default `r` (spec 0019 AC9); unbinding it first
+    // builds without a notice.
+    let dropped = keymap(vec![entry("r x", "NextTrack")], vec![]);
+    assert_eq!(bound(&dropped, "r"), None);
+    assert_eq!(bound(&dropped, "r x"), Some(Binding::Command(C::NextTrack)));
     let moved = keymap(vec![entry("r", "None"), entry("r x", "NextTrack")], vec![]);
     assert_eq!(bound(&moved, "r x"), Some(Binding::Command(C::NextTrack)));
 }
@@ -1479,5 +1484,119 @@ fn ac6_remove_from_queue_is_d_d() {
     assert_eq!(
         keymap.get(&[d, d]),
         Some(Binding::Command(UiCommand::RemoveFromQueue))
+    );
+}
+
+// --- spec 0019 AC9 -----------------------------------------------------------
+
+/// Spec 0019 AC9: a sequence the file binds beats the defaults it
+/// conflicts with (either starts the other), which are dropped with a
+/// notice; two sequences of the file in conflict are still an error.
+#[test]
+fn ac9_file_beats_conflicting_defaults() {
+    use UiCommand as C;
+    let cmd = |c: UiCommand| Some(Binding::Command(c));
+    // (name, file, bindings after, the notice)
+    type Case = (
+        &'static str,
+        KeymapFile,
+        Vec<(&'static str, Option<Binding>)>,
+        Option<&'static str>,
+    );
+    let cases: Vec<Case> = vec![
+        (
+            "no conflict, no notice",
+            file(vec![entry("x", "NextTrack")], vec![]),
+            vec![("x", cmd(C::NextTrack)), ("d d", cmd(C::RemoveFromQueue))],
+            None,
+        ),
+        (
+            "an old keymap binding d",
+            file(vec![entry("d", "RemoveFromQueue")], vec![]),
+            vec![("d", cmd(C::RemoveFromQueue)), ("d d", None)],
+            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)"#),
+        ),
+        (
+            "a g drops every g sequence, in the defaults' order",
+            file(vec![entry("g", "LibraryPage")], vec![]),
+            vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
+            Some(
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage)"#,
+            ),
+        ),
+        (
+            "a file sequence longer than a default drops it",
+            file(vec![entry("r x", "NextTrack")], vec![]),
+            vec![("r x", cmd(C::NextTrack)), ("r", None)],
+            Some(r#"keymap.toml: "r x" replaces the default "r" (GoToRadio)"#),
+        ),
+        (
+            "an [[actions]] sequence beats defaults too",
+            file(
+                vec![],
+                vec![action("d", "RemoveFromQueue", Target::SelectedItem)],
+            ),
+            vec![("d d", None)],
+            Some(r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)"#),
+        ),
+        (
+            "one clause per file sequence",
+            file(
+                vec![entry("d", "RemoveFromQueue"), entry("r x", "NextTrack")],
+                vec![],
+            ),
+            vec![("d d", None), ("r", None)],
+            Some(
+                r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue); "r x" replaces the default "r" (GoToRadio)"#,
+            ),
+        ),
+        (
+            "joined with the unsupported names",
+            file(
+                vec![entry("d", "RemoveFromQueue"), entry("x", "PlayRandom")],
+                vec![],
+            ),
+            vec![("d d", None)],
+            Some(
+                r#"keymap.toml: "d" replaces the default "d d" (RemoveFromQueue) · keymap.toml: 1 spotify-player command not supported here: PlayRandom"#,
+            ),
+        ),
+        (
+            "unbinding the default first drops nothing",
+            file(
+                vec![entry("d d", "None"), entry("d", "RemoveFromQueue")],
+                vec![],
+            ),
+            vec![("d", cmd(C::RemoveFromQueue)), ("d d", None)],
+            None,
+        ),
+    ];
+    for (name, file, bindings, notice) in cases {
+        let keymap = build(&file).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for (sequence, binding) in bindings {
+            assert_eq!(bound(&keymap, sequence), binding, "{name}: {sequence}");
+        }
+        assert_eq!(keymap.notice().as_deref(), notice, "{name}");
+    }
+
+    // Two sequences of the file in conflict stay an error.
+    let both = file(
+        vec![entry("s", "NextTrack"), entry("s l a", "LibraryPage")],
+        vec![],
+    );
+    assert_eq!(
+        build(&both).err().map(|e| e.to_string()).as_deref(),
+        Some(
+            r#""s" is bound to NextTrack and is the start of "s l a" (LibraryPage); unbind those with command = "None" first"#
+        )
+    );
+
+    // The old keymap works on the queue: `d` asks, `d d` is nothing.
+    let mut state = with_keymap(queue(), keymap(vec![entry("d", "RemoveFromQueue")], vec![]));
+    press(&mut state, &[Key::Char('d')]);
+    assert!(
+        matches!(state.popup, Some(Popup::Confirm { .. })),
+        "{:?}",
+        state.popup
     );
 }

@@ -189,6 +189,14 @@ fn ac8_confirm_removals_documented() {
             "docs/{name}: a key table still binds `d`"
         );
     }
+    // AC9: the keymap section says a file binding beats a default it
+    // conflicts with, and what the notice says.
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        for needed in ["replaces the default", "`d d`"] {
+            assert!(config.contains(needed), "docs/{name}: {needed}");
+        }
+    }
     for name in ["playback.md", "zh-TW/playback.md"] {
         let playback = doc(name);
         assert!(

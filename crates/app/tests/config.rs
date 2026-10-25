@@ -108,8 +108,9 @@ fn ac12_broken_config_exits_2() {
         (
             "prefix conflict",
             "keymap.toml",
-            b"[[keymaps]]\ncommand = \"NextTrack\"\nkey_sequence = \"g\"\n",
-            "\"g\" is bound to NextTrack and is the start of \"g g\" (SelectFirstOrScrollToTop)",
+            b"[[keymaps]]\ncommand = \"NextTrack\"\nkey_sequence = \"s\"\n\n\
+              [[keymaps]]\ncommand = \"LibraryPage\"\nkey_sequence = \"s l a\"\n",
+            "\"s\" is bound to NextTrack and is the start of \"s l a\" (LibraryPage)",
         ),
         (
             "keymap syntax",
@@ -251,6 +252,34 @@ fn ac12_unsupported_keymap_starts() {
     std::fs::write(
         config.join("keymap.toml"),
         "[[keymaps]]\ncommand = \"PlayRandom\"\nkey_sequence = \"x\"\n",
+    )
+    .unwrap();
+    for args in [&["daemon", "-c"][..], &["play", "-c"][..]] {
+        let mut cmd = bin(tmp.path());
+        cmd.args(args).arg(&config);
+        if args[0] == "play" {
+            cmd.arg("1");
+        }
+        let (code, _, stderr) = run(cmd);
+        assert_eq!(
+            (code, stderr.as_str()),
+            (1, "Not logged in: run \"tidal-player login\"\n"),
+            "{args:?}"
+        );
+    }
+}
+
+/// Spec 0019 AC9: a `keymap.toml` copied from the earlier example binds
+/// `RemoveFromQueue` to `d`, which beats the new default `d d`: `daemon` and
+/// `play` get as far as the login check (exit 1, not 2).
+#[test]
+fn ac9_old_keymap_starts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("config");
+    std::fs::create_dir(&config).unwrap();
+    std::fs::write(
+        config.join("keymap.toml"),
+        "[[keymaps]]\ncommand = \"RemoveFromQueue\"\nkey_sequence = \"d\"\n",
     )
     .unwrap();
     for args in [&["daemon", "-c"][..], &["play", "-c"][..]] {
