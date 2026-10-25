@@ -101,6 +101,7 @@ $ tidal-player devices
 | 為桌面控制、多媒體鍵與 `playerctl` 發布播放器；見[桌面控制與多媒體鍵](mpris.md) | `mpris`（`true`、`false`） | | `TIDAL_PLAYER_MPRIS`（`on`、`off`） | `true` |
 | 在 TUI 中顯示按鍵序列第一個鍵之後可接的按鍵；見[按鍵提示](tui.md#key-hints) | `key_hints`（`true`、`false`） | | `TIDAL_PLAYER_KEY_HINTS`（`on`、`off`） | `true` |
 | 按鍵提示出現前的等待時間（毫秒）；`0`：立即顯示 | `key_hints_delay_ms` | | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS`（0–10 000） | `1000` |
+| 在 TUI 中從收藏、播放清單或佇列移除前先詢問 `y/n`；見[移除前的確認](tui.md#confirming-removals) | `confirm_removals`（`true`、`false`） | | `TIDAL_PLAYER_CONFIRM_REMOVALS`（`on`、`off`） | `true` |
 | 快取中為桌面保留的專輯封面數（`0`：不保留，由桌面自行下載）；見[專輯封面](mpris.md#album-covers) | `max_cover_arts`（0–1000） | | `TIDAL_PLAYER_MAX_COVER_ARTS` | `20` |
 | 暫停多久（秒）後釋放裝置；見[暫停時釋放裝置](daemon.md#releasing-the-device-while-paused) | `release_paused_secs`（或 `"never"`） | | `TIDAL_PLAYER_RELEASE_PAUSED`（0–3600，或 `never`） | `10` |
 | TUI 中音樂庫清單每次取得的列數；見[清單隨捲動載入](tui.md#lists-load-as-you-scroll) | `page_size` | | `TIDAL_PLAYER_PAGE_SIZE`（1–10 000） | `100` |

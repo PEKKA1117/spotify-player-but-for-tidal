@@ -48,6 +48,7 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `theme` | 佈景主題的名稱 | `"default"` | `-t`/`--theme`（TUI）、`TIDAL_PLAYER_THEME` | TUI |
 | `key_hints` | `true`、`false` | `true` | `TIDAL_PLAYER_KEY_HINTS`（`on`、`off`） | TUI |
 | `key_hints_delay_ms` | 整數 0–10 000（毫秒；`0`：立即顯示） | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `confirm_removals` | `true`、`false` | `true` | `TIDAL_PLAYER_CONFIRM_REMOVALS`（`on`、`off`） | TUI |
 | `cover_img` | `true`、`false` | `true` | `TIDAL_PLAYER_COVER_IMG`（`on`、`off`） | TUI |
 | `cover_img_rows` | 整數 4–20（顯示封面時播放視窗的列數） | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
 | `cover_img_protocol` | `"auto"`、`"sixel"`、`"kitty"`、`"iterm2"`、`"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
@@ -232,7 +233,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `SelectLastOrScrollToBottom` | `G`、`end` | 清單、彈出視窗 | move to the last loaded row（移到最後一個已載入的列） |
 | `ChooseSelected` | `enter` | 清單、彈出視窗 | play the track with its list / open / run（播放曲目並連同其清單／開啟／執行） |
 | `AddSelectedItemToQueue` | `Z`、`C-z` | 清單 | add to the end of the queue（加到佇列末端） |
-| `RemoveFromQueue` | `d` | 佇列 | remove from the queue（從佇列移除） |
+| `RemoveFromQueue` | `d d` | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`） |
 | `ShowActionsOnSelectedItem` | `g a`、`C-space` | 清單 | actions on the selected row（對選取列的動作） |
 | `ShowActionsOnCurrentTrack` | `a` | 所有地方 | actions on the playing track（對正在播放曲目的動作） |
 | `FocusNextWindow` | `tab` | 頁面 | next pane（下一個窗格） |
@@ -266,11 +267,13 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `AddToQueue` | 加到佇列末端 | 曲目、專輯、播放清單 |
 | `PlayNext` | 下一首播放 | 曲目（正在播放的除外）、專輯、播放清單 |
 | `AddToLiked` | 加入收藏 | 曲目、專輯、藝人、你追蹤的播放清單 |
-| `DeleteFromLiked` | 從收藏移除 | 曲目、專輯、藝人、你追蹤的播放清單 |
+| `DeleteFromLiked` | 從收藏移除（先詢問 `y/n`） | 曲目、專輯、藝人、你追蹤的播放清單 |
 | `AddToPlaylist` | 加到播放清單…（開啟播放清單選擇器） | 曲目、專輯 |
-| `DeleteFromPlaylist` | 從此播放清單移除 | 你自己的播放清單頁面上的曲目 |
-| `RemoveFromQueue` | 從佇列移除 | 佇列項目、正在播放的曲目 |
+| `DeleteFromPlaylist` | 從此播放清單移除（先詢問 `y/n`） | 你自己的播放清單頁面上的曲目 |
+| `RemoveFromQueue` | 從佇列移除（先詢問 `y/n`） | 佇列項目、正在播放的曲目 |
 | `DeletePlaylist` | 刪除播放清單（仍會詢問 `y/n`） | 你自己的播放清單 |
+
+除非 `confirm_removals` 為 `false`，這三個移除動作都會像動作選單一樣先詢問 `y/n`，不會因為是綁定的按鍵就略過；見[移除前的確認](tui.md#confirming-removals)。*Delete playlist* 不論設定為何都會詢問。
 
 <a id="spotify-player-names-not-supported-here"></a>
 ### 此處不支援的 spotify-player 名稱

@@ -127,3 +127,13 @@ Assumptions: none about external systems (no new API call).
 - An undo (re-adding what was removed)
 - Asking before `tidal-player logout` or a queue-clearing key
 - `d d` on pages other than the queue (removing from favorites or a playlist by key, without the popup): `DeleteFromLiked`/`DeleteFromPlaylist` can be bound in `[[actions]]` today
+
+## Implementation notes (choices made where the spec was silent, 2026-10-25)
+
+- **Types**: `Removed::target` is `RemovedTarget::{Favorite(String), Position(u32), Entry(EntryId)}`; `RemoveFrom::Playlist` holds the playlist's `uuid` and `title` and the page's ETag as the popup row had it (`Option<String>`, sent as `""` when there is none, as before). The types are exported from `tidal_player_core::ui`; `question` stays in `ui::popup`
+- **One path**: `browse::ask_removal(state, Removal)` opens the question, or removes at once with `confirm_removals` off. `browse::run` (popup `Enter` and `[[actions]]` bindings) and `dispatch::queue_command` (`RemoveFromQueue` on the queue page) call it; `run` takes the row's title from the popup's title (`selected_actions`/`playing_actions`), the queue key from the entry's track title
+- **Several items**: `y` on a removal of several favorites or queue entries sends one request or command per item. A removal of several playlist positions sends nothing yet: the positions shift after each removal, and #71 specifies how they go
+- **Help open**: while the keys help is open, `d` is collected into the pending sequence like any other first key (as `g` was); `ac8_help_no_other_key_acts` now checks `d d` as it checks `g l`
+- **Hint**: `d` held for the delay lists `d d  remove from the queue` on the queue page, which the existing key-hint snapshots (`ac14_help_queue`, `ac9_theme_help_80x24`) show with the new key
+- **Wrapping**: the question wraps at the popup's width, so the 80 × 24 snapshot shows `Remove Collide With The Sky from favorites?` and `(y/n)` on two lines
+- **A user's old `keymap.toml`**: a file copied from the previous `examples/keymap.toml` binds `RemoveFromQueue` to `d`, and 0008 refuses it next to the new default `d d` (`"d" is bound to RemoveFromQueue and is the start of "d d"`; exit 2). The user replaces `d` with `d d` there, or unbinds `d d`

@@ -13,7 +13,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 ## Features
 
 - **Bit-perfect playback**: streams the best quality Tidal offers (up to `HI_RES_LOSSLESS` FLAC) and plays it on an ALSA `hw:` device at the track's own rate, taking the card from PipeWire while it plays. Gapless, with the next track preloaded. [Playback](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback)
-- **Your library**: favorite tracks, playlists, albums and artists, with album, playlist and artist pages; edit favorites and your playlists from the actions popup. [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI)
+- **Your library**: favorite tracks, playlists, albums and artists, with album, playlist and artist pages; edit favorites and your playlists from the actions popup, with a `y/n` question before anything is removed. [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI)
 - **Search, mixes and radio**: search tracks, albums, artists and playlists (`g s`), open your daily mixes (`g m`) or the radio of a track or artist (`r`), and filter any list as you type (`/`)
 - **A real queue**: shuffle, repeat, autoplay with Tidal's suggestions when the queue runs out, and the last session (queue, position, modes, volume) restored when you start again
 - **Daemon and clients**: run the player headless as a systemd user service, attach any number of TUIs, and control it with one-shot `tidal-player playback …` commands. The audio device is released while paused. [Daemon](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon)
