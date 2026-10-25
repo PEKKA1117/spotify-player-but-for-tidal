@@ -1,6 +1,6 @@
 # 0019 — Confirming removals
 
-- **Status**: draft
+- **Status**: approved (2026-10-25)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#61](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/61)
 - **Depends on**: 0004 (implemented: the queue, `RemoveFromQueue`), 0006 (implemented: the actions popup, favorites and playlist writes, the `y/n` question), 0008 (implemented: the keymap, `[[actions]]`, `app.toml`), 0012 (implemented: the queue's filter)
