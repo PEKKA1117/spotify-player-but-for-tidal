@@ -192,7 +192,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 - 名稱：`enter`、`space`、`tab`、`backtab`（Shift-Tab）、`backspace`、`esc`、`left`、`right`、`up`、`down`、`insert`、`delete`、`home`、`end`、`page_up`、`page_down`、`f1` … `f12`
 - 上述任一種加上 `C-`（Control）或 `M-`（Alt）前綴：`C-s`、`M-enter`、`C-space`、`M-p`。`C-S` 等同 `C-s`：終端機回報 Control 加字母時不分大小寫
 
-按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭（`g g` 已綁定時又綁定 `g`），會被拒絕，見[錯誤](#errors)。
+按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，在新預設 `d d` 旁仍然可用。
 
 **不可靠的按鍵**：許多終端機無法將 `C-enter`、`C-tab`、`C-backspace` 或 Control 加方向鍵當作獨立的按鍵送出；這類綁定會被接受，但可能永遠不會觸發。終端機會把 `C-i` 送成 `tab`、`C-m` 送成 `enter`、`C-[` 送成 `esc`，所以請改為綁定這些名稱。`M-` 按鍵需要終端機將 Alt 送成 Escape + 按鍵（大多數終端機都如此；在 macOS 上請啟用「Use Option as Meta」）。按鍵說明（`?`）會顯示已綁定的內容；按下該按鍵即可得知它是否有送達。
 
@@ -299,7 +299,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | 未知的命令或動作 | `…/keymap.toml: keymaps[4]: unknown command "NxtTrack"`（項目從 0 開始計數） |
 | 錯誤的按鍵 | `…/keymap.toml: keymaps[2]: unknown key "ctrl+s" in "ctrl+s"` |
 | 錯誤的參數 | `…/keymap.toml: keymaps[5]: VolumeChange offset must be from -25 to 25 and not 0, got 40` |
-| 某個按鍵序列是另一個序列的開頭 | `…/keymap.toml: "g" is bound to LibraryPage and is the start of "g g" (SelectFirstOrScrollToTop), …; unbind those with command = "None" first` |
+| 檔案中某個按鍵序列是檔案中另一個序列的開頭 | `…/keymap.toml: "s" is bound to Search and is the start of "s l a" (LibraryPage); unbind those with command = "None" first` |
 | 所有 `Quit` 按鍵都被取消綁定 | `…/keymap.toml: Quit has no key left` |
 | 無法讀取的檔案（權限、是資料夾） | `…/app.toml: <error>` |
 
