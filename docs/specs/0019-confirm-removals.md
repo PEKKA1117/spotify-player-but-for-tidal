@@ -53,6 +53,15 @@ What `y` sends for several items (one request each, or one for several playlist 
 
 `RemoveFromQueue`'s default binding becomes `d d` (it was `d`). No default binding starts with `d`, so 0008's prefix rule holds. With key hints (0013), a `d` held for the delay shows `d …` with `d  remove from the queue` on the queue page. `d` alone does nothing by default; #71 will make it remove the selected rows. A user's `keymap.toml` can bind `RemoveFromQueue` back to `d`, as with any command.
 
+### Keymaps written for `d`
+
+A `keymap.toml` copied from an earlier `examples/keymap.toml` binds `RemoveFromQueue` to `d`. Under 0008's prefix rule as it stood, `d` next to the new default `d d` was an error and the player would not start. 0008 decision 4 is amended: when a sequence the **file** binds and a **default** binding conflict (either starts the other), the file wins and the conflicting defaults are dropped. The TUI's message row says so once at start, with 0008's keymap notice (joined by ` · `):
+
+- one: `keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)`
+- several: `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (in the defaults' order)
+
+A conflict between two sequences the file binds stays an error, as 0008 says. The file's own entries are applied first, so a file that rebinds a default sequence (`d d`) to something else and binds `d` too is judged on its own bindings.
+
 ### Turning it off
 
 `app.toml` gains, read by the TUI only (the daemon accepts and ignores it, as `key_hints`):
@@ -73,6 +82,7 @@ With `confirm_removals = false` the three removals act at once, as before this s
 - **AC6** — The default keymap binds `RemoveFromQueue` to `d d` and nothing to `d`; `d` alone on the queue page sends nothing and leaves `d` pending; `d d` opens AC3's question; `examples/keymap.toml` matches the defaults; the keys help and the key hints list `d d`
 - **AC7** — `confirm_removals` in `app.toml` and `TIDAL_PLAYER_CONFIRM_REMOVALS` set the TUI's setting with 0008's precedence and errors (a non-boolean value or variable: an error naming the key; exit 2); the attached and standalone TUI both copy it into the model; `examples/app.toml` lists it with its default
 - **AC8** — Rendering: the question over a page (`insta`, 80 × 24) for a removal from favorites; no panic at any size (0006 AC17's table, new row). `docs/tui.md`, `docs/config.md` and their zh-TW copies describe the questions, `confirm_removals` and `d d`; `README.md` and `CLAUDE.md` "Features" updated
+- **AC9** — Building the keymap (0008 AC2's table, new rows): a file binding `RemoveFromQueue` to `d` builds, `d` removes from the queue (with AC3's question) and `d d` is unbound, with the notice `keymap.toml: "d" replaces the default "d d" (RemoveFromQueue)`; a file binding `g` drops every default `g …` with one notice naming them; a file binding both `s` and `s l a` is still an error; the notice joins the unsupported-names notice with ` · `. `docs/config.md` and its zh-TW copy describe the rule. The binary started with such a file (`-c` a temp dir holding it) runs, not exit 2
 
 ## Edge cases & errors
 
@@ -81,7 +91,7 @@ With `confirm_removals = false` the three removals act at once, as before this s
 - **A long title**: the question wraps to the page's width (0006's popup); a tiny page area draws what fits and never panics
 - **A whole-list load in progress**: only `Esc`/`q` act (0006), so no question opens
 - **`[[actions]]` binding**: asks exactly as the popup does (the user's choice: a bound key is no reason to skip it)
-- **A user keymap binding `d` to something else** while `RemoveFromQueue` is `d d`: 0008 refuses it (`d` is a prefix of `d d`) and names both; the user unbinds one
+- **A user keymap binding `d`** (to `RemoveFromQueue` or anything else): the default `d d` is dropped with a notice (AC9); the player starts
 
 ## Test plan
 
@@ -97,6 +107,7 @@ Each test is named after its criterion. Red is a failing assertion against stubs
 | AC6 | `crates/core/src/ui/keymap/tests.rs` :: `ac6_remove_from_queue_is_d_d`; `crates/core/src/ui/browse/tests.rs` :: `ac6_d_alone_does_nothing`; `crates/app/tests/examples.rs` :: `ac18_example_keymap_is_the_defaults` (existing, fails until the example says `d d`) | default binding, `d` pending, `d d` asks, example | defaults keep `d` |
 | AC7 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows); `crates/app/src/main.rs` :: `ac7_tui_state_confirm_removals`; `crates/app/tests/examples.rs` :: `ac18_example_app_toml_is_the_defaults` (existing) | value per source, error, model copy, example | stub config ignores the key |
 | AC8 | `crates/app/src/ui.rs` :: `ac8_confirm_removal` (snapshot), `ac17_no_panic_any_size` (new row); `crates/app/tests/docs.rs` :: `ac8_confirm_removals_documented`; zh-TW copies, README and `CLAUDE.md` reviewed at acceptance | the drawn question; docs name `confirm_removals` and `d d` | no question drawn; docs lack the terms |
+| AC9 | `crates/core/src/ui/keymap/tests.rs` :: `ac9_file_beats_conflicting_defaults` (table), `ac2_build_keymap` (its "`g` bound" row now builds; the `s`/`s l a` row still errors); `crates/app/tests/config.rs` :: `ac9_old_keymap_starts` (`-c` a temp dir with `d` → `RemoveFromQueue`) ; `crates/app/tests/docs.rs` :: `ac8_confirm_removals_documented` (new terms) | the dropped defaults, the notice, the file-only conflict, the binary starts | stub `build` still refuses the conflict (`PrefixConflict`) |
 
 Existing tests that press `d` on the queue (`crates/core/src/ui/browse/tests.rs`, `filter/tests.rs`, `search/tests.rs`, `help/tests.rs`) and expect `RemoveFromQueue` at once are updated to this spec in the same change (`d d`, then `y`), never weakened.
 
@@ -120,6 +131,7 @@ Assumptions: none about external systems (no new API call).
 2. **Off switch**: *answered*: yes, `confirm_removals`, default on; *Delete playlist* asks whatever it says
 3. **`[[actions]]` bindings**: *answered*: ask as the popup does
 4. **Keys**: *answered*: `d d` removes the row under the cursor; `d` is kept for removing the selected rows (#71)
+5. **Old keymaps binding `d`** (found at acceptance: the player refused to start with a `keymap.toml` copied from the earlier example): *answered*: the file's binding wins over a conflicting default, with a notice; 0008 decision 4 amended accordingly
 
 ## Out of scope
 
@@ -136,4 +148,5 @@ Assumptions: none about external systems (no new API call).
 - **Help open**: while the keys help is open, `d` is collected into the pending sequence like any other first key (as `g` was); `ac8_help_no_other_key_acts` now checks `d d` as it checks `g l`
 - **Hint**: `d` held for the delay lists `d d  remove from the queue` on the queue page, which the existing key-hint snapshots (`ac14_help_queue`, `ac9_theme_help_80x24`) show with the new key
 - **Wrapping**: the question wraps at the popup's width, so the 80 × 24 snapshot shows `Remove Collide With The Sky from favorites?` and `(y/n)` on two lines
-- **A user's old `keymap.toml`**: a file copied from the previous `examples/keymap.toml` binds `RemoveFromQueue` to `d`, and 0008 refuses it next to the new default `d d` (`"d" is bound to RemoveFromQueue and is the start of "d d"`; exit 2). The user replaces `d` with `d d` there, or unbinds `d d`
+- **A user's old `keymap.toml`**: handled by AC9 (decision 5), added after the first acceptance run
+- **Test isolation**: `crates/app/tests/cli.rs`'s `bin_in` did not set the config directory, so its tests read the developer's own `~/.config/tidal-player` and failed there with an old `keymap.toml`; it now points `TIDAL_PLAYER_CONFIG_DIR` at the test's temp directory (0008 "Bugs")
