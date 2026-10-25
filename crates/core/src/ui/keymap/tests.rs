@@ -366,7 +366,8 @@ const DEFAULTS: [(&[&str], &str); 43] = [
     (&["G", "end"], "SelectLastOrScrollToBottom"),
     (&["enter"], "ChooseSelected"),
     (&["Z", "C-z"], "AddSelectedItemToQueue"),
-    (&["d"], "RemoveFromQueue"),
+    // Spec 0019: two keys, so that `d` alone stays free.
+    (&["d d"], "RemoveFromQueue"),
     (&["g a", "C-space"], "ShowActionsOnSelectedItem"),
     (&["a"], "ShowActionsOnCurrentTrack"),
     (&["tab"], "FocusNextWindow"),
@@ -1463,4 +1464,20 @@ fn ac8_switch_device_supported() {
             state.popup
         );
     }
+}
+
+// --- spec 0019 AC6 -----------------------------------------------------------
+
+/// Spec 0019 AC6: `RemoveFromQueue` is bound to `d d` by default and
+/// nothing to `d`, which is the start of that binding.
+#[test]
+fn ac6_remove_from_queue_is_d_d() {
+    let keymap = Keymap::default();
+    let d = Key::Char('d');
+    assert_eq!(keymap.get(&[d]), None, "d alone is unbound");
+    assert!(keymap.starts(&[d]), "d starts a sequence");
+    assert_eq!(
+        keymap.get(&[d, d]),
+        Some(Binding::Command(UiCommand::RemoveFromQueue))
+    );
 }

@@ -46,6 +46,10 @@ key_hints = true
 # 10000; 0 shows it at once. (TIDAL_PLAYER_KEY_HINTS_DELAY_MS)
 key_hints_delay_ms = 1000
 
+# In the TUI, ask y/n before removing from favorites, from a playlist or from
+# the queue: true or false. (TIDAL_PLAYER_CONFIRM_REMOVALS, on/off)
+confirm_removals = true
+
 # Album covers kept in the cache directory for the desktop and the TUI, least
 # recently used deleted first: 0 to 1000; 0 keeps none, and the TUI shows no
 # cover. (TIDAL_PLAYER_MAX_COVER_ARTS)

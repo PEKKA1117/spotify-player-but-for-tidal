@@ -64,7 +64,7 @@ pub use page::{
 };
 pub use popup::{
     Confirmed, DEVICE_NOT_FOUND, DeviceList, DeviceRow, LOADING_DEVICES, MenuAction, NEW_PLAYLIST,
-    PLAYLIST_NAME, Popup, TrackSource, device_rows,
+    PLAYLIST_NAME, Popup, Removal, RemoveFrom, Removed, RemovedTarget, TrackSource, device_rows,
 };
 pub use search::{DEFAULT_SEARCH_PAGE_SIZE, MAX_QUERY, Search, SearchFocus};
 pub use theme::{Theme, Themes};
@@ -209,6 +209,9 @@ pub struct State {
     /// Whether the hint for a pending key sequence is shown (spec 0013,
     /// `key_hints`); the TUI decides when.
     pub key_hints: bool,
+    /// Whether removing from favorites, a playlist or the queue asks
+    /// first (spec 0019, `confirm_removals`).
+    pub confirm_removals: bool,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
     pub history: Vec<Page>,
@@ -261,6 +264,7 @@ impl Default for State {
             pending: Vec::new(),
             pending_g: false,
             key_hints: true,
+            confirm_removals: true,
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
             help: None,

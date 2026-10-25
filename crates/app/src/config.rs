@@ -66,6 +66,8 @@ pub struct AppConfig {
     pub key_hints: Option<bool>,
     /// Spec 0013: how long a sequence is pending before its hint shows.
     pub key_hints_delay_ms: Option<u64>,
+    /// Spec 0019: whether the TUI asks before removing.
+    pub confirm_removals: Option<bool>,
     /// Spec 0016: whether the TUI draws the album cover.
     pub cover_img: Option<bool>,
     /// Spec 0016: the playback window's height with the cover.
@@ -211,6 +213,8 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                     ));
                 }
             },
+            // Stub (spec 0019 red step): the key is accepted and ignored.
+            "confirm_removals" => {}
             "key_hints_delay_ms" => {
                 config.key_hints_delay_ms = Some(int_in(path, key, value, 0, 10_000)?);
             }
@@ -480,11 +484,12 @@ fn line_column(text: &str, offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::play::{
-        AUTOPLAY_VAR, COVER_IMG_PROTOCOL_VAR, COVER_IMG_ROWS_VAR, COVER_IMG_VAR, DEVICE_VAR,
-        HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR, MAX_COVER_ARTS_VAR, MPRIS_VAR,
-        PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR, RELEASE_PAUSED_VAR,
-        REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR, VOLUME_STEP_VAR,
-        resolve_play_config_with, resolve_player_config_with, resolve_settings_with,
+        AUTOPLAY_VAR, CONFIRM_REMOVALS_VAR, COVER_IMG_PROTOCOL_VAR, COVER_IMG_ROWS_VAR,
+        COVER_IMG_VAR, DEVICE_VAR, HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR,
+        MAX_COVER_ARTS_VAR, MPRIS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR,
+        RELEASE_PAUSED_VAR, REMEMBER_PLAYBACK_VAR, SEARCH_PAGE_SIZE_VAR, SEEK_STEP_VAR,
+        VOLUME_STEP_VAR, resolve_play_config_with, resolve_player_config_with,
+        resolve_settings_with,
     };
 
     const PATH: &str = "/c/app.toml";
@@ -684,6 +689,18 @@ mod tests {
                 "key_hints false",
                 "key_hints = false",
                 |c| format!("{:?}", c.key_hints),
+                "Some(false)",
+            ),
+            (
+                "confirm_removals true",
+                "confirm_removals = true",
+                |c| format!("{:?}", c.confirm_removals),
+                "Some(true)",
+            ),
+            (
+                "confirm_removals false",
+                "confirm_removals = false",
+                |c| format!("{:?}", c.confirm_removals),
                 "Some(false)",
             ),
             (
@@ -915,6 +932,16 @@ mod tests {
                 "key_hints number",
                 "key_hints = 0",
                 "/c/app.toml: invalid key_hints: expected true or false, got 0",
+            ),
+            (
+                "confirm_removals type",
+                "confirm_removals = \"off\"",
+                "/c/app.toml: invalid confirm_removals: expected true or false, got \"off\"",
+            ),
+            (
+                "confirm_removals number",
+                "confirm_removals = 0",
+                "/c/app.toml: invalid confirm_removals: expected true or false, got 0",
             ),
             (
                 "cover_img type",
@@ -1328,6 +1355,39 @@ mod tests {
                         "key_hints = true",
                         &[(KEY_HINTS_VAR, "maybe")],
                         Err(KEY_HINTS_VAR),
+                    ),
+                ],
+            ),
+            (
+                "confirm_removals",
+                |_, p| p.confirm_removals.to_string(),
+                vec![
+                    Row::new("default", "", &[], Ok("true")),
+                    Row::new("file true", "confirm_removals = true", &[], Ok("true")),
+                    Row::new("file false", "confirm_removals = false", &[], Ok("false")),
+                    Row::new(
+                        "env off over file true",
+                        "confirm_removals = true",
+                        &[(CONFIRM_REMOVALS_VAR, "off")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "env on over file false",
+                        "confirm_removals = false",
+                        &[(CONFIRM_REMOVALS_VAR, "ON")],
+                        Ok("true"),
+                    ),
+                    Row::new(
+                        "empty env falls through",
+                        "confirm_removals = false",
+                        &[(CONFIRM_REMOVALS_VAR, "")],
+                        Ok("false"),
+                    ),
+                    Row::new(
+                        "invalid env, valid file",
+                        "confirm_removals = true",
+                        &[(CONFIRM_REMOVALS_VAR, "maybe")],
+                        Err(CONFIRM_REMOVALS_VAR),
                     ),
                 ],
             ),

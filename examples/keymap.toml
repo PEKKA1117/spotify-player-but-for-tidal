@@ -158,7 +158,7 @@ key_sequence = "C-z"
 # RemoveFromQueue: remove from the queue (the queue)
 [[keymaps]]
 command = "RemoveFromQueue"
-key_sequence = "d"
+key_sequence = "d d"
 
 # ShowActionsOnSelectedItem: actions on the selected row (lists)
 [[keymaps]]

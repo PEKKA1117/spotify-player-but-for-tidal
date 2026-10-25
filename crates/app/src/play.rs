@@ -378,6 +378,8 @@ pub const KEY_HINTS_VAR: &str = "TIDAL_PLAYER_KEY_HINTS";
 /// How long a key sequence is pending before its hint shows, 0 to 10 000
 /// ms (spec 0013).
 pub const KEY_HINTS_DELAY_VAR: &str = "TIDAL_PLAYER_KEY_HINTS_DELAY_MS";
+/// `on` or `off`: whether the TUI asks before removing (spec 0019).
+pub const CONFIRM_REMOVALS_VAR: &str = "TIDAL_PLAYER_CONFIRM_REMOVALS";
 /// `on` or `off`: whether the TUI draws the album cover (spec 0016).
 pub const COVER_IMG_VAR: &str = "TIDAL_PLAYER_COVER_IMG";
 /// The playback window's rows with the cover, 4 to 20 (spec 0016).
@@ -439,6 +441,9 @@ pub struct PlayerSettings {
     pub key_hints: bool,
     /// How long a sequence is pending before its hint shows (spec 0013).
     pub key_hints_delay: Duration,
+    /// Whether the TUI asks before removing from favorites, a playlist or
+    /// the queue (spec 0019); read by the TUI only.
+    pub confirm_removals: bool,
     /// Whether the TUI draws the album cover (spec 0016); read by the TUI
     /// only, as the two below.
     pub cover_img: bool,
@@ -462,6 +467,7 @@ impl Default for PlayerSettings {
             max_cover_arts: 20,
             key_hints: true,
             key_hints_delay: DEFAULT_KEY_HINTS_DELAY,
+            confirm_removals: true,
             cover_img: true,
             cover_img_rows: 6,
             cover_img_protocol: crate::cover::ProtocolSetting::Auto,

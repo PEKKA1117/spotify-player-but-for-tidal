@@ -896,6 +896,8 @@ fn confirmed(state: &mut State, on_yes: Confirmed) -> Vec<Effect> {
             LibraryRequest::DeletePlaylist { uuid: uuid.clone() },
             Write::DeletePlaylist { uuid, title },
         ),
+        // Stub (spec 0019 red step).
+        Confirmed::Remove(_) => Vec::new(),
     }
 }
 

@@ -16,8 +16,8 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
 use super::super::keymap::{CommandEntry, KeymapEntry, KeymapFile, build};
 use super::super::{
-    Action, Effect, Key, Load, MenuAction, Page, PageKind, Popup, Row, SearchFocus, State, Window,
-    WindowKind, apply_keymap, update,
+    Action, Confirmed, Effect, Key, Load, MenuAction, Page, PageKind, Popup, Removal, RemoveFrom,
+    Removed, RemovedTarget, Row, SearchFocus, State, Window, WindowKind, apply_keymap, update,
 };
 use super::{MAX_FILTER, matches, queue_shown, queue_title};
 
@@ -781,7 +781,7 @@ fn ac4_rows_and_cursor() {
         vec![Char('Z')],
         GA.to_vec(),
         vec![Char('r')],
-        vec![Char('d')],
+        vec![Char('d'), Char('d')],
     ] {
         assert_eq!(press(&mut state, &keys), vec![], "{keys:?}");
         assert!(state.popup.is_none(), "{keys:?}");
@@ -848,7 +848,7 @@ fn ac4_rows_and_cursor() {
     // No match on the queue: nothing selected.
     press(&mut state, &kept("xyz"));
     assert_eq!(queue_shown(&state), Vec::<usize>::new());
-    for keys in [vec![Enter], vec![Char('d')], GA.to_vec()] {
+    for keys in [vec![Enter], vec![Char('d'), Char('d')], GA.to_vec()] {
         assert_eq!(press(&mut state, &keys), vec![], "{keys:?}");
         assert!(state.popup.is_none(), "{keys:?}");
     }
@@ -981,7 +981,7 @@ fn ac5_acting_on_matches() {
         .expect("Remove from this playlist");
     assert_eq!(removal, 2, "Lovely is the playlist's third track");
 
-    // The queue: `enter` and `d` on the selected match's entry.
+    // The queue: `enter` and `d d` (then `y`) on the selected match's entry.
     let mut state = queue();
     press(&mut state, &kept("love"));
     press(&mut state, &[Char('j')]);
@@ -989,9 +989,45 @@ fn ac5_acting_on_matches() {
         press(&mut state.clone(), &[Enter]),
         vec![Effect::Send(Command::PlayEntry(EntryId(3)))]
     );
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
     assert_eq!(
-        press(&mut state, &[Char('d')]),
+        press(&mut state, &[Char('y')]),
         vec![Effect::Send(Command::RemoveFromQueue(EntryId(3)))]
+    );
+}
+
+/// Spec 0019 AC3: with the queue filtered, `d d` asks about the filtered
+/// row under the cursor, by its title, and `y` removes that entry.
+#[test]
+fn ac3_confirm_remove_filtered_queue() {
+    use Key::Char;
+    let mut state = queue();
+    press(&mut state, &kept("love"));
+    press(&mut state, &[Char('j')]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::Confirm {
+            question: "Remove Lovely from the queue? (y/n)".into(),
+            on_yes: Confirmed::Remove(Removal {
+                from: RemoveFrom::Queue,
+                items: vec![Removed {
+                    title: "Lovely".into(),
+                    target: RemovedTarget::Entry(EntryId(3)),
+                }],
+            }),
+        })
+    );
+    // `n` sends nothing; the first match is asked about after `k`.
+    assert_eq!(press(&mut state, &[Char('n')]), vec![]);
+    press(&mut state, &[Char('k'), Char('d'), Char('d')]);
+    assert!(matches!(
+        &state.popup,
+        Some(Popup::Confirm { question, .. }) if question == "Remove Love Song from the queue? (y/n)"
+    ));
+    assert_eq!(
+        press(&mut state, &[Char('y')]),
+        vec![Effect::Send(Command::RemoveFromQueue(EntryId(1)))]
     );
 }
 

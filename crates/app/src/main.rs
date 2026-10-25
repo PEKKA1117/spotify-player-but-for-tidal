@@ -1093,6 +1093,19 @@ mod tests {
             assert_eq!(state.key_hints, on);
         }
     }
+    /// 0019 AC7 (wiring): every TUI, attached or standalone, takes
+    /// `confirm_removals` from the resolved settings.
+    #[test]
+    fn ac7_tui_state_confirm_removals() {
+        for on in [true, false] {
+            let settings = tidal_player::play::PlayerSettings {
+                confirm_removals: on,
+                ..Default::default()
+            };
+            let state = configured_tui_state(&settings, Keymap::default());
+            assert_eq!(state.confirm_removals, on);
+        }
+    }
     /// 0008 AC15: the TUI's state takes its steps, page sizes, library
     /// layout and keymap from the config directory, the environment over
     /// `app.toml` (table: defaults, a file, a variable over a file).

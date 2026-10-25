@@ -2073,6 +2073,16 @@ mod tests {
         state
     }
 
+    /// *Remove from favorites* on an album, asking (spec 0019).
+    fn remove_favorite_popup() -> State {
+        let mut state = actions_popup();
+        // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
+        // Remove from favorites.
+        press(&mut state, &[Key::Char('j'); 5]);
+        press(&mut state, &[Key::Enter]);
+        state
+    }
+
     fn name_popup() -> State {
         let mut state = add_to_playlist_popup();
         press(&mut state, &[Key::Enter]);
@@ -2282,6 +2292,18 @@ mod tests {
         assert_contains(&text, &["Playlist name: Road trip"]);
     }
 
+    /// Spec 0019 AC8: the question over a page, for a removal from
+    /// favorites.
+    #[test]
+    fn ac8_confirm_removal() {
+        let text = draw(&remove_favorite_popup(), 80, 24);
+        assert_contains(
+            &text,
+            &["Remove Collide With The Sky from favorites? (y/n)"],
+        );
+        insta::assert_snapshot!("ac8_confirm_removal", text);
+    }
+
     /// Each empty-list message, one window at a time (50×20).
     #[test]
     fn ac17_empty_messages() {
@@ -2371,6 +2393,7 @@ mod tests {
             actions_popup(),
             add_to_playlist_popup(),
             confirm_popup(),
+            remove_favorite_popup(),
             name_popup(),
             roles_popup(),
             login,
