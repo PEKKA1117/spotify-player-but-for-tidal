@@ -195,7 +195,7 @@ Answered by the user (2026-10-25 and 2026-10-26):
 10. **Clearing**: *answered*: `Esc`, changing page and a successful action clear the selection; moving the focus between windows keeps each window's
 11. **Look**: *answered*: `+ ` marker, `selected_row` component (default `Bold`), `· N selected` in the title
 12. **Select all**: *answered*: out of scope (a lazy list would have to load every page)
-13. **Release**: *answered*: major: a minor bump, `1.1.0` → `1.2.0`
+13. **Release**: *answered*: major: a minor bump of the `tidal-player` binary, `1.2.1` → `1.3.0`
 
 ## Out of scope
 

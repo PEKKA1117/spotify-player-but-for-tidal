@@ -1294,7 +1294,7 @@ fn ac10_remove_selected_item_filtered() {
             .collect::<Vec<_>>(),
         vec![LibraryRequest::RemoveFromPlaylist {
             uuid: "p1".into(),
-            index: 2,
+            indices: vec![2],
             etag: "e1".into(),
         }]
     );
