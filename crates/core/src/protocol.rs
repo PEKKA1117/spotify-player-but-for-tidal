@@ -404,6 +404,11 @@ mod tests {
                 indices: vec![3],
                 etag: "\"1759831234567\"".into(),
             },
+            LibraryRequest::RemoveFromPlaylist {
+                uuid: UUID.into(),
+                indices: vec![1, 4, 7],
+                etag: "\"1759831234567\"".into(),
+            },
             LibraryRequest::CreatePlaylist {
                 title: "Late night".into(),
             },
