@@ -162,7 +162,7 @@ fn ac14_example_theme_toml_loads() {
     use Component::*;
     let none = Style::new();
     let cyan_bold = Style::new().fg(Color::Cyan).add(Modifiers::BOLD);
-    let column: [(Component, Style); 18] = [
+    let column: [(Component, Style); 19] = [
         (BlockTitle, Style::new().fg(Color::Magenta)),
         (Border, none),
         (PlaybackStatus, cyan_bold),
@@ -196,6 +196,7 @@ fn ac14_example_theme_toml_loads() {
         (Like, none),
         (Error, Style::new().fg(Color::Red)),
         (Prompt, Style::new().add(Modifiers::BOLD)),
+        (SelectedRow, Style::new().add(Modifiers::BOLD)),
     ];
     // Spec 0017 addendum 67055c40c1e2.
     for theme in themes.list() {

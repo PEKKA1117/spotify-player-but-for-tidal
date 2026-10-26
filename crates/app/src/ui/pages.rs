@@ -16,7 +16,7 @@ use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
     Header, HelpSection, Hints, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind,
     Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme, Window, WindowKind,
-    device_rows, theme::Component,
+    device_rows, popup, select, theme::Component,
 };
 
 use super::theme::of;
@@ -377,8 +377,8 @@ fn render_window(
         title.add_modifier(Modifier::DIM)
     };
     let title = match hint {
-        Hint::None => Line::styled(fit(&window.title(), room), base),
-        Hint::Tab => Line::styled(fit(&format!("{} {TAB}", window.title()), room), base),
+        Hint::None => Line::styled(fit(&window_title(window), room), base),
+        Hint::Tab => Line::styled(fit(&format!("{} {TAB}", window_title(window)), room), base),
         Hint::Tabs { tabs, tab } => {
             let suffix = if *tab {
                 format!("  [ ] {TAB}")
@@ -394,7 +394,7 @@ fn render_window(
                     text += " │ ";
                 }
                 let name = if at == active {
-                    let title = window.title();
+                    let title = window_title(window);
                     spans.push(Span::styled(
                         title.clone(),
                         base.patch(of(look, Component::Selection)),
@@ -416,7 +416,10 @@ fn render_window(
             } else {
                 // The other tabs' names are the first thing a narrow title
                 // gives up.
-                Line::styled(fit(&format!("{}{suffix}", window.title()), room), base)
+                Line::styled(
+                    fit(&format!("{}{suffix}", window_title(window)), room),
+                    base,
+                )
             }
         }
     };
@@ -442,6 +445,33 @@ fn render_window(
         usize::from(inner.height),
     );
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `window`'s title with the selection's parts after the filter's: `Albums
+/// (14 · /pierce · 3 matches · 2 selected, 1 hidden · motion)` (spec 0020
+/// "How it looks").
+fn window_title(window: &Window) -> String {
+    let title = window.title();
+    let parts = select::window_marks(window).title_parts();
+    with_marks(title, title_has_parts(window), &parts)
+}
+
+/// Whether `window`'s title already has a parenthesis of parts.
+fn title_has_parts(window: &Window) -> bool {
+    window.title() != window.kind.name()
+}
+
+/// `title` with `parts` joined by ` · ` inside its parenthesis, or in a new
+/// one when `has_parts` is false.
+pub(super) fn with_marks(title: String, has_parts: bool, parts: &[String]) -> String {
+    if parts.is_empty() {
+        return title;
+    }
+    let parts = parts.join(" · ");
+    match title.strip_suffix(')') {
+        Some(head) if has_parts => format!("{head} · {parts})"),
+        _ => format!("{title} ({parts})"),
+    }
 }
 
 fn message_lines(text: &str, width: usize, style: Style) -> Vec<Line<'static>> {
@@ -489,6 +519,11 @@ fn window_lines(
         };
     }
 
+    // Spec 0020 "How it looks": a `+ ` marker column once the window has a
+    // selection, dropped when the window is too narrow for it.
+    let marked = select::window_rows(window);
+    let marker = !marked.is_empty() && width >= MARKER_MIN_WIDTH;
+    let width = if marker { width - MARKER_WIDTH } else { width };
     let count = window.len();
     let number = window.total.map_or(count, |t| t as usize).max(count);
     let columns = Columns::new(width, number);
@@ -505,6 +540,9 @@ fn window_lines(
             };
             if row.track().is_some_and(|t| !t.streamable) {
                 style = style.add_modifier(Modifier::DIM);
+            }
+            if marked.contains(&i) {
+                style = style.patch(of(look, Component::SelectedRow));
             }
             if i == window.cursor {
                 style = style.patch(of(look, Component::Selection));
@@ -542,14 +580,28 @@ fn window_lines(
                     None => fit(&mix.title, width),
                 },
             };
+            let lead = match (marker, marked.contains(&i)) {
+                (false, _) => None,
+                (true, true) => Some(Span::raw(MARKER)),
+                (true, false) => Some(Span::raw(NO_MARKER)),
+            };
             // A followed playlist's `♥` in `like`.
             Some(match text.strip_prefix(HEART) {
-                Some(rest) => Line::from(vec![
-                    Span::styled(HEART, of(look, Component::Like)),
-                    Span::raw(rest.to_owned()),
-                ])
+                Some(rest) => Line::from(
+                    lead.into_iter()
+                        .chain([
+                            Span::styled(HEART, of(look, Component::Like)),
+                            Span::raw(rest.to_owned()),
+                        ])
+                        .collect::<Vec<_>>(),
+                )
                 .style(style),
-                None => Line::styled(text, style),
+                None => Line::from(
+                    lead.into_iter()
+                        .chain([Span::raw(text)])
+                        .collect::<Vec<_>>(),
+                )
+                .style(style),
             })
         })
         .collect();
@@ -561,6 +613,13 @@ fn window_lines(
     let offset = scroll(window.cursor, height, rows.len());
     rows.into_iter().skip(offset).take(height).collect()
 }
+
+/// The marker before a selected row, and the blanks before the others.
+const MARKER: &str = "+ ";
+const NO_MARKER: &str = "  ";
+const MARKER_WIDTH: usize = 2;
+/// The marker column is dropped below this window width.
+const MARKER_MIN_WIDTH: usize = 10;
 
 /// The heart before a favorite (followed) playlist.
 const HEART: &str = "♥";
@@ -723,24 +782,39 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 status,
             );
         }
-        Popup::Confirm { question, .. } => {
-            let inner_width = question_width(question, page);
-            let lines = wrap(question, inner_width);
-            let want_w = lines.iter().map(|l| text_width(l)).max().unwrap_or(0) + 4;
-            let rect = centred(page, want_w, lines.len() + 2);
-            let block = Block::bordered().border_style(of(look, Component::Border));
-            let inner = block.inner(rect);
-            clear(frame, rect, look);
-            frame.render_widget(block, rect);
-            frame.render_widget(
-                Paragraph::new(
-                    lines
-                        .into_iter()
-                        .map(|l| Line::raw(format!(" {l}")))
-                        .collect::<Vec<_>>(),
-                ),
-                inner,
-            );
+        Popup::Confirm {
+            question,
+            on_yes,
+            scroll,
+        } => confirm_popup(
+            frame,
+            look,
+            page,
+            question,
+            &popup::target_lines(on_yes),
+            *scroll,
+        ),
+        // Spec 0020 "The selection actions popup": each action with its
+        // fixed key after it.
+        Popup::SelectionActions {
+            title,
+            actions,
+            cursor,
+            ..
+        } => {
+            let widest = actions
+                .iter()
+                .map(|a| text_width(a.label()))
+                .max()
+                .unwrap_or(0);
+            let labels: Vec<String> = actions
+                .iter()
+                .map(|a| {
+                    let key = a.key().map_or(String::new(), |k| format!("  {k}"));
+                    format!("{}{key}", pad(a.label(), widest))
+                })
+                .collect();
+            menu(frame, look, page, title, &labels, *cursor, None);
         }
         Popup::Roles { checked, cursor } => {
             let labels: Vec<String> = ROLE_CATEGORIES
@@ -750,16 +824,67 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 .collect();
             menu(frame, look, page, "Roles", &labels, *cursor, None);
         }
-        // Spec 0020: the selection actions popup is not drawn yet.
-        Popup::NewPlaylist { .. } | Popup::SelectionActions { .. } => {}
+        Popup::NewPlaylist { .. } => {}
     }
 }
 
-/// The columns a `y/n` question may wrap to inside its popup.
-fn question_width(question: &str, page: Rect) -> usize {
+/// A `y/n` question with its target list under it (spec 0020 "Removing
+/// the selection"): the list starts at line `scroll` and shows what fits
+/// the page, the popup keeping its height as the list scrolls.
+fn confirm_popup(
+    frame: &mut Frame,
+    look: &Theme,
+    page: Rect,
+    question: &str,
+    targets: &[popup::TargetLine],
+    scroll: usize,
+) {
     let room = usize::from(POPUP_WIDTH.min(page.width)).saturating_sub(4);
-    text_width(question).min(room).max(1)
+    let widest = targets
+        .iter()
+        .map(|t| text_width(&t.text) + if t.heading { 0 } else { TARGET_INDENT })
+        .max()
+        .unwrap_or(0);
+    let inner_width = text_width(question).max(widest).min(room).max(1);
+    let lines = wrap(question, inner_width);
+    let want_w = lines
+        .iter()
+        .map(|l| text_width(l))
+        .chain([widest])
+        .max()
+        .unwrap_or(0)
+        + 4;
+    let fits = usize::from(page.height).saturating_sub(2 + lines.len());
+    let rect = centred(page, want_w, lines.len() + targets.len().min(fits) + 2);
+    let block = Block::bordered().border_style(of(look, Component::Border));
+    let inner = block.inner(rect);
+    clear(frame, rect, look);
+    frame.render_widget(block, rect);
+    let width = usize::from(inner.width).saturating_sub(1);
+    let first = scroll.min(targets.len().saturating_sub(1));
+    let mut rows: Vec<Line> = lines
+        .into_iter()
+        .map(|l| Line::raw(format!(" {l}")))
+        .collect();
+    rows.extend(targets.iter().skip(first).take(fits).map(|t| {
+        if t.heading {
+            Line::styled(
+                format!(" {}", fit(&t.text, width)),
+                Style::new().add_modifier(Modifier::BOLD),
+            )
+        } else {
+            let indent = " ".repeat(TARGET_INDENT);
+            Line::raw(format!(
+                " {indent}{}",
+                fit(&t.text, width.saturating_sub(TARGET_INDENT))
+            ))
+        }
+    }));
+    frame.render_widget(Paragraph::new(rows), inner);
 }
+
+/// The indent of a target under its question.
+const TARGET_INDENT: usize = 2;
 
 /// A bordered list popup titled `title` with `labels` as rows and one
 /// optional status row below them.

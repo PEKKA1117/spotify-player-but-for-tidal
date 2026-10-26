@@ -424,10 +424,12 @@ pub enum Component {
     Error,
     /// This player's own: the open prompts and the search input.
     Prompt,
+    /// This player's own (spec 0020): the rows of a selection.
+    SelectedRow,
 }
 
 /// Every component, in the spec's table order.
-pub const COMPONENTS: [Component; 18] = [
+pub const COMPONENTS: [Component; 19] = [
     Component::BlockTitle,
     Component::Border,
     Component::PlaybackStatus,
@@ -446,6 +448,7 @@ pub const COMPONENTS: [Component; 18] = [
     Component::Like,
     Component::Error,
     Component::Prompt,
+    Component::SelectedRow,
 ];
 
 /// spotify-player components this player does not draw: accepted and
@@ -479,6 +482,7 @@ impl Component {
             Self::Like => "like",
             Self::Error => "error",
             Self::Prompt => "prompt",
+            Self::SelectedRow => "selected_row",
         }
     }
 
@@ -500,7 +504,8 @@ impl Component {
             | Self::CurrentPlaying
             | Self::PageDesc
             | Self::TableHeader
-            | Self::Prompt => with(Modifiers::BOLD),
+            | Self::Prompt
+            | Self::SelectedRow => with(Modifiers::BOLD),
             Self::PlaylistDesc => with(Modifiers::DIM),
             Self::Selection => with(Modifiers::REVERSED),
             Self::Error => StyleSpec {
@@ -530,7 +535,7 @@ pub const DEFAULT_THEME: &str = "default";
 pub struct Theme {
     pub name: String,
     pub screen: Style,
-    styles: [Style; 18],
+    styles: [Style; 19],
     envy: Option<(u8, u8, u8)>,
 }
 
@@ -548,7 +553,7 @@ impl Default for Theme {
 impl Theme {
     /// `name` with `palette`, and `specs` (one per component, in
     /// [`COMPONENTS`] order).
-    pub fn resolve(name: String, palette: &Palette, specs: &[StyleSpec; 18]) -> Self {
+    pub fn resolve(name: String, palette: &Palette, specs: &[StyleSpec; 19]) -> Self {
         let mut screen = Style::new();
         if let Some(bg) = palette.background {
             screen = screen.bg(bg);

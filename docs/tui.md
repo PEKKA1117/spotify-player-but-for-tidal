@@ -99,6 +99,11 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `enter` | `ChooseSelected` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)); in a popup: run the entry |
 | `Z`, `C-z` | `AddSelectedItemToQueue` | add the selected track, album or playlist to the end of the queue |
 | `d d` | `RemoveSelectedItem`* | remove the row under the cursor from its list (the queue, your playlists, your favorites), after a [`y/n` question](#confirming-removals); `RemoveFromQueue` does the same on the queue and has no key of its own |
+| `s c` | `SelectCurrent`* | [select](#selecting-rows) the row under the cursor, or unselect it |
+| `s j`, `s <N> j` / `s k`, `s <N> k` | `SelectDown`* / `SelectUp`* | select `N` rows (default 1) from the cursor down, up |
+| `s m` | `SelectMotion`* | motion mode on / off: the rows between where it started and the cursor are selected |
+| `s a` | `SelectionActions`* | the actions on the selected rows |
+| `d s` | `RemoveSelection`* | remove the selected rows from their list, after a [`y/n` question](#confirming-removals) that lists them |
 | `z` | `Queue` | open the queue page |
 | `g l` | `LibraryPage` | open the library |
 | `g y` | `LikedTrackPage` | open your favorite tracks |
@@ -112,11 +117,11 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
-| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's [filter](#filtering-a-list) |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's [selection](#selecting-rows) and [filter](#filtering-a-list) |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. `s` starts the [selection](#selecting-rows) keys the same way. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
 While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name, a [filter](#filtering-a-list) while you type it) take every printable key whatever the keymap says.
 
@@ -254,6 +259,53 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 **Lists that load as you scroll.** A filter looks at the rows loaded so far, and loads more on its own: while fewer matches than a window's height lie below the cursor, the next page is fetched, one at a time, until enough rows match or the list is complete (`Loading more…` under the matches meanwhile). `esc` stops it.
 
+## Selecting rows
+
+Every window that lists rows (a page's lists, the search page's four windows, the queue) has a **selection**: rows you mark, which the `s` keys then act on together. There is no mode to enter: the keys below add rows to the selection or take them out, and the keys that act on the row under the cursor (`enter`, `a`, `d d`, `g a`) keep doing so, whatever is selected.
+
+```
+│┌Tracks (12 · 2 selected)────────────────────────────────────────────────────┐│
+││+   1  Collide With The Sky      Pierce The Veil    Collide With The Sky 4:01││
+││+   2  Hell Above                Pierce The Veil    Collide With The Sky 3:32││
+││    3  A Match Into Water        Pierce The Veil    Collide With The Sky 4:22││
+```
+
+A selected row has a `+ ` before it (the other rows get two spaces, so the columns stay where they are; a window with nothing selected has no marker column, and a window narrower than 10 columns shows the selection by its style alone) and is drawn in the theme's `selected_row` ([Components](config.md#components); `Bold` by default), under the cursor row's own `selection` style. The window's title counts them after the filter's parts: `Tracks (12 · 2 selected)`, `Favorite tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`, and `· motion` while motion mode is on. Each window keeps its own selection when you move the focus to another.
+
+| Keys | Command | Does |
+|---|---|---|
+| `s c` | `SelectCurrent` | select the row under the cursor, or unselect it if it is selected; the cursor stays |
+| `s j`, `s 5 j` | `SelectDown` | select 1 row (the cursor's), or `N` rows, from the cursor down; the cursor ends on the last |
+| `s k`, `s 5 k` | `SelectUp` | the same upwards |
+| `s m` | `SelectMotion` | start motion mode at the cursor row; `s m` again ends it |
+| `s a` | `SelectionActions` | open the [selection actions](#the-selection-actions) |
+| `d s` | `RemoveSelection` | [remove the selection](#confirming-removals) from its list |
+
+`s` alone does nothing; wait after it and a [hint](#key-hints) lists the keys that can follow. `N` is one or more digit keys typed after `s`: `s 5 j` selects 5 rows, `s 1 2 k` 12. Only `SelectDown` and `SelectUp` take a count, and a count of 0, or digits followed by any other key, cancels the sequence. Selecting a row that is selected keeps it selected, and rows past the end of the list are not there (`s 9 j` on the third-last row selects three). In a list that loads as you scroll, rows not loaded yet are not selected; moving the cursor to the end loads the next page as usual.
+
+**Motion mode.** `s m` marks the cursor row as the anchor; while the mode is on, every row from the anchor to the cursor (either way) shows as selected, however the cursor moves (`j`, `k`, `G`, `g g`, `C-f`, …). `s m` again ends the mode and adds those rows to the selection; rows selected before stay selected. `s a` and `d s` act on the selection with the range in it and end the mode. `s c` does nothing in it (the cursor row is always in the range), and the keys help dims it. With a filter set, the range holds the rows shown between the anchor and the cursor. Moving the focus to another window adds the range to the selection.
+
+**Clearing.** `esc` with no popup, prompt or filter input open clears the focused window's selection (and motion mode, range included). Changing page clears every selection of the page left, and coming back through the history does not bring it back. An action that succeeds clears the window's selection; one that fails leaves it, and a window whose list is fetched again (after a write) loses its selection. A queue entry that leaves the queue leaves the selection with it.
+
+**Filters.** A row the [filter](#filtering-a-list) hides stays selected and is acted on; the title says how many are hidden (`2 selected, 1 hidden`), and clearing the filter shows them still selected. Selecting through a filter selects the rows shown.
+
+### The selection actions
+
+`s a` with a selection opens a popup titled `N selected` with the actions that apply to every selected row (with nothing selected it does nothing, and the keys help dims it). They act on the rows in the list's order, hidden rows included:
+
+| Action | Key | Listed when |
+|---|---|---|
+| *Play* | `p` | always (not for artists): the rows replace the queue and the first plays |
+| *Play next* | `N` | always (not for artists) |
+| *Add to queue* | `a` | always (not for artists) |
+| *Add to playlist…* | | the rows are tracks |
+| *Add to favorites* | | some selected row is not a favorite, as far as the list knows |
+| *Remove from favorites* | | where `d s` removes from favorites |
+| *Remove from this playlist* | | your playlist's tracks |
+| *Remove from queue* | | the queue |
+
+`j`/`k`, `enter` and `esc` work as in any popup, and `p`, `N` and `a` run their action at once, so `s a p` plays the selection. Navigation actions (*Open*, *Go to album*, *Go to artist*, *Go to radio*) are never listed: they act on one row. *Add to playlist…* opens the playlist picker, and the selection clears once the tracks are added (`esc` on the picker keeps it).
+
 ## Search
 
 `g s` opens the search page: a one-row input (`Search: `) with the cursor in it, a **top hit** row, and four windows, *Tracks* and *Albums* over *Artists* and *Playlists*.
@@ -344,6 +396,16 @@ The result shows in the playback window's message row: `Added to favorites`, `Re
 | The library's Playlists: one of yours | *Delete playlist*: `Delete <playlist>? (y/n)`, asked even with `confirm_removals` off |
 | Any other list (an album's or a followed playlist's tracks, an artist page, search results, mixes, a mix, a radio) | nothing: the list is not yours |
 
+- `d s` (`RemoveSelection`) removes the [selected rows](#selecting-rows) from the same lists, with the same question, which names the count and lists every row below it, hidden ones included; a list longer than the popup scrolls with `j`/`k`:
+
+  ```
+  Remove 3 tracks from Road trip? (y/n)
+    Collide With The Sky
+    Bloom
+    Holocene
+  ```
+
+  `y` removes them (from your playlist in one write), and the message says how many: `Removed 3 tracks from Road trip`; if some of several writes fail it says so (`Removed 2 albums from favorites; 1 failed`) and keeps those rows selected. In the library's Playlists, your own playlists among the selection are deleted and the followed ones removed from favorites, in one question (`Delete 2 playlists and remove 1 from favorites? (y/n)`, with the two lists under `Delete:` and `Remove from favorites:`) that is asked even with `confirm_removals` off. With nothing selected, or in another window, `d s` does nothing
 - It asks the same from the actions popup, from an [`[[actions]]` binding](config.md#actions) (`DeleteFromLiked`, `DeleteFromPlaylist`, `RemoveFromQueue`) and from `d d`
 - `d` alone does nothing; with [key hints](#key-hints) a `d` held for the delay shows the box `d …` with `d  remove from the list` where `d d` acts
 - `confirm_removals = false` in `app.toml` (or `TIDAL_PLAYER_CONFIRM_REMOVALS=off`) makes the three act at once; *Delete playlist* and the *add again?* question still ask. It does not change the keys: `RemoveSelectedItem` stays on `d d`. An attached TUI uses its own setting; see [`app.toml`](config.md#apptoml)

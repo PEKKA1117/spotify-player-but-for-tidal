@@ -105,7 +105,7 @@ The themes are the built-in **`default`** first, then the file's in file order; 
 
 ### Components
 
-Where each component is drawn, its default (the `default` theme's look, and what any theme gets for a component it leaves out) and, for comparison, spotify-player's own default. `*` marks the two this player adds.
+Where each component is drawn, its default (the `default` theme's look, and what any theme gets for a component it leaves out) and, for comparison, spotify-player's own default. `*` marks the three this player adds.
 
 | Component | Drawn on | Default | spotify-player's default |
 |---|---|---|---|
@@ -127,6 +127,7 @@ Where each component is drawn, its default (the `default` theme's look, and what
 | `like` | the `♥` on followed playlists | none | none |
 | `error`* | the message row and failed loads (a page, a window, a `Loading more…` that failed) | `fg = "Red"` | `fg = "Red"` |
 | `prompt`* | the open prompt (`Add to queue: …`, `Play next: …`), the playlist-name prompt, the search input | `Bold` | `Bold` |
+| `selected_row`* | the rows of a [selection](tui.md#selecting-rows) in a list or the queue (marked with `+ `) | `Bold` | none |
 
 A component a theme leaves out keeps today's look, **not** spotify-player's colourful defaults: a palette-only theme such as spotify-player's `dracula` changes only the background, the foreground and the red of errors. To get spotify-player's look, copy the `spotify_player` theme in [`examples/theme.toml`](../examples/theme.toml), which spells its defaults out, and edit it. The palette's `background` and `foreground` are the style of the whole screen: every cell starts in them and the styles above are laid over.
 
@@ -136,7 +137,7 @@ spotify-player components this player does not draw (`playback_genres`, `lyrics_
 
 Whatever the theme, the TUI adds these state cues over the component styles, so a theme cannot hide them (a style laid over another replaces its colours where set and adds its modifiers):
 
-- **Rows**: a row starts in the screen's style, or `secondary_row` on every other row; the queue's current entry has `current_playing` laid over; an unplayable track, an autoplay suggestion and the `── Suggested` divider add `Dim`; the cursor row has `selection` laid over and adds `Dim` when its window does not have the focus
+- **Rows**: a row starts in the screen's style, or `secondary_row` on every other row; the queue's current entry has `current_playing` laid over; an unplayable track, an autoplay suggestion and the `── Suggested` divider add `Dim`; a selected row has `selected_row` laid over that; the cursor row has `selection` laid over and adds `Dim` when its window does not have the focus
 - **Windows**: the focused window's title adds `Bold`; another window's title and border add `Dim`. Popup, keys-help and key-hint titles add `Bold`, and so does the queue's title while its filter is typed. The frame's title adds nothing
 - **The search input**: `prompt` with `Bold` added while it has the focus; without it, `prompt` without `Bold`, plus `Dim`
 - **Status text** (`Loading…`, `Loading more…`, empty lists, `No rows match …`, popup statuses, the keys help's footer and dim rows, the key hints' dim rows): `Dim` added to the row's style
@@ -183,7 +184,9 @@ A **key sequence** is keys separated by single spaces (`g g`, `s l a`). A key is
 - a name: `enter`, `space`, `tab`, `backtab` (Shift-Tab), `backspace`, `esc`, `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `page_up`, `page_down`, `f1` … `f12`
 - either of those after `C-` (Control) or `M-` (Alt): `C-s`, `M-enter`, `C-space`, `M-p`. `C-S` is `C-s`: terminals report Control-letters without case
 
-Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another cannot be finished, so two sequences of your file in that relation (`s` and `s l a`) are refused, see [Errors](#errors). A sequence of your file that conflicts with a **default** wins: the default is dropped, and the message row says so once at start, with the notice of skipped names below (joined by ` · `): `keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`, or `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (all of them, in the defaults' order; one clause per sequence of yours, joined by `;`). So a `keymap.toml` copied from an earlier example, with `RemoveFromQueue` on `d`, still works next to the default `d d`.
+Pressed keys collect: when what you pressed is no binding's start, collecting restarts with the last key alone (`g x` does what `x` does); when it is a binding, that binding runs. There is no timeout. A sequence that is the start of another cannot be finished, so two sequences of your file in that relation (`s` and `s l a`) are refused, see [Errors](#errors). A sequence of your file that conflicts with a **default** wins: the default is dropped, and the message row says so once at start, with the notice of skipped names below (joined by ` · `): `keymap.toml: "d" replaces the defaults "d d" (RemoveSelectedItem), "d s" (RemoveSelection)`, or `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …` (all of them, in the defaults' order; one clause per sequence of yours, joined by `;`). So a `keymap.toml` copied from an earlier example, with `RemoveFromQueue` on `d`, still works: it replaces `d d` and `d s`.
+
+**Counts.** A binding of `SelectDown` or `SelectUp` accepts digit keys before its last key: with the default `s j`, `s 5 j` selects 5 rows, and with `SelectDown` rebound to `x y`, `x 5 y` does. Digits in a sequence of any other command are not a count, and a one-key binding takes none (a `5` bound to `NextTrack` still fires). A count of 0, or digits followed by any other key, cancels the sequence.
 
 **Unreliable keys**: many terminals cannot send `C-enter`, `C-tab`, `C-backspace` or Control with the arrows as distinct keys; such a binding is accepted but may never fire. A terminal sends `C-i` as `tab`, `C-m` as `enter` and `C-[` as `esc`, so bind those names instead. `M-` keys need a terminal that sends Alt as Escape + key (most do; on macOS, "Use Option as Meta"). The keys help (`?`) shows what is bound; pressing the key shows whether it arrives.
 
@@ -220,9 +223,15 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `PageSelectPreviousOrScrollUp` | `C-b`, `page_up` | lists, popups | move up a window |
 | `SelectFirstOrScrollToTop` | `g g` | lists, popups | move to the top |
 | `SelectLastOrScrollToBottom` | `G`, `end` | lists, popups | move to the last loaded row |
+| `SelectCurrent`* | `s c` | lists, the queue | select / unselect the row under the cursor (see [Selecting rows](tui.md#selecting-rows)) |
+| `SelectDown`* | `s j` | lists, the queue | select rows down from the cursor; `s <N> j` selects `N` (digits are a count, only for these two commands) |
+| `SelectUp`* | `s k` | lists, the queue | select rows up from the cursor; `s <N> k` selects `N` |
+| `SelectMotion`* | `s m` | lists, the queue | motion mode on / off: select the rows between the anchor and the cursor |
+| `SelectionActions`* | `s a` | lists, the queue | actions on the selected rows |
 | `ChooseSelected` | `enter` | lists, popups | play the track with its list / open / run |
 | `AddSelectedItemToQueue` | `Z`, `C-z` | lists | add to the end of the queue |
 | `RemoveSelectedItem`* | `d d` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove from the list (asks `y/n` first; [what it removes](tui.md#confirming-removals)) |
+| `RemoveSelection`* | `d s` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove the selected rows from the list (asks `y/n` first, listing them; [what it removes](tui.md#confirming-removals)) |
 | `RemoveFromQueue` | | the queue | remove from the queue (asks `y/n` first; no default key; `RemoveSelectedItem` does it) |
 | `ShowActionsOnSelectedItem` | `g a`, `C-space` | lists | actions on the selected row |
 | `ShowActionsOnCurrentTrack` | `a` | everywhere | actions on the playing track |
