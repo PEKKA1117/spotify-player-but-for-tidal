@@ -750,7 +750,8 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
                 .collect();
             menu(frame, look, page, "Roles", &labels, *cursor, None);
         }
-        Popup::NewPlaylist { .. } => {}
+        // Spec 0020: the selection actions popup is not drawn yet.
+        Popup::NewPlaylist { .. } | Popup::SelectionActions { .. } => {}
     }
 }
 

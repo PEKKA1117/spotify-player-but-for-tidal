@@ -31,6 +31,9 @@
 //! Spec 0012: each window's filter (and the queue page's) and its typing
 //! keys live in [`filter`].
 //!
+//! Spec 0020: each window's selection (and the queue's), the `s …` keys
+//! and the selection actions live in [`select`].
+//!
 //! Spec 0017: the theme list, the theme in use and the Themes popup live
 //! in [`theme`]; the TUI draws [`State::theme`].
 
@@ -42,6 +45,7 @@ pub mod keymap;
 pub mod page;
 pub mod popup;
 pub mod search;
+pub mod select;
 pub mod theme;
 
 use std::time::Duration;
@@ -64,9 +68,12 @@ pub use page::{
 };
 pub use popup::{
     Confirmed, DEVICE_NOT_FOUND, DeviceList, DeviceRow, LOADING_DEVICES, MenuAction, NEW_PLAYLIST,
-    PLAYLIST_NAME, Popup, Removal, RemoveFrom, Removed, RemovedTarget, TrackSource, device_rows,
+    PLAYLIST_NAME, Popup, Removal, RemoveFrom, Removed, RemovedTarget, SelectionAction,
+    SelectionPart, SelectionRemoval, TargetLine, TrackSource, device_rows, selection_question,
+    target_lines,
 };
 pub use search::{DEFAULT_SEARCH_PAGE_SIZE, MAX_QUERY, Search, SearchFocus};
+pub use select::{Held, Marks, Origin, Selection};
 pub use theme::{Theme, Themes};
 
 /// The configured steps of the volume and seek keys (spec 0004 "Settings").

@@ -1414,6 +1414,7 @@ fn ac14_playlist_editing() {
                         title: "Mine".into(),
                         tracks: tracks([6]),
                     },
+                    scroll: 0,
                 })
             );
             // Other keys do nothing; `n` sends nothing.
@@ -1524,6 +1525,7 @@ fn ac14_playlist_editing() {
                         uuid: "p1".into(),
                         title: "Mine".into(),
                     },
+                    scroll: 0,
                 })
             );
             let effects = press(&mut state, &[Char('y')]);
@@ -2958,4 +2960,386 @@ fn ac10_remove_selected_item() {
         state.pending_g = false;
         assert_eq!(state, before, "{name}: state");
     }
+}
+
+// --- spec 0020 AC10/AC11: `d s` removes the selection -----------------------------
+
+/// The open question's target list (headings and titles).
+fn targets(state: &State) -> Vec<String> {
+    match &state.popup {
+        Some(Popup::Confirm { on_yes, .. }) => super::super::target_lines(on_yes)
+            .into_iter()
+            .map(|l| l.text)
+            .collect(),
+        other => panic!("no question: {other:?}"),
+    }
+}
+
+fn selected_rows(state: &State) -> Vec<usize> {
+    let page = state.page();
+    super::super::select::window_rows(&page.windows[page.focus])
+        .into_iter()
+        .collect()
+}
+
+/// The library with three followed playlists (F1–F3) and own Mine.
+fn library_followed() -> State {
+    let mut state = State::default();
+    open(
+        &mut state,
+        &GL,
+        PageData::Library {
+            playlists: list(
+                vec![
+                    playlist("f1", "F1", false),
+                    playlist("f2", "F2", false),
+                    playlist("f3", "F3", false),
+                    playlist("p1", "Mine", true),
+                ],
+                0,
+                4,
+            ),
+            albums: list(vec![album(10), album(11), album(12)], 0, 3),
+            artists: list(vec![artist(20), artist(21), artist(22)], 0, 3),
+        },
+    );
+    state
+}
+
+/// Own playlist p1 Mine with tracks 4, 6, 8, 9 (ETag `e1`).
+fn own_playlist_of_four() -> State {
+    let mut state = library();
+    open(
+        &mut state,
+        &[Key::Enter],
+        playlist_data("p1", "Mine", true, &[4, 6, 8, 9]),
+    );
+    state
+}
+
+/// Spec 0020 AC10: `d s` with three rows selected, per window: the
+/// question with 0019's several-items text and the three titles in list
+/// order (hidden rows included); `y` sends the table's writes; `n` and
+/// `Esc` send nothing and keep the selection; one target gives 0019's
+/// one-item text; `confirm_removals = false` sends at once; other windows
+/// and an empty selection do nothing.
+#[test]
+fn ac10_remove_selection() {
+    use Key::{Char, Esc, Tab};
+    let ds = typed("ds");
+    let fav = |kind, id: &str| Out::Library(LibraryRequest::RemoveFavorite(kind, id.into()));
+    // (name, state, keys selecting three rows, question, titles, sent, message)
+    type Case = (
+        &'static str,
+        fn() -> State,
+        Vec<Key>,
+        &'static str,
+        Vec<&'static str>,
+        Vec<Out>,
+        &'static str,
+    );
+    let cases: Vec<Case> = vec![
+        (
+            "the queue",
+            || with_queue(&[7, 3, 9, 5], Some(3)),
+            typed("ggs3j"),
+            "Remove 3 tracks from the queue? (y/n)",
+            vec!["T107", "T103", "T109"],
+            vec![
+                Out::Send(Command::RemoveFromQueue(EntryId(7))),
+                Out::Send(Command::RemoveFromQueue(EntryId(3))),
+                Out::Send(Command::RemoveFromQueue(EntryId(9))),
+            ],
+            "Removed 3 tracks from the queue",
+        ),
+        (
+            "an own playlist's tracks",
+            own_playlist_of_four,
+            typed("scjjsjjsc"),
+            "Remove 3 tracks from Mine? (y/n)",
+            vec!["T4", "T8", "T9"],
+            vec![Out::Library(LibraryRequest::RemoveFromPlaylist {
+                uuid: "p1".into(),
+                indices: vec![0, 2, 3],
+                etag: "e1".into(),
+            })],
+            "Removed 3 tracks from Mine",
+        ),
+        (
+            "favorite tracks",
+            || {
+                let mut state = State::default();
+                open(&mut state, &GY, fav_data(tracks(1..5), 4));
+                state
+            },
+            typed("js3j"),
+            "Remove 3 tracks from favorites? (y/n)",
+            vec!["T2", "T3", "T4"],
+            vec![
+                fav(FavoriteKind::Track, "2"),
+                fav(FavoriteKind::Track, "3"),
+                fav(FavoriteKind::Track, "4"),
+            ],
+            "Removed 3 tracks from favorites",
+        ),
+        (
+            "library albums",
+            library,
+            [vec![Tab], typed("s3j")].concat(),
+            "Remove 3 albums from favorites? (y/n)",
+            vec!["Al10", "Al11", "Al12"],
+            vec![
+                fav(FavoriteKind::Album, "10"),
+                fav(FavoriteKind::Album, "11"),
+                fav(FavoriteKind::Album, "12"),
+            ],
+            "Removed 3 albums from favorites",
+        ),
+        (
+            "library artists",
+            library,
+            [vec![Tab, Tab], typed("s3j")].concat(),
+            "Remove 3 artists from favorites? (y/n)",
+            vec!["Ar20", "Ar21", "Ar22"],
+            vec![
+                fav(FavoriteKind::Artist, "20"),
+                fav(FavoriteKind::Artist, "21"),
+                fav(FavoriteKind::Artist, "22"),
+            ],
+            "Removed 3 artists from favorites",
+        ),
+        (
+            "followed playlists",
+            library_followed,
+            typed("s3j"),
+            "Remove 3 playlists from favorites? (y/n)",
+            vec!["F1", "F2", "F3"],
+            vec![
+                fav(FavoriteKind::Playlist, "f1"),
+                fav(FavoriteKind::Playlist, "f2"),
+                fav(FavoriteKind::Playlist, "f3"),
+            ],
+            "Removed 3 playlists from favorites",
+        ),
+    ];
+    for (name, setup, select, question, titles, sent, message) in cases {
+        for confirm in [true, false] {
+            let context = format!("{name}, confirm_removals {confirm}");
+            let mut state = setup();
+            state.confirm_removals = confirm;
+            press(&mut state, &select);
+            let effects = if confirm {
+                assert_eq!(press(&mut state, &ds), vec![], "{context}: before y");
+                assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
+                assert_eq!(targets(&state), titles, "{context}: titles");
+                press(&mut state, &[Char('y')])
+            } else {
+                let effects = press(&mut state, &ds);
+                assert_eq!(state.popup, None, "{context}: asked");
+                effects
+            };
+            assert_eq!(outs(&effects), sent, "{context}: sent");
+            for (id, _) in requests(&effects) {
+                reply(&mut state, id, LibraryResponse::Done);
+            }
+            assert_eq!(state.message(), Some(message), "{context}: message");
+        }
+        // `n` and `Esc` send nothing and keep the selection.
+        for answer in [Char('n'), Esc] {
+            let mut state = setup();
+            press(&mut state, &select);
+            let before = if state.page().kind == PageKind::Queue {
+                format!("{:?}", super::super::select::queue_entries(&state))
+            } else {
+                format!("{:?}", selected_rows(&state))
+            };
+            press(&mut state, &ds);
+            assert_eq!(press(&mut state, &[answer]), vec![], "{name}: {answer:?}");
+            assert_eq!(state.popup, None, "{name}: {answer:?}");
+            let after = if state.page().kind == PageKind::Queue {
+                format!("{:?}", super::super::select::queue_entries(&state))
+            } else {
+                format!("{:?}", selected_rows(&state))
+            };
+            assert_eq!(after, before, "{name}: {answer:?}: the selection");
+        }
+    }
+
+    // The ETag the page had when asked, even after a reload in between.
+    let mut state = own_playlist_of_four();
+    press(&mut state, &typed("s2j"));
+    press(&mut state, &ds);
+    if let Some(super::super::Header::Playlist { etag, .. }) =
+        &mut state.history.last_mut().unwrap().header
+    {
+        *etag = Some("e2".into());
+    }
+    assert_eq!(
+        outs(&press(&mut state, &[Char('y')])),
+        vec![Out::Library(LibraryRequest::RemoveFromPlaylist {
+            uuid: "p1".into(),
+            indices: vec![0, 1],
+            etag: "e1".into(),
+        })]
+    );
+
+    // Hidden rows are named and removed too.
+    let mut state = State::default();
+    open(&mut state, &GY, fav_data(tracks(1..5), 4));
+    press(&mut state, &typed("s3j"));
+    press(&mut state, &[Char('/')]);
+    press(&mut state, &typed("T2"));
+    press(&mut state, &[Key::Enter]);
+    press(&mut state, &ds);
+    assert_eq!(targets(&state), vec!["T1", "T2", "T3"]);
+
+    // One target: 0019's one-item text, and its message.
+    let mut state = State::default();
+    open(&mut state, &GY, fav_data(tracks(1..5), 4));
+    press(&mut state, &typed("jsc"));
+    press(&mut state, &ds);
+    assert_eq!(
+        asked(&state).as_deref(),
+        Some("Remove T2 from favorites? (y/n)")
+    );
+    assert_eq!(targets(&state), vec!["T2"]);
+    let effects = press(&mut state, &[Char('y')]);
+    reply(&mut state, requests(&effects)[0].0, LibraryResponse::Done);
+    assert_eq!(state.message(), Some("Removed from favorites"));
+
+    // A playlist that changed: 0006's message, the selection kept.
+    let mut state = own_playlist_of_four();
+    press(&mut state, &typed("s2j"));
+    press(&mut state, &ds);
+    let effects = press(&mut state, &[Char('y')]);
+    fail(&mut state, requests(&effects)[0].0, PLAYLIST_CHANGED);
+    assert_eq!(state.message(), Some(PLAYLIST_CHANGED));
+    assert_eq!(selected_rows(&state), vec![0, 1]);
+
+    // Other windows, and an empty selection: nothing.
+    let album_page = || {
+        let mut state = library();
+        open(
+            &mut state,
+            &[Tab, Key::Enter],
+            PageData::Album {
+                album: album(10),
+                tracks: list(tracks(1..4), 0, 3),
+            },
+        );
+        state
+    };
+    let nothing: Vec<(&str, State, Vec<Key>)> = vec![
+        ("an album's tracks", album_page(), typed("s2j")),
+        (
+            "a followed playlist's tracks",
+            playlist_page(false),
+            typed("s2j"),
+        ),
+        ("a mix", mix_page(), typed("s2j")),
+        ("favorite tracks, nothing selected", fav_page(), vec![]),
+        (
+            "the queue, nothing selected",
+            with_queue(&[1, 2], Some(1)),
+            vec![],
+        ),
+    ];
+    for (name, mut state, select) in nothing {
+        press(&mut state, &select);
+        let before = state.clone();
+        assert_eq!(press(&mut state, &ds), vec![], "{name}");
+        assert_eq!(state.popup, None, "{name}");
+        state.pending.clear();
+        state.pending_g = false;
+        assert_eq!(state, before, "{name}: state");
+    }
+}
+
+/// Spec 0020 AC11: `d s` in the library's Playlists with own and followed
+/// playlists: one question for both, asked whatever `confirm_removals`
+/// says; `y` deletes the own ones and unfollows the others; the message
+/// counts both, and failed rows stay selected.
+#[test]
+fn ac11_remove_selected_playlists() {
+    use Key::Char;
+    // Mine (own), Theirs (followed), Other (own).
+    let selected = || {
+        let mut state = library();
+        press(&mut state, &typed("s3j"));
+        state
+    };
+    let sent = vec![
+        Out::Library(LibraryRequest::DeletePlaylist { uuid: "p1".into() }),
+        Out::Library(LibraryRequest::DeletePlaylist { uuid: "p3".into() }),
+        Out::Library(LibraryRequest::RemoveFavorite(
+            FavoriteKind::Playlist,
+            "p2".into(),
+        )),
+    ];
+    for confirm in [true, false] {
+        let mut state = selected();
+        state.confirm_removals = confirm;
+        assert_eq!(press(&mut state, &typed("ds")), vec![], "{confirm}");
+        assert_eq!(
+            asked(&state).as_deref(),
+            Some("Delete 2 playlists and remove 1 from favorites? (y/n)"),
+            "{confirm}"
+        );
+        assert_eq!(
+            targets(&state),
+            vec![
+                "Delete:",
+                "Mine",
+                "Other",
+                "Remove from favorites:",
+                "Theirs"
+            ]
+        );
+        assert_eq!(outs(&press(&mut state, &[Char('y')])), sent, "{confirm}");
+    }
+
+    // All succeed: the message counts both, the selection clears.
+    let mut state = selected();
+    press(&mut state, &typed("ds"));
+    let effects = press(&mut state, &[Char('y')]);
+    for (id, _) in requests(&effects) {
+        reply(&mut state, id, LibraryResponse::Done);
+    }
+    assert_eq!(
+        state.message(),
+        Some("Deleted 2 playlists and removed 1 from favorites")
+    );
+    assert_eq!(selected_rows(&state), Vec::<usize>::new());
+
+    // Some fail: how many, and the failed rows stay selected.
+    let mut state = selected();
+    press(&mut state, &typed("ds"));
+    let asked_for = requests(&press(&mut state, &[Char('y')]));
+    // Other's deletion (row 2) fails.
+    reply(&mut state, asked_for[0].0, LibraryResponse::Done);
+    fail(&mut state, asked_for[1].0, "Network error");
+    reply(&mut state, asked_for[2].0, LibraryResponse::Done);
+    assert_eq!(
+        state.message(),
+        Some("Deleted 1 playlist and removed 1 from favorites; 1 failed")
+    );
+    assert_eq!(selected_rows(&state), vec![2]);
+
+    // The followed one fails.
+    let mut state = selected();
+    press(&mut state, &typed("ds"));
+    let asked_for = requests(&press(&mut state, &[Char('y')]));
+    reply(&mut state, asked_for[0].0, LibraryResponse::Done);
+    reply(&mut state, asked_for[1].0, LibraryResponse::Done);
+    fail(&mut state, asked_for[2].0, "Network error");
+    assert_eq!(state.message(), Some("Deleted 2 playlists; 1 failed"));
+    assert_eq!(selected_rows(&state), vec![1]);
+
+    // Only own playlists: `Delete N playlists?`, asked with the setting off.
+    let mut state = library();
+    state.confirm_removals = false;
+    press(&mut state, &typed("scjjsc"));
+    press(&mut state, &typed("ds"));
+    assert_eq!(asked(&state).as_deref(), Some("Delete 2 playlists? (y/n)"));
+    assert_eq!(targets(&state), vec!["Mine", "Other"]);
 }

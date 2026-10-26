@@ -143,6 +143,7 @@ fn popups() -> Vec<(&'static str, Popup)> {
                     uuid: "p1".into(),
                     title: "Mine".into(),
                 },
+                scroll: 0,
             },
         ),
     ]
@@ -218,6 +219,14 @@ const LISTS: [&str; 6] = [
     "SelectFirstOrScrollToTop",
     "SelectLastOrScrollToBottom",
 ];
+// Spec 0020: the selection keys, under `Lists` in every list window.
+const SELECT: [&str; 5] = [
+    "SelectCurrent",
+    "SelectDown",
+    "SelectUp",
+    "SelectMotion",
+    "SelectionActions",
+];
 const PLAYBACK: [&str; 16] = [
     "ResumePause",
     "NextTrack",
@@ -276,9 +285,15 @@ type Expected = Vec<(&'static str, Vec<&'static str>)>;
 /// A page of windows: its window section, `Lists`, `Pages`, `Playback`,
 /// `App`.
 fn page_sections(window: (&'static str, Vec<&'static str>), focus: bool, tabs: bool) -> Expected {
+    // Spec 0020: the selection keys follow the moves; `d s` where `d d`
+    // acts.
+    let mut lists = [LISTS.to_vec(), SELECT.to_vec()].concat();
+    if window.1.contains(&"RemoveSelectedItem") {
+        lists.push("RemoveSelection");
+    }
     vec![
         window,
-        ("Lists", LISTS.to_vec()),
+        ("Lists", lists),
         ("Pages", pages(focus, tabs)),
         ("Playback", PLAYBACK.to_vec()),
         // The default `[[actions]]` binding (spec 0011).
@@ -1141,13 +1156,14 @@ fn ac1_hints_entries() {
 /// level.
 #[test]
 fn ac2_hints_nested_prefix() {
-    let s = Key::Char('s');
+    // Spec 0020 binds `s …` by default: the nested prefix here is `x`.
+    let s = Key::Char('x');
     let state = keyed(
         State::default(),
         &[
-            ("s q", "Queue"),
-            ("s l a", "LikedTrackPage"),
-            ("s l b", "NextTrack"),
+            ("x q", "Queue"),
+            ("x l a", "LikedTrackPage"),
+            ("x l b", "NextTrack"),
         ],
         &[],
     );
@@ -1155,34 +1171,34 @@ fn ac2_hints_nested_prefix() {
     assert_eq!(
         hints(&after_s),
         Some(Hints {
-            prefix: "s".into(),
+            prefix: "x".into(),
             entries: vec![entry("q", "the queue page", false), nested("l", 2, false),],
         }),
-        "after s"
+        "after x"
     );
     let after_sl = pressed(state, &[s, Key::Char('l')]);
     assert_eq!(
         hints(&after_sl),
         Some(Hints {
-            prefix: "s l".into(),
+            prefix: "x l".into(),
             entries: vec![
                 entry("a", "favorite tracks", false),
                 // Empty queue: next track does nothing.
                 entry("b", "next track", true),
             ],
         }),
-        "after s l"
+        "after x l"
     );
     // Everything under `n` is dim on an empty queue.
     let all_dim = keyed(
         State::default(),
-        &[("s n a", "NextTrack"), ("s n b", "PreviousTrack")],
+        &[("x n a", "NextTrack"), ("x n b", "PreviousTrack")],
         &[],
     );
     assert_eq!(
         hints(&pressed(all_dim, &[s])),
         Some(Hints {
-            prefix: "s".into(),
+            prefix: "x".into(),
             entries: vec![nested("n", 2, true)],
         }),
         "all dim"
@@ -1407,7 +1423,143 @@ fn ac6_d_d_listed_where_it_acts() {
         let hint = hints(&pressed(state, &[Key::Char('d')]));
         let entries: Option<Vec<(String, String)>> =
             hint.map(|h| h.entries.into_iter().map(|e| (e.key, e.text)).collect());
-        let want = listed.then(|| vec![("d".to_owned(), "remove from the list".to_owned())]);
+        // Spec 0020: `d s` is listed where `d d` is.
+        let want = listed.then(|| {
+            vec![
+                ("d".to_owned(), "remove from the list".to_owned()),
+                ("s".to_owned(), "remove the selection".to_owned()),
+            ]
+        });
         assert_eq!(entries, want, "{name}: hint");
     }
+}
+
+// --- spec 0020 AC13: the selection keys in the help and the hints --------------
+
+/// Favorite tracks with rows 1 and 2, or none.
+fn favorite_rows(n: u64) -> State {
+    on_page(PageKind::FavoriteTracks, |p| {
+        p.windows[0].rows = Rows::Tracks((1..=n).map(track).collect());
+        p.windows[0].total = Some(n as u32);
+    })
+}
+
+/// Spec 0020 AC13: the keys help lists the six selection keys under
+/// `Lists` where they act (`d s` where `d d` does), with their texts; `s
+/// a` and `d s` are dim with nothing selected, `s c` in motion mode, the
+/// row keys in an empty window; 0013's hint after `s` lists `c`, `j`,
+/// `k`, `m`, `a`.
+#[test]
+fn ac13_select_keys_listed() {
+    let state = favorite_rows(2);
+    let sections = help(&state);
+    let texts: Vec<(String, String, bool)> = [
+        "SelectCurrent",
+        "SelectDown",
+        "SelectUp",
+        "SelectMotion",
+        "SelectionActions",
+        "RemoveSelection",
+    ]
+    .iter()
+    .map(|c| {
+        let r = row(&sections, c).unwrap_or_else(|| panic!("{c} not listed"));
+        (r.keys.clone(), r.text.clone(), r.dim)
+    })
+    .collect();
+    let t = |k: &str, text: &str, dim: bool| (k.to_owned(), text.to_owned(), dim);
+    assert_eq!(
+        texts,
+        vec![
+            t("s c", "select / unselect the row", false),
+            t("s j", "select rows down", false),
+            t("s k", "select rows up", false),
+            t("s m", "motion mode on / off", false),
+            t("s a", "actions on the selection", true),
+            t("d s", "remove the selection", true),
+        ]
+    );
+    let lists = names(&sections, "Lists");
+    assert_eq!(
+        &lists[6..],
+        &[
+            "SelectCurrent",
+            "SelectDown",
+            "SelectUp",
+            "SelectMotion",
+            "SelectionActions",
+            "RemoveSelection",
+        ]
+    );
+
+    let dim = |state: &State, command: &str| row(&help(state), command).map(|r| r.dim);
+    // A selection: `s a` and `d s` act.
+    let selected = pressed(favorite_rows(2), &typed("sc"));
+    assert_eq!(dim(&selected, "SelectionActions"), Some(false));
+    assert_eq!(dim(&selected, "RemoveSelection"), Some(false));
+    // Motion mode: `s c` does nothing.
+    let motion = pressed(favorite_rows(2), &typed("sm"));
+    assert_eq!(dim(&motion, "SelectCurrent"), Some(true));
+    assert_eq!(dim(&motion, "SelectionActions"), Some(false));
+    // An empty window: nothing to select.
+    let empty = favorite_rows(0);
+    for command in ["SelectCurrent", "SelectDown", "SelectUp", "SelectMotion"] {
+        assert_eq!(dim(&empty, command), Some(true), "{command}");
+    }
+
+    // Where they are listed: `d s` only where `d d` is; nothing on the top
+    // hit, the input or over a popup.
+    let cases: Vec<(&str, State, bool, bool)> = vec![
+        ("queue", with_queue(), true, true),
+        ("album", on_page(PageKind::Album(10), |_| {}), true, false),
+        ("own playlist", playlist_page(true), true, true),
+        ("library artists", focused(PageKind::Library, 2), true, true),
+        (
+            "search tracks",
+            search_on(SearchFocus::Windows, 0),
+            true,
+            false,
+        ),
+        (
+            "search top hit",
+            search_on(SearchFocus::TopHit, 0),
+            false,
+            false,
+        ),
+        (
+            "search input",
+            search_on(SearchFocus::Input, 0),
+            false,
+            false,
+        ),
+        ("a popup", with_popup(popups().remove(0).1), false, false),
+    ];
+    for (name, state, select, remove) in cases {
+        let sections = help(&state);
+        assert_eq!(row(&sections, "SelectCurrent").is_some(), select, "{name}");
+        assert_eq!(
+            row(&sections, "SelectionActions").is_some(),
+            select,
+            "{name}"
+        );
+        assert_eq!(
+            row(&sections, "RemoveSelection").is_some(),
+            remove,
+            "{name}"
+        );
+    }
+
+    // The hint after `s`.
+    let hint = hints(&pressed(favorite_rows(2), &typed("s"))).expect("a hint after s");
+    assert_eq!(hint.prefix, "s");
+    assert_eq!(
+        hint.entries,
+        vec![
+            entry("c", "select / unselect the row", false),
+            entry("j", "select rows down", false),
+            entry("k", "select rows up", false),
+            entry("m", "motion mode on / off", false),
+            entry("a", "actions on the selection", true),
+        ]
+    );
 }

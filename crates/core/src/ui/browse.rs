@@ -787,7 +787,10 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
         }
         // Their keys are fixed: only `ClosePopup` acts on them; the Themes
         // popup's commands are its own (above).
-        popup @ (Popup::NewPlaylist { .. } | Popup::Confirm { .. } | Popup::Themes { .. }) => {
+        popup @ (Popup::NewPlaylist { .. }
+        | Popup::Confirm { .. }
+        | Popup::Themes { .. }
+        | Popup::SelectionActions { .. }) => {
             state.popup = Some(popup);
         }
     }
@@ -933,6 +936,7 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),
                 on_yes: Confirmed::DeletePlaylist { uuid, title },
+                scroll: 0,
             });
             Vec::new()
         }
@@ -949,6 +953,7 @@ pub(super) fn ask_removal(state: &mut State, removal: Removal) -> Vec<Effect> {
     state.popup = Some(Popup::Confirm {
         question: popup::question(&removal),
         on_yes: Confirmed::Remove(removal),
+        scroll: 0,
     });
     Vec::new()
 }
@@ -976,6 +981,7 @@ fn remove(state: &mut State, removal: Removal) -> Vec<Effect> {
                 _ => None,
             })
             .collect(),
+        RemoveFrom::OwnPlaylists => Vec::new(),
         RemoveFrom::Playlist { uuid, title, etag } => match items.as_slice() {
             [item] => match item.target {
                 RemovedTarget::Position(index) => write(
@@ -1020,6 +1026,7 @@ fn confirmed(state: &mut State, on_yes: Confirmed) -> Vec<Effect> {
             Write::DeletePlaylist { uuid, title },
         ),
         Confirmed::Remove(removal) => remove(state, removal),
+        Confirmed::RemoveSelection(_) => Vec::new(),
     }
 }
 
@@ -1077,6 +1084,7 @@ fn add_tracks(
                 title,
                 tracks,
             },
+            scroll: 0,
         });
         return Vec::new();
     }

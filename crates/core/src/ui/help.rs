@@ -406,7 +406,7 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
-        Popup::NewPlaylist { .. } => false,
+        Popup::NewPlaylist { .. } | Popup::SelectionActions { .. } => false,
     }
 }
 
@@ -435,6 +435,7 @@ fn popup_title(popup: &Popup) -> &'static str {
         Popup::Roles { .. } => "Popup · Role filter",
         Popup::Devices { .. } => "Popup · Devices",
         Popup::Themes { .. } => "Popup · Themes",
+        Popup::SelectionActions { .. } => "Popup · Selection",
     }
 }
 
@@ -681,6 +682,12 @@ fn text(at: Where, command: UiCommand) -> String {
         C::PageSelectPreviousOrScrollUp => owned("move up a window"),
         C::SelectFirstOrScrollToTop => owned("move to the top"),
         C::SelectLastOrScrollToBottom => owned("move to the last loaded row"),
+        C::SelectCurrent => owned("select / unselect the row"),
+        C::SelectDown => owned("select rows down"),
+        C::SelectUp => owned("select rows up"),
+        C::SelectMotion => owned("motion mode on / off"),
+        C::SelectionActions => owned("actions on the selection"),
+        C::RemoveSelection => owned("remove the selection"),
         C::ShowActionsOnCurrentTrack => owned("actions on the playing track"),
         C::FocusNextWindow => owned("next pane"),
         C::FocusPreviousWindow => owned("previous pane"),
