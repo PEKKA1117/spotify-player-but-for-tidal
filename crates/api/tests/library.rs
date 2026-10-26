@@ -1644,6 +1644,119 @@ async fn ac7_writes() {
     }
 }
 
+/// AC14: several playlist positions go in one `DELETE .../items/{i,j,k}`
+/// with the ETag; one position is today's request; none sends nothing; a
+/// `412` is the changed-playlist message, never retried.
+#[tokio::test]
+async fn ac14_remove_several_positions() {
+    struct Row {
+        name: &'static str,
+        indices: Vec<u32>,
+        answers: Vec<Answer>,
+        want_requests: Vec<Seen>,
+        want: Result<LibraryResponse, String>,
+    }
+    let items_path = format!("/v1/playlists/{UUID}/items");
+    let changed = "The playlist changed: nothing was changed, try again";
+    let rows = vec![
+        Row {
+            name: "three positions: one request, comma-joined, given order",
+            indices: vec![1, 4, 7],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "order is kept, not sorted",
+            indices: vec![7, 1],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/7,1"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/7,1"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "one position: today's request",
+            indices: vec![3],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/3"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/3"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "no positions: nothing sent",
+            indices: vec![],
+            answers: vec![],
+            want_requests: vec![],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "412 on several: the message, no retry",
+            indices: vec![1, 4, 7],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                412,
+                ETAG_7002,
+                None,
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Err(changed.into()),
+        },
+    ];
+    for row in rows {
+        let s = Setup::new().await;
+        mount_in_order(&s, &row.answers).await;
+        let request = LibraryRequest::RemoveFromPlaylist {
+            uuid: UUID.into(),
+            indices: row.indices,
+            etag: E1.into(),
+        };
+        let got = s.ask(request).await.map_err(|e| e.to_string());
+        assert_eq!(got, row.want, "{}", row.name);
+        assert_eq!(s.seen().await, row.want_requests, "{}: requests", row.name);
+    }
+}
+
 /// AC7: `IsFavorite` reads `/users/{user}/favorites/ids` (a shape that is
 /// assumed, see the fixtures README).
 #[tokio::test]
