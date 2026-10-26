@@ -35,6 +35,7 @@ Unchanged from today except the publish step:
 - **AC3** — The command (fake fetcher and runner, table): `publish` fetches each publishable crate once, then runs `cargo publish -p <name>` for each planned crate in order and prints each skip; a 404 → never published; a fetch failure other than 404 → an error and **no** `cargo publish` run; a failing `cargo publish` → stops there, the error names the crate, later crates are not run; `--dry-run` → prints the plan and runs nothing; an empty plan → prints `nothing to publish` and succeeds
 - **AC4** — The workflow: `release.yml`'s publish step runs `cargo xtask publish` with `CARGO_REGISTRY_TOKEN`, and no step runs `cargo publish --workspace` (a test reads the file)
 - **AC5** — Re-released `v1.2.0` (by hand, at acceptance; it needs the real crates.io and a tag): the run publishes `tidal-player-core` 1.2.0 and `tidal-player` 1.2.0, skips `api` and `audio` 1.1.0, and creates the GitHub release with its three files. No automated test: it would publish for real
+- **AC6** — Pinned internal dependencies (Bug 2): every dependency of a workspace crate on another workspace crate that carries a version requires exactly that version (`=x.y.z`, a single `=` comparator), so a published crate needs the crates it was released with (a test reads the real workspace)
 
 ## Edge cases & errors
 
@@ -57,6 +58,7 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 | AC3 | `xtask/src/publish.rs` :: `ac3_publish_command` (table) | fetches, `cargo publish` calls and their order, output, errors | stub command runs `cargo publish -p` for every crate |
 | AC4 | `xtask/tests/release_workflow.rs` :: `ac4_workflow_uses_xtask_publish` | the step's `run:` and no `--workspace` publish | the workflow still has `cargo publish --workspace` (the red commit leaves it) |
 | AC5 | by hand at acceptance (see AC5) | the real release | — |
+| AC6 | `xtask/tests/workspace.rs` :: `ac6_internal_dependencies_are_pinned` | every internal dependency's requirement is one `=` comparator | `[workspace.dependencies]` still has caret requirements (`^1.2.1`) |
 
 ## Bugs
 
@@ -66,6 +68,13 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 - **Actual**: run 40090212356 failed in "Publish to crates.io": `error: crate tidal-player-api@1.1.0 already exists on crates.io index`. Nothing was uploaded, and no release was created
 - **Root cause**: `cargo publish --workspace` publishes every publishable crate and has no option to skip a version already on crates.io; #43's rule leaves unchanged crates at their published version
 - **New criteria**: AC1 (today's case), AC4. The `v1.2.0` tag is moved to the merged fix and pushed again (AC5)
+
+### Bug 2 — internal dependencies use caret requirements (#74)
+
+- **Expected**: `cargo install tidal-player --version <an older version>` builds the crates that version was released with
+- **Actual (risk)**: `[workspace.dependencies]` gives `tidal-player-core`, `-api` and `-audio` caret requirements (`version = "1.2.1"`). A fix or feature is a patch release and the major version stays `1` (`CLAUDE.md` "Versions"), so a later `1.x` of a library may change its API incompatibly. Without `--locked`, cargo resolves an older `tidal-player` against the newest `1.x` and the install fails to compile
+- **Root cause**: the requirements follow cargo's default (`^`), which assumes semver compatibility the release rule does not promise
+- **New criteria**: AC6. The `[workspace.dependencies]` entries of the internal crates use `version = "=x.y.z"`, and a bumped crate's entry gets `=<new version>`. Applies from the first release after the fix; published versions up to v1.2.1 keep `^` (`cargo install --locked` works around it)
 
 ## Implementation notes
 
