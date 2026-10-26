@@ -201,7 +201,15 @@ impl LibraryClient {
                     .await?;
                 Ok(LibraryResponse::Done)
             }
-            LibraryRequest::RemoveFromPlaylist { uuid, index, etag } => {
+            LibraryRequest::RemoveFromPlaylist {
+                uuid,
+                indices,
+                etag,
+            } => {
+                // Stub until spec 0020 AC14: the first position only.
+                let Some(&index) = indices.first() else {
+                    return Ok(LibraryResponse::Done);
+                };
                 self.remove_from_playlist(&uuid, index, &etag).await?;
                 Ok(LibraryResponse::Done)
             }

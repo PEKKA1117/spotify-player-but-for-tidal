@@ -982,7 +982,7 @@ fn remove(state: &mut State, removal: Removal) -> Vec<Effect> {
                     state,
                     LibraryRequest::RemoveFromPlaylist {
                         uuid: uuid.clone(),
-                        index,
+                        indices: vec![index],
                         etag: etag.unwrap_or_default(),
                     },
                     Write::RemoveFromPlaylist { uuid, title },

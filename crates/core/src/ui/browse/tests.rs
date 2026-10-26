@@ -1486,7 +1486,7 @@ fn ac14_playlist_editing() {
                 outs(&effects),
                 vec![Out::Library(LibraryRequest::RemoveFromPlaylist {
                     uuid: "p1".into(),
-                    index: 1,
+                    indices: vec![1],
                     etag: "e1".into(),
                 })]
             );
@@ -2570,7 +2570,7 @@ fn ac2_confirm_remove_from_playlist() {
     use Key::{Char, Ctrl, Esc};
     let request = LibraryRequest::RemoveFromPlaylist {
         uuid: "p1".into(),
-        index: 1,
+        indices: vec![1],
         etag: "e1".into(),
     };
     for via_binding in [false, true] {
@@ -2835,7 +2835,7 @@ fn ac10_remove_selected_item() {
             "Remove T6 from Mine? (y/n)",
             Out::Library(LibraryRequest::RemoveFromPlaylist {
                 uuid: "p1".into(),
-                index: 1,
+                indices: vec![1],
                 etag: "e1".into(),
             }),
         ),

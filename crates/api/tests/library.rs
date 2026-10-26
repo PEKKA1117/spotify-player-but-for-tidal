@@ -1566,7 +1566,7 @@ async fn ac7_writes() {
         name: "remove: the given position and ETag".into(),
         request: LibraryRequest::RemoveFromPlaylist {
             uuid: UUID.into(),
-            index: 3,
+            indices: vec![3],
             etag: E1.into(),
         },
         answers: vec![answer(
@@ -1589,7 +1589,7 @@ async fn ac7_writes() {
         name: "remove on 412: the message, no retry".into(),
         request: LibraryRequest::RemoveFromPlaylist {
             uuid: UUID.into(),
-            index: 3,
+            indices: vec![3],
             etag: E1.into(),
         },
         answers: vec![answer(
@@ -1711,7 +1711,7 @@ async fn ac7_errors_pass_through() {
                 "remove from playlist",
                 LibraryRequest::RemoveFromPlaylist {
                     uuid: UUID.into(),
-                    index: 0,
+                    indices: vec![0],
                     etag: E1.into(),
                 },
             ),
