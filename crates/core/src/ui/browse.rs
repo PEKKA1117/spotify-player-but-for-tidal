@@ -16,7 +16,7 @@ use super::popup::{
     self, Confirmed, DeviceList, MenuAction, Popup, Removal, RemoveFrom, Removed, RemovedTarget,
     TrackSource, device_rows,
 };
-use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State, filter};
+use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State, filter, select};
 
 /// The message of a removal refused because the playlist changed (`412`),
 /// as the player words it (spec 0006 "Talking to the player").
@@ -34,8 +34,9 @@ pub struct WholeList {
 pub enum WholeListSource {
     /// A window of a page in the history.
     Window { page: usize, window: usize },
-    /// A list no page shows (an album row's tracks).
-    Detached(Window),
+    /// A list no page shows (an album row's tracks); boxed, as a window
+    /// is large beside the other variant.
+    Detached(Box<Window>),
 }
 
 /// What happens once the list is whole.
@@ -162,6 +163,7 @@ pub(super) fn open(state: &mut State, kind: PageKind) -> Vec<Effect> {
 /// Pushes `page` on the history, dropping the oldest page above the queue
 /// past [`MAX_HISTORY`].
 pub(super) fn push(state: &mut State, page: Page) {
+    select::leave_page(state);
     state.history.push(page);
     if state.history.len() > MAX_HISTORY + 1 {
         state.history.remove(1);
@@ -171,6 +173,7 @@ pub(super) fn push(state: &mut State, page: Page) {
 /// `Backspace`/`C-q`: back to the page under; the queue stays.
 pub(super) fn back(state: &mut State) -> Vec<Effect> {
     if state.history.len() > 1 {
+        select::leave_page(state);
         state.history.pop();
     }
     Vec::new()
@@ -178,6 +181,7 @@ pub(super) fn back(state: &mut State) -> Vec<Effect> {
 
 /// `Tab`/`BackTab`: the next or previous pane, wrapping.
 pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
+    select::leave_focus(state);
     let index = top(state);
     state.history[index].cycle_pane(forward);
     let mut effects = Vec::new();
@@ -187,6 +191,7 @@ pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
 
 /// `[`/`]`: the previous or next tab of the focused pane, wrapping.
 pub(super) fn cycle_tab(state: &mut State, forward: bool) -> Vec<Effect> {
+    select::leave_focus(state);
     let index = top(state);
     state.history[index].cycle_tab(forward);
     let mut effects = Vec::new();
@@ -642,9 +647,26 @@ pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>
             Some(Popup::Confirm { on_yes, .. }) => Some(confirmed(state, on_yes)),
             _ => Some(Vec::new()),
         },
-        (Popup::Confirm { .. }, Key::Char('n')) => {
+        (Popup::Confirm { on_yes, .. }, Key::Char('n')) => {
+            if matches!(on_yes, Confirmed::AddToPlaylist { .. }) {
+                state.selection_add = None;
+            }
             state.popup = None;
             Some(Vec::new())
+        }
+        // Spec 0020: `p`, `N` and `a` run their action of the selection
+        // popup.
+        (Popup::SelectionActions { actions, .. }, Key::Char(c))
+            if actions.iter().any(|a| a.key() == Some(c)) =>
+        {
+            let Some(Popup::SelectionActions {
+                actions, origin, ..
+            }) = state.popup.take()
+            else {
+                return Some(Vec::new());
+            };
+            let action = actions.into_iter().find(|a| a.key() == Some(c))?;
+            Some(select::run(state, origin, action))
         }
         (Popup::Roles { checked, cursor }, Key::Char(' ')) => {
             checked[*cursor] = !checked[*cursor];
@@ -672,7 +694,7 @@ fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
         return Vec::new();
     };
     match key {
-        Key::Esc => {}
+        Key::Esc => state.selection_add = None,
         Key::Enter => {
             let title = name.trim().to_owned();
             if !title.is_empty() {
@@ -712,7 +734,56 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
     let close = command == UiCommand::ClosePopup;
     let choose = command == UiCommand::ChooseSelected;
     match popup {
-        _ if close => {}
+        _ if close => {
+            // A cancelled *Add to playlist…* of the selection keeps it.
+            if matches!(
+                popup,
+                Popup::AddToPlaylist { .. }
+                    | Popup::Confirm {
+                        on_yes: Confirmed::AddToPlaylist { .. },
+                        ..
+                    }
+            ) {
+                state.selection_add = None;
+            }
+        }
+        Popup::SelectionActions {
+            title,
+            actions,
+            cursor,
+            origin,
+        } => {
+            if choose {
+                if let Some(action) = actions.get(cursor).cloned() {
+                    return select::run(state, origin, action);
+                }
+            } else {
+                state.popup = Some(Popup::SelectionActions {
+                    cursor: step(command, cursor, actions.len(), height),
+                    title,
+                    actions,
+                    origin,
+                });
+            }
+        }
+        // Spec 0020: the list moves scroll a question's target list.
+        Popup::Confirm {
+            question,
+            on_yes,
+            scroll,
+        } => {
+            let lines = popup::target_lines(&on_yes).len();
+            let scroll = if lines > 0 && command.is_list_move() {
+                step(command, scroll, lines, height)
+            } else {
+                scroll
+            };
+            state.popup = Some(Popup::Confirm {
+                question,
+                on_yes,
+                scroll,
+            });
+        }
         Popup::Actions {
             title,
             actions,
@@ -787,10 +858,7 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
         }
         // Their keys are fixed: only `ClosePopup` acts on them; the Themes
         // popup's commands are its own (above).
-        popup @ (Popup::NewPlaylist { .. }
-        | Popup::Confirm { .. }
-        | Popup::Themes { .. }
-        | Popup::SelectionActions { .. }) => {
+        popup @ (Popup::NewPlaylist { .. } | Popup::Themes { .. }) => {
             state.popup = Some(popup);
         }
     }
@@ -885,23 +953,8 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
             },
         ),
         MenuAction::AddToPlaylist(tracks) => {
-            let mut playlists = Window::new(WindowKind::Playlists, ListRef::Playlists);
-            let more = LibraryRequest::More {
-                list: ListRef::Playlists,
-                offset: 0,
-                limit: limit(state, &ListRef::Playlists),
-            };
-            let mut effects = Vec::new();
-            playlists.load = match request(state, more, &mut effects) {
-                Some(id) => Load::Loading { id },
-                None => Load::Failed(connection_message(state)),
-            };
-            state.popup = Some(Popup::AddToPlaylist {
-                tracks,
-                playlists,
-                cursor: 0,
-            });
-            effects
+            state.selection_add = None;
+            open_picker(state, tracks)
         }
         MenuAction::RemoveFromPlaylist {
             uuid,
@@ -941,6 +994,28 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
             Vec::new()
         }
     }
+}
+
+/// Opens *Add to playlist…*'s picker for `tracks`, asking for the user's
+/// playlists.
+pub(super) fn open_picker(state: &mut State, tracks: TrackSource) -> Vec<Effect> {
+    let mut playlists = Window::new(WindowKind::Playlists, ListRef::Playlists);
+    let more = LibraryRequest::More {
+        list: ListRef::Playlists,
+        offset: 0,
+        limit: limit(state, &ListRef::Playlists),
+    };
+    let mut effects = Vec::new();
+    playlists.load = match request(state, more, &mut effects) {
+        Some(id) => Load::Loading { id },
+        None => Load::Failed(connection_message(state)),
+    };
+    state.popup = Some(Popup::AddToPlaylist {
+        tracks,
+        playlists,
+        cursor: 0,
+    });
+    effects
 }
 
 /// Opens the question for `removal`, or removes at once with
@@ -1005,11 +1080,21 @@ fn remove(state: &mut State, removal: Removal) -> Vec<Effect> {
 
 /// Sends a library write and remembers it for its reply.
 fn write(state: &mut State, request_: LibraryRequest, write: Write) -> Vec<Effect> {
+    write_id(state, request_, write).0
+}
+
+/// [`write`], with the request's ID (`None`: not sent, disconnected).
+pub(super) fn write_id(
+    state: &mut State,
+    request_: LibraryRequest,
+    write: Write,
+) -> (Vec<Effect>, Option<u64>) {
     let mut effects = Vec::new();
-    if let Some(id) = request(state, request_, &mut effects) {
+    let id = request(state, request_, &mut effects);
+    if let Some(id) = id {
         state.writes.push((id, write));
     }
-    effects
+    (effects, id)
 }
 
 /// `y` to a question.
@@ -1026,7 +1111,7 @@ fn confirmed(state: &mut State, on_yes: Confirmed) -> Vec<Effect> {
             Write::DeletePlaylist { uuid, title },
         ),
         Confirmed::Remove(removal) => remove(state, removal),
-        Confirmed::RemoveSelection(_) => Vec::new(),
+        Confirmed::RemoveSelection(removal) => select::remove(state, removal),
     }
 }
 
@@ -1046,10 +1131,10 @@ fn add_source(
                 return Vec::new();
             }
             state.whole_list = Some(WholeList {
-                source: WholeListSource::Detached(Window::new(
+                source: WholeListSource::Detached(Box::new(Window::new(
                     WindowKind::AlbumTracks,
                     ListRef::AlbumTracks(id),
-                )),
+                ))),
                 purpose: Purpose::AddToPlaylist {
                     uuid,
                     title,
@@ -1115,7 +1200,7 @@ fn send_add(
         return Vec::new();
     }
     let count = tracks.len();
-    write(
+    let (effects, id) = write_id(
         state,
         LibraryRequest::AddToPlaylist {
             uuid: uuid.clone(),
@@ -1123,7 +1208,10 @@ fn send_add(
             allow_duplicates,
         },
         Write::AddToPlaylist { uuid, title, count },
-    )
+    );
+    // Spec 0020: from the selection, it clears once added.
+    select::adding(state, id);
+    effects
 }
 
 /// A command during a whole-list load: `ClosePopup` (`Esc`) cancels it;
@@ -1260,7 +1348,10 @@ pub(super) fn reply(
     // A write.
     if let Some(index) = state.writes.iter().position(|(w, _)| *w == id) {
         let (_, write) = state.writes.remove(index);
+        let before = state.message.clone();
+        let error = result.as_ref().err().cloned();
         written(state, write, result, &mut effects);
+        select::answered(state, id, error, before);
     }
     effects
 }
@@ -1276,6 +1367,9 @@ fn written(
     let response = match result {
         Ok(response) => response,
         Err(message) => {
+            if matches!(write, Write::Create { .. }) {
+                state.selection_add = None;
+            }
             if let Write::RemoveFromPlaylist { uuid, .. } = &write
                 && message == PLAYLIST_CHANGED
             {
@@ -1362,6 +1456,9 @@ pub(super) fn disconnected(state: &mut State) {
     }
     cancel_whole_list(state);
     state.writes.clear();
+    // Nothing of a selection's writes succeeded: the selections stay.
+    state.batches.clear();
+    state.selection_add = None;
 }
 
 /// Joined again: the page on top is fetched again if it failed because

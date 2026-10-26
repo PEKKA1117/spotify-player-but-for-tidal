@@ -36,7 +36,7 @@ use super::keymap::{ActionKind, Binding, COMMANDS, KeySequence, Target, UiComman
 use super::page::{Load, Page, WindowKind};
 use super::popup::Popup;
 use super::search::SearchFocus;
-use super::{Connection, Effect, Key, PageKind, State, browse, filter};
+use super::{Connection, Effect, Key, PageKind, State, browse, filter, select};
 
 /// The help popup's state: the filter and the highlighted row. What it
 /// lists is computed from the rest of the [`State`] ([`help`],
@@ -172,7 +172,10 @@ pub fn help(state: &State) -> Vec<HelpSection> {
                 command_rows(state, at, |c| in_window(state, at, c)),
             );
             if matches!(at, Where::Queue | Where::Window(_)) {
-                add("Lists", command_rows(state, at, UiCommand::is_list_move));
+                add(
+                    "Lists",
+                    command_rows(state, at, |c| c.is_list_move() || in_lists(state, at, c)),
+                );
             }
             add("Pages", command_rows(state, at, |c| in_pages(page, c)));
             add("Playback", command_rows(state, at, is_playback));
@@ -393,6 +396,23 @@ fn in_window(state: &State, at: Where, command: UiCommand) -> bool {
     }
 }
 
+/// The selection keys of `Lists` (spec 0020): in every list window and
+/// the queue; `RemoveSelection` where `RemoveSelectedItem` acts.
+fn in_lists(state: &State, at: Where, command: UiCommand) -> bool {
+    use UiCommand as C;
+    match command {
+        C::SelectCurrent | C::SelectDown | C::SelectUp | C::SelectMotion | C::SelectionActions => {
+            matches!(at, Where::Queue | Where::Window(_))
+        }
+        C::RemoveSelection => match at {
+            Where::Queue => true,
+            Where::Window(kind) => browse::removable(state.page(), kind),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// The commands that act in `popup` (spec 0008: the list commands,
 /// `ChooseSelected`, `ClosePopup`, `OpenCommandHelp`; the questions and
 /// prompts take their keys themselves).
@@ -402,11 +422,12 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
         | Popup::AddToPlaylist { .. }
         | Popup::Roles { .. }
         | Popup::Devices { .. }
-        | Popup::Themes { .. } => {
+        | Popup::Themes { .. }
+        | Popup::SelectionActions { .. } => {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
-        Popup::NewPlaylist { .. } | Popup::SelectionActions { .. } => false,
+        Popup::NewPlaylist { .. } => false,
     }
 }
 
@@ -418,6 +439,7 @@ fn popup_has_list(popup: &Popup) -> bool {
             | Popup::Roles { .. }
             | Popup::Devices { .. }
             | Popup::Themes { .. }
+            | Popup::SelectionActions { .. }
     )
 }
 
@@ -506,6 +528,13 @@ fn filter_rows() -> Vec<HelpRow> {
 
 /// The keys a popup takes before the keymap.
 fn popup_fixed_rows(popup: &Popup) -> Vec<HelpRow> {
+    // Spec 0020: the selection popup's keys for the actions it lists.
+    if let Popup::SelectionActions { actions, .. } = popup {
+        return actions
+            .iter()
+            .filter_map(|a| Some(fixed_row(&a.key()?.to_string(), &a.label().to_lowercase())))
+            .collect();
+    }
     let rows: &[(&str, &str)] = match popup {
         Popup::Roles { .. } => &[("space", "check / uncheck")],
         Popup::Confirm { .. } => &[("y", "yes"), ("n", "no")],
@@ -746,6 +775,14 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
         | C::RemoveFromQueue
         | C::RemoveSelectedItem => offline || no_selection(state, at),
         C::ShowActionsOnSelectedItem => no_selection(state, at),
+        // Spec 0020: `s c` does nothing in motion mode, `s a` and `d s`
+        // with nothing selected.
+        C::SelectCurrent => {
+            no_selection(state, at) || select::focused_marks(state).is_some_and(|m| m.motion)
+        }
+        C::SelectDown | C::SelectUp | C::SelectMotion => no_selection(state, at),
+        C::SelectionActions => select::focused_marks(state).is_none_or(|m| m.count == 0),
+        C::RemoveSelection => offline || select::focused_marks(state).is_none_or(|m| m.count == 0),
         // The filter acts on a loaded page only (spec 0012).
         C::Search => state.page().load != Load::Idle,
         _ => false,

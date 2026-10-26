@@ -123,8 +123,22 @@ pub struct SelectionPart {
 /// ([`question`]), `Delete N playlists and remove M from favorites? (y/n)`
 /// for own and followed playlists together.
 pub fn selection_question(removal: &SelectionRemoval) -> String {
-    let _ = removal;
-    String::new()
+    match removal.parts.as_slice() {
+        [one] => question(&one.removal),
+        parts => {
+            let count = |from: fn(&RemoveFrom) -> bool| -> usize {
+                parts
+                    .iter()
+                    .filter(|p| from(&p.removal.from))
+                    .map(|p| p.removal.items.len())
+                    .sum()
+            };
+            let deleted = count(|f| *f == RemoveFrom::OwnPlaylists);
+            let removed = count(|f| matches!(f, RemoveFrom::Favorites(_)));
+            let plural = if deleted == 1 { "" } else { "s" };
+            format!("Delete {deleted} playlist{plural} and remove {removed} from favorites? (y/n)")
+        }
+    }
 }
 
 /// One line of the target list under a removal question (spec 0020): a
@@ -140,8 +154,28 @@ pub struct TargetLine {
 /// under a heading per list when there are two; nothing for the other
 /// questions.
 pub fn target_lines(on_yes: &Confirmed) -> Vec<TargetLine> {
-    let _ = on_yes;
-    Vec::new()
+    let Confirmed::RemoveSelection(removal) = on_yes else {
+        return Vec::new();
+    };
+    let headed = removal.parts.len() > 1;
+    let mut lines = Vec::new();
+    for part in &removal.parts {
+        if headed {
+            let heading = match part.removal.from {
+                RemoveFrom::OwnPlaylists => "Delete:",
+                _ => "Remove from favorites:",
+            };
+            lines.push(TargetLine {
+                text: heading.to_owned(),
+                heading: true,
+            });
+        }
+        lines.extend(part.removal.items.iter().map(|item| TargetLine {
+            text: item.title.clone(),
+            heading: false,
+        }));
+    }
+    lines
 }
 
 /// What a removal question asks about (spec 0019): the items hold what
@@ -260,11 +294,13 @@ pub enum Popup {
     /// The themes (spec 0017): the cursor over [`super::State::themes`],
     /// and the theme in use when it opened (`●`), which `Esc` goes back to.
     Themes { cursor: usize, active: usize },
-    /// The actions on the selection (spec 0020): titled `N selected`.
+    /// The actions on the selection (spec 0020): titled `N selected`,
+    /// on the selection at `origin`.
     SelectionActions {
         title: String,
         actions: Vec<SelectionAction>,
         cursor: usize,
+        origin: Origin,
     },
 }
 

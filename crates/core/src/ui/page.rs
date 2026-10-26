@@ -9,10 +9,11 @@ use crate::library::{
     AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest,
     PlaylistSummary, RadioSeed, RoleCategory, TopHit,
 };
-use crate::track::{ArtistRef, Track};
+use crate::track::{ArtistRef, EntryId, Track};
 
 use super::filter::{self, Filter};
 use super::search::{Search, SearchFocus};
+use super::select::Selection;
 
 /// The history keeps at most this many pages above the queue (the queue at
 /// the bottom is never dropped).
@@ -342,6 +343,9 @@ pub struct Window {
     /// `rows`, both filters applied), matched once per filter edit or
     /// page arrival rather than per drawn row; `None` without one.
     shown: Option<Vec<usize>>,
+    /// The rows selected (spec 0020), by index into `rows`; lost when the
+    /// list is reloaded.
+    pub selection: Selection<usize>,
 }
 
 impl Window {
@@ -379,6 +383,7 @@ impl Window {
             whole: false,
             filter: Filter::default(),
             shown: None,
+            selection: Selection::default(),
         }
     }
 
@@ -553,10 +558,12 @@ impl Window {
         }
     }
 
-    /// Forgets the loaded rows (before a page is fetched again); the
-    /// cursor, the role filter and the text filter stay.
+    /// Forgets the loaded rows (before a page is fetched again) and the
+    /// selection of them (spec 0020); the cursor, the role filter and the
+    /// text filter stay.
     pub(super) fn reset(&mut self) {
         self.rows = self.rows.emptied();
+        self.selection = Selection::default();
         self.positions.clear();
         self.total = None;
         self.hidden = 0;
@@ -704,6 +711,9 @@ pub struct Page {
     /// The queue page's filter (spec 0012: it has no window); unused on
     /// the other pages, whose windows have their own.
     pub filter: Filter,
+    /// The queue's selection (spec 0020), on the queue page at the bottom
+    /// of the history; unused on the other pages.
+    pub selection: Selection<EntryId>,
 }
 
 impl Page {
@@ -774,6 +784,7 @@ impl Page {
             tabs,
             windows,
             filter: Filter::default(),
+            selection: Selection::default(),
         }
     }
 

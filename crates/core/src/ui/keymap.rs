@@ -606,6 +606,14 @@ pub enum Lookup {
     Unbound,
 }
 
+/// The value of a digit key (`0`–`9`).
+fn digit(key: Key) -> Option<usize> {
+    match key {
+        Key::Char(c) => c.to_digit(10).map(|d| d as usize),
+        _ => None,
+    }
+}
+
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
 pub const UNSUPPORTED_COMMANDS: [&str; 27] = [
@@ -867,6 +875,10 @@ impl Keymap {
     /// What `keys` name: a binding (with the count a `SelectDown` or
     /// `SelectUp` binding's sequence has in it), the start of one, a
     /// cancelled count, or nothing (spec 0020 "Counts").
+    ///
+    /// A bound sequence or the start of one wins over a count; a count
+    /// goes after the first key of a sequence at least, so a digit typed
+    /// alone is never one.
     pub fn lookup(&self, keys: &[Key]) -> Lookup {
         if let Some(binding) = self.get(keys) {
             return Lookup::Bound(binding, None);
@@ -874,7 +886,39 @@ impl Keymap {
         if self.starts(keys) {
             return Lookup::Starts;
         }
-        Lookup::Unbound
+        let mut found = Lookup::Unbound;
+        for (sequence, binding) in &self.bindings {
+            let Binding::Command(command) = binding else {
+                continue;
+            };
+            let Some((last, prefix)) = sequence.0.split_last() else {
+                continue;
+            };
+            if !command.is_counted() || prefix.is_empty() || !keys.starts_with(prefix) {
+                continue;
+            }
+            let rest = &keys[prefix.len()..];
+            let digits = rest.iter().take_while(|k| digit(**k).is_some()).count();
+            if digits == 0 {
+                continue;
+            }
+            match &rest[digits..] {
+                [] => return Lookup::Starts,
+                [key] if key == last => {
+                    let count = rest[..digits].iter().fold(0usize, |n, k| {
+                        n.saturating_mul(10)
+                            .saturating_add(digit(*k).unwrap_or_default())
+                    });
+                    if count == 0 {
+                        found = Lookup::Cancel;
+                    } else {
+                        return Lookup::Bound(*binding, Some(count));
+                    }
+                }
+                _ => found = Lookup::Cancel,
+            }
+        }
+        found
     }
 
     /// Whether `keys` is the start of a longer binding.
@@ -956,6 +1000,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
     let one = |key: Key| KeySequence(vec![key]);
     let g = |c: char| KeySequence(vec![Char('g'), Char(c)]);
     let d = |c: char| KeySequence(vec![Char('d'), Char(c)]);
+    let s = |c: char| KeySequence(vec![Char('s'), Char(c)]);
     let table: Vec<(Vec<KeySequence>, UiCommand)> = vec![
         (vec![one(Char(' '))], C::ResumePause),
         (vec![one(Char('n'))], C::NextTrack),
@@ -993,12 +1038,19 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
             vec![one(Char('G')), one(B::End.key())],
             C::SelectLastOrScrollToBottom,
         ),
+        // Spec 0020: the selection keys after `s` (`d s` is beside `d d`).
+        (vec![s('c')], C::SelectCurrent),
+        (vec![s('j')], C::SelectDown),
+        (vec![s('k')], C::SelectUp),
+        (vec![s('m')], C::SelectMotion),
+        (vec![s('a')], C::SelectionActions),
         (vec![one(Key::Enter)], C::ChooseSelected),
         (
             vec![one(Char('Z')), one(Ctrl('z'))],
             C::AddSelectedItemToQueue,
         ),
         (vec![d('d')], C::RemoveSelectedItem),
+        (vec![d('s')], C::RemoveSelection),
         (vec![g('a'), one(Ctrl(' '))], C::ShowActionsOnSelectedItem),
         (vec![one(Char('a'))], C::ShowActionsOnCurrentTrack),
         (vec![one(Key::Tab)], C::FocusNextWindow),
