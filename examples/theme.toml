@@ -29,9 +29,10 @@ table_header = { fg = "Blue" }
 selection = { modifiers = ["Reversed", "Bold"] }
 secondary_row = {}
 like = {}
-# This player's own two (spotify-player has neither).
+# This player's own three (spotify-player has none of them).
 error = { fg = "Red" }
 prompt = { modifiers = ["Bold"] }
+selected_row = { modifiers = ["Bold"] }
 
 # ---------------------------------------------------------------------------
 # A selection of spotify-player's sample themes, unchanged, from its

@@ -105,6 +105,11 @@
 | `enter` | `ChooseSelected` | 在佇列上：播放該項目；在頁面上：連同所在清單播放該曲目，或開啟專輯、播放清單或藝人（見[從頁面播放與加入佇列](#playing-and-queueing-from-a-page)）；在彈出視窗中：執行該項目 |
 | `Z`, `C-z` | `AddSelectedItemToQueue` | 將選取的曲目、專輯或播放清單加到佇列尾端 |
 | `d d` | `RemoveSelectedItem`* | 在 [`y/n` 詢問](#confirming-removals)之後，從所在清單（佇列、你的播放清單、你的收藏）移除游標所在的列；`RemoveFromQueue` 在佇列上作用相同，且沒有自己的按鍵 |
+| `s c` | `SelectCurrent`* | [選取](#selecting-rows)游標所在的列，或取消選取 |
+| `s j`、`s <N> j` / `s k`、`s <N> k` | `SelectDown`* / `SelectUp`* | 從游標往下、往上選取 `N` 列（預設 1） |
+| `s m` | `SelectMotion`* | 動作模式開啟／關閉：起點與游標之間的列都會被選取 |
+| `s a` | `SelectionActions`* | 對選取的列執行動作 |
+| `d s` | `RemoveSelection`* | 在列出這些列的 [`y/n` 詢問](#confirming-removals)之後，把選取的列從所在清單移除 |
 | `z` | `Queue` | 開啟佇列頁面 |
 | `g l` | `LibraryPage` | 開啟音樂庫 |
 | `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
@@ -118,11 +123,11 @@
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | 對選取列的[動作](#actions) |
 | `a` | `ShowActionsOnCurrentTrack` | 對正在播放曲目的動作 |
 | `f` | `RoleFilter` | 在藝人的 *All tracks* 中：[角色篩選](#the-role-filter) |
-| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗的[篩選](#filtering-a-list) |
+| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗的[選取](#selecting-rows)與[篩選](#filtering-a-list) |
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
-`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
+`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵；`s` 以同樣的方式開頭[選取](#selecting-rows)的按鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
 彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱、正在輸入的[篩選](#filtering-a-list)）會接收所有可列印的按鍵，不受按鍵對應影響。
 
@@ -268,6 +273,55 @@
 
 **隨捲動載入的清單。** 篩選只比對目前已載入的列，但會自動載入更多：只要游標下方符合的列少於一個視窗的高度，就會一次一頁地載入下一頁，直到符合的列足夠或清單已完整（期間符合的列下方會顯示 `Loading more…`）。`esc` 會停止載入。
 
+<a id="selecting-rows"></a>
+## 選取多列
+
+每個列出多列的視窗（頁面的清單、搜尋頁面的四個視窗、佇列）都有自己的**選取**：你標記的列，之後 `s` 開頭的按鍵會一併對它們操作。不需要進入任何模式：下面的按鍵會把列加入選取或移出選取；作用於游標所在列的按鍵（`enter`、`a`、`d d`、`g a`）不論選了什麼，仍然只作用於游標所在的列。
+
+```
+│┌Tracks (12 · 2 selected)────────────────────────────────────────────────────┐│
+││+   1  Collide With The Sky      Pierce The Veil    Collide With The Sky 4:01││
+││+   2  Hell Above                Pierce The Veil    Collide With The Sky 3:32││
+││    3  A Match Into Water        Pierce The Veil    Collide With The Sky 4:22││
+```
+
+被選取的列前面有 `+ `（其他列是兩個空格，欄位因此不會移動；選取為空的視窗不畫標記欄，寬度不到 10 欄的視窗只用樣式表示選取），並使用佈景主題的 `selected_row`（見[元件](config.md#components)；預設為 `Bold`）繪製，疊在游標所在列自己的 `selection` 樣式之下。視窗標題會在篩選的項目之後列出數量：`Tracks (12 · 2 selected)`、`Favorite tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`，動作模式（motion）開啟時再加上 `· motion`。把焦點移到另一個視窗時，每個視窗各自保留自己的選取。
+
+| 按鍵 | 命令 | 作用 |
+|---|---|---|
+| `s c` | `SelectCurrent` | 選取游標所在的列，若已選取則取消；游標不動 |
+| `s j`、`s 5 j` | `SelectDown` | 從游標往下選取 1 列（游標所在的列）或 `N` 列；游標停在最後一列 |
+| `s k`、`s 5 k` | `SelectUp` | 同上，往上 |
+| `s m` | `SelectMotion` | 從游標所在列開始動作模式；再按一次 `s m` 結束 |
+| `s a` | `SelectionActions` | 開啟[選取的動作](#the-selection-actions) |
+| `d s` | `RemoveSelection` | 從所在清單[移除選取的列](#confirming-removals) |
+
+單獨按 `s` 沒有作用；按下後稍候，[提示](#key-hints)會列出可以接著按的按鍵。`N` 是在 `s` 之後輸入的一個或多個數字鍵：`s 5 j` 選取 5 列，`s 1 2 k` 選取 12 列。只有 `SelectDown` 與 `SelectUp` 接受數量；數量為 0，或數字後面接其他按鍵，會取消整個按鍵序列。選取已選取的列仍是已選取，超出清單尾端的列不存在（在倒數第三列按 `s 9 j` 只會選取三列）。在隨捲動載入的清單中，尚未載入的列不會被選取；游標移到尾端時，會照常載入下一頁。
+
+**動作模式（motion）。** `s m` 把游標所在列記為錨點；模式開啟期間，從錨點到游標（不論往哪個方向）的每一列都顯示為已選取，不論游標如何移動（`j`、`k`、`G`、`g g`、`C-f`……）。再按一次 `s m` 會結束模式，並把這些列加入選取；先前已選取的列仍保持選取。`s a` 與 `d s` 會對含有該範圍的選取操作，並結束模式。模式中 `s c` 沒有作用（游標所在列一定在範圍內），按鍵說明會把它變暗。設定了篩選時，範圍是錨點與游標之間顯示出來的列。把焦點移到另一個視窗時，範圍會加入選取。
+
+**清除。** 沒有開啟任何彈出視窗、輸入提示或篩選輸入時，`esc` 會清除焦點視窗的選取（以及動作模式，範圍也一併清除）。換頁會清除離開的頁面上所有的選取，經由歷史記錄回來也不會恢復。成功的動作會清除該視窗的選取；失敗的動作則保留；清單重新取得的視窗（寫入之後）會失去選取。離開佇列的項目也會從選取中消失。
+
+**篩選。** 被[篩選](#filtering-a-list)隱藏的列仍保持選取並會被操作；標題會說明隱藏了幾列（`2 selected, 1 hidden`），清除篩選後它們仍是已選取。在篩選中選取，只會選取顯示出來的列。
+
+<a id="the-selection-actions"></a>
+### 選取的動作
+
+有選取時按 `s a`，會開啟標題為 `N selected` 的彈出視窗，列出適用於每一個選取列的動作（沒有選取時沒有作用，按鍵說明也會把它變暗）。動作依清單的順序作用於這些列，被隱藏的列也包括在內：
+
+| 動作 | 按鍵 | 列出的條件 |
+|---|---|---|
+| *Play* | `p` | 一律列出（藝人除外）：這些列取代佇列，第一首開始播放 |
+| *Play next* | `N` | 一律列出（藝人除外） |
+| *Add to queue* | `a` | 一律列出（藝人除外） |
+| *Add to playlist…* | | 這些列是曲目 |
+| *Add to favorites* | | 依清單所知，至少有一個選取的列還不是收藏 |
+| *Remove from favorites* | | `d s` 會從收藏移除的地方 |
+| *Remove from this playlist* | | 你的播放清單的曲目 |
+| *Remove from queue* | | 佇列 |
+
+`j`/`k`、`enter` 與 `esc` 的作用與其他彈出視窗相同，`p`、`N` 與 `a` 會立即執行對應的動作，因此 `s a p` 就能播放選取的列。導覽類動作（*Open*、*Go to album*、*Go to artist*、*Go to radio*）一律不會列出：它們只作用於一列。*Add to playlist…* 會開啟播放清單選擇器，曲目加入後選取會清除（在選擇器按 `esc` 則保留）。
+
 <a id="search"></a>
 ## 搜尋
 
@@ -364,6 +418,16 @@
 | 音樂庫的 Playlists：你自己的 | *Delete playlist*：`Delete <playlist>? (y/n)`，即使 `confirm_removals` 關閉也會詢問 |
 | 其他任何清單（專輯或你追蹤的播放清單的曲目、藝人頁面、搜尋結果、mix、電台） | 沒有作用：該清單不屬於你 |
 
+- `d s`（`RemoveSelection`）會以同樣的詢問，從同樣的清單移除[選取的列](#selecting-rows)；詢問會寫出數量，並在下方逐列列出所有要移除的列（被隱藏的也包括在內），清單比彈出視窗長時可用 `j`/`k` 捲動：
+
+  ```
+  Remove 3 tracks from Road trip? (y/n)
+    Collide With The Sky
+    Bloom
+    Holocene
+  ```
+
+  按 `y` 移除（從你的播放清單是一次寫入），訊息會說明數量：`Removed 3 tracks from Road trip`；若多次寫入中有些失敗，訊息會說明（`Removed 2 albums from favorites; 1 failed`），失敗的列仍保持選取。在音樂庫的 Playlists 中，選取的你自己的播放清單會被刪除、你追蹤的會從收藏移除，合併在同一個詢問中（`Delete 2 playlists and remove 1 from favorites? (y/n)`，兩份清單分別列在 `Delete:` 與 `Remove from favorites:` 之下），即使 `confirm_removals` 關閉也會詢問。沒有選取，或在其他視窗中，`d s` 沒有作用
 - 從動作選單、從 [`[[actions]]` 綁定](config.md#actions)（`DeleteFromLiked`、`DeleteFromPlaylist`、`RemoveFromQueue`）以及從 `d d` 執行時，詢問都相同
 - 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d …` 提示框，列出 `d  remove from the list`
 - 在 `app.toml` 中設定 `confirm_removals = false`（或 `TIDAL_PLAYER_CONFIRM_REMOVALS=off`）會讓這三個動作立即執行；*Delete playlist* 與 *add again?* 的詢問仍會出現。這不會改變按鍵：`RemoveSelectedItem` 仍是 `d d`。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)

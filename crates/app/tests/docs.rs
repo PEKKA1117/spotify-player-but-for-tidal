@@ -447,9 +447,12 @@ fn ac13_selection_documented() {
         }
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for name in ["README.md", "README.zh-TW.md"] {
+    for (name, link) in [
+        ("README.md", "wiki/TUI#selecting-rows"),
+        ("README.zh-TW.md", "wiki/TUI-zh-TW#selecting-rows"),
+    ] {
         let readme = std::fs::read_to_string(root.join(name)).unwrap();
-        assert!(readme.contains("tui.md#selecting-rows"), "{name}: link");
+        assert!(readme.contains(link), "{name}: {link}");
     }
     let claude = std::fs::read_to_string(root.join("CLAUDE.md")).unwrap();
     assert!(

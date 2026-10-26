@@ -18,6 +18,7 @@ use ratatui::{
 use tidal_player_core::Track;
 use tidal_player_core::protocol::{InsertAt, NowPlaying, PlaybackState, QueueEntry, RepeatMode};
 use tidal_player_core::ui::filter::{self, no_match};
+use tidal_player_core::ui::select;
 use tidal_player_core::ui::theme::Component;
 use tidal_player_core::ui::{Key, PageKind, State, Theme};
 
@@ -573,10 +574,7 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
     }
     let block = Block::bordered()
         .border_style(of(look, Component::Border))
-        .title(Line::styled(
-            fit(&filter::queue_title(state), width),
-            title_style,
-        ));
+        .title(Line::styled(fit(&queue_title(state), width), title_style));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -619,7 +617,11 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
         .min(rows.len().saturating_sub(height));
 
     let width = usize::from(inner.width);
-    let columns = Columns::new(width, queue.len());
+    // Spec 0020 "How it looks": the `+ ` marker column once the queue has a
+    // selection, dropped when the window is too narrow for it.
+    let marked = select::queue_entries(state);
+    let marker = !marked.is_empty() && width >= 10;
+    let columns = Columns::new(if marker { width - 2 } else { width }, queue.len());
     let lines: Vec<Line> = rows
         .iter()
         .skip(offset)
@@ -642,14 +644,31 @@ fn render_queue(state: &State, frame: &mut Frame, area: Rect) {
                 if entry.suggested {
                     style = style.add_modifier(Modifier::DIM);
                 }
+                let is_marked = marked.contains(&entry.id);
+                if is_marked {
+                    style = style.patch(of(look, Component::SelectedRow));
+                }
                 if Some(entry.id) == state.cursor {
                     style = style.patch(of(look, Component::Selection));
                 }
-                Line::styled(columns.row(*i, entry, Some(entry.id) == current), style)
+                let text = columns.row(*i, entry, Some(entry.id) == current);
+                let lead = match (marker, is_marked) {
+                    (false, _) => "",
+                    (true, true) => "+ ",
+                    (true, false) => "  ",
+                };
+                Line::styled(format!("{lead}{text}"), style)
             }
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The queue's title with the selection's parts after the filter's:
+/// `Queue (12 · 3 selected, 1 hidden · motion)`.
+fn queue_title(state: &State) -> String {
+    let parts = select::queue_marks(state).title_parts();
+    pages::with_marks(filter::queue_title(state), true, &parts)
 }
 
 /// `No rows match "xyz"` across `width`, the filter's text cut with `…`
@@ -2426,6 +2445,9 @@ mod tests {
         // 0012 AC9: a filter set (kept, typing, no match) on each kind of
         // window and the queue.
         let filters = filter_states();
+        // 0020 AC12: selections, motion mode, the selection popup and the
+        // removal question.
+        let selections = selection_states();
         // 0017 AC12: the AC9 test theme over each kind of view, and the
         // Themes popup open.
         let mut themed: Vec<State> = states
@@ -2451,6 +2473,7 @@ mod tests {
                 .chain(&hints)
                 .chain(&devices)
                 .chain(&filters)
+                .chain(&selections)
                 .chain(&themed)
             {
                 draw(state, width, height);
@@ -4719,7 +4742,12 @@ mod tests {
         let text = draw(&selected_list(), 80, 24);
         assert_contains(
             &text,
-            &["· 2 selected", "+ 1  Song 1", "+ 2  Song 2", "  3  Song 3"],
+            &[
+                "· 2 selected",
+                "+   1  Song 1",
+                "+   2  Song 2",
+                "    3  Song 3",
+            ],
         );
         assert!(!line_with(&text, "Song 3").contains('+'), "{text}");
         insta::assert_snapshot!("ac12_selection_list", text);
@@ -4728,14 +4756,14 @@ mod tests {
     #[test]
     fn ac12_selection_cursor() {
         let text = draw(&selected_cursor(), 80, 24);
-        assert_contains(&text, &["· 2 selected", "+ 2  Song 2"]);
+        assert_contains(&text, &["· 2 selected", "+   2  Song 2"]);
         insta::assert_snapshot!("ac12_selection_cursor", text);
     }
 
     #[test]
     fn ac12_selection_motion() {
         let text = draw(&motion_list(), 80, 24);
-        assert_contains(&text, &["· 3 selected, ", "motion"]);
+        assert_contains(&text, &["3 selected · motion)"]);
         insta::assert_snapshot!("ac12_selection_motion", text);
     }
 
@@ -4757,10 +4785,7 @@ mod tests {
     fn ac12_selection_actions_popup() {
         let text = draw(&selection_popup(), 80, 24);
         assert_contains(&text, &["2 selected", "Play next", "Add to queue"]);
-        assert!(
-            line_with(&text, "Play next").trim_end().ends_with("N│"),
-            "{text}"
-        );
+        assert!(line_with(&text, "Play next").contains("  N "), "{text}");
         insta::assert_snapshot!("ac12_selection_actions_popup", text);
     }
 
@@ -4799,7 +4824,10 @@ mod tests {
         assert!(!plain.contains("+ "), "{plain}");
         assert!(!plain.contains("selected"), "{plain}");
         let text = draw(&selected_list(), 80, 24);
-        assert!(line_with(&text, "Song 3").contains("  3  Song 3"), "{text}");
+        assert!(
+            line_with(&text, "Song 3").contains("    3  Song 3"),
+            "{text}"
+        );
         let narrow = draw(&selected_list(), 11, 24);
         assert!(!narrow.contains('+'), "{narrow}");
     }
