@@ -232,6 +232,12 @@ pub struct State {
     pub whole_list: Option<WholeList>,
     /// The library writes waiting for their reply, by request ID.
     pub writes: Vec<(u64, Write)>,
+    /// The writes sent for a selection, until all are answered (spec
+    /// 0020).
+    pub batches: Vec<select::Batch>,
+    /// The selection an open *Add to playlist…* adds (spec 0020): its
+    /// write, once sent, clears it when it succeeds.
+    pub selection_add: Option<(Origin, Vec<Held>)>,
     /// The page size of every list request (`TIDAL_PLAYER_PAGE_SIZE`).
     pub page_size: u32,
     /// The page size of every search request, the first page of each
@@ -277,6 +283,8 @@ impl Default for State {
             help: None,
             whole_list: None,
             writes: Vec::new(),
+            batches: Vec::new(),
+            selection_add: None,
             page_size: DEFAULT_PAGE_SIZE,
             search_page_size: DEFAULT_SEARCH_PAGE_SIZE,
             list_height: 20,
@@ -585,6 +593,8 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
 
     state.position = snapshot.position;
     state.player = Some(snapshot);
+    // Entries that left the queue leave its selection (spec 0020).
+    select::prune_queue(state);
     // A filtered queue: the cursor keeps its entry while it matches, else
     // goes to the first match (spec 0012).
     if filter::queue_filter(state).active() {

@@ -447,7 +447,7 @@ fn ac2_select_rows_with_count() {
     assert_eq!(entries(&state), vec![7, 3, 9, 5]);
     assert_eq!(state.cursor, Some(EntryId(7)));
 
-    // A lazy list (5 of 100 loaded): the next page is asked for as the
+    // A lazy list (5 of 1 000 loaded): the next page is asked for as the
     // cursor's move by `j` asks for it.
     let lazy = || {
         let mut state = queue_of(&[1]);
@@ -456,7 +456,7 @@ fn ac2_select_rows_with_count() {
             &mut state,
             &GY,
             PageData::FavoriteTracks {
-                tracks: list(tracks(1..6), 0, 100),
+                tracks: list(tracks(1..6), 0, 1000),
             },
         );
         state
@@ -1013,7 +1013,8 @@ fn ac9_cursor_keys_ignore_selection() {
         ("an [[actions]] binding", vec![mx]),
     ];
     // (window, setup, the selection `j j s 2 j k k` makes)
-    let windows: [(&str, fn() -> State, &str); 2] = [
+    type Setup = (&'static str, fn() -> State, &'static str);
+    let windows: [Setup; 2] = [
         ("favorite tracks", || favorites(1..5), "[2, 3]"),
         ("the queue", || queue_of(&[1, 2, 3, 4]), "[3, 4]"),
     ];
