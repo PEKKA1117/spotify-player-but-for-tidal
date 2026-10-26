@@ -1,6 +1,6 @@
 # 0020 — Selecting several rows
 
-- **Status**: draft
+- **Status**: approved (2026-10-26)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#71](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/71)
 - **Depends on**: 0004 (implemented: the queue), 0006 (implemented: lists, the actions popup, favorites and playlist writes), 0008 (implemented: the keymap, key sequences), 0012 (implemented: filters), 0013 (implemented: key hints), 0017 (implemented: themes), 0019 (implemented: the removal question, `d d`)
@@ -189,12 +189,12 @@ Answered by the user (2026-10-25 and 2026-10-26):
 4. **Removing**: *answered*: `d d` removes the cursor row as today, `d s` the selection; `d` stays unbound
 5. **`s c` in motion mode**: *answered*: does nothing (dimmed in the keys help): the cursor row is always inside the range
 6. **Cursor-row keys**: *answered*: `Enter` plays the cursor row with its list as today; `s a p` plays the selection
-7. **Actions popup**: *answered*: acts on every selected row; *proposed*: lists only actions that apply to several rows (no navigation)
+7. **Actions popup**: *answered*: acts on every selected row; lists only actions that apply to several rows (no navigation)
 8. **`s a` and its keys**: *answered*: `s a` opens the popup; `p` *Play* (replaces the queue), `N` *Play next*, `a` *Add to queue* are the popup's own keys, so `s a p` is quick to type and 0008's prefix rule holds
-9. **`d s` on own playlists in the library**: *proposed*: deletes them and unfollows the followed ones in one question, always asked. Alternative: leave own playlists out (only `d d` deletes)
+9. **`d s` on own playlists in the library**: *answered*: deletes them and unfollows the followed ones in one question, always asked. Alternative: leave own playlists out (only `d d` deletes)
 10. **Clearing**: *answered*: `Esc`, changing page and a successful action clear the selection; moving the focus between windows keeps each window's
-11. **Look**: *proposed*: `+ ` marker, `selected_row` component (default `Bold`), `· N selected` in the title
-12. **Select all**: *proposed*: out of scope (a lazy list would have to load every page)
+11. **Look**: *answered*: `+ ` marker, `selected_row` component (default `Bold`), `· N selected` in the title
+12. **Select all**: *answered*: out of scope (a lazy list would have to load every page)
 13. **Release**: *answered*: major: a minor bump, `1.1.0` → `1.2.0`
 
 ## Out of scope
