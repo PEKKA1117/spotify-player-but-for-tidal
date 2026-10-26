@@ -47,7 +47,7 @@ All the new keys are sequences starting with `s` (decision 1). `s` alone is a pr
 
 - the window's title shows `· motion` (below)
 - `s a` and `d s` act on the selection with the motion range in it, and end motion mode
-- `s c` toggles the row under the cursor in the selection outside the range (it has no visible effect inside it) — decision 5 may change this
+- `s c` does nothing: the cursor is always the range's moving end, so its row is always in the range; the keys help dims `s c` (decision 5). To toggle single rows, end motion mode with `s m` first
 - `Esc` ends it and clears the window's selection (as above), range included
 - changing page or focus ends it: changing page clears as above; moving the focus to another window adds the range to the selection, as `s m` does
 - with a filter set, the range is the visible rows between the anchor and the cursor
@@ -116,7 +116,7 @@ The defaults gain the six bindings above. No default binding was `s` or started 
 - **AC1** — `SelectCurrent` (table over list windows, the queue, a search window): an unselected cursor row becomes selected, a selected one unselected; the cursor does not move; on an empty window nothing changes; with a filter, the row under the cursor is the filtered one
 - **AC2** — `SelectDown`/`SelectUp` with counts (table): `s j` selects the cursor row only; `s 3 j` the cursor row and the 2 below, cursor on the last; `s 3 k` upwards; `s 1 2 j` reads 12; past the end (or start) it stops at the last (first) loaded row; already selected rows stay selected; `s 0 j`, `s 3 x`, `s 3 esc` select nothing and leave nothing pending; a lazy list's next page is requested when the cursor reaches the end, as for `j`
 - **AC3** — Counts in the keymap: `build` accepts digits before the last key of a `SelectDown`/`SelectUp` binding only: with `SelectDown` rebound to `x y`, `x 4 y` selects 4 rows and `s 4 j` nothing; digits in a sequence of any other command are not a count (`g 4 g` mismatches); a binding whose sequence is a digit (`5` → `NextTrack`) still fires outside a pending count sequence
-- **AC4** — Motion mode (table): `s m` sets the anchor; after `j j` three rows read as selected; `s m` adds them and ends the mode; earlier selected rows stay; moving back past the anchor selects the rows the other way; `G` and `g g` extend it; `Esc` ends it and clears the selection; changing focus adds the range; changing page clears; `s a` and `d s` act on selection plus range and end the mode
+- **AC4** — Motion mode (table): `s m` sets the anchor; after `j j` three rows read as selected; `s m` adds them and ends the mode; earlier selected rows stay; moving back past the anchor selects the rows the other way; `G` and `g g` extend it; `Esc` ends it and clears the selection; changing focus adds the range; changing page clears; `s a` and `d s` act on selection plus range and end the mode; `s c` changes nothing and the keys help dims it
 - **AC5** — Clearing (table): `Esc` with no popup or input open clears the focused window's selection only; `Esc` that closes a popup or a filter input clears nothing; a page change clears every window of the page left, and going back does not restore it; a successful action clears; a failed one keeps the selection; a reloaded window loses it; a queue entry that leaves the queue leaves the selection; focus changes keep each window's selection
 - **AC6** — Filter: selected rows hidden by a filter stay selected and are acted on; clearing the filter shows them still selected; selecting through a filter selects the visible rows only
 - **AC7** — Selection actions popup: `s a` with nothing selected opens nothing; with a selection it opens titled `N selected` with the actions of the table listed per window (table over windows: an album's tracks, an own playlist, the queue, favorite tracks, the library's Albums, Artists, Playlists, a search window, a mix); no navigation action is ever listed
@@ -187,7 +187,7 @@ Answered by the user (2026-10-25 and 2026-10-26):
 2. **Counts**: *answered*: only inside `s` (`s <N> j/k`), the cursor row included, a count of 1 being `s c`; no count with `s c`. Counts for other keys (`5j`) are another issue
 3. **Filter**: *answered*: selected rows a filter hides stay selected; the removal question lists every target
 4. **Removing**: *answered*: `d d` removes the cursor row as today, `d s` the selection; `d` stays unbound
-5. **`s c` in motion mode**: *proposed*: toggles rows outside the range only. Alternative: ends motion mode first
+5. **`s c` in motion mode**: *answered*: does nothing (dimmed in the keys help): the cursor row is always inside the range
 6. **Cursor-row keys**: *answered*: `Enter` plays the cursor row with its list as today; `s a p` plays the selection
 7. **Actions popup**: *answered*: acts on every selected row; *proposed*: lists only actions that apply to several rows (no navigation)
 8. **`s a` and its keys**: *answered*: `s a` opens the popup; `p` *Play* (replaces the queue), `N` *Play next*, `a` *Add to queue* are the popup's own keys, so `s a p` is quick to type and 0008's prefix rule holds
@@ -195,7 +195,7 @@ Answered by the user (2026-10-25 and 2026-10-26):
 10. **Clearing**: *answered*: `Esc`, changing page and a successful action clear the selection; moving the focus between windows keeps each window's
 11. **Look**: *proposed*: `+ ` marker, `selected_row` component (default `Bold`), `· N selected` in the title
 12. **Select all**: *proposed*: out of scope (a lazy list would have to load every page)
-13. **Release**: *open*: a feature, so a patch bump (`1.1.0` → `1.1.1`) unless the maintainer calls it major (`1.2.0`)
+13. **Release**: *answered*: major: a minor bump, `1.1.0` → `1.2.0`
 
 ## Out of scope
 
