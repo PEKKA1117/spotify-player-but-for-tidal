@@ -341,7 +341,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 43] = [
+const DEFAULTS: [(&[&str], &str); 49] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -364,6 +364,13 @@ const DEFAULTS: [(&[&str], &str); 43] = [
     (&["C-b", "page_up"], "PageSelectPreviousOrScrollUp"),
     (&["g g"], "SelectFirstOrScrollToTop"),
     (&["G", "end"], "SelectLastOrScrollToBottom"),
+    // Spec 0020: the selection keys.
+    (&["s c"], "SelectCurrent"),
+    (&["s j"], "SelectDown"),
+    (&["s k"], "SelectUp"),
+    (&["s m"], "SelectMotion"),
+    (&["s a"], "SelectionActions"),
+    (&["d s"], "RemoveSelection"),
     (&["enter"], "ChooseSelected"),
     (&["Z", "C-z"], "AddSelectedItemToQueue"),
     // Spec 0019: two keys, so that `d` alone stays free.
@@ -1236,6 +1243,7 @@ fn ac6_text_inputs_first() {
             uuid: "p1".into(),
             title: "P".into(),
         },
+        scroll: 0,
     };
     let mut state = with_keymap(queue(), custom());
     state.popup = Some(question.clone());
@@ -1618,4 +1626,144 @@ fn ac9_file_beats_conflicting_defaults() {
         "{:?}",
         state.popup
     );
+}
+
+// --- spec 0020: counts and the selection keys ----------------------------------
+
+/// A queue of entries 1–6, the cursor on the first.
+fn six() -> State {
+    let mut state = State::default();
+    update(
+        &mut state,
+        Action::Player(protocol::Event::Player(snapshot(
+            &[1, 2, 3, 4, 5, 6],
+            Some(1),
+        ))),
+    );
+    state
+}
+
+fn selected(state: &State) -> Vec<u64> {
+    super::super::select::queue_entries(state)
+        .iter()
+        .map(|e| e.0)
+        .collect()
+}
+
+/// Spec 0020 AC3: a count goes before the last key of a `SelectDown` or
+/// `SelectUp` binding only, as the keymap binds it; digits in any other
+/// sequence are not a count; a digit binding still fires outside a
+/// pending count.
+#[test]
+fn ac3_count_in_sequence() {
+    use super::Lookup;
+    use Key::Char;
+    let down = Binding::Command(UiCommand::SelectDown);
+    let up = Binding::Command(UiCommand::SelectUp);
+    let rebound = keymap(
+        vec![entry("s j", "None"), entry("x y", "SelectDown")],
+        vec![],
+    );
+    let digit = keymap(vec![entry("5", "NextTrack")], vec![]);
+    // (name, keymap, keys, what they name)
+    let cases: Vec<(&str, Keymap, &str, Lookup)> = vec![
+        ("s", Keymap::default(), "s", Lookup::Starts),
+        ("s 4", Keymap::default(), "s4", Lookup::Starts),
+        (
+            "s 4 j",
+            Keymap::default(),
+            "s4j",
+            Lookup::Bound(down, Some(4)),
+        ),
+        (
+            "s 1 2 k",
+            Keymap::default(),
+            "s12k",
+            Lookup::Bound(up, Some(12)),
+        ),
+        ("s j", Keymap::default(), "sj", Lookup::Bound(down, None)),
+        ("s 0 j", Keymap::default(), "s0j", Lookup::Cancel),
+        ("s 3 x", Keymap::default(), "s3x", Lookup::Cancel),
+        ("g 4: no count", Keymap::default(), "g4", Lookup::Unbound),
+        (
+            "rebound x 4 y",
+            rebound.clone(),
+            "x4y",
+            Lookup::Bound(down, Some(4)),
+        ),
+        ("rebound x 4", rebound.clone(), "x4", Lookup::Starts),
+        ("rebound s 4 j", rebound.clone(), "s4j", Lookup::Cancel),
+        (
+            "a digit binding",
+            digit.clone(),
+            "5",
+            Lookup::Bound(Binding::Command(UiCommand::NextTrack), None),
+        ),
+        (
+            "a digit in a count",
+            digit.clone(),
+            "s5j",
+            Lookup::Bound(down, Some(5)),
+        ),
+    ];
+    for (name, keymap, keys, expected) in cases {
+        assert_eq!(keymap.lookup(&typed(keys)), expected, "{name}");
+    }
+
+    // Pressed: `x 4 y` selects 4 rows and `s 4 j` nothing.
+    let mut state = with_keymap(six(), rebound);
+    press(&mut state, &typed("x4y"));
+    assert_eq!(selected(&state), vec![1, 2, 3, 4]);
+    let mut state = with_keymap(
+        six(),
+        keymap(
+            vec![entry("s j", "None"), entry("x y", "SelectDown")],
+            vec![],
+        ),
+    );
+    press(&mut state, &typed("s4j"));
+    assert_eq!(selected(&state), Vec::<u64>::new());
+    assert_eq!(state.pending, vec![]);
+    // `g 4 g` mismatches: `g` is pending again, the cursor stays.
+    let mut state = six();
+    press(&mut state, &[Char('G')]);
+    press(&mut state, &typed("g4g"));
+    assert_eq!(state.cursor, Some(EntryId(6)));
+    assert_eq!(state.pending, vec![Char('g')]);
+    // `5` bound to `NextTrack` fires alone, and is a count after `s`.
+    let mut state = with_keymap(six(), digit);
+    assert_eq!(press(&mut state, &[Char('5')]), send(Command::Next));
+    assert_eq!(press(&mut state, &typed("s5j")), vec![]);
+    assert_eq!(selected(&state), vec![1, 2, 3, 4, 5]);
+}
+
+/// Spec 0020 AC13 (keymap half): the defaults bind the six selection
+/// commands, and no other default starts with `s` or `d` but `d d`.
+#[test]
+fn ac13_select_defaults() {
+    let keymap = Keymap::default();
+    let cmd = |c: UiCommand| Some(Binding::Command(c));
+    for (sequence, command) in [
+        ("s c", UiCommand::SelectCurrent),
+        ("s j", UiCommand::SelectDown),
+        ("s k", UiCommand::SelectUp),
+        ("s m", UiCommand::SelectMotion),
+        ("s a", UiCommand::SelectionActions),
+        ("d s", UiCommand::RemoveSelection),
+    ] {
+        assert_eq!(bound(&keymap, sequence), cmd(command), "{sequence}");
+        assert_eq!(
+            keymap.sequences(Binding::Command(command)).len(),
+            1,
+            "{sequence}: one key"
+        );
+    }
+    let mut starting: Vec<String> = keymap
+        .bindings()
+        .iter()
+        .map(|(s, _)| s.to_string())
+        .filter(|s| s.starts_with("s ") || s.starts_with("d ") || s == "s" || s == "d")
+        .collect();
+    starting.sort();
+    assert_eq!(starting, ["d d", "d s", "s a", "s c", "s j", "s k", "s m"]);
 }

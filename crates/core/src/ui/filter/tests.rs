@@ -1018,6 +1018,7 @@ fn ac3_confirm_remove_filtered_queue() {
                     target: RemovedTarget::Entry(EntryId(3)),
                 }],
             }),
+            scroll: 0,
         })
     );
     // `n` sends nothing; the first match is asked about after `k`.
@@ -1298,4 +1299,84 @@ fn ac10_remove_selected_item_filtered() {
             etag: "e1".into(),
         }]
     );
+}
+
+// --- spec 0020 AC6: selecting through a filter ---------------------------------
+
+/// Spec 0020 AC6: selected rows a filter hides stay selected, are counted
+/// as hidden and are acted on (in list order); clearing the filter shows
+/// them still selected; selecting through a filter selects the visible
+/// rows only, a motion range too; the queue alike.
+#[test]
+fn ac6_selection_through_filter() {
+    use super::super::select::{queue_entries, window_marks, window_rows};
+    use Key::{Char, Esc};
+    let rows = |state: &State| window_rows(window(state)).into_iter().collect::<Vec<_>>();
+    let s = |text: &str| typed(text);
+
+    // Rows 0 and 1 selected, then `lov` hides row 1 (Hell Above).
+    let hidden = || {
+        let mut state = favorites();
+        press(&mut state, &s("s2j"));
+        press(&mut state, &kept("lov"));
+        assert_eq!(shown(&state), vec!["Love Song", "Lovely"]);
+        state
+    };
+    let state = hidden();
+    assert_eq!(rows(&state), vec![0, 1]);
+    let marks = window_marks(window(&state));
+    assert_eq!((marks.count, marks.hidden), (2, 1));
+    // Acted on, hidden rows included, in list order.
+    let mut state = hidden();
+    assert_eq!(
+        press(&mut state, &s("sap")),
+        vec![Effect::Send(Command::Open {
+            items: vec![Item::Track(TrackId(1)), Item::Track(TrackId(2))],
+            at: None,
+        })]
+    );
+    let mut state = hidden();
+    press(&mut state, &s("ds"));
+    match &state.popup {
+        Some(Popup::Confirm {
+            question, on_yes, ..
+        }) => {
+            assert_eq!(question, "Remove 2 tracks from favorites? (y/n)");
+            let titles: Vec<String> = super::super::target_lines(on_yes)
+                .into_iter()
+                .map(|l| l.text)
+                .collect();
+            assert_eq!(titles, vec!["Love Song", "Hell Above"]);
+        }
+        other => panic!("no question: {other:?}"),
+    }
+    // Clearing the filter (in its input) shows them still selected.
+    let mut state = hidden();
+    press(&mut state, &[Char('/'), Esc]);
+    assert_eq!(shown(&state).len(), 4);
+    assert_eq!(rows(&state), vec![0, 1]);
+    assert_eq!(window_marks(window(&state)).hidden, 0);
+
+    // Selecting through the filter: the visible rows only.
+    let mut state = favorites();
+    press(&mut state, &kept("lov"));
+    press(&mut state, &s("s2j"));
+    assert_eq!(rows(&state), vec![0, 2]);
+    let mut state = favorites();
+    press(&mut state, &kept("lov"));
+    press(&mut state, &s("smjsm"));
+    assert_eq!(rows(&state), vec![0, 2]);
+
+    // The queue: entries 1–4, `lov` shows 1 and 3.
+    let mut state = queue();
+    press(&mut state, &[Char('g'), Char('g')]);
+    press(&mut state, &kept("lov"));
+    press(&mut state, &s("s2j"));
+    assert_eq!(
+        queue_entries(&state),
+        vec![EntryId(1), EntryId(3)],
+        "the queue's visible entries"
+    );
+    press(&mut state, &[Char('/'), Esc]);
+    assert_eq!(queue_entries(&state), vec![EntryId(1), EntryId(3)]);
 }

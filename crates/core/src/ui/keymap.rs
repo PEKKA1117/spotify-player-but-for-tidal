@@ -269,6 +269,20 @@ pub enum UiCommand {
     PageSelectPreviousOrScrollUp,
     SelectFirstOrScrollToTop,
     SelectLastOrScrollToBottom,
+    /// Selects the row under the cursor, or unselects it (spec 0020); ours.
+    SelectCurrent,
+    /// Selects rows from the cursor down; a count before its last key
+    /// (`s 5 j`) says how many (spec 0020); ours.
+    SelectDown,
+    /// The same, upwards; ours.
+    SelectUp,
+    /// Motion mode on or off (spec 0020); ours.
+    SelectMotion,
+    /// The selection actions popup (spec 0020); ours.
+    SelectionActions,
+    /// Removes the selected rows from their list, asking first (spec
+    /// 0020); ours.
+    RemoveSelection,
     ChooseSelected,
     AddSelectedItemToQueue,
     /// Removes the row under the cursor from the list it is in (spec
@@ -297,7 +311,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 44] = [
+pub const COMMANDS: [UiCommand; 50] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -320,6 +334,12 @@ pub const COMMANDS: [UiCommand; 44] = [
     UiCommand::PageSelectPreviousOrScrollUp,
     UiCommand::SelectFirstOrScrollToTop,
     UiCommand::SelectLastOrScrollToBottom,
+    UiCommand::SelectCurrent,
+    UiCommand::SelectDown,
+    UiCommand::SelectUp,
+    UiCommand::SelectMotion,
+    UiCommand::SelectionActions,
+    UiCommand::RemoveSelection,
     UiCommand::ChooseSelected,
     UiCommand::AddSelectedItemToQueue,
     UiCommand::RemoveSelectedItem,
@@ -370,6 +390,12 @@ impl UiCommand {
             Self::PageSelectPreviousOrScrollUp => "PageSelectPreviousOrScrollUp",
             Self::SelectFirstOrScrollToTop => "SelectFirstOrScrollToTop",
             Self::SelectLastOrScrollToBottom => "SelectLastOrScrollToBottom",
+            Self::SelectCurrent => "SelectCurrent",
+            Self::SelectDown => "SelectDown",
+            Self::SelectUp => "SelectUp",
+            Self::SelectMotion => "SelectMotion",
+            Self::SelectionActions => "SelectionActions",
+            Self::RemoveSelection => "RemoveSelection",
             Self::ChooseSelected => "ChooseSelected",
             Self::AddSelectedItemToQueue => "AddSelectedItemToQueue",
             Self::RemoveSelectedItem => "RemoveSelectedItem",
@@ -407,6 +433,12 @@ impl UiCommand {
                 | Self::SelectFirstOrScrollToTop
                 | Self::SelectLastOrScrollToBottom
         )
+    }
+
+    /// Whether a binding of this command takes a count: digits typed
+    /// before the last key of its sequence (spec 0020 "Counts").
+    pub fn is_counted(self) -> bool {
+        matches!(self, Self::SelectDown | Self::SelectUp)
     }
 
     /// The command named `name` with `params` (the inline table's, `None`
@@ -557,6 +589,21 @@ impl Binding {
             Self::Action(binding) => binding.action.name(),
         }
     }
+}
+
+/// What a sequence of collected keys names (spec 0008 "Sequences", spec
+/// 0020 "Counts").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lookup {
+    /// A binding, with the count typed in it (`None`: no count).
+    Bound(Binding, Option<usize>),
+    /// The start of a longer binding, or of a count.
+    Starts,
+    /// Digits of a count followed by a key that does not finish it, or a
+    /// count of 0: the sequence is cancelled, and nothing runs.
+    Cancel,
+    /// Nothing: no binding is or starts with these keys.
+    Unbound,
 }
 
 /// spotify-player commands without a counterpart here: skipped with a
@@ -815,6 +862,19 @@ impl Keymap {
             .iter()
             .find(|(s, _)| s.0 == keys)
             .map(|(_, b)| *b)
+    }
+
+    /// What `keys` name: a binding (with the count a `SelectDown` or
+    /// `SelectUp` binding's sequence has in it), the start of one, a
+    /// cancelled count, or nothing (spec 0020 "Counts").
+    pub fn lookup(&self, keys: &[Key]) -> Lookup {
+        if let Some(binding) = self.get(keys) {
+            return Lookup::Bound(binding, None);
+        }
+        if self.starts(keys) {
+            return Lookup::Starts;
+        }
+        Lookup::Unbound
     }
 
     /// Whether `keys` is the start of a longer binding.

@@ -10,7 +10,7 @@ use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, UiCommand};
 use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
-use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, theme};
+use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, select, theme};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
@@ -152,6 +152,12 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
         C::ShowActionsOnCurrentTrack => return browse::actions_on_playing(state),
+        C::SelectCurrent
+        | C::SelectDown
+        | C::SelectUp
+        | C::SelectMotion
+        | C::SelectionActions
+        | C::RemoveSelection => return select::command(state, command, 1),
         C::FocusNextWindow | C::FocusPreviousWindow => {
             let forward = command == C::FocusNextWindow;
             if state.page().search.is_some() {

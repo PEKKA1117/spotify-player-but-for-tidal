@@ -9,6 +9,7 @@ use crate::protocol::DeviceEntry;
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::page::{PageKind, Rows, Window};
+use super::select::{Held, Origin};
 
 /// The first row of *Add to playlist…*.
 pub const NEW_PLAYLIST: &str = "New playlist…";
@@ -95,6 +96,52 @@ pub enum Confirmed {
     },
     /// Remove what the question named (spec 0019).
     Remove(Removal),
+    /// Remove a window's or the queue's selection (spec 0020 "Removing
+    /// the selection").
+    RemoveSelection(SelectionRemoval),
+}
+
+/// What `d s` asks about (spec 0020): one [`Removal`] per list the rows
+/// leave (two in the library's Playlists: the own ones deleted first, the
+/// followed ones removed from favorites), each item with the row it was,
+/// and the window or queue whose selection it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionRemoval {
+    pub origin: Origin,
+    pub parts: Vec<SelectionPart>,
+}
+
+/// One list of a [`SelectionRemoval`]: the removal, and per item the
+/// selected row it is (`held[i]` is `removal.items[i]`'s).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionPart {
+    pub removal: Removal,
+    pub held: Vec<Held>,
+}
+
+/// The question `d s` asks (spec 0020): 0019's text for one list
+/// ([`question`]), `Delete N playlists and remove M from favorites? (y/n)`
+/// for own and followed playlists together.
+pub fn selection_question(removal: &SelectionRemoval) -> String {
+    let _ = removal;
+    String::new()
+}
+
+/// One line of the target list under a removal question (spec 0020): a
+/// heading (`Delete:`, `Remove from favorites:`) or a target's title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetLine {
+    pub text: String,
+    pub heading: bool,
+}
+
+/// The target list a question shows under its first line, in the list's
+/// order (spec 0020): every title of a [`Confirmed::RemoveSelection`],
+/// under a heading per list when there are two; nothing for the other
+/// questions.
+pub fn target_lines(on_yes: &Confirmed) -> Vec<TargetLine> {
+    let _ = on_yes;
+    Vec::new()
 }
 
 /// What a removal question asks about (spec 0019): the items hold what
@@ -120,6 +167,9 @@ pub enum RemoveFrom {
     },
     /// The play queue.
     Queue,
+    /// The user's own playlists, deleted (spec 0020: `d s` in the
+    /// library's Playlists).
+    OwnPlaylists,
 }
 
 /// One item of a [`Removal`].
@@ -139,6 +189,8 @@ pub enum RemovedTarget {
     Position(u32),
     /// A queue entry.
     Entry(EntryId),
+    /// A playlist's UUID (one deleted).
+    Playlist(String),
 }
 
 /// The question a [`Removal`] asks (spec 0019 "Several items").
@@ -168,6 +220,7 @@ pub fn question(removal: &Removal) -> String {
             format!("Remove {} from {playlist}? (y/n)", what("tracks"))
         }
         RemoveFrom::Queue => format!("Remove {} from the queue? (y/n)", what("tracks")),
+        RemoveFrom::OwnPlaylists => format!("Delete {}? (y/n)", what("playlists")),
     }
 }
 
@@ -191,8 +244,13 @@ pub enum Popup {
     },
     /// The one-row name prompt ([`PLAYLIST_NAME`]) of *New playlist…*.
     NewPlaylist { tracks: TrackSource, name: String },
-    /// A `y/n` question.
-    Confirm { question: String, on_yes: Confirmed },
+    /// A `y/n` question; `scroll` is the first line of its target list
+    /// shown ([`target_lines`], spec 0020).
+    Confirm {
+        question: String,
+        on_yes: Confirmed,
+        scroll: usize,
+    },
     /// The *All tracks* role filter: check boxes per
     /// [`super::page::ROLE_CATEGORIES`].
     Roles { checked: [bool; 4], cursor: usize },
@@ -202,6 +260,60 @@ pub enum Popup {
     /// The themes (spec 0017): the cursor over [`super::State::themes`],
     /// and the theme in use when it opened (`●`), which `Esc` goes back to.
     Themes { cursor: usize, active: usize },
+    /// The actions on the selection (spec 0020): titled `N selected`.
+    SelectionActions {
+        title: String,
+        actions: Vec<SelectionAction>,
+        cursor: usize,
+    },
+}
+
+/// One row of [`Popup::SelectionActions`] (spec 0020 "The selection
+/// actions popup"), with what it acts on, in the list's order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectionAction {
+    /// *Play* (`p`): `Open { items, at: None }`.
+    Play(Vec<Item>),
+    /// *Play next* (`N`): `Open { items, at: Some(Next) }`.
+    PlayNext(Vec<Item>),
+    /// *Add to queue* (`a`): `Open { items, at: Some(End) }`.
+    AddToQueue(Vec<Item>),
+    /// *Add to playlist…*: the picker for these tracks.
+    AddToPlaylist(Vec<Track>),
+    /// *Add to favorites*: the rows not known to be favorites, by ID.
+    AddFavorites(FavoriteKind, Vec<(Held, String)>),
+    /// *Remove from favorites*, as `d s`.
+    RemoveFavorites,
+    /// *Remove from this playlist*, as `d s`.
+    RemoveFromPlaylist,
+    /// *Remove from queue*, as `d s`.
+    RemoveFromQueue,
+}
+
+impl SelectionAction {
+    /// The row's text.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Play(_) => "Play",
+            Self::PlayNext(_) => "Play next",
+            Self::AddToQueue(_) => "Add to queue",
+            Self::AddToPlaylist(_) => "Add to playlist…",
+            Self::AddFavorites(..) => "Add to favorites",
+            Self::RemoveFavorites => "Remove from favorites",
+            Self::RemoveFromPlaylist => "Remove from this playlist",
+            Self::RemoveFromQueue => "Remove from queue",
+        }
+    }
+
+    /// The popup's own key for it (`p`, `N`, `a`), if it has one.
+    pub fn key(&self) -> Option<char> {
+        match self {
+            Self::Play(_) => Some('p'),
+            Self::PlayNext(_) => Some('N'),
+            Self::AddToQueue(_) => Some('a'),
+            _ => None,
+        }
+    }
 }
 
 /// The device list of [`Popup::Devices`].
@@ -469,12 +581,16 @@ mod tests {
                 3,
                 "Remove 3 tracks from the queue? (y/n)",
             ),
+            // Spec 0020: deleting own playlists (`d s` in the library).
+            (RemoveFrom::OwnPlaylists, 1, "Delete T1? (y/n)"),
+            (RemoveFrom::OwnPlaylists, 3, "Delete 3 playlists? (y/n)"),
         ];
         for (from, n, want) in cases {
             let target = match &from {
                 RemoveFrom::Favorites(_) => favorite,
                 RemoveFrom::Playlist { .. } => RemovedTarget::Position,
                 RemoveFrom::Queue => |i| RemovedTarget::Entry(EntryId(u64::from(i))),
+                RemoveFrom::OwnPlaylists => |i: u32| RemovedTarget::Playlist(format!("p{i}")),
             };
             let removal = Removal {
                 items: items(n, target),
