@@ -1303,3 +1303,32 @@ fn ac20_bombastine_draw() {
         "the seed picks the insult alone"
     );
 }
+
+// --- spec 0020 AC13: the `selected_row` component ------------------------------
+
+/// AC13: `selected_row` is a component of ours, `Bold` by default, that
+/// `component_style` accepts; a theme setting it colours the marked rows.
+#[test]
+fn ac13_selected_row_component() {
+    let component = Component::from_name("selected_row").expect("selected_row is a component");
+    assert_eq!(component.name(), "selected_row");
+    assert!(COMPONENTS.contains(&component));
+    assert_eq!(
+        Theme::default().style(component),
+        Style::new().add(BOLD),
+        "default"
+    );
+    let themes = build(&file(vec![entry(
+        "s",
+        &[],
+        vec![("selected_row", fg("Cyan"))],
+    )]))
+    .expect("component_style accepts selected_row");
+    assert_eq!(
+        themes.list()[1].style(component),
+        Style::new().fg(Color::Cyan)
+    );
+    // A theme leaving it out keeps the default.
+    let themes = build(&file(vec![entry("t", &[], vec![])])).unwrap();
+    assert_eq!(themes.list()[1].style(component), Style::new().add(BOLD));
+}

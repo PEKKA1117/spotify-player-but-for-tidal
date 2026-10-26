@@ -400,3 +400,60 @@ fn ac15_every_component_documented() {
         );
     }
 }
+
+/// 0020 AC13: the six selection commands and `selected_row` in
+/// `docs/config.md`, "Selecting rows" in `docs/tui.md`, and the zh-TW
+/// copies, `README.md` and `CLAUDE.md` say so.
+#[test]
+fn ac13_selection_documented() {
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        for (command, keys) in [
+            ("SelectCurrent", "`s c`"),
+            ("SelectDown", "`s j`"),
+            ("SelectUp", "`s k`"),
+            ("SelectMotion", "`s m`"),
+            ("SelectionActions", "`s a`"),
+            ("RemoveSelection", "`d s`"),
+        ] {
+            let found = rows(&config, command);
+            assert!(
+                found.iter().any(|row| row.contains(keys)),
+                "docs/{name}: {command}: no table row with {keys}: {found:?}"
+            );
+        }
+        assert!(
+            !rows(&config, "selected_row").is_empty(),
+            "docs/{name}: selected_row: no table row"
+        );
+    }
+    for name in ["tui.md", "zh-TW/tui.md"] {
+        let tui = doc(name);
+        assert!(
+            tui.contains("<a id=\"selecting-rows\"></a>") || tui.contains("## Selecting rows"),
+            "docs/{name}: no \"Selecting rows\" section"
+        );
+        for needed in [
+            "`s c`",
+            "`s j`",
+            "`s k`",
+            "`s m`",
+            "`s a`",
+            "`d s`",
+            "motion",
+            "selected_row",
+        ] {
+            assert!(tui.contains(needed), "docs/{name}: {needed}");
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for name in ["README.md", "README.zh-TW.md"] {
+        let readme = std::fs::read_to_string(root.join(name)).unwrap();
+        assert!(readme.contains("tui.md#selecting-rows"), "{name}: link");
+    }
+    let claude = std::fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+    assert!(
+        claude.contains("0020-multi-select.md") && claude.contains("tui.md#selecting-rows"),
+        "CLAUDE.md: Features entry"
+    );
+}

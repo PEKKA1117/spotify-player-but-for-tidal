@@ -4652,4 +4652,202 @@ mod tests {
         let after = draw_terminal(&state, 80, 24);
         assert_eq!(after.backend().buffer(), before.backend().buffer());
     }
+
+    // --- spec 0020 AC12: selecting rows ----------------------------------------------
+
+    /// `state` after `keys` typed as single-character keys.
+    fn typed_in(mut state: State, keys: &str) -> State {
+        press(&mut state, &typed_keys(keys));
+        state
+    }
+
+    /// An album's six tracks: rows 1 and 2 selected, the cursor on row 3.
+    fn selected_list() -> State {
+        typed_in(album_page(browse_tracks(6)), "scjscj")
+    }
+
+    /// The cursor on a selected row.
+    fn selected_cursor() -> State {
+        typed_in(album_page(browse_tracks(6)), "scjscjk")
+    }
+
+    /// Motion mode from row 1 down to row 3.
+    fn motion_list() -> State {
+        typed_in(album_page(browse_tracks(6)), "smjj")
+    }
+
+    /// Favorites: *Song 2* and the row below selected, then filtered to
+    /// `Song`, which hides the second one.
+    fn hidden_selection() -> State {
+        with_filter(typed_in(favorites(), "js2j"), "Song", true)
+    }
+
+    fn selected_queue() -> State {
+        typed_in(state_of(playing()), "scjs2j")
+    }
+
+    fn selection_popup() -> State {
+        typed_in(selected_list(), "sa")
+    }
+
+    fn remove_question(tracks: u64, select: &str, scroll: &str) -> State {
+        typed_in(
+            typed_in(playlist_page(browse_tracks(tracks)), select),
+            &format!("ds{scroll}"),
+        )
+    }
+
+    fn selection_states() -> Vec<State> {
+        vec![
+            selected_list(),
+            selected_cursor(),
+            motion_list(),
+            hidden_selection(),
+            selected_queue(),
+            typed_in(state_of(playing()), "sm"),
+            selection_popup(),
+            remove_question(3, "s3j", ""),
+            remove_question(30, "s20j", "jjjj"),
+            typed_in(search_tracks_window(), "s2j"),
+            typed_in(library_albums(), "sc"),
+            typed_in(library_albums(), "scsa"),
+        ]
+    }
+
+    #[test]
+    fn ac12_selection_list() {
+        let text = draw(&selected_list(), 80, 24);
+        assert_contains(
+            &text,
+            &["· 2 selected", "+ 1  Song 1", "+ 2  Song 2", "  3  Song 3"],
+        );
+        assert!(!line_with(&text, "Song 3").contains('+'), "{text}");
+        insta::assert_snapshot!("ac12_selection_list", text);
+    }
+
+    #[test]
+    fn ac12_selection_cursor() {
+        let text = draw(&selected_cursor(), 80, 24);
+        assert_contains(&text, &["· 2 selected", "+ 2  Song 2"]);
+        insta::assert_snapshot!("ac12_selection_cursor", text);
+    }
+
+    #[test]
+    fn ac12_selection_motion() {
+        let text = draw(&motion_list(), 80, 24);
+        assert_contains(&text, &["· 3 selected, ", "motion"]);
+        insta::assert_snapshot!("ac12_selection_motion", text);
+    }
+
+    #[test]
+    fn ac12_selection_filter_hidden() {
+        let text = draw(&hidden_selection(), 80, 24);
+        assert_contains(&text, &["· 2 selected, 1 hidden"]);
+        insta::assert_snapshot!("ac12_selection_filter_hidden", text);
+    }
+
+    #[test]
+    fn ac12_selection_queue() {
+        let text = draw(&selected_queue(), 80, 24);
+        assert_contains(&text, &["· 3 selected)", "+ "]);
+        insta::assert_snapshot!("ac12_selection_queue", text);
+    }
+
+    #[test]
+    fn ac12_selection_actions_popup() {
+        let text = draw(&selection_popup(), 80, 24);
+        assert_contains(&text, &["2 selected", "Play next", "Add to queue"]);
+        assert!(
+            line_with(&text, "Play next").trim_end().ends_with("N│"),
+            "{text}"
+        );
+        insta::assert_snapshot!("ac12_selection_actions_popup", text);
+    }
+
+    #[test]
+    fn ac12_selection_remove_question() {
+        let text = draw(&remove_question(3, "s3j", ""), 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Remove 3 tracks from Running? (y/n)",
+                "│   Song 1",
+                "│   Song 2",
+                "│   Song 3",
+            ],
+        );
+        insta::assert_snapshot!("ac12_selection_remove_question", text);
+    }
+
+    #[test]
+    fn ac12_selection_remove_question_scrolled() {
+        let state = remove_question(30, "s20j", "jjjj");
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &["Remove 20 tracks from Running? (y/n)", "│   Song 5"],
+        );
+        assert!(!text.contains("│   Song 3"), "{text}");
+        insta::assert_snapshot!("ac12_selection_remove_question_scrolled", text);
+    }
+
+    /// Without a selection no marker column is drawn; below 10 columns of
+    /// window width it is dropped.
+    #[test]
+    fn ac12_selection_marker_column() {
+        let plain = draw(&album_page(browse_tracks(6)), 80, 24);
+        assert!(!plain.contains("+ "), "{plain}");
+        assert!(!plain.contains("selected"), "{plain}");
+        let text = draw(&selected_list(), 80, 24);
+        assert!(line_with(&text, "Song 3").contains("  3  Song 3"), "{text}");
+        let narrow = draw(&selected_list(), 11, 24);
+        assert!(!narrow.contains('+'), "{narrow}");
+    }
+
+    /// 0017 AC10 style: the marked rows are `selected_row`'s, and the
+    /// cursor's `selection` lies over it on the cursor row.
+    #[test]
+    fn ac10_theme_cues() {
+        let component = Component::from_name("selected_row").expect("selected_row component");
+        let marked = draw_terminal(&test_themed(selected_list()), 80, 24);
+        let cell = find_cell(&marked, 5, "Song 1");
+        assert_eq!(cell.fg, fg_of(component));
+        assert_eq!(cell.bg, bg_of(component));
+        let unmarked = find_cell(&marked, 5, "Song 4");
+        assert_ne!(unmarked.fg, fg_of(component));
+        let cursor = draw_terminal(&test_themed(selected_cursor()), 80, 24);
+        let cell = find_cell(&cursor, 5, "Song 2");
+        assert_eq!(cell.fg, fg_of(Component::Selection));
+        assert_eq!(cell.bg, bg_of(Component::Selection));
+        let other = find_cell(&cursor, 5, "Song 1");
+        assert_eq!(other.fg, fg_of(component));
+        let queue = draw_terminal(&test_themed(selected_queue()), 80, 24);
+        let rows: Vec<_> = buffer_text(&queue).lines().map(str::to_owned).collect();
+        assert!(rows.iter().any(|r| r.contains("+ ")));
+    }
+
+    /// 0006 AC17's sweep, with the selection states.
+    #[test]
+    fn ac12_selection_no_panic_any_size() {
+        let states = selection_states();
+        let themed: Vec<State> = states.iter().cloned().map(test_themed).collect();
+        let sizes = (0..=120)
+            .step_by(7)
+            .flat_map(|w| (0..=40).step_by(3).map(move |h| (w, h)))
+            .chain([
+                (0, 0),
+                (1, 1),
+                (9, 9),
+                (10, 10),
+                (11, 11),
+                (50, 20),
+                (80, 24),
+                (120, 40),
+            ]);
+        for (width, height) in sizes {
+            for state in states.iter().chain(&themed) {
+                draw(state, width, height);
+            }
+        }
+    }
 }
