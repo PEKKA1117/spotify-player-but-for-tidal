@@ -541,7 +541,10 @@ fn window_lines(
             if row.track().is_some_and(|t| !t.streamable) {
                 style = style.add_modifier(Modifier::DIM);
             }
-            if marked.contains(&i) {
+            // The selection holds positions in the loaded list, `i` the
+            // place among the rows shown (spec 0020 bug: under a filter).
+            let is_marked = window.index(i).is_some_and(|r| marked.contains(&r));
+            if is_marked {
                 style = style.patch(of(look, Component::SelectedRow));
             }
             if i == window.cursor {
@@ -580,7 +583,7 @@ fn window_lines(
                     None => fit(&mix.title, width),
                 },
             };
-            let lead = match (marker, marked.contains(&i)) {
+            let lead = match (marker, is_marked) {
                 (false, _) => None,
                 (true, true) => Some(Span::raw(MARKER)),
                 (true, false) => Some(Span::raw(NO_MARKER)),
