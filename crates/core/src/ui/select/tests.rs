@@ -778,6 +778,8 @@ fn ac5_failed_rows_kept_through_reload() {
     reply(&mut state, w[0], ok());
     reply(&mut state, w[1], failed());
     let reload = requests(&reply(&mut state, w[2], ok()));
+    // Pages of two rows: the reload brings T4 and T5 of three.
+    state.page_size = 2;
     let mut asked = requests(&reply(&mut state, reload[0].0, page(&[4, 5], 3)));
     assert_eq!(rows(&state), Vec::<usize>::new(), "not loaded yet");
     asked.extend(requests(&press(&mut state, &keys("G"))));
@@ -801,8 +803,13 @@ fn ac5_failed_rows_kept_through_reload() {
     reply(&mut state, w[0], ok());
     reply(&mut state, w[1], failed());
     let reload = requests(&reply(&mut state, w[2], ok()));
-    press(&mut state, &keys("Gsc"));
     reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    assert_eq!(selected_ids(&state), vec![2], "before the change");
+    // T5 selected too; `d d` on T4 then reloads the list.
+    press(&mut state, &keys("Gsck"));
+    let (id, _) = requests(&press(&mut state, &keys("dd")))[0].clone();
+    let reload = requests(&reply(&mut state, id, ok()));
+    reply(&mut state, reload[0].0, page(&[2, 5], 2));
     assert_eq!(rows(&state), Vec::<usize>::new(), "changed by hand");
 
     // `Esc` drops what waits.
@@ -810,8 +817,13 @@ fn ac5_failed_rows_kept_through_reload() {
     reply(&mut state, w[0], ok());
     reply(&mut state, w[1], failed());
     let reload = requests(&reply(&mut state, w[2], ok()));
-    press(&mut state, &[Key::Esc]);
     reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    press(&mut state, &[Key::Esc]);
+    // `d d` on T5 reloads the list.
+    press(&mut state, &keys("G"));
+    let (id, _) = requests(&press(&mut state, &keys("dd")))[0].clone();
+    let reload = requests(&reply(&mut state, id, ok()));
+    reply(&mut state, reload[0].0, page(&[2, 4], 2));
     assert_eq!(rows(&state), Vec::<usize>::new(), "Esc");
 
     // A changed playlist (`412`): the rows found again in the new order.
