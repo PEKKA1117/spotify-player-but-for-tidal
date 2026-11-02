@@ -796,6 +796,15 @@ fn ac5_failed_rows_kept_through_reload() {
     );
     assert_eq!(selected_ids(&state), vec![2], "loaded later");
 
+    // Changed by hand, the selection is the user's: a reload loses it.
+    let (mut state, w) = start();
+    reply(&mut state, w[0], ok());
+    reply(&mut state, w[1], failed());
+    let reload = requests(&reply(&mut state, w[2], ok()));
+    press(&mut state, &keys("Gsc"));
+    reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    assert_eq!(rows(&state), Vec::<usize>::new(), "changed by hand");
+
     // `Esc` drops what waits.
     let (mut state, w) = start();
     reply(&mut state, w[0], ok());
