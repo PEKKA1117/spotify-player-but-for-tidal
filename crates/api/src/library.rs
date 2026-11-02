@@ -201,8 +201,12 @@ impl LibraryClient {
                     .await?;
                 Ok(LibraryResponse::Done)
             }
-            LibraryRequest::RemoveFromPlaylist { uuid, index, etag } => {
-                self.remove_from_playlist(&uuid, index, &etag).await?;
+            LibraryRequest::RemoveFromPlaylist {
+                uuid,
+                indices,
+                etag,
+            } => {
+                self.remove_from_playlist(&uuid, &indices, &etag).await?;
                 Ok(LibraryResponse::Done)
             }
             LibraryRequest::CreatePlaylist { title } => self
@@ -1046,12 +1050,22 @@ impl LibraryClient {
         Ok(())
     }
 
-    /// Never retried: a `412` means positions may have moved.
-    async fn remove_from_playlist(&self, uuid: &str, index: u32, etag: &str) -> Result<()> {
+    /// One write for all positions, comma-joined in the order given (none:
+    /// nothing is sent). Never retried: a `412` means positions may have
+    /// moved.
+    async fn remove_from_playlist(&self, uuid: &str, indices: &[u32], etag: &str) -> Result<()> {
+        if indices.is_empty() {
+            return Ok(());
+        }
+        let positions = indices
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
         let response = self
             .write(
                 Method::DELETE,
-                &format!("playlists/{uuid}/items/{index}"),
+                &format!("playlists/{uuid}/items/{positions}"),
                 None,
                 &[("if-none-match", etag)],
             )

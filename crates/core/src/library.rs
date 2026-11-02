@@ -247,11 +247,12 @@ pub enum LibraryRequest {
         tracks: Vec<TrackId>,
         allow_duplicates: bool,
     },
-    /// Removes the track at position `index` (0-based), checked against
-    /// the `etag` the client's list was loaded with → [`LibraryResponse::Done`].
+    /// Removes the tracks at positions `indices` (0-based, as the list was
+    /// loaded: one write, spec 0020), checked against the `etag` the
+    /// client's list was loaded with → [`LibraryResponse::Done`].
     RemoveFromPlaylist {
         uuid: String,
-        index: u32,
+        indices: Vec<u32>,
         etag: String,
     },
     /// Creates a private playlist → [`LibraryResponse::Created`].

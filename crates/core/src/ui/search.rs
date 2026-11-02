@@ -137,6 +137,8 @@ fn send(state: &mut State) -> Vec<Effect> {
 /// `Tab`/`BackTab`: input → top hit (when shown) → each window → input,
 /// wrapping.
 pub(super) fn cycle(state: &mut State, forward: bool) -> Vec<Effect> {
+    // The focus leaves its window: a motion range is kept (spec 0020).
+    super::select::leave_focus(state);
     let page = state
         .history
         .last_mut()

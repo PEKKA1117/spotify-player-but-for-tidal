@@ -1,0 +1,29 @@
+---
+source: crates/app/src/ui.rs
+assertion_line: 4800
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│Running · 3 tracks · 10:00                                                    │
+│┌Tracks (3 · 3 selected)─────────────────────────────────────────────────────┐│
+││+   1  Song 1                   Pierce The Veil    Album                3:01││
+││+   2  Song 2                   Pierce The Veil    Album                3:02││
+││+   3  Song 3                   Pierce The Veil    Album                3:03││
+││                                                                            ││
+││                  ┌─────────────────────────────────────┐                   ││
+││                  │ Remove 3 tracks from Running? (y/n) │                   ││
+││                  │   Song 1                            │                   ││
+││                  │   Song 2                            │                   ││
+││                  │   Song 3                            │                   ││
+││                  └─────────────────────────────────────┘                   ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+││                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

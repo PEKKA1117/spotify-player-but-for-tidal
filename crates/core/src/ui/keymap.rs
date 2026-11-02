@@ -269,6 +269,20 @@ pub enum UiCommand {
     PageSelectPreviousOrScrollUp,
     SelectFirstOrScrollToTop,
     SelectLastOrScrollToBottom,
+    /// Selects the row under the cursor, or unselects it (spec 0020); ours.
+    SelectCurrent,
+    /// Selects rows from the cursor down; a count before its last key
+    /// (`s 5 j`) says how many (spec 0020); ours.
+    SelectDown,
+    /// The same, upwards; ours.
+    SelectUp,
+    /// Motion mode on or off (spec 0020); ours.
+    SelectMotion,
+    /// The selection actions popup (spec 0020); ours.
+    SelectionActions,
+    /// Removes the selected rows from their list, asking first (spec
+    /// 0020); ours.
+    RemoveSelection,
     ChooseSelected,
     AddSelectedItemToQueue,
     /// Removes the row under the cursor from the list it is in (spec
@@ -297,7 +311,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 44] = [
+pub const COMMANDS: [UiCommand; 50] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -320,6 +334,12 @@ pub const COMMANDS: [UiCommand; 44] = [
     UiCommand::PageSelectPreviousOrScrollUp,
     UiCommand::SelectFirstOrScrollToTop,
     UiCommand::SelectLastOrScrollToBottom,
+    UiCommand::SelectCurrent,
+    UiCommand::SelectDown,
+    UiCommand::SelectUp,
+    UiCommand::SelectMotion,
+    UiCommand::SelectionActions,
+    UiCommand::RemoveSelection,
     UiCommand::ChooseSelected,
     UiCommand::AddSelectedItemToQueue,
     UiCommand::RemoveSelectedItem,
@@ -370,6 +390,12 @@ impl UiCommand {
             Self::PageSelectPreviousOrScrollUp => "PageSelectPreviousOrScrollUp",
             Self::SelectFirstOrScrollToTop => "SelectFirstOrScrollToTop",
             Self::SelectLastOrScrollToBottom => "SelectLastOrScrollToBottom",
+            Self::SelectCurrent => "SelectCurrent",
+            Self::SelectDown => "SelectDown",
+            Self::SelectUp => "SelectUp",
+            Self::SelectMotion => "SelectMotion",
+            Self::SelectionActions => "SelectionActions",
+            Self::RemoveSelection => "RemoveSelection",
             Self::ChooseSelected => "ChooseSelected",
             Self::AddSelectedItemToQueue => "AddSelectedItemToQueue",
             Self::RemoveSelectedItem => "RemoveSelectedItem",
@@ -407,6 +433,12 @@ impl UiCommand {
                 | Self::SelectFirstOrScrollToTop
                 | Self::SelectLastOrScrollToBottom
         )
+    }
+
+    /// Whether a binding of this command takes a count: digits typed
+    /// before the last key of its sequence (spec 0020 "Counts").
+    pub fn is_counted(self) -> bool {
+        matches!(self, Self::SelectDown | Self::SelectUp)
     }
 
     /// The command named `name` with `params` (the inline table's, `None`
@@ -556,6 +588,29 @@ impl Binding {
             Self::Command(command) => command.name(),
             Self::Action(binding) => binding.action.name(),
         }
+    }
+}
+
+/// What a sequence of collected keys names (spec 0008 "Sequences", spec
+/// 0020 "Counts").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lookup {
+    /// A binding, with the count typed in it (`None`: no count).
+    Bound(Binding, Option<usize>),
+    /// The start of a longer binding, or of a count.
+    Starts,
+    /// Digits of a count followed by a key that does not finish it, or a
+    /// count of 0: the sequence is cancelled, and nothing runs.
+    Cancel,
+    /// Nothing: no binding is or starts with these keys.
+    Unbound,
+}
+
+/// The value of a digit key (`0`–`9`).
+fn digit(key: Key) -> Option<usize> {
+    match key {
+        Key::Char(c) => c.to_digit(10).map(|d| d as usize),
+        _ => None,
     }
 }
 
@@ -817,6 +872,55 @@ impl Keymap {
             .map(|(_, b)| *b)
     }
 
+    /// What `keys` name: a binding (with the count a `SelectDown` or
+    /// `SelectUp` binding's sequence has in it), the start of one, a
+    /// cancelled count, or nothing (spec 0020 "Counts").
+    ///
+    /// A bound sequence or the start of one wins over a count; a count
+    /// goes after the first key of a sequence at least, so a digit typed
+    /// alone is never one.
+    pub fn lookup(&self, keys: &[Key]) -> Lookup {
+        if let Some(binding) = self.get(keys) {
+            return Lookup::Bound(binding, None);
+        }
+        if self.starts(keys) {
+            return Lookup::Starts;
+        }
+        let mut found = Lookup::Unbound;
+        for (sequence, binding) in &self.bindings {
+            let Binding::Command(command) = binding else {
+                continue;
+            };
+            let Some((last, prefix)) = sequence.0.split_last() else {
+                continue;
+            };
+            if !command.is_counted() || prefix.is_empty() || !keys.starts_with(prefix) {
+                continue;
+            }
+            let rest = &keys[prefix.len()..];
+            let digits = rest.iter().take_while(|k| digit(**k).is_some()).count();
+            if digits == 0 {
+                continue;
+            }
+            match &rest[digits..] {
+                [] => return Lookup::Starts,
+                [key] if key == last => {
+                    let count = rest[..digits].iter().fold(0usize, |n, k| {
+                        n.saturating_mul(10)
+                            .saturating_add(digit(*k).unwrap_or_default())
+                    });
+                    if count == 0 {
+                        found = Lookup::Cancel;
+                    } else {
+                        return Lookup::Bound(*binding, Some(count));
+                    }
+                }
+                _ => found = Lookup::Cancel,
+            }
+        }
+        found
+    }
+
     /// Whether `keys` is the start of a longer binding.
     pub fn starts(&self, keys: &[Key]) -> bool {
         self.bindings
@@ -896,6 +1000,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
     let one = |key: Key| KeySequence(vec![key]);
     let g = |c: char| KeySequence(vec![Char('g'), Char(c)]);
     let d = |c: char| KeySequence(vec![Char('d'), Char(c)]);
+    let s = |c: char| KeySequence(vec![Char('s'), Char(c)]);
     let table: Vec<(Vec<KeySequence>, UiCommand)> = vec![
         (vec![one(Char(' '))], C::ResumePause),
         (vec![one(Char('n'))], C::NextTrack),
@@ -933,12 +1038,19 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
             vec![one(Char('G')), one(B::End.key())],
             C::SelectLastOrScrollToBottom,
         ),
+        // Spec 0020: the selection keys after `s` (`d s` is beside `d d`).
+        (vec![s('c')], C::SelectCurrent),
+        (vec![s('j')], C::SelectDown),
+        (vec![s('k')], C::SelectUp),
+        (vec![s('m')], C::SelectMotion),
+        (vec![s('a')], C::SelectionActions),
         (vec![one(Key::Enter)], C::ChooseSelected),
         (
             vec![one(Char('Z')), one(Ctrl('z'))],
             C::AddSelectedItemToQueue,
         ),
         (vec![d('d')], C::RemoveSelectedItem),
+        (vec![d('s')], C::RemoveSelection),
         (vec![g('a'), one(Ctrl(' '))], C::ShowActionsOnSelectedItem),
         (vec![one(Char('a'))], C::ShowActionsOnCurrentTrack),
         (vec![one(Key::Tab)], C::FocusNextWindow),

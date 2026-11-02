@@ -17,6 +17,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **位元完美播放**：串流 Tidal 提供的最佳音質（最高 `HI_RES_LOSSLESS` FLAC），以曲目原本的取樣率播放到 ALSA `hw:` 裝置，播放期間向 PipeWire 取得音效卡。無縫播放（gapless），會預先載入下一首。[播放曲目](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback-zh-TW)
 - **你的收藏庫**：收藏的曲目、播放清單、專輯與藝人，以及專輯、播放清單與藝人頁面；可從動作選單編輯收藏與你的播放清單，移除任何內容前都會先詢問 `y/n`。[TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW)
 - **搜尋、mix 與電台**：搜尋曲目、專輯、藝人與播放清單（`g s`），開啟你的每日 mix（`g m`）或曲目、藝人的電台（`r`），並可在輸入時篩選任何清單（`/`）
+- **選取多列**：標記清單或佇列中的多列（`s c`、`s 5 j`，或按 `s m` 後移動游標），再一起播放、加入佇列、加入收藏或移除（`s a`、`d s`）。[選取多列](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#selecting-rows)
 - **完整的佇列**：隨機播放、重複播放，佇列播完時以 Tidal 的推薦自動播放，再次啟動時還原上次的工作階段（佇列、位置、模式與音量）
 - **常駐程式與用戶端**：以 systemd 使用者服務在背景執行播放器，可連上任意數量的 TUI，並以單次的 `tidal-player playback …` 指令控制。暫停時會釋放音訊裝置。[常駐程式](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon-zh-TW)
 - **桌面控制**：透過 MPRIS 支援多媒體鍵、藍牙耳機、GNOME/KDE 媒體控制與 `playerctl`，含專輯封面。[桌面控制與多媒體鍵](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS-zh-TW)

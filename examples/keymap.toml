@@ -143,6 +143,33 @@ key_sequence = "G"
 command = "SelectLastOrScrollToBottom"
 key_sequence = "end"
 
+# SelectCurrent: select / unselect the row (lists; spec 0020)
+[[keymaps]]
+command = "SelectCurrent"
+key_sequence = "s c"
+
+# SelectDown: select rows down; a count before the last key selects that
+# many: "s 5 j" (lists)
+[[keymaps]]
+command = "SelectDown"
+key_sequence = "s j"
+
+# SelectUp: select rows up, "s 5 k" (lists)
+[[keymaps]]
+command = "SelectUp"
+key_sequence = "s k"
+
+# SelectMotion: motion mode on / off: the rows from where it started to the
+# cursor are selected (lists)
+[[keymaps]]
+command = "SelectMotion"
+key_sequence = "s m"
+
+# SelectionActions: actions on the selection (lists)
+[[keymaps]]
+command = "SelectionActions"
+key_sequence = "s a"
+
 # ChooseSelected: play the track with its list / open / run (lists, popups)
 [[keymaps]]
 command = "ChooseSelected"
@@ -161,6 +188,11 @@ key_sequence = "C-z"
 [[keymaps]]
 command = "RemoveSelectedItem"
 key_sequence = "d d"
+
+# RemoveSelection: remove the selected rows from their list (lists of yours)
+[[keymaps]]
+command = "RemoveSelection"
+key_sequence = "d s"
 
 # ShowActionsOnSelectedItem: actions on the selected row (lists)
 [[keymaps]]

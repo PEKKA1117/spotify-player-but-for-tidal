@@ -9,10 +9,11 @@ use crate::library::{
     AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest,
     PlaylistSummary, RadioSeed, RoleCategory, TopHit,
 };
-use crate::track::{ArtistRef, Track};
+use crate::track::{ArtistRef, EntryId, Track};
 
 use super::filter::{self, Filter};
 use super::search::{Search, SearchFocus};
+use super::select::Selection;
 
 /// The history keeps at most this many pages above the queue (the queue at
 /// the bottom is never dropped).
@@ -288,7 +289,7 @@ impl<'a> Row<'a> {
 
     /// The ID that makes a row "already loaded" (spec 0006: track ID,
     /// album ID, artist ID or playlist UUID).
-    fn key(self) -> RowKey {
+    pub fn key(self) -> RowKey {
         match self {
             Self::Track(t) => RowKey::Id(t.id.0),
             Self::Credit(c) => RowKey::Id(c.track.id.0),
@@ -300,8 +301,10 @@ impl<'a> Row<'a> {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
-enum RowKey {
+/// What a row is, whatever its place: its track, album or artist ID, its
+/// playlist or mix UUID.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RowKey {
     Id(u64),
     Uuid(String),
 }
@@ -342,6 +345,13 @@ pub struct Window {
     /// `rows`, both filters applied), matched once per filter edit or
     /// page arrival rather than per drawn row; `None` without one.
     shown: Option<Vec<usize>>,
+    /// The rows selected (spec 0020), by index into `rows`; lost when the
+    /// list is reloaded.
+    pub selection: Selection<usize>,
+    /// The rows of a failed selection write still to be selected again,
+    /// each once a row of its identity loads (spec 0020 "Failed rows and
+    /// reloads"); kept through a reload.
+    pub reselect: Vec<RowKey>,
 }
 
 impl Window {
@@ -379,6 +389,8 @@ impl Window {
             whole: false,
             filter: Filter::default(),
             shown: None,
+            selection: Selection::default(),
+            reselect: Vec::new(),
         }
     }
 
@@ -553,10 +565,12 @@ impl Window {
         }
     }
 
-    /// Forgets the loaded rows (before a page is fetched again); the
-    /// cursor, the role filter and the text filter stay.
+    /// Forgets the loaded rows (before a page is fetched again) and the
+    /// selection of them (spec 0020); the cursor, the role filter, the
+    /// text filter and the rows waiting to be selected again stay.
     pub(super) fn reset(&mut self) {
         self.rows = self.rows.emptied();
+        self.selection = Selection::default();
         self.positions.clear();
         self.total = None;
         self.hidden = 0;
@@ -570,6 +584,7 @@ impl Window {
     /// can hold a track twice: spec 0006 "Bugs"); `next_offset` advances by
     /// what was asked. A page of another row type is ignored.
     pub(super) fn append(&mut self, items: ListItems, limit: u32) {
+        let loaded = self.rows.len();
         fn add<T: Clone>(
             rows: &mut Vec<T>,
             positions: &mut Vec<u32>,
@@ -631,6 +646,39 @@ impl Window {
         self.load = Load::Idle;
         self.refilter();
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
+        self.take_reselect(loaded);
+    }
+
+    /// Selects the rows of `keys` again (spec 0020 "Failed rows and
+    /// reloads"): the selection becomes those loaded now, and the same
+    /// again after each reload and as more rows load.
+    pub(super) fn reselect(&mut self, keys: Vec<RowKey>) {
+        self.selection = Selection::default();
+        self.reselect = keys;
+        self.take_reselect(0);
+    }
+
+    /// Selects the rows from `from` on of the identities in `reselect`,
+    /// while fewer rows of that identity are selected than it lists.
+    fn take_reselect(&mut self, from: usize) {
+        if self.reselect.is_empty() {
+            return;
+        }
+        for index in from..self.rows.len() {
+            let Some(key) = self.rows.get(index).map(Row::key) else {
+                return;
+            };
+            let wanted = self.reselect.iter().filter(|k| **k == key).count();
+            let selected = self
+                .selection
+                .rows()
+                .iter()
+                .filter(|&&row| self.rows.get(row).map(Row::key).as_ref() == Some(&key))
+                .count();
+            if selected < wanted {
+                self.selection.insert(index);
+            }
+        }
     }
 }
 
@@ -704,6 +752,9 @@ pub struct Page {
     /// The queue page's filter (spec 0012: it has no window); unused on
     /// the other pages, whose windows have their own.
     pub filter: Filter,
+    /// The queue's selection (spec 0020), on the queue page at the bottom
+    /// of the history; unused on the other pages.
+    pub selection: Selection<EntryId>,
 }
 
 impl Page {
@@ -774,6 +825,7 @@ impl Page {
             tabs,
             windows,
             filter: Filter::default(),
+            selection: Selection::default(),
         }
     }
 

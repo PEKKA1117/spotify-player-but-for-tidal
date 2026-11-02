@@ -111,7 +111,7 @@ playback_progress_bar = { fg = "#bd93f9" }
 <a id="components"></a>
 ### 元件
 
-每個元件畫在哪裡、它的預設值（`default` 佈景主題的外觀，也是任何佈景主題對沒寫出的元件所得到的樣式），以及作為對照的 spotify-player 預設值。`*` 標示本播放器新增的兩個。
+每個元件畫在哪裡、它的預設值（`default` 佈景主題的外觀，也是任何佈景主題對沒寫出的元件所得到的樣式），以及作為對照的 spotify-player 預設值。`*` 標示本播放器新增的三個。
 
 | 元件 | 繪製位置 | 預設值 | spotify-player 的預設值 |
 |---|---|---|---|
@@ -133,6 +133,7 @@ playback_progress_bar = { fg = "#bd93f9" }
 | `like` | 已追蹤播放清單上的 `♥` | 無 | 無 |
 | `error`* | 訊息列與載入失敗處（頁面、視窗、失敗的 `Loading more…`） | `fg = "Red"` | `fg = "Red"` |
 | `prompt`* | 開啟中的提示（`Add to queue: …`、`Play next: …`）、播放清單名稱提示、搜尋輸入框 | `Bold` | `Bold` |
+| `selected_row`* | 清單或佇列中[選取](tui.md#selecting-rows)的列（以 `+ ` 標記） | `Bold` | 無 |
 
 佈景主題沒寫出的元件維持今天的外觀，**不會**採用 spotify-player 色彩繽紛的預設值：只有調色盤的佈景主題（例如 spotify-player 的 `dracula`）只會改變背景、前景和錯誤的紅色。想要 spotify-player 的外觀，請複製 [`examples/theme.toml`](../../examples/theme.toml) 中的 `spotify_player` 佈景主題（它把預設值全部寫了出來）再修改。調色盤的 `background` 和 `foreground` 是整個畫面的樣式：每個儲存格都從它們開始，上表的樣式再疊上去。
 
@@ -143,7 +144,7 @@ playback_progress_bar = { fg = "#bd93f9" }
 
 無論用哪個佈景主題，TUI 都會在元件樣式之上加上這些狀態提示，因此佈景主題無法把它們藏起來（疊加的樣式會在有設定的地方取代下層的顏色，並加上它的修飾）：
 
-- **列**：每列從畫面的樣式開始，或在每隔一列使用 `secondary_row`；佇列的目前項目疊上 `current_playing`；無法播放的曲目、自動播放建議和 `── Suggested` 分隔線加上 `Dim`；游標所在列疊上 `selection`，且當它的視窗沒有焦點時加上 `Dim`
+- **列**：每列從畫面的樣式開始，或在每隔一列使用 `secondary_row`；佇列的目前項目疊上 `current_playing`；無法播放的曲目、自動播放建議和 `── Suggested` 分隔線加上 `Dim`；被選取的列疊上 `selected_row`；游標所在列疊上 `selection`，且當它的視窗沒有焦點時加上 `Dim`
 - **視窗**：有焦點的視窗標題加上 `Bold`；其他視窗的標題和邊框加上 `Dim`。彈出視窗、按鍵說明和按鍵提示的標題加上 `Bold`，輸入佇列篩選時佇列的標題也是。外框的標題不加任何東西
 - **搜尋輸入框**：有焦點時為加上 `Bold` 的 `prompt`；沒有焦點時為去掉 `Bold` 的 `prompt`，再加上 `Dim`
 - **狀態文字**（`Loading…`、`Loading more…`、空清單、`No rows match …`、彈出視窗的狀態、按鍵說明的頁尾與變暗的列、按鍵提示中變暗的列）：在該列的樣式上加 `Dim`
@@ -192,7 +193,9 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 - 名稱：`enter`、`space`、`tab`、`backtab`（Shift-Tab）、`backspace`、`esc`、`left`、`right`、`up`、`down`、`insert`、`delete`、`home`、`end`、`page_up`、`page_down`、`f1` … `f12`
 - 上述任一種加上 `C-`（Control）或 `M-`（Alt）前綴：`C-s`、`M-enter`、`C-space`、`M-p`。`C-S` 等同 `C-s`：終端機回報 Control 加字母時不分大小寫
 
-按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the default "d d" (RemoveSelectedItem)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，在新預設 `d d` 旁仍然可用。
+按下的按鍵會累積：當你按下的內容不是任何綁定的開頭時，會從最後一個按鍵單獨重新開始累積（`g x` 的作用等同 `x`）；當它是一個綁定時，就執行該綁定。沒有逾時。若某個按鍵序列是另一個序列的開頭，就無法完成，因此檔案中有兩個序列呈這種關係（`s` 與 `s l a`）會被拒絕，見[錯誤](#errors)。檔案中的序列若與**預設**綁定衝突，則以檔案為準：預設綁定會被捨棄，訊息列會在啟動時說明一次，並以 ` · ` 與下方略過名稱的通知相接：`keymap.toml: "d" replaces the defaults "d d" (RemoveSelectedItem), "d s" (RemoveSelection)`，或 `keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g l" (LibraryPage), …`（依預設的順序全部列出；你的每個序列各一段，以 `;` 相接）。因此從舊範例複製來、把 `RemoveFromQueue` 綁在 `d` 的 `keymap.toml`，仍然可用：它會取代 `d d` 與 `d s`。
+
+**數量。** `SelectDown` 或 `SelectUp` 的綁定，在最後一個按鍵之前接受數字鍵：預設的 `s j` 可以寫成 `s 5 j` 選取 5 列；若把 `SelectDown` 改綁成 `x y`，則是 `x 5 y`。其他命令的序列中的數字不是數量，單一按鍵的綁定也不接受數量（綁在 `5` 的 `NextTrack` 仍會觸發）。數量為 0，或數字後面接其他按鍵，會取消整個序列。
 
 **不可靠的按鍵**：許多終端機無法將 `C-enter`、`C-tab`、`C-backspace` 或 Control 加方向鍵當作獨立的按鍵送出；這類綁定會被接受，但可能永遠不會觸發。終端機會把 `C-i` 送成 `tab`、`C-m` 送成 `enter`、`C-[` 送成 `esc`，所以請改為綁定這些名稱。`M-` 按鍵需要終端機將 Alt 送成 Escape + 按鍵（大多數終端機都如此；在 macOS 上請啟用「Use Option as Meta」）。按鍵說明（`?`）會顯示已綁定的內容；按下該按鍵即可得知它是否有送達。
 
@@ -231,9 +234,15 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `PageSelectPreviousOrScrollUp` | `C-b`、`page_up` | 清單、彈出視窗 | move up a window（向上移動一個視窗） |
 | `SelectFirstOrScrollToTop` | `g g` | 清單、彈出視窗 | move to the top（移到最上方） |
 | `SelectLastOrScrollToBottom` | `G`、`end` | 清單、彈出視窗 | move to the last loaded row（移到最後一個已載入的列） |
+| `SelectCurrent`* | `s c` | 清單、佇列 | select / unselect the row under the cursor（選取／取消選取游標所在的列；見[選取多列](tui.md#selecting-rows)） |
+| `SelectDown`* | `s j` | 清單、佇列 | select rows down from the cursor（從游標往下選取）；`s <N> j` 選取 `N` 列（數字是數量，只適用於這兩個命令） |
+| `SelectUp`* | `s k` | 清單、佇列 | select rows up from the cursor（從游標往上選取）；`s <N> k` 選取 `N` 列 |
+| `SelectMotion`* | `s m` | 清單、佇列 | motion mode on / off（動作模式開啟／關閉：選取錨點與游標之間的列） |
+| `SelectionActions`* | `s a` | 清單、佇列 | actions on the selected rows（對選取的列執行動作） |
 | `ChooseSelected` | `enter` | 清單、彈出視窗 | play the track with its list / open / run（播放曲目並連同其清單／開啟／執行） |
 | `AddSelectedItemToQueue` | `Z`、`C-z` | 清單 | add to the end of the queue（加到佇列末端） |
 | `RemoveSelectedItem`* | `d d` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove from the list（從清單移除；先詢問 `y/n`；[移除什麼](tui.md#confirming-removals)） |
+| `RemoveSelection`* | `d s` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove the selected rows from the list（把選取的列從清單移除；先詢問 `y/n` 並逐列列出；[移除什麼](tui.md#confirming-removals)） |
 | `RemoveFromQueue` | | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`；沒有預設按鍵，由 `RemoveSelectedItem` 執行） |
 | `ShowActionsOnSelectedItem` | `g a`、`C-space` | 清單 | actions on the selected row（對選取列的動作） |
 | `ShowActionsOnCurrentTrack` | `a` | 所有地方 | actions on the playing track（對正在播放曲目的動作） |

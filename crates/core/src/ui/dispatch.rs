@@ -8,9 +8,9 @@ use std::time::Duration;
 use crate::item::parse_item;
 use crate::protocol::{Command, InsertAt};
 
-use super::keymap::{Binding, UiCommand};
+use super::keymap::{Binding, Lookup, UiCommand};
 use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
-use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, theme};
+use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, select, theme};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
@@ -21,8 +21,9 @@ pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
         set_pending(state, Vec::new());
         return effects;
     }
-    match resolve(state, key) {
-        Some(binding) => run_binding(state, binding),
+    match resolve_counted(state, key) {
+        Some((Binding::Command(command), Some(count))) => counted(state, command, count),
+        Some((binding, _)) => run_binding(state, binding),
         None => Vec::new(),
     }
 }
@@ -57,20 +58,38 @@ pub(super) fn set_pending(state: &mut State, pending: Vec<Key>) {
 /// Keys that start no binding restart with `key` alone; there is no
 /// timeout (spotify-player's rule).
 pub(super) fn resolve(state: &mut State, key: Key) -> Option<Binding> {
+    resolve_counted(state, key).map(|(binding, _)| binding)
+}
+
+/// [`resolve`], with the count typed in the sequence (spec 0020
+/// "Counts"): digits after the start of a `SelectDown`/`SelectUp`
+/// binding are collected; a key that does not finish it, or a count of 0,
+/// cancels the sequence, and nothing runs.
+fn resolve_counted(state: &mut State, key: Key) -> Option<(Binding, Option<usize>)> {
     let mut keys = std::mem::take(&mut state.pending);
     keys.push(key);
     let keymap = &state.keymap;
-    if keymap.get(&keys).is_none() && !keymap.starts(&keys) {
+    let mut found = keymap.lookup(&keys);
+    if found == Lookup::Unbound {
         keys = vec![key];
+        found = keymap.lookup(&keys);
     }
-    let found = keymap.get(&keys);
-    let pending = if found.is_none() && keymap.starts(&keys) {
-        keys
-    } else {
-        Vec::new()
+    let (pending, binding) = match found {
+        Lookup::Bound(binding, count) => (Vec::new(), Some((binding, count))),
+        Lookup::Starts => (keys, None),
+        Lookup::Cancel | Lookup::Unbound => (Vec::new(), None),
     };
     set_pending(state, pending);
-    found
+    binding
+}
+
+/// A command with a count (`s 5 j`): it acts on a page only, as the
+/// selection keys do.
+fn counted(state: &mut State, command: UiCommand, count: usize) -> Vec<Effect> {
+    if state.popup.is_some() || state.prompt.is_some() || state.whole_list.is_some() {
+        return run_command(state, command);
+    }
+    select::command(state, command, count)
 }
 
 /// Runs a binding where the UI is.
@@ -138,8 +157,14 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     // load too); the lists; playback (it needs a queue).
     let send = match command {
         C::Quit => return vec![Effect::Quit],
-        // `Esc` on a page clears the focused window's filter (spec 0012).
-        C::ClosePopup => return filter::clear(state),
+        // `Esc` on a page clears the focused window's kept filter (spec
+        // 0012), or else its selection (spec 0020).
+        C::ClosePopup => {
+            if !filter::kept(state) {
+                select::clear_focused(state);
+            }
+            return filter::clear(state);
+        }
         C::OpenCommandHelp => return Vec::new(),
         C::SwitchDevice => return browse::open_devices(state),
         C::SwitchTheme => return theme::open(state),
@@ -152,6 +177,12 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
         C::ShowActionsOnCurrentTrack => return browse::actions_on_playing(state),
+        C::SelectCurrent
+        | C::SelectDown
+        | C::SelectUp
+        | C::SelectMotion
+        | C::SelectionActions
+        | C::RemoveSelection => return select::command(state, command, 1),
         C::FocusNextWindow | C::FocusPreviousWindow => {
             let forward = command == C::FocusNextWindow;
             if state.page().search.is_some() {

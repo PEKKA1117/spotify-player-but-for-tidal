@@ -1566,7 +1566,7 @@ async fn ac7_writes() {
         name: "remove: the given position and ETag".into(),
         request: LibraryRequest::RemoveFromPlaylist {
             uuid: UUID.into(),
-            index: 3,
+            indices: vec![3],
             etag: E1.into(),
         },
         answers: vec![answer(
@@ -1589,7 +1589,7 @@ async fn ac7_writes() {
         name: "remove on 412: the message, no retry".into(),
         request: LibraryRequest::RemoveFromPlaylist {
             uuid: UUID.into(),
-            index: 3,
+            indices: vec![3],
             etag: E1.into(),
         },
         answers: vec![answer(
@@ -1639,6 +1639,119 @@ async fn ac7_writes() {
         let s = Setup::new().await;
         mount_in_order(&s, &row.answers).await;
         let got = s.ask(row.request).await.map_err(|e| e.to_string());
+        assert_eq!(got, row.want, "{}", row.name);
+        assert_eq!(s.seen().await, row.want_requests, "{}: requests", row.name);
+    }
+}
+
+/// AC14: several playlist positions go in one `DELETE .../items/{i,j,k}`
+/// with the ETag; one position is today's request; none sends nothing; a
+/// `412` is the changed-playlist message, never retried.
+#[tokio::test]
+async fn ac14_remove_several_positions() {
+    struct Row {
+        name: &'static str,
+        indices: Vec<u32>,
+        answers: Vec<Answer>,
+        want_requests: Vec<Seen>,
+        want: Result<LibraryResponse, String>,
+    }
+    let items_path = format!("/v1/playlists/{UUID}/items");
+    let changed = "The playlist changed: nothing was changed, try again";
+    let rows = vec![
+        Row {
+            name: "three positions: one request, comma-joined, given order",
+            indices: vec![1, 4, 7],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "order is kept, not sorted",
+            indices: vec![7, 1],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/7,1"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/7,1"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "one position: today's request",
+            indices: vec![3],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/3"),
+                200,
+                "",
+                Some(E2),
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/3"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "no positions: nothing sent",
+            indices: vec![],
+            answers: vec![],
+            want_requests: vec![],
+            want: Ok(LibraryResponse::Done),
+        },
+        Row {
+            name: "412 on several: the message, no retry",
+            indices: vec![1, 4, 7],
+            answers: vec![answer(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                412,
+                ETAG_7002,
+                None,
+            )],
+            want_requests: vec![seen(
+                "DELETE",
+                &format!("{items_path}/1,4,7"),
+                &CC,
+                Some(E1),
+                "",
+            )],
+            want: Err(changed.into()),
+        },
+    ];
+    for row in rows {
+        let s = Setup::new().await;
+        mount_in_order(&s, &row.answers).await;
+        let request = LibraryRequest::RemoveFromPlaylist {
+            uuid: UUID.into(),
+            indices: row.indices,
+            etag: E1.into(),
+        };
+        let got = s.ask(request).await.map_err(|e| e.to_string());
         assert_eq!(got, row.want, "{}", row.name);
         assert_eq!(s.seen().await, row.want_requests, "{}: requests", row.name);
     }
@@ -1711,7 +1824,7 @@ async fn ac7_errors_pass_through() {
                 "remove from playlist",
                 LibraryRequest::RemoveFromPlaylist {
                     uuid: UUID.into(),
-                    index: 0,
+                    indices: vec![0],
                     etag: E1.into(),
                 },
             ),
