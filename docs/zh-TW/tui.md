@@ -300,7 +300,7 @@
 
 **動作模式（motion）。** `s m` 把游標所在列記為錨點；模式開啟期間，從錨點到游標（不論往哪個方向）的每一列都顯示為已選取，不論游標如何移動（`j`、`k`、`G`、`g g`、`C-f`……）。再按一次 `s m` 會結束模式，並把這些列加入選取；先前已選取的列仍保持選取。`s a` 與 `d s` 會對含有該範圍的選取操作，並結束模式。模式中 `s c` 沒有作用（游標所在列一定在範圍內），按鍵說明會把它變暗。設定了篩選時，範圍是錨點與游標之間顯示出來的列。把焦點移到另一個視窗時，範圍會加入選取。
 
-**清除。** 沒有開啟任何彈出視窗、輸入提示或篩選輸入時，`esc` 會清除焦點視窗的選取（以及動作模式，範圍也一併清除）。視窗保留著[篩選](#filtering-a-list)時，第一次 `esc` 只清除篩選、選取保留，所以可以先篩選、選取，再按 `esc` 看回整份清單，選取的列仍在；再按一次 `esc` 才清除選取。換頁會清除離開的頁面上所有的選取，經由歷史記錄回來也不會恢復。成功的動作會清除該視窗的選取；失敗的動作則保留；清單重新取得的視窗（寫入之後）會失去選取。離開佇列的項目也會從選取中消失。
+**清除。** 沒有開啟任何彈出視窗、輸入提示或篩選輸入時，`esc` 會清除焦點視窗的選取（以及動作模式，範圍也一併清除）。視窗保留著[篩選](#filtering-a-list)時，第一次 `esc` 只清除篩選、選取保留，所以可以先篩選、選取，再按 `esc` 看回整份清單，選取的列仍在；再按一次 `esc` 才清除選取。換頁會清除離開的頁面上所有的選取，經由歷史記錄回來也不會恢復。成功的動作會清除該視窗的選取；失敗的動作則保留；清單重新取得的視窗（寫入之後）會失去選取，但失敗動作的列除外：重新載入的清單中會依它們是什麼（曲目、專輯、藝人或播放清單）再次選取，捲動到它們時也一樣，直到你清除選取或自己更動選取為止。離開佇列的項目也會從選取中消失。
 
 **篩選。** 被[篩選](#filtering-a-list)隱藏的列仍保持選取並會被操作；標題會說明隱藏了幾列（`2 selected, 1 hidden`），清除篩選後它們仍是已選取。在篩選中選取，只會選取顯示出來的列。
 
@@ -427,7 +427,7 @@
     Holocene
   ```
 
-  按 `y` 移除（從你的播放清單是一次寫入），訊息會說明數量：`Removed 3 tracks from Road trip`；若多次寫入中有些失敗，訊息會說明（`Removed 2 albums from favorites; 1 failed`），失敗的列仍保持選取。在音樂庫的 Playlists 中，選取的你自己的播放清單會被刪除、你追蹤的會從收藏移除，合併在同一個詢問中（`Delete 2 playlists and remove 1 from favorites? (y/n)`，兩份清單分別列在 `Delete:` 與 `Remove from favorites:` 之下），即使 `confirm_removals` 關閉也會詢問。沒有選取，或在其他視窗中，`d s` 沒有作用
+  按 `y` 移除（從你的播放清單是一次寫入），訊息會說明數量：`Removed 3 tracks from Road trip`；若多次寫入中有些失敗，訊息會說明（`Removed 2 albums from favorites; 1 failed`），失敗的列仍保持選取，清單重新取得之後也是，所以再按一次 `d s` 就會重試。在音樂庫的 Playlists 中，選取的你自己的播放清單會被刪除、你追蹤的會從收藏移除，合併在同一個詢問中（`Delete 2 playlists and remove 1 from favorites? (y/n)`，兩份清單分別列在 `Delete:` 與 `Remove from favorites:` 之下），即使 `confirm_removals` 關閉也會詢問。沒有選取，或在其他視窗中，`d s` 沒有作用
 - 從動作選單、從 [`[[actions]]` 綁定](config.md#actions)（`DeleteFromLiked`、`DeleteFromPlaylist`、`RemoveFromQueue`）以及從 `d d` 執行時，詢問都相同
 - 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d …` 提示框，列出 `d  remove from the list`
 - 在 `app.toml` 中設定 `confirm_removals = false`（或 `TIDAL_PLAYER_CONFIRM_REMOVALS=off`）會讓這三個動作立即執行；*Delete playlist* 與 *add again?* 的詢問仍會出現。這不會改變按鍵：`RemoveSelectedItem` 仍是 `d d`。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)

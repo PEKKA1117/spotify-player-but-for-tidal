@@ -776,12 +776,12 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
         | C::RemoveSelectedItem => offline || no_selection(state, at),
         C::ShowActionsOnSelectedItem => no_selection(state, at),
         // Spec 0020: `s c` does nothing in motion mode, `s a` and `d s`
-        // with nothing selected.
+        // with nothing selected, `s a` on mixes.
         C::SelectCurrent => {
             no_selection(state, at) || select::focused_marks(state).is_some_and(|m| m.motion)
         }
         C::SelectDown | C::SelectUp | C::SelectMotion => no_selection(state, at),
-        C::SelectionActions => select::focused_marks(state).is_none_or(|m| m.count == 0),
+        C::SelectionActions => !select::selection_actions_apply(state),
         C::RemoveSelection => offline || select::focused_marks(state).is_none_or(|m| m.count == 0),
         // The filter acts on a loaded page only (spec 0012).
         C::Search => state.page().load != Load::Idle,

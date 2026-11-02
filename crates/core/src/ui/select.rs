@@ -19,7 +19,7 @@ use crate::track::{EntryId, Track};
 
 use super::browse::{self, Write};
 use super::keymap::UiCommand;
-use super::page::{Load, Page, PageKind, Row, Window, WindowKind, group};
+use super::page::{Load, Page, PageKind, Row, RowKey, Window, WindowKind, group};
 use super::popup::{
     Popup, Removal, RemoveFrom, Removed, RemovedTarget, SelectionAction, SelectionPart,
     SelectionRemoval, TrackSource, selection_question,
@@ -58,6 +58,11 @@ impl<K: Ord + Copy> Selection<K> {
     /// Whether motion mode is on.
     pub fn motion(&self) -> bool {
         self.anchor.is_some()
+    }
+
+    /// Selects `row`.
+    pub(super) fn insert(&mut self, row: K) {
+        self.rows.insert(row);
     }
 
     /// Selects `row`, or unselects it.
@@ -226,6 +231,16 @@ pub(super) fn focused_marks(state: &State) -> Option<Marks> {
     }
 }
 
+/// Whether `s a` opens its popup where the keys act: something is
+/// selected, and not mixes, to which no action applies.
+pub(super) fn selection_actions_apply(state: &State) -> bool {
+    let Some(origin) = origin(state) else {
+        return false;
+    };
+    focused_marks(state).is_some_and(|m| m.count > 0)
+        && window_at(state, origin).is_none_or(|w| w.kind != WindowKind::Mixes)
+}
+
 // --- where the keys act ------------------------------------------------------------
 
 /// The selection the keys act on: the queue's on the queue page, the
@@ -268,6 +283,7 @@ fn clear(state: &mut State, origin: Origin) {
         Origin::Window { .. } => {
             if let Some(window) = window_at_mut(state, origin) {
                 window.selection = Selection::default();
+                window.reselect.clear();
             }
         }
     }
@@ -322,9 +338,25 @@ pub(super) fn leave_page(state: &mut State) {
     let queue = page.kind == PageKind::Queue;
     for window in &mut page.windows {
         window.selection = Selection::default();
+        window.reselect.clear();
     }
     if queue {
         state.history[0].selection = Selection::default();
+    }
+    // Writes still waiting for the page left touch no selection when
+    // answered: the history index may hold another page by then.
+    let top = state.history.len() - 1;
+    let left = |origin: &Origin| match origin {
+        Origin::Queue => queue,
+        Origin::Window { page, .. } => *page == top,
+    };
+    for batch in &mut state.batches {
+        if batch.origin.as_ref().is_some_and(left) {
+            batch.origin = None;
+        }
+    }
+    if state.selection_add.as_ref().is_some_and(|(o, _)| left(o)) {
+        state.selection_add = None;
     }
 }
 
@@ -335,9 +367,16 @@ pub(super) fn leave_focus(state: &mut State) {
     if page.kind == PageKind::Queue || !page.windows_focused() || page.windows.is_empty() {
         return;
     }
+    let window = page.focus;
+    leave_window(state, window);
+}
+
+/// After the focus left window `window` of the page on top: its motion
+/// mode ends, adding its range.
+pub(super) fn leave_window(state: &mut State, window: usize) {
     let origin = Origin::Window {
         page: state.history.len() - 1,
-        window: page.focus,
+        window,
     };
     end_motion(state, origin);
 }
@@ -357,6 +396,18 @@ pub(super) fn command(state: &mut State, command: UiCommand, count: usize) -> Ve
     let Some(origin) = origin(state) else {
         return Vec::new();
     };
+    // Changed by hand, the selection is the user's again: the failed rows
+    // of a write are no longer found again after a reload.
+    if matches!(
+        command,
+        UiCommand::SelectCurrent
+            | UiCommand::SelectDown
+            | UiCommand::SelectUp
+            | UiCommand::SelectMotion
+    ) && let Some(window) = window_at_mut(state, origin)
+    {
+        window.reselect.clear();
+    }
     match command {
         UiCommand::SelectCurrent => toggle_current(state, origin),
         UiCommand::SelectDown => return select_rows(state, origin, true, count.max(1)),
@@ -915,8 +966,12 @@ pub(super) fn remove(state: &mut State, removal: SelectionRemoval) -> Vec<Effect
 /// The library writes sent for one selection, until all are answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Batch {
-    origin: Origin,
+    /// `None` once its page was left.
+    origin: Option<Origin>,
     requests: Vec<Request>,
+    /// The selected rows no write is for (a known favorite's), by
+    /// identity: kept selected when some write fails.
+    others: Vec<RowKey>,
 }
 
 /// One write of a [`Batch`]: the rows it is for, and its answer (`None`
@@ -925,6 +980,8 @@ pub struct Batch {
 struct Request {
     id: u64,
     held: Vec<Held>,
+    /// What the rows of `held` are (a window's), from when it was sent.
+    keys: Vec<RowKey>,
     part: Part,
     ok: Option<bool>,
 }
@@ -934,6 +991,7 @@ impl Request {
         Self {
             id,
             held,
+            keys: Vec::new(),
             part,
             ok: None,
         }
@@ -951,10 +1009,30 @@ enum Part {
 }
 
 /// Remembers the writes sent for the selection at `origin`.
-fn remember(state: &mut State, origin: Origin, requests: Vec<Request>) {
-    if !requests.is_empty() {
-        state.batches.push(Batch { origin, requests });
+fn remember(state: &mut State, origin: Origin, mut requests: Vec<Request>) {
+    if requests.is_empty() {
+        return;
     }
+    let mut others = Vec::new();
+    if let Some(window) = window_at(state, origin) {
+        let key = |held: &Held| match held {
+            Held::Row(row) => window.rows.get(*row).map(Row::key),
+            Held::Entry(_) => None,
+        };
+        for request in &mut requests {
+            request.keys = request.held.iter().filter_map(key).collect();
+        }
+        others = held(state, origin)
+            .iter()
+            .filter(|h| !requests.iter().any(|r| r.held.contains(h)))
+            .filter_map(key)
+            .collect();
+    }
+    state.batches.push(Batch {
+        origin: Some(origin),
+        requests,
+        others,
+    });
 }
 
 /// After *Add to playlist…* of the selection sent its write `id`: the
@@ -996,16 +1074,30 @@ pub(super) fn answered(state: &mut State, id: u64, error: Option<String>, before
         return;
     }
     let batch = state.batches.remove(at);
-    if batch.requests.iter().all(|r| r.ok == Some(true)) {
-        clear(state, batch.origin);
-    } else {
-        let done: Vec<Held> = batch
-            .requests
-            .iter()
-            .filter(|r| r.ok == Some(true))
-            .flat_map(|r| r.held.iter().copied())
-            .collect();
-        unselect(state, batch.origin, &done);
+    match batch.origin {
+        None => {}
+        Some(origin) if batch.requests.iter().all(|r| r.ok == Some(true)) => clear(state, origin),
+        Some(Origin::Queue) => {
+            let done: Vec<Held> = batch
+                .requests
+                .iter()
+                .filter(|r| r.ok == Some(true))
+                .flat_map(|r| r.held.iter().copied())
+                .collect();
+            unselect(state, Origin::Queue, &done);
+        }
+        // The window may have been fetched again since (a write that
+        // succeeded, a changed playlist): the failed rows are found by
+        // what they are, now or once they load.
+        Some(origin) => {
+            let mut keys = batch.others;
+            for request in batch.requests.iter().filter(|r| r.ok != Some(true)) {
+                keys.extend(request.keys.iter().cloned());
+            }
+            if let Some(window) = window_at_mut(state, origin) {
+                window.reselect(keys);
+            }
+        }
     }
     if let Some(message) = message(&batch.requests) {
         state.message = Some(message);

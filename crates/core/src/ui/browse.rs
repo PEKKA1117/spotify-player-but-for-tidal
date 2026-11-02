@@ -181,9 +181,13 @@ pub(super) fn back(state: &mut State) -> Vec<Effect> {
 
 /// `Tab`/`BackTab`: the next or previous pane, wrapping.
 pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
-    select::leave_focus(state);
     let index = top(state);
+    let left = state.history[index].focus;
     state.history[index].cycle_pane(forward);
+    // Only a focus that moved ends motion mode (spec 0020).
+    if state.history[index].focus != left {
+        select::leave_window(state, left);
+    }
     let mut effects = Vec::new();
     first_credits(state, index, &mut effects);
     effects
@@ -191,9 +195,12 @@ pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
 
 /// `[`/`]`: the previous or next tab of the focused pane, wrapping.
 pub(super) fn cycle_tab(state: &mut State, forward: bool) -> Vec<Effect> {
-    select::leave_focus(state);
     let index = top(state);
+    let left = state.history[index].focus;
     state.history[index].cycle_tab(forward);
+    if state.history[index].focus != left {
+        select::leave_window(state, left);
+    }
     let mut effects = Vec::new();
     first_credits(state, index, &mut effects);
     effects
