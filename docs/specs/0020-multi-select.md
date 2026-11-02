@@ -20,7 +20,7 @@ Each window that lists rows (every list window of every page, the search page's 
 
 A row stays selected while it is in the list, whether the cursor is on it or not, and whether a filter (0012) hides it or not (decision 3). The selection is **cleared**:
 
-- by `Esc` (`ClosePopup`) when no popup, prompt or filter input is open: the focused window's selection (and motion mode, below)
+- by `Esc` (`ClosePopup`) when no popup, prompt or filter input is open and the focused window keeps no filter (0012): the focused window's selection (and motion mode, below). With a kept filter, that `Esc` clears the filter only and the selection stays, so filtering, selecting and pressing `Esc` to see the whole list keeps what was selected; a second `Esc` clears it (decision 10)
 - by changing page (any page change: `g …`, `Enter` on an album, back and forward in the history): every selection on the page left. Coming back through the history does not bring it back
 - by an action on the selection that succeeds (below): that window's selection. An action that fails (a refused write, a changed playlist) leaves it as it was
 
@@ -48,7 +48,7 @@ All the new keys are sequences starting with `s` (decision 1). `s` alone is a pr
 - the window's title shows `· motion` (below)
 - `s a` and `d s` act on the selection with the motion range in it, and end motion mode
 - `s c` does nothing: the cursor is always the range's moving end, so its row is always in the range; the keys help dims `s c` (decision 5). To toggle single rows, end motion mode with `s m` first
-- `Esc` ends it and clears the window's selection (as above), range included
+- `Esc` ends it and clears the window's selection (as above), range included; an `Esc` that clears a kept filter leaves the mode on, its range now over the rows shown
 - changing page or focus ends it: changing page clears as above; moving the focus to another window adds the range to the selection, as `s m` does
 - with a filter set, the range is the visible rows between the anchor and the cursor
 
@@ -117,7 +117,7 @@ The defaults gain the six bindings above. No default binding was `s` or started 
 - **AC2** — `SelectDown`/`SelectUp` with counts (table): `s j` selects the cursor row only; `s 3 j` the cursor row and the 2 below, cursor on the last; `s 3 k` upwards; `s 1 2 j` reads 12; past the end (or start) it stops at the last (first) loaded row; already selected rows stay selected; `s 0 j`, `s 3 x`, `s 3 esc` select nothing and leave nothing pending; a lazy list's next page is requested when the cursor reaches the end, as for `j`
 - **AC3** — Counts in the keymap: `build` accepts digits before the last key of a `SelectDown`/`SelectUp` binding only: with `SelectDown` rebound to `x y`, `x 4 y` selects 4 rows and `s 4 j` nothing; digits in a sequence of any other command are not a count (`g 4 g` mismatches); a binding whose sequence is a digit (`5` → `NextTrack`) still fires outside a pending count sequence
 - **AC4** — Motion mode (table): `s m` sets the anchor; after `j j` three rows read as selected; `s m` adds them and ends the mode; earlier selected rows stay; moving back past the anchor selects the rows the other way; `G` and `g g` extend it; `Esc` ends it and clears the selection; changing focus adds the range; changing page clears; `s a` and `d s` act on selection plus range and end the mode; `s c` changes nothing and the keys help dims it
-- **AC5** — Clearing (table): `Esc` with no popup or input open clears the focused window's selection only; `Esc` that closes a popup or a filter input clears nothing; a page change clears every window of the page left, and going back does not restore it; a successful action clears; a failed one keeps the selection; a reloaded window loses it; a queue entry that leaves the queue leaves the selection; focus changes keep each window's selection
+- **AC5** — Clearing (table): `Esc` with no popup or input open clears the focused window's selection only; with a kept filter it clears the filter and keeps the selection (and motion mode), and the next `Esc` clears the selection; `Esc` that closes a popup or a filter input clears nothing; a page change clears every window of the page left, and going back does not restore it; a successful action clears; a failed one keeps the selection; a reloaded window loses it; a queue entry that leaves the queue leaves the selection; focus changes keep each window's selection
 - **AC6** — Filter: selected rows hidden by a filter stay selected and are acted on; clearing the filter shows them still selected; selecting through a filter selects the visible rows only
 - **AC7** — Selection actions popup: `s a` with nothing selected opens nothing; with a selection it opens titled `N selected` with the actions of the table listed per window (table over windows: an album's tracks, an own playlist, the queue, favorite tracks, the library's Albums, Artists, Playlists, a search window, a mix); no navigation action is ever listed
 - **AC8** — Selection actions send (table): *Play* (`s a p`), *Play next* (`s a N`), *Add to queue* (`s a a`) send `Open` with the selected items in list order, hidden rows included, and the `at` of the table, then clear the selection; `Enter` on a popup row does the same as its key; *Add to playlist…* opens the picker with the tracks in order, and the selection clears once added and stays on `Esc`; *Add to favorites* sends one `AddFavorite` per row not known to be a favorite
@@ -192,7 +192,7 @@ Answered by the user (2026-10-25 and 2026-10-26):
 7. **Actions popup**: *answered*: acts on every selected row; lists only actions that apply to several rows (no navigation)
 8. **`s a` and its keys**: *answered*: `s a` opens the popup; `p` *Play* (replaces the queue), `N` *Play next*, `a` *Add to queue* are the popup's own keys, so `s a p` is quick to type and 0008's prefix rule holds
 9. **`d s` on own playlists in the library**: *answered*: deletes them and unfollows the followed ones in one question, always asked. Alternative: leave own playlists out (only `d d` deletes)
-10. **Clearing**: *answered*: `Esc`, changing page and a successful action clear the selection; moving the focus between windows keeps each window's
+10. **Clearing**: *answered*: `Esc`, changing page and a successful action clear the selection; moving the focus between windows keeps each window's. `Esc` is layered (answered after the first build): a kept filter is cleared first, the selection by the next `Esc`
 11. **Look**: *answered*: `+ ` marker, `selected_row` component (default `Bold`), `· N selected` in the title
 12. **Select all**: *answered*: out of scope (a lazy list would have to load every page)
 13. **Release**: *answered*: major: a minor bump of the `tidal-player` binary, `1.2.1` → `1.3.0`
@@ -211,7 +211,7 @@ Model (`tidal-player-core::ui`):
 
 - **Where the selection lives**: a window's on its `Window` (`Window::selection`, a `select::Selection<usize>` of indices into the loaded rows, and the motion anchor), so `Window::reset` (a reload) drops it with the rows; the queue's on the queue page at the bottom of the history (`Page::selection`, a `Selection<EntryId>`), beside the queue's filter. Every `Queue` page shows that one
 - **Counts**: `Keymap::lookup(keys) -> Lookup::{Bound(binding, count), Starts, Cancel, Unbound}`. A count goes after a non-empty start of a `SelectDown`/`SelectUp` binding (a one-key binding of them takes none, so a digit typed alone is never a count); a bound sequence, or the start of one, wins over a count. Digits after that start are pending; the binding's last key runs it with the count; any other key, or a count of 0, cancels: nothing runs, not even that key (0008's mismatch would run it alone; here the spec says nothing happens). Counts saturate. A count is not shown in 0013's hint (nothing is listed after `s 4`)
-- **`Esc` on a page** clears the focused window's selection and, as before, its kept filter (0012), together
+- **`Esc` on a page** clears the focused window's kept filter (0012) when it has one, and nothing else; with no filter kept, it clears the window's selection and motion mode
 - **A page change** is a push (`g …`, `Enter`, `z`) or a pop (back): the page left loses every selection (the queue's when it is the queue page); a new search replaces the search page and its windows. Opening the page already on top is no change
 - **Focus changes** (`Tab`/`BackTab`, `[`/`]`, the search page's cycle) end the window's motion mode, adding its range
 - **Motion mode**: the anchor is a row (an entry on the queue); the range is the shown rows between the anchor's and the cursor's row. An anchor entry that leaves the queue ends motion mode, adding nothing
