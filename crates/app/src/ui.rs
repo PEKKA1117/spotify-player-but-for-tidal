@@ -4774,6 +4774,27 @@ mod tests {
         insta::assert_snapshot!("ac12_selection_filter_hidden", text);
     }
 
+    /// AC12 (bug): a filter hiding the rows above a selected one marks the
+    /// selected row, never the row shown in its place.
+    #[test]
+    fn ac12_selection_filter_shifted() {
+        // *Song 1* selected and hidden: *Song 2* takes its place.
+        let text = draw(
+            &with_filter(typed_in(favorites(), "sc"), "Song 2", true),
+            80,
+            24,
+        );
+        assert_contains(&text, &["· 1 selected, 1 hidden"]);
+        assert!(!line_with(&text, "Song 2   ").contains('+'), "{text}");
+        // *Song 2* selected and shown first.
+        let text = draw(
+            &with_filter(typed_in(favorites(), "jsc"), "Song 2", true),
+            80,
+            24,
+        );
+        assert_contains(&text, &["· 1 selected)", "+   1    Song 2"]);
+    }
+
     #[test]
     fn ac12_selection_queue() {
         let text = draw(&selected_queue(), 80, 24);
