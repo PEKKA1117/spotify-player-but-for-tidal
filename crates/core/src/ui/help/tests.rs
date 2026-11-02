@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::library::{ListRef, PlaylistSummary};
+use crate::library::{ListRef, MixSummary, PlaylistSummary};
 use crate::protocol::{self, Command, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode};
 use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
@@ -1501,6 +1501,17 @@ fn ac13_select_keys_listed() {
     let motion = pressed(favorite_rows(2), &typed("sm"));
     assert_eq!(dim(&motion, "SelectCurrent"), Some(true));
     assert_eq!(dim(&motion, "SelectionActions"), Some(false));
+    // Mixes selected: no action applies, so `s a` does nothing.
+    let mixes = on_page(PageKind::Mixes, |p| {
+        p.windows[0].rows = Rows::Mixes(vec![MixSummary {
+            id: "m1".into(),
+            title: "Mix 1".into(),
+            subtitle: None,
+        }]);
+        p.windows[0].total = Some(1);
+    });
+    let mixes = pressed(mixes, &typed("sc"));
+    assert_eq!(dim(&mixes, "SelectionActions"), Some(true), "mixes");
     // An empty window: nothing to select.
     let empty = favorite_rows(0);
     for command in ["SelectCurrent", "SelectDown", "SelectUp", "SelectMotion"] {

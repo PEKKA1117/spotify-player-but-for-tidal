@@ -16,8 +16,8 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
 use super::super::keymap::{ActionEntry, KeymapFile, Target, build};
 use super::super::{
-    Action, BaseKey, Effect, Key, Popup, SelectionAction, State, TrackSource, Window, apply_keymap,
-    help, update,
+    Action, BaseKey, Effect, Key, PLAYLIST_CHANGED, Popup, SelectionAction, State, TrackSource,
+    Window, apply_keymap, help, update,
 };
 use super::{queue_entries, queue_marks, window_marks, window_rows};
 
@@ -310,6 +310,15 @@ fn rows(state: &State) -> Vec<usize> {
     window_rows(focused(state)).into_iter().collect()
 }
 
+/// The IDs of the selected tracks of the focused window, in list order.
+fn selected_ids(state: &State) -> Vec<u64> {
+    let window = focused(state);
+    rows(state)
+        .into_iter()
+        .filter_map(|i| window.rows.get(i)?.track().map(|t| t.id.0))
+        .collect()
+}
+
 /// The rows selected in window `w` of the page on top.
 fn rows_of(state: &State, w: usize) -> Vec<usize> {
     window_rows(&state.page().windows[w]).into_iter().collect()
@@ -533,6 +542,15 @@ fn ac4_motion_mode() {
     assert_eq!(rows_of(&state, 1), vec![0, 1]);
     assert!(!window_marks(&state.page().windows[1]).motion);
 
+    // A `Tab` (or `[`/`]`) that moves nothing leaves the mode on.
+    for pressed in [vec![Tab], vec![Key::BackTab], keys("]"), keys("[")] {
+        let mut state = favorites(1..7);
+        press(&mut state, &keys("smj"));
+        press(&mut state, &pressed);
+        assert!(motion(&state), "{pressed:?}: motion");
+        assert_eq!(rows(&state), vec![0, 1], "{pressed:?}: rows");
+    }
+
     // A page change clears; coming back does not restore it.
     let mut state = favorites(1..7);
     press(&mut state, &keys("smj"));
@@ -708,6 +726,124 @@ fn ac5_clearing() {
     press(&mut state, &keys("s3j"));
     apply(&mut state, &[3, 9, 4], Some(3));
     assert_eq!(entries(&state), vec![3, 9]);
+}
+
+/// AC5 (bugs): a failed write's rows stay selected through the reload the
+/// other writes ask for, whichever comes first, found by what they are;
+/// an answer arriving after its page was left touches no selection.
+#[test]
+fn ac5_failed_rows_kept_through_reload() {
+    let ok = || Ok(LibraryResponse::Done);
+    let failed = || Err("Network error".to_owned());
+    let page = |ids: &[u64], total: u32| {
+        Ok(LibraryResponse::Page(PageData::FavoriteTracks {
+            tracks: list(tracks(ids.iter().copied()), 0, total),
+        }))
+    };
+    // T1, T2 and T3 selected and removed; T2's write fails.
+    let start = || {
+        let mut state = favorites(1..6);
+        state.confirm_removals = false;
+        press(&mut state, &keys("s3j"));
+        let writes: Vec<u64> = requests(&press(&mut state, &keys("ds")))
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(writes.len(), 3, "{writes:?}");
+        (state, writes)
+    };
+
+    // The reload arrives between the answers.
+    let (mut state, w) = start();
+    let reload = requests(&reply(&mut state, w[0], ok()));
+    reply(&mut state, reload[0].0, page(&[2, 3, 4, 5], 4));
+    reply(&mut state, w[1], failed());
+    let reload = requests(&reply(&mut state, w[2], ok()));
+    assert_eq!(selected_ids(&state), vec![2], "reload first");
+    reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    assert_eq!(selected_ids(&state), vec![2], "reload first, then again");
+
+    // The reload arrives after the last answer.
+    let (mut state, w) = start();
+    reply(&mut state, w[0], ok());
+    reply(&mut state, w[1], failed());
+    let reload = requests(&reply(&mut state, w[2], ok()));
+    assert_eq!(selected_ids(&state), vec![2], "answers first");
+    reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    assert_eq!(selected_ids(&state), vec![2], "then the reload");
+    assert_eq!(rows(&state), vec![0]);
+
+    // Found only once its row loads again (a later page).
+    let (mut state, w) = start();
+    reply(&mut state, w[0], ok());
+    reply(&mut state, w[1], failed());
+    let reload = requests(&reply(&mut state, w[2], ok()));
+    let mut asked = requests(&reply(&mut state, reload[0].0, page(&[4, 5], 3)));
+    assert_eq!(rows(&state), Vec::<usize>::new(), "not loaded yet");
+    asked.extend(requests(&press(&mut state, &keys("G"))));
+    let (more, _) = asked
+        .into_iter()
+        .find(|(_, r)| matches!(r, LibraryRequest::More { .. }))
+        .expect("the next page is asked for");
+    reply(
+        &mut state,
+        more,
+        Ok(LibraryResponse::Items(ListItems::Tracks(list(
+            tracks([2]),
+            2,
+            3,
+        )))),
+    );
+    assert_eq!(selected_ids(&state), vec![2], "loaded later");
+
+    // `Esc` drops what waits.
+    let (mut state, w) = start();
+    reply(&mut state, w[0], ok());
+    reply(&mut state, w[1], failed());
+    let reload = requests(&reply(&mut state, w[2], ok()));
+    press(&mut state, &[Key::Esc]);
+    reply(&mut state, reload[0].0, page(&[2, 4, 5], 3));
+    assert_eq!(rows(&state), Vec::<usize>::new(), "Esc");
+
+    // A changed playlist (`412`): the rows found again in the new order.
+    let mut state = playlist_page(true);
+    state.confirm_removals = false;
+    // T6 and T9 (rows 1 and 3 of 4, 6, 8, 9).
+    press(&mut state, &keys("jscjjsc"));
+    let w = requests(&press(&mut state, &keys("ds")));
+    assert_eq!(w.len(), 1, "{w:?}");
+    let reload = requests(&reply(&mut state, w[0].0, Err(PLAYLIST_CHANGED.into())));
+    assert_eq!(selected_ids(&state), vec![6, 9], "412: kept");
+    reply(
+        &mut state,
+        reload[0].0,
+        Ok(LibraryResponse::Page(PageData::Playlist {
+            playlist: playlist("p1", "Mine", true),
+            etag: Some("e2".into()),
+            tracks: list(tracks([9, 4, 6, 8]), 0, 4),
+        })),
+    );
+    assert_eq!(rows(&state), vec![0, 2], "412: reloaded");
+    assert_eq!(selected_ids(&state), vec![9, 6], "412: reloaded");
+
+    // A late answer leaves the page now at its place alone.
+    let mut state = favorites(1..5);
+    state.confirm_removals = false;
+    press(&mut state, &keys("s2j"));
+    let w = requests(&press(&mut state, &keys("ds")));
+    press(&mut state, &[Key::Backspace]);
+    open(
+        &mut state,
+        &GY,
+        PageData::FavoriteTracks {
+            tracks: list(tracks(1..5), 0, 4),
+        },
+    );
+    press(&mut state, &keys("jjsc"));
+    for (id, _) in &w {
+        reply(&mut state, *id, ok());
+    }
+    assert_eq!(rows(&state), vec![2], "late answers");
 }
 
 // --- AC7 -----------------------------------------------------------------------
