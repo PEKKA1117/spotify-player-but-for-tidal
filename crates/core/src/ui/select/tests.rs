@@ -603,6 +603,35 @@ fn ac5_clearing() {
         assert_eq!(rows(&state), vec![0], "Esc closing {name}");
     }
 
+    // `Esc` is layered: a kept filter goes first, the selection with the
+    // next `Esc`. Rows 0 and 2 selected, the filter `3` keeps row 2 shown.
+    let filtered = [vec![Char('/')], keys("3"), vec![Key::Enter]].concat();
+    let mut state = favorites(1..5);
+    press(&mut state, &keys("scjjsc"));
+    press(&mut state, &filtered);
+    press(&mut state, &[Esc]);
+    assert_eq!(focused(&state).filter.text, "", "Esc: filter cleared");
+    assert_eq!(rows(&state), vec![0, 2], "Esc on a kept filter: kept");
+    press(&mut state, &[Esc]);
+    assert_eq!(rows(&state), Vec::<usize>::new(), "second Esc: cleared");
+    // The queue's filter too.
+    let mut state = queue_of(&[7, 3, 9]);
+    press(&mut state, &keys("sc"));
+    press(&mut state, &filtered);
+    press(&mut state, &[Esc]);
+    assert_eq!(entries(&state), vec![7], "queue: Esc on a kept filter");
+    press(&mut state, &[Esc]);
+    assert_eq!(entries(&state), Vec::<u64>::new(), "queue: second Esc");
+    // Motion mode stays on through the filter's `Esc`.
+    let mut state = favorites(1..5);
+    press(&mut state, &filtered);
+    press(&mut state, &keys("sm"));
+    press(&mut state, &[Esc]);
+    assert!(focused(&state).selection.motion(), "motion: still on");
+    press(&mut state, &[Esc]);
+    assert!(!focused(&state).selection.motion(), "motion: ended");
+    assert_eq!(rows(&state), Vec::<usize>::new(), "motion: cleared");
+
     // Focus changes keep each window's selection.
     let mut state = library();
     press(&mut state, &keys("sc"));
