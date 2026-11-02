@@ -117,7 +117,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
-| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's [selection](#selecting-rows) and [filter](#filtering-a-list) |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows) |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
@@ -253,7 +253,7 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 **What matches.** What you typed, spaces included, must appear as it is in one of the row's fields: a track's title, version, artists or album; an album's title, artists or year; a playlist's title; an artist's name; a mix's title or subtitle. Case does not matter (`RÓS` finds `Rós`), accents do (`ros` does not). So `hell ab` finds *Hell Above* and `the veil` every *Pierce The Veil* track, but `pierce hell` finds nothing, as no single field holds it.
 
-**A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d d` on the queue and on lists of yours, and the actions act on the selected row. `esc` clears the filter and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
+**A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d d` on the queue and on lists of yours, and the actions act on the selected row. `esc` clears the filter (and only the filter: a [selection](#selecting-rows) stays) and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
 
 **The title** shows the filter and how many rows match: `Favorite tracks (548 · /love · 12 matches)`, `Queue (40 · /veil · 9 matches)`; while you type, a cursor follows the text. When nothing matches, the window says `No rows match "xyz"`. On the queue the entries keep their queue positions, and `Suggested` shows only when a suggested entry matches.
 
@@ -285,7 +285,7 @@ A selected row has a `+ ` before it (the other rows get two spaces, so the colum
 
 **Motion mode.** `s m` marks the cursor row as the anchor; while the mode is on, every row from the anchor to the cursor (either way) shows as selected, however the cursor moves (`j`, `k`, `G`, `g g`, `C-f`, …). `s m` again ends the mode and adds those rows to the selection; rows selected before stay selected. `s a` and `d s` act on the selection with the range in it and end the mode. `s c` does nothing in it (the cursor row is always in the range), and the keys help dims it. With a filter set, the range holds the rows shown between the anchor and the cursor. Moving the focus to another window adds the range to the selection.
 
-**Clearing.** `esc` with no popup, prompt or filter input open clears the focused window's selection (and motion mode, range included). Changing page clears every selection of the page left, and coming back through the history does not bring it back. An action that succeeds clears the window's selection; one that fails leaves it, and a window whose list is fetched again (after a write) loses its selection. A queue entry that leaves the queue leaves the selection with it.
+**Clearing.** `esc` with no popup, prompt or filter input open clears the focused window's selection (and motion mode, range included). On a window with a kept [filter](#filtering-a-list), the first `esc` clears only the filter and the selection stays, so you can filter, select, and press `esc` to see the whole list with your rows still selected; the next `esc` clears the selection. Changing page clears every selection of the page left, and coming back through the history does not bring it back. An action that succeeds clears the window's selection; one that fails leaves it, and a window whose list is fetched again (after a write) loses its selection. A queue entry that leaves the queue leaves the selection with it.
 
 **Filters.** A row the [filter](#filtering-a-list) hides stays selected and is acted on; the title says how many are hidden (`2 selected, 1 hidden`), and clearing the filter shows them still selected. Selecting through a filter selects the rows shown.
 

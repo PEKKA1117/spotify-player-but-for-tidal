@@ -157,10 +157,12 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     // load too); the lists; playback (it needs a queue).
     let send = match command {
         C::Quit => return vec![Effect::Quit],
-        // `Esc` on a page clears the focused window's filter (spec 0012)
-        // and its selection (spec 0020).
+        // `Esc` on a page clears the focused window's kept filter (spec
+        // 0012), or else its selection (spec 0020).
         C::ClosePopup => {
-            select::clear_focused(state);
+            if !filter::kept(state) {
+                select::clear_focused(state);
+            }
             return filter::clear(state);
         }
         C::OpenCommandHelp => return Vec::new(),

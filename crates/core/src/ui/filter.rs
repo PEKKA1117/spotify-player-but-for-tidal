@@ -243,6 +243,17 @@ pub(super) fn start(state: &mut State) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Whether the focused window (or the queue) keeps a filter that narrows
+/// it: `Esc` then clears the filter only (spec 0020, layered `Esc`).
+pub(super) fn kept(state: &State) -> bool {
+    let page = state.page();
+    match target(state) {
+        Some(Target::Queue) => page.filter.active(),
+        Some(Target::Window(w)) => page.windows[w].filter.active(),
+        None => false,
+    }
+}
+
 /// `ClosePopup` (`Esc`) on a page: clears the focused window's filter,
 /// and nothing else.
 pub(super) fn clear(state: &mut State) -> Vec<Effect> {
