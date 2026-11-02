@@ -1,6 +1,6 @@
 # 0020 — Selecting several rows
 
-- **Status**: approved (2026-10-26)
+- **Status**: implemented (2026-11-02; approved 2026-10-26, amended 2026-11-02: `Esc` clears a kept filter before the selection)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#71](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/71)
 - **Depends on**: 0004 (implemented: the queue), 0006 (implemented: lists, the actions popup, favorites and playlist writes), 0008 (implemented: the keymap, key sequences), 0012 (implemented: filters), 0013 (implemented: key hints), 0017 (implemented: themes), 0019 (implemented: the removal question, `d d`)
@@ -163,6 +163,8 @@ Each test is named after its criterion. Red is a failing assertion against stubs
 
 Checked by hand at acceptance, in a real terminal against the live API: `s 3 j` then `s a a` queues three tracks; `s m`, `j j`, `s m`, `s a p` plays them; `d s` on three tracks of an own playlist lists them and `y` removes them in one write (A1); `Esc` clears.
 
+Run 2026-11-02 in tmux (150 × 42) against the live API, all as above: `s 3 j`, `s a a` queued the three tracks; `s m j j s m`, `s a p` replaced the queue with them and played; on a new playlist of six tracks, rows 1, 3 and 5 selected, `d s` listed the three in order and `y` removed exactly them in one write (`Removed 3 tracks from …`, the other three left), so A1 holds; with a kept filter `Esc` cleared the filter and kept the selection, and the next `Esc` cleared it. The run found the marker bug under "Bugs".
+
 ## Crate placement
 
 - `tidal-player-core::ui`: a new `select` module: `Selection` (per window, a set of row keys: `EntryId` in the queue, the loaded-list position elsewhere; the motion anchor), the pure transitions (toggle, select N, motion start/end, clear, prune on queue change); `State` holds one per window of the current page and one for the queue; `UiCommand` gains the six commands; `keymap` gains the count slot (`SelectDown`/`SelectUp` bindings accept digits before their last key) and the defaults; `Popup::SelectionActions`; 0019's `Removal` takes several items (it already holds `items: Vec<Removed>`) and its question gains the target list; `Component::SelectedRow`. No I/O, no new dependency
@@ -177,7 +179,7 @@ Verified (2026-10-26, from code): `Command::Open { items: Vec<Item>, at: Option<
 
 Assumptions:
 
-- **A1** — `DELETE playlists/{uuid}/items/{i,j,k}` (positions joined by commas) removes several positions in one write. python-tidal's `UserPlaylist.remove_by_indices` sends this; not checked against the live API. Checked at acceptance by hand; if it is refused, the API sends one `DELETE` per position from the highest down, taking each response's new ETag, and AC14 changes to that (the core's request is the same either way)
+- **A1** — `DELETE playlists/{uuid}/items/{i,j,k}` (positions joined by commas) removes several positions in one write. python-tidal's `UserPlaylist.remove_by_indices` sends this. **Verified** against the live API at acceptance (2026-11-02, positions 0, 2 and 4 of six). Had it been refused, the API would send one `DELETE` per position from the highest down, taking each response's new ETag, and AC14 would change to that (the core's request is the same either way)
 
 ## Decisions
 
