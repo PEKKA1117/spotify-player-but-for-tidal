@@ -103,7 +103,17 @@ Each `docs/specs/NNNN-*.md` has:
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` and the zh-TW copies are up to date (see "Conventions"); and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` and the zh-TW copies are up to date (see "Conventions"); a PR that changes what the TUI shows carries its hands-on check (below); and the commit history shows the red commit before the green one.
+
+## Hands-on check (PR screenshots)
+
+A `feat/*` or `bugfix/*` PR that changes what the TUI shows carries a `## Hands-on check (live Tidal, tmux 150 × 42)` section: the spec's manual checks (its "Test plan") run against the live API, one line per scenario with its screenshot. `scripts/pr-shot.py` turns a tmux pane into a PNG; its header has the run step by step.
+
+- **Isolated from the maintainer's player**: the release build of the PR's worktree in a detached tmux session at 150 × 42, with its own `TIDAL_PLAYER_RUNTIME_DIR` (a fresh `mktemp -d`, mode 700) and `TIDAL_PLAYER_STATE_DIR`, `TIDAL_PLAYER_MPRIS=off`, `TIDAL_PLAYER_REMEMBER_PLAYBACK=off`, `TIDAL_PLAYER_COVER_IMG=off`, and `-c <dir>` holding only a copy of `app.toml` (default keys and theme). Stop the `tidal-player` user service first if it holds the audio device, and start it again after
+- **Driven** with `tmux send-keys`, a short pause between keys; as a daemon with its clients (and `tidal-player playback …` on the same runtime dir) when the spec's checks involve them
+- **Published** on an orphan branch `chore/pr-screenshots-<slug>` (the PNGs at its root, one commit) pushed to `origin`, and linked from the PR body pinned to that commit: `https://raw.githubusercontent.com/<owner>/<repo>/<commit>/<file>.png`. These branches are never deleted, after the merge either: the PR's images live there
+- **Privacy**: the screenshots show the account's library and playlists, nothing more: no tokens, account names or e-mail on screen, and no copyrighted text beyond titles (lyrics are checked with public-domain songs). Anything made for the check (a throwaway playlist, a favorite) is undone after
+- A check the run cannot make (by ear, on hardware it lacks) is listed as still for the maintainer to check, never claimed
 
 ## Conventions
 
