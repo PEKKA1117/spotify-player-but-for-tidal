@@ -33,13 +33,14 @@ tidalt had no lyrics. Tidal serves them from `GET /v1/tracks/{id}/lyrics`, verif
 - The page is a page of the history (0006): it is pushed on top; on top already, the key does nothing; going back leaves it; going forward or back onto it shows it again
 - **It follows the current entry.** Whenever the current entry's track differs from the track the page shows, and the page is on top, the page shows `Loading…` and asks for the new track's lyrics (one request per change). When the page is not on top, nothing is asked; coming back onto it asks if the track changed meanwhile, and shows the kept lyrics with no request if not
 - The current entry counts whether it plays, is paused or is stopped (0009 restores a stopped one): the page shows its lyrics and the highlight at its position. With no current entry: `Nothing playing`, and no request
-- The window is titled `Lyrics`, and `Lyrics (synced)` for synced lyrics
+- The window is titled `Lyrics`, and `Lyrics (synced)` for synced lyrics (`Lyrics (synced) · scrolled` while not following, below)
 - Messages in the window: `Loading…`, `No lyrics for this track`, `Nothing playing`; failures `Could not load the lyrics: <reason>` (0006's reasons: `Tidal answered 429: try again in a moment`, the session-expired and disconnected messages)
 
 ### Synced and plain lyrics
 
 - **Synced** (Tidal's `subtitles` holds at least one timed line): every line is drawn; the **current line** is the last line whose time is at or before the position; lines before it are drawn in `lyrics_played`, the current line in `lyrics_playing`, the rest in the screen's style. Before the first line's time no line is current and every line is unplayed. Lines with the same time keep Tidal's order, and the current one is the last of them. A timed line with no text (an instrumental gap, the closing stamp) is an empty row, drawn as `♪` while it is the current line (decision 7)
-- **Keeping it in view**: the window scrolls so that the current line's first row stays at the middle row of the window once it is past the middle, as spotify-player does; at the top of the lyrics it does not scroll. Seeking moves the highlight and the view with the next `Position`. Movement keys do nothing on synced lyrics (decision 5)
+- **Following**: while the page *follows*, the window scrolls so that the current line's first row stays at the middle row of the window once it is past the middle, as spotify-player does; at the top of the lyrics it does not scroll. Seeking moves the highlight and the view with the next `Position`
+- **Scrolling by hand** (decision 5): the list movement keys (`j`/`k`/`down`/`up`, `C-f`/`C-b`/`page_down`/`page_up`, `g g`/`G`) scroll synced lyrics too, from where the view is, clamped to the lyrics. The first of them stops following: the view stays where it was put while the highlight keeps moving, and the window's title shows `Lyrics (synced) · scrolled`. **`Esc`** (`ClosePopup`, with no popup or prompt open) follows again: the view jumps back to the current line; when following already, it does nothing. Opening the page and a new track start following
 - **Plain** (no timed line, `lyrics` not empty): the text as Tidal gives it, scrolled with the list movement keys (`j`/`k`/`down`/`up`, `C-f`/`C-b`/`page_down`/`page_up`, `g g`/`G`), starting at the top; nothing is highlighted
 - **Neither** (both empty or missing): `No lyrics for this track`
 - **Long lines** wrap at the window's width by display width (CJK counts double); a wrapped current line is highlighted on all its rows
@@ -74,6 +75,7 @@ tidalt had no lyrics. Tidal serves them from `GET /v1/tracks/{id}/lyrics`, verif
 | Command | Default keys | Acts in | Help text |
 |---|---|---|---|
 | `LyricsPage` | `l`, `g L` | everywhere | lyrics of the playing track |
+| `ClosePopup` (existing) | `esc` | the lyrics page, with no popup or prompt open (new) | follow the current line again |
 
 `l` and `g L` are no binding's prefix and start none (0008's conflict check stays clean); `g L` appears among `g`'s key hints (0013). `LyricsPage` is no longer reported as an unsupported spotify-player command.
 
@@ -82,7 +84,7 @@ tidalt had no lyrics. Tidal serves them from `GET /v1/tracks/{id}/lyrics`, verif
 | Component | Drawn on | Default (`default` theme) | spotify-player's default |
 |---|---|---|---|
 | `lyrics_played` | synced lines before the current one | `Dim` | `Dim` |
-| `lyrics_playing` | the current synced line | `Bold` | `fg = "Green"`, `Bold` |
+| `lyrics_playing` | the current synced line | `fg = "Cyan"`, `Bold` | `fg = "Green"`, `Bold` |
 
 They leave 0017's skipped list (which keeps `playback_genres` and `visualization`). The `spotify_player` theme in `examples/theme.toml` gains both, set as 0017 AC14 sets that theme. The cursor (`selection`) is not drawn on the lyrics page.
 
@@ -125,13 +127,13 @@ Client model (`tidal_player_core::ui`, pure):
 
 - **AC5** — Opening (table): `l` and `g L` push the lyrics page and emit `Library { Page(Lyrics(current track)) }`; on top already, nothing; with no current entry, the page shows `Nothing playing` and nothing is emitted; back and forward onto the page with the same track emit nothing
 - **AC6** — Following the track (table): a snapshot with a new current track while the page is on top emits one request and shows `Loading…`; a new track while the page is not on top emits nothing, and coming back onto it emits one; a `Position` event emits nothing; an answer for a track that is no longer the page's track is dropped (the page stays `Loading…` for the current one); a snapshot with the same track emits nothing
-- **AC7** — Display state (table): for synced lyrics and a position, which line is current and which are played; seeking backwards moves it back; plain lyrics scroll with `j`/`k`/`C-f`/`C-b`/`g g`/`G` and clamp; movement keys on synced lyrics change nothing; `Enter`, `Z`, `/`, `s c`, `d d` on the page emit nothing
-- **AC8** — Keymap (0008 AC2's table, new rows): the defaults hold `l` and `g L` → `LyricsPage`, in the keys help (`lyrics of the playing track`) and `g`'s key hints; `LyricsPage` is no longer unsupported; `key_sequence = "l"`, `command = "None"` removes it; the default keymap has no prefix conflict. Disconnected and session expired: 0006 AC16's rows for the lyrics page
+- **AC7** — Display state (table): for synced lyrics and a position, which line is current and which are played; seeking backwards moves it back; plain lyrics scroll with `j`/`k`/`C-f`/`C-b`/`g g`/`G` and clamp; on synced lyrics a movement key scrolls from the view's place and stops following (the view no longer moves with `Position`), `Esc` follows again (the view back on the current line; with a popup open `Esc` closes it and still does not follow; following already, nothing), and a new track or reopening the page follows; `Enter`, `Z`, `/`, `s c`, `d d` on the page emit nothing
+- **AC8** — Keymap (0008 AC2's table, new rows): the defaults hold `l` and `g L` → `LyricsPage`, in the keys help (`lyrics of the playing track`) and `g`'s key hints; on the lyrics page the keys help lists `esc` as `follow the current line again`; `LyricsPage` is no longer unsupported; `key_sequence = "l"`, `command = "None"` removes it; the default keymap has no prefix conflict. Disconnected and session expired: 0006 AC16's rows for the lyrics page
 
 TUI rendering (`tidal-player`):
 
-- **AC9** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): synced lyrics before the first line, in the middle (scrolled, current line at the middle row), at the end; plain lyrics scrolled; right-to-left lyrics (right-aligned); a long line wrapped with the highlight on every row; an empty current line as `♪`; `Loading…`; `No lyrics for this track`; `Nothing playing`; a failure. 50×20: synced lyrics. No panic from 0×0 to 120×40 with CJK and right-to-left lines
-- **AC10** — Themes: `lyrics_played` and `lyrics_playing` are components (`default`: `Dim`, `Bold`) and no longer skipped (0017 AC6's notice test, rows updated); a theme setting them colours the played and current lines (a buffer check); `examples/theme.toml` loads and its `spotify_player` theme sets both (0017 AC14's test)
+- **AC9** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): synced lyrics before the first line, in the middle (current line at the middle row), at the end, and scrolled by hand (`· scrolled`, the current line out of view); plain lyrics scrolled; right-to-left lyrics (right-aligned); a long line wrapped with the highlight on every row; an empty current line as `♪`; `Loading…`; `No lyrics for this track`; `Nothing playing`; a failure. 50×20: synced lyrics. No panic from 0×0 to 120×40 with CJK and right-to-left lines
+- **AC10** — Themes: `lyrics_played` and `lyrics_playing` are components (`default`: `Dim`; `fg = "Cyan"`, `Bold`) and no longer skipped (0017 AC6's notice test, rows updated); a theme setting them colours the played and current lines (a buffer check); `examples/theme.toml` loads and its `spotify_player` theme sets both (0017 AC14's test)
 
 Wiring:
 
@@ -156,6 +158,8 @@ Docs:
 | `429`, session expired, disconnected | In the page as 0006 (`Could not load the lyrics: …`); disconnected re-fetched on the next `Welcome` when on top (AC8) |
 | A line wider than the window | Wrapped; the current line highlighted on every row (AC9) |
 | Right-to-left lyrics in a terminal without bidi support | Right-aligned, characters in logical order: the terminal may show them reversed (decision 6) |
+| Scrolled by hand, then the track changes | The new track's lyrics, following again |
+| Scrolled by hand, then `Esc` with the actions popup open | The popup closes; still not following; a second `Esc` follows |
 | A window 1 row tall, or 0×0 | The current line's first row (or nothing); no panic (AC9) |
 | Logout | The player process ends or loses its session; the cache goes with the process |
 
@@ -171,7 +175,7 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC4 | `crates/app/src/player_runtime.rs` :: `ac4_lyrics_cache` (table) + `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (new row) | API call counts; eviction order; one reply | stub cache keeps nothing, so calls are 2 not 1 |
 | AC5 | `crates/core/src/ui/lyrics/tests.rs` :: `ac5_open_lyrics` (table) | push, request, `Nothing playing`, history | stub `LyricsPage` does nothing |
 | AC6 | `crates/core/src/ui/lyrics/tests.rs` :: `ac6_follow_track` (table) | requests per change; late answer dropped | stub never re-requests |
-| AC7 | `crates/core/src/ui/lyrics/tests.rs` :: `ac7_display_state` (table) | current/played; scroll; inert keys | stub scrolls synced lyrics |
+| AC7 | `crates/core/src/ui/lyrics/tests.rs` :: `ac7_display_state` (table) | current/played; scroll; following and `Esc`; inert keys | stub never stops following, so a movement key leaves the view on the current line |
 | AC8 | `crates/core/src/ui/keymap/tests.rs` :: `ac8_lyrics_keys` + 0008's help and unsupported tests (rows updated) + `crates/core/src/ui/browse/tests.rs` :: `ac16_disconnected_and_login` (new rows) | default keys, help text, hints, unbinding; disconnected | stub keeps `LyricsPage` unsupported |
 | AC9 | `crates/app/src/ui.rs` :: `ac9_lyrics_80x24` (one snapshot per row), `ac9_lyrics_narrow_50x20`, `ac17_no_panic_any_size` (new page) | `contains` + snapshots | stub render draws the queue |
 | AC10 | `crates/core/src/ui/theme/tests.rs` :: `ac10_lyrics_components`, `ac6_theme_notice` (rows updated) + `crates/app/tests/examples.rs` :: `ac14_example_theme_toml_loads` | defaults; not skipped; buffer styles; example | stub keeps them skipped |
@@ -210,26 +214,24 @@ Not verified:
 
 ## Decisions
 
-Answered by the user (2026-11-03):
+Answered by the user (2026-11-03; folded into the body above):
 
 1. **Who fetches**: *the client asks on demand, the player fetches* (a `Library` request, as 0006's pages; nothing is fetched while the page is not on top). 0005 AC14 stands: clients hold no session. Alternative: the TUI fetches with its own session (would undo AC14)
 2. **Cache**: *in memory, in the player*, the last 50 tracks, "no lyrics" included, failures not. Alternatives: none; on disk
 3. **`tidal-player playback lyrics`**: *out of scope*
 4. **Keys**: *`l` and `g L`*, as spotify-player
 
-Proposed, to be confirmed with the spec:
-
-5. **Synced lyrics follow playback only**: movement keys do nothing on them, as spotify-player's page takes no commands; plain lyrics scroll. Alternative: synced lyrics scroll by hand too, and snap back to the current line at the next line change
-6. **Right-to-left**: right-align, leave character order to the terminal (the player orders no text anywhere else, and terminals with bidi support, such as VTE's and Konsole, would reverse a reordered line again). Alternative: reorder each line for display, as spotify-player does with `unicode-bidi`, which reads right in terminals without bidi support and wrong in those with it
-7. **An empty current line** (an instrumental gap) is drawn as `♪`, so the highlight is visible. Alternative: an empty row, highlighted invisibly
-8. **Defaults in the `default` theme**: `lyrics_played` `Dim`, `lyrics_playing` `Bold` (the `default` theme is uncoloured, 0017 decision 1). Alternative: spotify-player's
+5. **Scrolling synced lyrics** (the user: "a key to follow back when scrolling"; the key: `Esc`): the movement keys scroll synced lyrics and stop following; `Esc` follows again; a new track or reopening the page follows. Alternatives: no scrolling (spotify-player's page takes no commands); scrolling that snaps back at the next line; `Enter` or a new `FollowLyrics` command as the key
+6. **Right-to-left**: *right-align, character order left to the terminal* (the player orders no text anywhere else, and terminals with bidi support, such as VTE's and Konsole, would reverse a reordered line again). Alternative: reorder each line for display with `unicode-bidi`, as spotify-player does, which reads right in terminals without bidi support and wrong in those with it
+7. **An empty current line** (an instrumental gap): *drawn as `♪`*, so the highlight is visible. Alternative: an empty row, highlighted invisibly
+8. **Defaults**: *as spotify-player's*, as far as 0017 AC14 lets its `spotify_player` theme follow them: `lyrics_played` `Dim`, `lyrics_playing` `fg = "Cyan"`, `Bold`. Alternative: uncoloured (`Dim`, `Bold`)
 
 ## Out of scope
 
 - `tidal-player playback lyrics` (decision 3)
 - Lyrics on disk, prefetching the next track's lyrics
 - Word-by-word (karaoke) timing; the provider's credit line
-- Seeking by choosing a line (`Enter` on a line)
+- Seeking by choosing a line (`Enter` on a line); scrolling that snaps back on its own
 - Lyrics in MPRIS metadata (`xesam:asText`)
 - Translations of lyrics
 
