@@ -1,6 +1,6 @@
 # 0021 — Lyrics
 
-- **Status**: draft; API shapes verified by the live probe (2026-11-03, "Facts")
+- **Status**: approved (2026-11-03, by the user); API shapes verified by the live probe (2026-11-03, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#54](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/54)
 - **Depends on**: 0004 (implemented: the queue, the current entry, `Position` events), 0005 (implemented: clients, `Library`/`LibraryReply`, AC14), 0006 (implemented: pages, the history, failures in the page, disconnected rules), 0008 (implemented: the keymap, the keys help), 0013 (implemented: key hints), 0017 (implemented: themes, components, skipped spotify-player components)
