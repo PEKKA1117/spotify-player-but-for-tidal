@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），以及 [spec 0016](../specs/0016-cover-art.md)（專輯封面）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），[spec 0016](../specs/0016-cover-art.md)（專輯封面），以及 [spec 0021](../specs/0021-lyrics.md)（歌詞）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -115,6 +115,7 @@
 | `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
 | `g s` | `SearchPage` | 開啟[搜尋](#search)頁面（在搜尋頁面上：回到輸入框） |
 | `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
+| `l`、`g L` | `LyricsPage` | 開啟正在播放曲目的[歌詞](#lyrics) |
 | `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
 | `/` | `Search` | [篩選](#filtering-a-list)焦點視窗或佇列的列 |
 | `backspace`, `C-q` | `PreviousPage` | 回到上一個頁面 |
@@ -123,11 +124,11 @@
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | 對選取列的[動作](#actions) |
 | `a` | `ShowActionsOnCurrentTrack` | 對正在播放曲目的動作 |
 | `f` | `RoleFilter` | 在藝人的 *All tracks* 中：[角色篩選](#the-role-filter) |
-| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗保留的[篩選](#filtering-a-list)，沒有篩選時清除其[選取](#selecting-rows) |
+| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗保留的[篩選](#filtering-a-list)，沒有篩選時清除其[選取](#selecting-rows)；在歌詞頁：重新跟隨目前這一行 |
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
-`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m` 與 `g a` 是先按 `g` 再按第二個鍵；`s` 以同樣的方式開頭[選取](#selecting-rows)的按鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
+`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m`、`g L` 與 `g a` 是先按 `g` 再按第二個鍵；`s` 以同樣的方式開頭[選取](#selecting-rows)的按鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
 彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱、正在輸入的[篩選](#filtering-a-list)）會接收所有可列印的按鍵，不受按鍵對應影響。
 
@@ -186,13 +187,14 @@
 | 收藏的曲目 | `g y` | 曲目 |
 | 搜尋 | `g s` | 輸入框、最佳結果、Tracks、Albums、Artists、Playlists（見[搜尋](#search)） |
 | Mixes | `g m` | 你的 mix（見 [Mix 與電台](#mixes-and-radio)） |
+| Lyrics | `l`、`g L` | 正在播放曲目的歌詞（見[歌詞](#lyrics)） |
 | Mix | 在 mix 上按 `Enter` | 該 mix 的曲目 |
 | 電台 | 在曲目或藝人上按 `r`；*Go to radio* | 電台的曲目 |
 | 專輯 | 在專輯上按 `Enter`；*Go to album* | 專輯的曲目 |
 | 播放清單 | 在播放清單上按 `Enter` | 播放清單的曲目 |
 | 藝人 | 在藝人上按 `Enter`；*Go to artist* | 兩個窗格，各有兩個分頁：Top tracks \| All tracks，以及 Albums \| Appears on（`[` `]` 切換窗格的分頁） |
 
-每個頁面在視窗上方都有一列標題：`Library`、`Favorite tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`、`Mixes · 7 mixes`、`<mix> · 10 tracks`、`<track> Radio · <artists>`、`<artist> Radio`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
+每個頁面在視窗上方都有一列標題：`Library`、`Favorite tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`、`Mixes · 7 mixes`、`<mix> · 10 tracks`、`<track> Radio · <artists>`、`<artist> Radio`、`Lyrics · <track> · <artists>`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -359,6 +361,30 @@
 在選取的曲目或藝人上按 `r`（任何頁面，包括佇列）會開啟它的**電台**：`<track> Radio · <artists>` 或 `<artist> Radio`，最多 100 首 Tidal 推薦的曲目。在你於曲目上按 `Enter`（播放它，並將電台其餘曲目排入佇列）或 `Z` 之前，不會播放任何東西，佇列也維持原樣。[動作](#actions)選單中的 *Go to radio* 作用相同，綁定在其他按鍵的 `[[actions]]` 項目亦同（見[設定](config.md#actions)）；專輯、播放清單與 mix 沒有電台。
 
 這些頁面一次完整送達，因此沒有隨捲動載入，且每次開啟都會重新抓取；`Backspace` 會回到保持離開時樣子的頁面。頁面中的訊息：`No mixes yet`、`This mix has no tracks`、`No radio for this track`、`No radio for this artist`（Tidal 沒有它的電台，並非失敗），失敗時為 `Could not load the mixes: <reason>`、`Mix <id> was not found`、`Track 1 was not found`、`Artist 1 was not found`。曲目列與其他頁面相同，無法串流的曲目以暗色顯示。
+
+<a id="lyrics"></a>
+## 歌詞
+
+`l`（或 `g L`）會在一個標題為 `Lyrics` 的視窗中開啟**正在播放曲目的歌詞**。此頁面跟隨播放器：目前曲目改變時（你按 `n`、自動播放接著下一首），只要它在最上層，就會顯示 `Loading…`，接著顯示新曲目的歌詞；開過其他頁面後回到它，會看到原本的內容，只有在期間曲目已改變時才會重新抓取。暫停或停止的曲目會保留歌詞與高亮。
+
+```
+┌Lyrics (synced)───────────────────────────────┐
+│Lantern 5 drifts down the river               │  dim: played
+│Lantern 6 drifts down the river               │
+│Lantern 7 drifts down the river               │
+│Lantern 8 drifts down the river               │
+│Lantern 9 drifts down the river               │
+│Lantern 10 drifts down the river              │  cyan, bold: the current line
+│Lantern 11 drifts down the river              │
+└──────────────────────────────────────────────┘
+```
+
+- **同步歌詞**（Tidal 有這首曲目的逐行時間）：視窗標題為 `Lyrics (synced)`。正在唱的那一行以 `lyrics_playing` 繪製，之前的行用 `lyrics_played`，其餘維持畫面的樣式（見[元件](config.md#components)）。視窗會捲動，讓目前這一行停在視窗的中間列；歌曲開頭時則停在頂端。沒有文字的計時行是一個空列，在它是目前這一行時畫成 `♪`。跳轉播放位置時，高亮會跟著移動
+- **手動捲動**：清單按鍵（`j`、`k`、`C-f`、`C-b`、`g g`、`G`、方向鍵）會捲動歌詞。對同步歌詞而言，第一次按下就會停止跟隨：標題變成 `Lyrics (synced) · scrolled`，畫面停在你放的位置，高亮則繼續移動。`Esc` 會跳回目前這一行（若開著彈出視窗，則先關閉彈出視窗）。換曲後會再次跟隨
+- **純文字歌詞**（沒有計時行）：照 Tidal 給的文字，從頂端開始，以同樣的按鍵捲動，不做高亮
+- 比視窗寬的行會依顯示寬度換行（CJK 字元佔兩欄），且換行後的每一列都會高亮。Tidal 標示為由右至左的歌詞會靠右對齊；字元以邏輯順序送出，由終端機排序，因此不支援雙向文字的終端機可能會顯示成相反的順序
+- 其他作用在列上的按鍵（`Enter`、`Z`、動作）在這裡什麼都不做，也沒有游標
+- 視窗中的訊息：`Loading…`、`No lyrics for this track`（純音樂，或 Tidal 沒有歌詞）、`Nothing playing`（沒有目前曲目），失敗時為 `Could not load the lyrics: <reason>`（例如 `Tidal answered 429: try again in a moment`）
 
 <a id="playing-and-queueing-from-a-page"></a>
 ## 從頁面播放與加入佇列
