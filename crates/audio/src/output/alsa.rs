@@ -210,10 +210,6 @@ impl PcmBackend for AlsaBackend {
         self.pcm()?.prepare().map_err(io_error)
     }
 
-    fn drain(&mut self) -> Result<(), PcmError> {
-        self.pcm()?.drain().map_err(io_error)
-    }
-
     fn recover(&mut self, error: &PcmError) -> Result<(), PcmError> {
         let errno = match error {
             PcmError::Underrun => EPIPE,

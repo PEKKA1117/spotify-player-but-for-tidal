@@ -40,6 +40,8 @@ pub enum Call {
     Pause(bool),
     Drop,
     Prepare,
+    /// `snd_pcm_drain`. Never pushed: the seam has none since 0003 AC31,
+    /// and tests assert it stays that way.
     Drain,
     Recover(PcmError),
     Close,
@@ -360,12 +362,6 @@ impl PcmBackend for FakeBackend {
     fn prepare(&mut self) -> Result<(), PcmError> {
         self.log.push(Call::Prepare);
         self.state().pcm = Pcm::Prepared;
-        Ok(())
-    }
-
-    fn drain(&mut self) -> Result<(), PcmError> {
-        self.log.push(Call::Drain);
-        self.state().pcm = Pcm::Setup;
         Ok(())
     }
 

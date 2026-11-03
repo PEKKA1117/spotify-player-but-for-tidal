@@ -85,8 +85,6 @@ pub trait PcmBackend: Send {
     fn drop_frames(&mut self) -> Result<(), PcmError>;
     /// `snd_pcm_prepare`: make the device ready for writes again.
     fn prepare(&mut self) -> Result<(), PcmError>;
-    /// `snd_pcm_drain`: play the buffered frames, then stop.
-    fn drain(&mut self) -> Result<(), PcmError>;
     /// `snd_pcm_recover` after [`PcmError::Underrun`] or [`PcmError::Suspended`].
     fn recover(&mut self, error: &PcmError) -> Result<(), PcmError>;
     /// Close the device, if open. Idempotent.
