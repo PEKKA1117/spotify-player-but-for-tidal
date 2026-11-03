@@ -1222,7 +1222,7 @@ mod tests {
     #[test]
     fn ac13_tui_state_theme() {
         const THEMES: &str = "[[themes]]\nname = \"dracula\"\n[themes.palette]\nbackground = \"#1e1f29\"\n\n\
-            [[themes]]\nname = \"gruvbox_dark\"\n[themes.component_style]\nlyrics_played = { fg = \"Red\" }\n";
+            [[themes]]\nname = \"gruvbox_dark\"\n[themes.component_style]\nvisualization = { fg = \"Red\" }\n";
         const KEYMAP: &str = "[[keymaps]]\ncommand = \"PlayRandom\"\nkey_sequence = \"x\"\n";
         struct Row {
             name: &'static str,
@@ -1257,7 +1257,7 @@ mod tests {
                 flag: None,
                 list: all,
                 theme: "dracula",
-                message: Some("theme.toml: 1 spotify-player style not used here: lyrics_played"),
+                message: Some("theme.toml: 1 spotify-player style not used here: visualization"),
             },
             Row {
                 name: "the variable over the file",
@@ -1270,7 +1270,7 @@ mod tests {
                 theme: "gruvbox_dark",
                 message: Some(
                     "keymap.toml: 1 spotify-player command not supported here: PlayRandom \
-                     · theme.toml: 1 spotify-player style not used here: lyrics_played",
+                     · theme.toml: 1 spotify-player style not used here: visualization",
                 ),
             },
             Row {
@@ -1282,7 +1282,7 @@ mod tests {
                 flag: Some("default"),
                 list: all,
                 theme: "default",
-                message: Some("theme.toml: 1 spotify-player style not used here: lyrics_played"),
+                message: Some("theme.toml: 1 spotify-player style not used here: visualization"),
             },
         ];
         for row in rows {

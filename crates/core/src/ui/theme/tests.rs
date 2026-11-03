@@ -493,7 +493,7 @@ fn ac3_default_is_todays_look() {
     use Component::*;
     let none = Style::new();
     let bold = Style::new().add(BOLD);
-    let rows: [(Component, Style); 19] = [
+    let rows: [(Component, Style); 21] = [
         (BlockTitle, none),
         (Border, none),
         (PlaybackStatus, bold),
@@ -513,6 +513,8 @@ fn ac3_default_is_todays_look() {
         (Error, Style::new().fg(Color::Red)),
         (Prompt, bold),
         (SelectedRow, bold),
+        (LyricsPlayed, Style::new().add(DIM)),
+        (LyricsPlaying, Style::new().fg(Color::Cyan).add(BOLD)),
     ];
     let theme = Theme::default();
     assert_eq!(theme.name, "default");
@@ -1106,7 +1108,7 @@ fn ac16_theme_envy_hex() {
         fg: Some(StyleColor::Palette(PaletteColor::Green)),
         bg: Some(StyleColor::Palette(PaletteColor::Red)),
         modifiers: Modifiers::NONE,
-    }; 19];
+    }; 21];
     assert_eq!(Theme::resolve("y".into(), &palette, &specs).envy(), None);
 }
 

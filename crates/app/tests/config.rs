@@ -625,7 +625,7 @@ fn ac7_theme_wrong_type_exits_2() {
 /// variable or the flag naming one of its themes runs too.
 #[test]
 fn ac7_missing_theme_toml_runs() {
-    const THEMES: &[u8] = b"\xef\xbb\xbf[[themes]]\r\nname = \"dracula\"\r\n[themes.component_style]\r\nlyrics_played = { fg = \"Red\" }\r\n";
+    const THEMES: &[u8] = b"\xef\xbb\xbf[[themes]]\r\nname = \"dracula\"\r\n[themes.component_style]\r\nvisualization = { fg = \"Red\" }\r\n";
     // (case, files, the variable, the flag)
     type Case<'a> = (
         &'a str,

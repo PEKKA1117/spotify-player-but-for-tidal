@@ -433,7 +433,7 @@ pub enum Component {
 }
 
 /// Every component, in the spec's table order.
-pub const COMPONENTS: [Component; 19] = [
+pub const COMPONENTS: [Component; 21] = [
     Component::BlockTitle,
     Component::Border,
     Component::PlaybackStatus,
@@ -453,16 +453,13 @@ pub const COMPONENTS: [Component; 19] = [
     Component::Error,
     Component::Prompt,
     Component::SelectedRow,
+    Component::LyricsPlayed,
+    Component::LyricsPlaying,
 ];
 
 /// spotify-player components this player does not draw: accepted and
 /// skipped with a notice.
-pub const SKIPPED_COMPONENTS: [&str; 4] = [
-    "playback_genres",
-    "lyrics_played",
-    "lyrics_playing",
-    "visualization",
-];
+pub const SKIPPED_COMPONENTS: [&str; 2] = ["playback_genres", "visualization"];
 
 impl Component {
     /// The name in `component_style`.
@@ -512,7 +509,12 @@ impl Component {
             | Self::TableHeader
             | Self::Prompt
             | Self::SelectedRow => with(Modifiers::BOLD),
-            Self::PlaylistDesc => with(Modifiers::DIM),
+            Self::PlaylistDesc | Self::LyricsPlayed => with(Modifiers::DIM),
+            Self::LyricsPlaying => StyleSpec {
+                fg: Some(StyleColor::Palette(PaletteColor::Cyan)),
+                modifiers: Modifiers::BOLD,
+                ..StyleSpec::default()
+            },
             Self::Selection => with(Modifiers::REVERSED),
             Self::Error => StyleSpec {
                 fg: Some(StyleColor::Palette(PaletteColor::Red)),
@@ -525,9 +527,7 @@ impl Component {
             | Self::PlaybackProgressBar
             | Self::PlaybackProgressBarUnfilled
             | Self::SecondaryRow
-            | Self::Like
-            | Self::LyricsPlayed
-            | Self::LyricsPlaying => StyleSpec::default(),
+            | Self::Like => StyleSpec::default(),
         }
     }
 }
@@ -543,7 +543,7 @@ pub const DEFAULT_THEME: &str = "default";
 pub struct Theme {
     pub name: String,
     pub screen: Style,
-    styles: [Style; 19],
+    styles: [Style; 21],
     envy: Option<(u8, u8, u8)>,
 }
 
@@ -561,7 +561,7 @@ impl Default for Theme {
 impl Theme {
     /// `name` with `palette`, and `specs` (one per component, in
     /// [`COMPONENTS`] order).
-    pub fn resolve(name: String, palette: &Palette, specs: &[StyleSpec; 19]) -> Self {
+    pub fn resolve(name: String, palette: &Palette, specs: &[StyleSpec; 21]) -> Self {
         let mut screen = Style::new();
         if let Some(bg) = palette.background {
             screen = screen.bg(bg);
