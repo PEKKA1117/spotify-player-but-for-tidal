@@ -12,6 +12,7 @@ use crate::library::{
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::filter::{self, Filter};
+use super::lyrics::LyricsView;
 use super::search::{Search, SearchFocus};
 use super::select::Selection;
 
@@ -51,6 +52,10 @@ pub enum PageKind {
     TrackRadio(u64),
     /// An artist's radio, by artist ID.
     ArtistRadio(u64),
+    /// The lyrics of the player's current track (spec 0021); the track
+    /// the page shows is in [`Page::lyrics`], so the kind alone names the
+    /// page.
+    Lyrics,
 }
 
 impl PageKind {
@@ -59,6 +64,8 @@ impl PageKind {
     pub fn request(&self) -> Option<PageRequest> {
         Some(match self {
             Self::Queue => return None,
+            // The track is the page's own (`Page::request`).
+            Self::Lyrics => return None,
             Self::Library => PageRequest::Library,
             Self::FavoriteTracks => PageRequest::FavoriteTracks,
             Self::Album(id) => PageRequest::Album(*id),
@@ -755,6 +762,9 @@ pub struct Page {
     /// The queue's selection (spec 0020), on the queue page at the bottom
     /// of the history; unused on the other pages.
     pub selection: Selection<EntryId>,
+    /// The lyrics page's track, lyrics and scroll state (spec 0021);
+    /// `Some` on that page only.
+    pub lyrics: Option<LyricsView>,
 }
 
 impl Page {
@@ -807,6 +817,7 @@ impl Page {
             PageKind::Mix(_) => vec![Window::whole(WindowKind::MixTracks)],
             PageKind::TrackRadio(_) => vec![Window::whole(WindowKind::RadioTracks)],
             PageKind::ArtistRadio(_) => vec![Window::whole(WindowKind::ArtistRadioTracks)],
+            PageKind::Lyrics => vec![],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -815,8 +826,10 @@ impl Page {
         };
         let tabs = vec![0; panes.len()];
         let search = matches!(kind, PageKind::Search(_)).then(Search::default);
+        let lyrics = (kind == PageKind::Lyrics).then(|| LyricsView::new(None));
         Self {
             search,
+            lyrics,
             kind,
             header: None,
             load: Load::Idle,
@@ -826,6 +839,18 @@ impl Page {
             windows,
             filter: Filter::default(),
             selection: Selection::default(),
+        }
+    }
+
+    /// The request that fetches this page; `None` for the queue, a search
+    /// not yet sent and a lyrics page with nothing playing.
+    pub fn request(&self) -> Option<PageRequest> {
+        match (&self.kind, &self.lyrics) {
+            (PageKind::Lyrics, Some(view)) => {
+                view.track.as_ref().map(|t| PageRequest::Lyrics(t.id.0))
+            }
+            (PageKind::Lyrics, None) => None,
+            (kind, _) => kind.request(),
         }
     }
 
@@ -955,6 +980,20 @@ impl Page {
         });
         let parts: Vec<String> = match (&self.kind, &self.header) {
             (PageKind::Queue, _) => vec!["Queue".into()],
+            (PageKind::Lyrics, _) => std::iter::once("Lyrics".to_owned())
+                .chain(
+                    self.lyrics
+                        .as_ref()
+                        .and_then(|v| v.track.as_ref())
+                        .into_iter()
+                        .flat_map(|track| {
+                            let artists: Vec<&str> =
+                                track.artists.iter().map(|a| a.name.as_str()).collect();
+                            std::iter::once(track.title.clone())
+                                .chain((!artists.is_empty()).then(|| artists.join(", ")))
+                        }),
+                )
+                .collect(),
             (PageKind::Library, _) => vec!["Library".into()],
             (PageKind::FavoriteTracks, _) => std::iter::once("Favorite tracks".into())
                 .chain(tracks)
@@ -1091,6 +1130,16 @@ impl Page {
             ) => {
                 self.header = Some(Header::Radio(seed));
                 vec![ListItems::Tracks(tracks)]
+            }
+            (PageKind::Lyrics, PageData::Lyrics { track, lyrics }) => {
+                // An answer for another track than the page's is dropped.
+                if let Some(view) = self.lyrics.as_mut()
+                    && view.track.as_ref().is_some_and(|t| t.id.0 == track)
+                {
+                    view.lyrics = lyrics;
+                    self.load = Load::Idle;
+                }
+                return;
             }
             _ => return,
         };

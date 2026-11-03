@@ -185,10 +185,13 @@ pub fn check_greeting(line: &[u8], socket: &Path) -> Result<(), GreetingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use tidal_player_core::library::{
         LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, PageData,
         PageRequest,
     };
+
+    use tidal_player_core::lyrics::{LyricLine, Lyrics};
     use tidal_player_core::protocol::{ClientMessage, Command, Event, ServerMessage};
 
     fn subscribe_line() -> Vec<u8> {
@@ -386,6 +389,16 @@ mod tests {
                     })],
                 ),
                 (
+                    "a lyrics request (0021 AC1)",
+                    vec![
+                        b"{\"Library\":{\"id\":7,\"request\":{\"Page\":{\"Lyrics\":62300893}}}}\n".to_vec(),
+                    ],
+                    vec![Want::Message(ClientMessage::Library {
+                        id: 7,
+                        request: LibraryRequest::Page(PageRequest::Lyrics(62300893)),
+                    })],
+                ),
+                (
                     "an encoded library request, split",
                     encode(&library).chunks(5).map(<[u8]>::to_vec).collect(),
                     vec![Want::Message(library)],
@@ -424,6 +437,28 @@ mod tests {
                     },
                 })),
             },
+            // 0021 AC1: lyrics, `at` in milliseconds on the wire.
+            ServerMessage::LibraryReply {
+                id: 8,
+                result: Ok(LibraryResponse::Page(PageData::Lyrics {
+                    track: 62300893,
+                    lyrics: Some(Lyrics {
+                        synced: vec![LyricLine {
+                            at: Duration::from_millis(6_320),
+                            text: "We hung the lanterns".into(),
+                        }],
+                        plain: "We hung the lanterns".into(),
+                        right_to_left: false,
+                    }),
+                })),
+            },
+            ServerMessage::LibraryReply {
+                id: 9,
+                result: Ok(LibraryResponse::Page(PageData::Lyrics {
+                    track: 1403577,
+                    lyrics: None,
+                })),
+            },
         ];
         let mut decoder = Decoder::<ServerMessage>::new();
         let mut got = decoder.feed(b"{\"LibraryReply\":{\"id\":5,\"result\":{\"Ok\":\"Done\"}}}\n");
@@ -439,6 +474,27 @@ mod tests {
         .map(Ok)
         .collect();
         assert_eq!(got, want, "library replies");
+
+        // 0021 AC1: the wire form of a lyrics line, as written by hand.
+        let wire = b"{\"LibraryReply\":{\"id\":10,\"result\":{\"Ok\":{\"Page\":{\"Lyrics\":{\"track\":1,\"lyrics\":{\"synced\":[{\"at\":6320,\"text\":\"x\"}],\"plain\":\"x\",\"right_to_left\":false}}}}}}}\n";
+        assert_eq!(
+            Decoder::<ServerMessage>::new().feed(wire),
+            vec![Ok(ServerMessage::LibraryReply {
+                id: 10,
+                result: Ok(LibraryResponse::Page(PageData::Lyrics {
+                    track: 1,
+                    lyrics: Some(Lyrics {
+                        synced: vec![LyricLine {
+                            at: Duration::from_millis(6_320),
+                            text: "x".into(),
+                        }],
+                        plain: "x".into(),
+                        right_to_left: false,
+                    }),
+                })),
+            })],
+            "a lyrics reply"
+        );
 
         // The real limit: a 17 MiB line is refused once it passes 16 MiB,
         // and never held whole.

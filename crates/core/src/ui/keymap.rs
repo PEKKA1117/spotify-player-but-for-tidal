@@ -301,6 +301,8 @@ pub enum UiCommand {
     LikedTrackPage,
     SearchPage,
     MixesPage,
+    /// The lyrics page (spec 0021).
+    LyricsPage,
     Search,
     PreviousPage,
     ClosePopup,
@@ -311,7 +313,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 50] = [
+pub const COMMANDS: [UiCommand; 51] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -356,6 +358,7 @@ pub const COMMANDS: [UiCommand; 50] = [
     UiCommand::LikedTrackPage,
     UiCommand::SearchPage,
     UiCommand::MixesPage,
+    UiCommand::LyricsPage,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -412,6 +415,7 @@ impl UiCommand {
             Self::LikedTrackPage => "LikedTrackPage",
             Self::SearchPage => "SearchPage",
             Self::MixesPage => "MixesPage",
+            Self::LyricsPage => "LyricsPage",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",

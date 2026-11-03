@@ -295,6 +295,11 @@ impl LibraryClient {
                     tracks,
                 })
             }
+            // spec 0021: slice B (the lyrics call); until then the track
+            // reads as not found.
+            PageRequest::Lyrics(id) => Err(LibraryError::NotFound(Subject::Item(Item::Track(
+                tidal_player_core::TrackId(id),
+            )))),
         }
     }
 

@@ -1689,6 +1689,50 @@ fn ac16_disconnected_and_login() {
         assert_eq!(update(&mut state, welcome()), vec![]);
     }
 
+    // Spec 0021: the lyrics page. Disconnected, it opens failed with no
+    // request, a pending load fails, and the first `Welcome` fetches the
+    // page again.
+    for (shut_down, message) in [(false, DISCONNECTED), (true, SHUT_DOWN)] {
+        let mut state = with_queue(&[1], Some(1));
+        let (id, _) = one_request(&press(&mut state, &[Char('l')]));
+        update(&mut state, Action::Disconnected { shut_down });
+        assert_eq!(state.page().kind, PageKind::Lyrics);
+        assert_eq!(state.page().load, Load::Failed(message.into()), "{message}");
+        let late = LibraryResponse::Page(PageData::Lyrics {
+            track: 101,
+            lyrics: None,
+        });
+        reply(&mut state, id, late);
+        assert_eq!(
+            state.page().load,
+            Load::Failed(message.into()),
+            "late reply"
+        );
+        // Back, then open again: no request, failed.
+        press(&mut state, &[Backspace]);
+        assert_eq!(press(&mut state, &[Char('l')]), vec![], "{message}");
+        assert_eq!(state.page().load, Load::Failed(message.into()), "{message}");
+        let (_, request) = one_request(&update(&mut state, welcome()));
+        assert_eq!(request, LibraryRequest::Page(PageRequest::Lyrics(101)));
+        assert!(matches!(state.page().load, Load::Loading { .. }));
+    }
+    // Session expired: the player's error shows in the lyrics page.
+    let mut state = with_queue(&[1], Some(1));
+    let (id, _) = one_request(&press(&mut state, &[Char('l')]));
+    update(&mut state, Action::Player(protocol::Event::LoginRequired));
+    fail(
+        &mut state,
+        id,
+        "Session expired: run \"tidal-player login\"",
+    );
+    match &state.page().load {
+        Load::Failed(m) => assert!(
+            m.starts_with("Could not load the lyrics: ") && m.contains("Session expired"),
+            "{m}"
+        ),
+        other => panic!("{other:?}"),
+    }
+
     // Session expired: the player's error shows in the page; once
     // restored, opening the page again fetches it.
     let expired = "Session expired: run \"tidal-player login\"";

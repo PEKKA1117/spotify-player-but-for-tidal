@@ -28,6 +28,9 @@
 //! Spec 0008: keys are looked up in [`State::keymap`] ([`keymap`]); which
 //! command acts where is decided in `dispatch`.
 //!
+//! Spec 0021: the lyrics page follows the current track and keeps its
+//! lyrics and scroll state in [`Page::lyrics`]; see [`lyrics`].
+//!
 //! Spec 0012: each window's filter (and the queue page's) and its typing
 //! keys live in [`filter`].
 //!
@@ -42,6 +45,7 @@ mod dispatch;
 pub mod filter;
 pub mod help;
 pub mod keymap;
+pub mod lyrics;
 pub mod page;
 pub mod popup;
 pub mod search;
@@ -62,6 +66,7 @@ pub use help::{
     Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
 };
 pub use keymap::{BaseKey, Keymap};
+pub use lyrics::{LyricsContent, LyricsView};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
     Row, Rows, Window, WindowKind, clock, group, largest_page,
@@ -497,12 +502,13 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             state.connection = Connection::Connected;
             state.login_required = login_required;
             state.message = None;
-            apply_snapshot(state, snapshot);
+            let mut effects = apply_snapshot(state, snapshot);
             // The keymap's notice outlives the first `Welcome` only.
             if let Some(notice) = state.notice.take() {
                 state.message = Some(notice);
             }
-            browse::reconnected(state)
+            effects.extend(browse::reconnected(state));
+            effects
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),
         Action::DevicesReply { id, result } => {
@@ -541,10 +547,7 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 Vec::new()
             }
             protocol::Event::ShuttingDown => Vec::new(),
-            protocol::Event::Player(snapshot) => {
-                apply_snapshot(state, snapshot);
-                Vec::new()
-            }
+            protocol::Event::Player(snapshot) => apply_snapshot(state, snapshot),
             protocol::Event::Position { entry, position } => {
                 if state.player.as_ref().and_then(|p| p.current) == Some(entry) {
                     state.position = position;
@@ -556,8 +559,9 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
 }
 
 /// Takes the snapshot as is; keeps the cursor on its entry (clamped to
-/// the same index when it was removed).
-fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
+/// the same index when it was removed). The effects are the lyrics page's
+/// request for a new current track (spec 0021).
+fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) -> Vec<Effect> {
     let old = state.player.take();
     let old_queue = old.as_ref().map_or(&[][..], |p| p.queue.as_slice());
     let ids: Vec<EntryId> = snapshot.queue.iter().map(|e| e.id).collect();
@@ -600,6 +604,7 @@ fn apply_snapshot(state: &mut State, snapshot: PlayerSnapshot) {
     if filter::queue_filter(state).active() {
         filter::keep_queue_cursor(state);
     }
+    lyrics::follow_track(state)
 }
 
 #[cfg(test)]
