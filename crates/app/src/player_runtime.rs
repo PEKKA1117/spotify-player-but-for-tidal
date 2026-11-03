@@ -32,8 +32,9 @@ use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
 use tidal_player_core::item::parse_item;
 use tidal_player_core::library::{
-    DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageRequest,
+    DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageData, PageRequest,
 };
+use tidal_player_core::lyrics::Lyrics;
 use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
@@ -224,15 +225,39 @@ impl Library for LibraryClient {
 pub const LYRICS_CACHE_SIZE: usize = 50;
 
 /// The [`Library`] with the lyrics of the last [`LYRICS_CACHE_SIZE`]
-/// tracks kept in memory (spec 0021 "What the player fetches and keeps").
-/// Stub: keeps nothing yet.
+/// tracks kept in memory (spec 0021 "What the player fetches and keeps"):
+/// "no lyrics" included, failures not. Shared by every client of the
+/// player; the oldest-asked place is the front.
 pub struct LyricsCache {
     inner: Arc<dyn Library>,
+    kept: std::sync::Mutex<VecDeque<(u64, Option<Lyrics>)>>,
 }
 
 impl LyricsCache {
     pub fn new(inner: Arc<dyn Library>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            kept: std::sync::Mutex::default(),
+        }
+    }
+
+    /// The kept answer for `track`, which becomes the newest.
+    fn hit(&self, track: u64) -> Option<Option<Lyrics>> {
+        let mut kept = self.kept.lock().unwrap();
+        let at = kept.iter().position(|(t, _)| *t == track)?;
+        let entry = kept.remove(at)?;
+        let lyrics = entry.1.clone();
+        kept.push_back(entry);
+        Some(lyrics)
+    }
+
+    fn keep(&self, track: u64, lyrics: Option<Lyrics>) {
+        let mut kept = self.kept.lock().unwrap();
+        kept.retain(|(t, _)| *t != track);
+        kept.push_back((track, lyrics));
+        while kept.len() > LYRICS_CACHE_SIZE {
+            kept.pop_front();
+        }
     }
 }
 
@@ -243,7 +268,19 @@ impl Library for LyricsCache {
         page_size: u32,
         hidden_words: Vec<String>,
     ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
-        self.inner.request(request, page_size, hidden_words)
+        let LibraryRequest::Page(PageRequest::Lyrics(track)) = request else {
+            return self.inner.request(request, page_size, hidden_words);
+        };
+        Box::pin(async move {
+            if let Some(lyrics) = self.hit(track) {
+                return Ok(LibraryResponse::Page(PageData::Lyrics { track, lyrics }));
+            }
+            let response = self.inner.request(request, page_size, hidden_words).await;
+            if let Ok(LibraryResponse::Page(PageData::Lyrics { lyrics, .. })) = &response {
+                self.keep(track, lyrics.clone());
+            }
+            response
+        })
     }
 }
 
