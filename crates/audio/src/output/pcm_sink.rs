@@ -2,6 +2,7 @@
 //! "Output (ALSA)"). The ALSA build plugs in `AlsaBackend`; tests a fake.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::output::clock::Clock;
 use crate::output::format::pack_into;
@@ -11,9 +12,18 @@ use crate::sink::{
     OutputInfo, SampleFormat, Sink, SinkError, SinkFactory, SourceFormat, WriteOutcome,
 };
 
+/// The longest stretch of audio a drain waits for (0003 AC31).
+const DRAIN_AUDIO_CAP: Duration = Duration::from_secs(2);
+/// How long a drain waits beyond the audio's own duration before it drops
+/// what is left.
+const DRAIN_MARGIN: Duration = Duration::from_millis(500);
+/// Between two looks at the delay while draining.
+const DRAIN_POLL: Duration = Duration::from_millis(10);
+
 #[derive(Debug)]
 struct OpenState {
     format: SampleFormat,
+    rate: u32,
     channels: usize,
     period_frames: usize,
     reserved: Option<u32>,
@@ -105,6 +115,7 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
         )?;
         self.open = Some(OpenState {
             format: config.format,
+            rate: config.rate,
             channels: usize::from(config.channels),
             period_frames: config.period_frames as usize,
             reserved,
@@ -173,9 +184,36 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
         Ok(())
     }
 
+    /// Waits for the device to play what it holds, then drops the rest and
+    /// prepares it (0003 AC31). The wait polls the delay and is bounded by
+    /// the held audio's duration (at most [`DRAIN_AUDIO_CAP`]) plus
+    /// [`DRAIN_MARGIN`]: `snd_pcm_drain` has no bound, and PipeWire's ALSA
+    /// plugin (1.6.10) never returns from it.
     fn drain(&mut self) -> Result<(), SinkError> {
-        self.state()?;
-        self.backend.drain().map_err(|e| self.error(e))?;
+        let state = self.state()?;
+        if state.pcm == Pcm::Prepared {
+            // Nothing written since the last prepare: nothing to play out.
+            return Ok(());
+        }
+        let rate = state.rate;
+        let start = self.clock.now();
+        let mut budget = None;
+        loop {
+            let frames = match self.backend.delay() {
+                Ok(frames) if frames > 0 => frames,
+                Ok(_) | Err(PcmError::Underrun | PcmError::Suspended) => break,
+                Err(e) => return Err(self.error(e)),
+            };
+            let budget = *budget.get_or_insert_with(|| {
+                frames_to_duration(frames, rate).min(DRAIN_AUDIO_CAP) + DRAIN_MARGIN
+            });
+            let left = budget.saturating_sub(self.clock.now().saturating_sub(start));
+            if left.is_zero() {
+                break;
+            }
+            self.clock.sleep(DRAIN_POLL.min(left));
+        }
+        self.backend.drop_frames().map_err(|e| self.error(e))?;
         self.backend.prepare().map_err(|e| self.error(e))?;
         self.set_pcm(Pcm::Prepared);
         Ok(())
@@ -204,6 +242,12 @@ impl<B: PcmBackend> Drop for PcmSink<B> {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// How long `frames` last at `rate`.
+fn frames_to_duration(frames: i64, rate: u32) -> Duration {
+    let frames = u64::try_from(frames).unwrap_or(0);
+    Duration::from_nanos(frames.saturating_mul(1_000_000_000) / u64::from(rate.max(1)))
 }
 
 type MakeBackend<B> = Box<dyn FnMut() -> B + Send>;
@@ -253,6 +297,7 @@ mod tests {
     use crate::output::format::pack;
     use crate::output::reserve::ReleaseReply;
     use crate::sink::Codec;
+    use std::time::Duration;
 
     const DEVICE: &str = "hw:1,0";
 
@@ -392,6 +437,8 @@ mod tests {
         s.set_paused(true).unwrap();
         s.set_paused(false).unwrap();
         s.discard().unwrap();
+        // Nothing is held after a discard: the drain has nothing to wait
+        // for and calls nothing (0003 AC31).
         s.drain().unwrap();
         assert_eq!(
             log.calls(),
@@ -400,10 +447,132 @@ mod tests {
                 Call::Pause(false),
                 Call::Drop,
                 Call::Prepare,
-                Call::Drain,
-                Call::Prepare,
             ]
         );
+    }
+
+    /// 0003 AC31: draining waits for the device through its delay, within a
+    /// budget, and never calls `snd_pcm_drain`, which never returns on
+    /// PipeWire 1.6.10's ALSA plugin.
+    #[test]
+    fn ac31_drain_is_bounded() {
+        // At HIRES's 96 kHz, 9,600 frames last 100 ms.
+        const TENTH: i64 = 9_600;
+        let ms = Duration::from_millis;
+        struct Row {
+            name: &'static str,
+            written: bool,
+            delays: Vec<Result<i64, PcmError>>,
+            result: Result<(), SinkError>,
+            /// Least and most time spent waiting (the fake clock's sleeps).
+            waited: (Duration, Duration),
+            /// The device is dropped and prepared once the wait is over.
+            dropped: bool,
+        }
+        let rows = [
+            Row {
+                name: "plays out to 0",
+                written: true,
+                delays: vec![Ok(TENTH), Ok(TENTH / 2), Ok(0)],
+                result: Ok(()),
+                waited: (ms(1), ms(600)),
+                dropped: true,
+            },
+            Row {
+                name: "underrun at the end",
+                written: true,
+                delays: vec![Ok(TENTH), Err(PcmError::Underrun)],
+                result: Ok(()),
+                waited: (ms(1), ms(600)),
+                dropped: true,
+            },
+            Row {
+                name: "stuck: the delay never falls",
+                written: true,
+                delays: vec![Ok(TENTH)],
+                result: Ok(()),
+                // The audio's 100 ms plus 500 ms, and not a bit more.
+                waited: (ms(600), ms(600)),
+                dropped: true,
+            },
+            Row {
+                name: "stuck with a delay beyond 2 s: capped",
+                written: true,
+                delays: vec![Ok(TENTH * 100)],
+                result: Ok(()),
+                waited: (ms(2_500), ms(2_500)),
+                dropped: true,
+            },
+            Row {
+                name: "stuck on one frame: a budget that is no multiple of the poll",
+                written: true,
+                delays: vec![Ok(1)],
+                result: Ok(()),
+                // One frame at 96 kHz is 10,416 ns.
+                waited: (
+                    ms(500) + Duration::from_nanos(10_416),
+                    ms(500) + Duration::from_nanos(10_416),
+                ),
+                dropped: true,
+            },
+            Row {
+                name: "nothing written",
+                written: false,
+                delays: vec![Ok(0)],
+                result: Ok(()),
+                waited: (Duration::ZERO, Duration::ZERO),
+                dropped: false,
+            },
+            Row {
+                name: "device lost while waiting",
+                written: true,
+                delays: vec![Ok(TENTH), Err(PcmError::Lost)],
+                result: Err(SinkError::Lost(DEVICE.into())),
+                waited: (Duration::ZERO, ms(600)),
+                dropped: false,
+            },
+        ];
+        for row in rows {
+            let log = Log::default();
+            let backend = device(&log).with_delays(row.delays);
+            let mut s = sink(&log, backend);
+            s.open(&HIRES).unwrap();
+            if row.written {
+                s.write(&[0; 2 * 64]).unwrap();
+            }
+            log.clear();
+            assert_eq!(s.drain(), row.result, "{}", row.name);
+            let calls = log.calls();
+            assert!(
+                !calls.contains(&Call::Drain),
+                "{}: snd_pcm_drain was called: {calls:?}",
+                row.name
+            );
+            let waited: Duration = calls
+                .iter()
+                .filter_map(|c| match c {
+                    Call::Sleep(d) => Some(*d),
+                    _ => None,
+                })
+                .sum();
+            assert!(
+                (row.waited.0..=row.waited.1).contains(&waited),
+                "{}: waited {waited:?}, expected {:?}..={:?}",
+                row.name,
+                row.waited.0,
+                row.waited.1
+            );
+            let rest: Vec<_> = calls
+                .into_iter()
+                .filter(|c| !matches!(c, Call::Sleep(_)))
+                .collect();
+            let expected = if row.dropped {
+                vec![Call::Drop, Call::Prepare]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(rest, expected, "{}", row.name);
+        }
     }
 
     /// 0003 AC29: `snd_pcm_pause` only where ALSA accepts it (the fake

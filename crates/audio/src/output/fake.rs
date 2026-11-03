@@ -40,6 +40,8 @@ pub enum Call {
     Pause(bool),
     Drop,
     Prepare,
+    /// `snd_pcm_drain`. Never pushed: the seam has none since 0003 AC31,
+    /// and tests assert it stays that way.
     Drain,
     Recover(PcmError),
     Close,
@@ -180,6 +182,8 @@ struct State {
     config: Option<HwConfig>,
     written: Vec<u8>,
     delay: i64,
+    /// Scripted `delay` answers, taken in turn; the last one repeats.
+    delays: VecDeque<Result<i64, PcmError>>,
 }
 
 /// A scriptable [`PcmBackend`]. Clones share state.
@@ -228,6 +232,13 @@ impl FakeBackend {
 
     pub fn set_delay(&self, delay: i64) {
         self.state().delay = delay;
+    }
+
+    /// `delay` answers these in turn, then keeps answering the last one (a
+    /// device that stopped playing answers the same delay forever).
+    pub fn with_delays(self, delays: Vec<Result<i64, PcmError>>) -> Self {
+        self.state().delays = delays.into();
+        self
     }
 
     /// Every byte written so far.
@@ -323,7 +334,12 @@ impl PcmBackend for FakeBackend {
     }
 
     fn delay(&self) -> Result<i64, PcmError> {
-        Ok(self.state().delay)
+        let mut state = self.state();
+        match state.delays.len() {
+            0 => Ok(state.delay),
+            1 => state.delays[0].clone(),
+            _ => state.delays.pop_front().expect("two or more"),
+        }
     }
 
     fn pause(&mut self, paused: bool) -> Result<(), PcmError> {
@@ -346,12 +362,6 @@ impl PcmBackend for FakeBackend {
     fn prepare(&mut self) -> Result<(), PcmError> {
         self.log.push(Call::Prepare);
         self.state().pcm = Pcm::Prepared;
-        Ok(())
-    }
-
-    fn drain(&mut self) -> Result<(), PcmError> {
-        self.log.push(Call::Drain);
-        self.state().pcm = Pcm::Setup;
         Ok(())
     }
 
