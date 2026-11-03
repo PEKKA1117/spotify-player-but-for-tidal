@@ -207,10 +207,11 @@ impl<B: PcmBackend> Sink for PcmSink<B> {
             let budget = *budget.get_or_insert_with(|| {
                 frames_to_duration(frames, rate).min(DRAIN_AUDIO_CAP) + DRAIN_MARGIN
             });
-            if self.clock.now().saturating_sub(start) >= budget {
+            let left = budget.saturating_sub(self.clock.now().saturating_sub(start));
+            if left.is_zero() {
                 break;
             }
-            self.clock.sleep(DRAIN_POLL);
+            self.clock.sleep(DRAIN_POLL.min(left));
         }
         self.backend.drop_frames().map_err(|e| self.error(e))?;
         self.backend.prepare().map_err(|e| self.error(e))?;

@@ -128,7 +128,9 @@ pub trait Sink: Send {
     fn set_paused(&mut self, paused: bool) -> Result<(), SinkError>;
     /// Drop buffered frames without playing them (used by seek).
     fn discard(&mut self) -> Result<(), SinkError>;
-    /// Block until every buffered frame has been played.
+    /// Wait for the buffered frames to play, then drop any left. The wait is
+    /// bounded (0003 AC31): a device that stops playing costs at most the
+    /// buffered audio's duration plus a margin, never a hang.
     fn drain(&mut self) -> Result<(), SinkError>;
     /// Close the device and release any reservation. Idempotent.
     fn close(&mut self);
