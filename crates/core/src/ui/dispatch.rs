@@ -10,7 +10,9 @@ use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, Lookup, UiCommand};
 use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
-use super::{Effect, Key, PageKind, Prompt, State, browse, filter, help, search, select, theme};
+use super::{
+    Effect, Key, PageKind, Prompt, State, browse, filter, help, lyrics, search, select, theme,
+};
 
 /// A key press: what it does, wherever the UI is.
 pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
@@ -160,6 +162,9 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         // `Esc` on a page clears the focused window's kept filter (spec
         // 0012), or else its selection (spec 0020).
         C::ClosePopup => {
+            if state.page().kind == PageKind::Lyrics {
+                return lyrics::follow(state);
+            }
             if !filter::kept(state) {
                 select::clear_focused(state);
             }
@@ -173,6 +178,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
         C::SearchPage => return search::open(state),
         C::MixesPage => return browse::open(state, PageKind::Mixes),
+        C::LyricsPage => return browse::open(state, PageKind::Lyrics),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
@@ -221,7 +227,9 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         | C::PageSelectPreviousOrScrollUp
         | C::SelectFirstOrScrollToTop
         | C::SelectLastOrScrollToBottom => {
-            return if state.page().kind == PageKind::Queue {
+            return if state.page().kind == PageKind::Lyrics {
+                lyrics::command(state, command)
+            } else if state.page().kind == PageKind::Queue {
                 queue_command(state, command)
             } else if command == C::ChooseSelected && state.page().search.is_some() {
                 search::enter(state)

@@ -124,7 +124,7 @@ pub(super) fn top(state: &State) -> usize {
 /// Asks for page `index` (a page of the history): `Loading`, or failed
 /// with the connection's message while disconnected.
 pub(super) fn fetch_page(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
-    let Some(page) = state.history[index].kind.request() else {
+    let Some(page) = state.history[index].request() else {
         return;
     };
     let load = match request(state, LibraryRequest::Page(page), effects) {
@@ -155,7 +155,12 @@ pub(super) fn open(state: &mut State, kind: PageKind) -> Vec<Effect> {
         }
         return effects;
     }
-    push(state, Page::new(kind));
+    let page = if kind == PageKind::Lyrics {
+        super::lyrics::page(state.current().map(|e| e.track.clone()))
+    } else {
+        Page::new(kind)
+    };
+    push(state, page);
     fetch_page(state, top(state), &mut effects);
     effects
 }
@@ -176,7 +181,8 @@ pub(super) fn back(state: &mut State) -> Vec<Effect> {
         select::leave_page(state);
         state.history.pop();
     }
-    Vec::new()
+    // A lyrics page coming back on top follows the track (spec 0021).
+    super::lyrics::follow_track(state)
 }
 
 /// `Tab`/`BackTab`: the next or previous pane, wrapping.
@@ -1241,6 +1247,7 @@ fn page_error(kind: &PageKind, message: String) -> String {
         PageKind::FavoriteTracks => format!("Could not load the favorite tracks: {message}"),
         PageKind::Search(_) => format!("Could not search: {message}"),
         PageKind::Mixes => format!("Could not load the mixes: {message}"),
+        PageKind::Lyrics => format!("Could not load the lyrics: {message}"),
         _ => message,
     }
 }

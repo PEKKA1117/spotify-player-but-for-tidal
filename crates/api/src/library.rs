@@ -37,6 +37,7 @@ use tidal_player_core::library::{
     ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed,
     RoleCategory, TopHit, hidden_version,
 };
+use tidal_player_core::lyrics::{Lyrics, parse_lrc};
 use tidal_player_core::{ArtistRef, Item, Track, TrackId};
 
 use crate::ApiResponse;
@@ -295,7 +296,22 @@ impl LibraryClient {
                     tracks,
                 })
             }
+            PageRequest::Lyrics(id) => Ok(PageData::Lyrics {
+                track: id,
+                lyrics: self.lyrics(id).await?,
+            }),
         }
+    }
+
+    /// The track's lyrics (spec 0021); `None` for any `404`: Tidal's body
+    /// for a track without lyrics is not its usual `subStatus` one.
+    async fn lyrics(&self, id: u64) -> Result<Option<Lyrics>> {
+        let response = self.fetch(&format!("tracks/{id}/lyrics"), &[]).await?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        let dto: LyricsDto = parse(&check(&response, None)?, "lyrics")?;
+        Ok(Some(dto.into()))
     }
 
     async fn album_header(&self, id: u64) -> Result<AlbumSummary> {
@@ -1548,6 +1564,32 @@ impl From<MixDto> for MixSummary {
             id: dto.id,
             title: dto.title,
             subtitle: dto.subtitle.filter(|s| !s.trim().is_empty()),
+        }
+    }
+}
+
+/// `GET /tracks/{id}/lyrics` (spec 0021 "Facts").
+#[derive(Deserialize)]
+struct LyricsDto {
+    #[serde(default)]
+    lyrics: Option<String>,
+    #[serde(default)]
+    subtitles: Option<String>,
+    #[serde(default, rename = "isRightToLeft")]
+    right_to_left: Option<bool>,
+}
+
+impl From<LyricsDto> for Lyrics {
+    fn from(dto: LyricsDto) -> Self {
+        let text = dto.lyrics.unwrap_or_default().replace("\r\n", "\n");
+        let mut lines: Vec<&str> = text.split('\n').collect();
+        while lines.last().is_some_and(|l| l.trim().is_empty()) {
+            lines.pop();
+        }
+        Self {
+            synced: parse_lrc(&dto.subtitles.unwrap_or_default()),
+            plain: lines.join("\n"),
+            right_to_left: dto.right_to_left.unwrap_or(false),
         }
     }
 }

@@ -7,16 +7,16 @@
 
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
-    Header, HelpSection, Hints, LibraryLayout, Load, NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind,
-    Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme, Window, WindowKind,
-    device_rows, popup, select, theme::Component,
+    Header, HelpSection, Hints, LibraryLayout, Load, LyricsContent, LyricsView, NEW_PLAYLIST,
+    PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme,
+    Window, WindowKind, device_rows, popup, select, theme::Component,
 };
 
 use super::theme::of;
@@ -131,6 +131,10 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     if body.height == 0 {
         return;
     }
+    if page.lyrics.is_some() {
+        render_lyrics(state, frame, page, body);
+        return;
+    }
     if let Load::Failed(message) = &page.load {
         let lines: Vec<Line> = wrap(message, width)
             .into_iter()
@@ -161,6 +165,106 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
             fill,
         );
     }
+}
+
+/// Draws the lyrics page (spec 0021 "Rendering"): one bordered window with
+/// the lyrics, or the message that replaces them.
+fn render_lyrics(state: &State, frame: &mut Frame, page: &Page, area: Rect) {
+    let (Some(view), Some(content)) = (&page.lyrics, page.lyrics_content()) else {
+        return;
+    };
+    let look = state.theme();
+    let title = of(look, Component::BlockTitle).add_modifier(Modifier::BOLD);
+    let room = usize::from(area.width).saturating_sub(2);
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(fit(&view.window_title(), room), title));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let (width, height) = (usize::from(inner.width), usize::from(inner.height));
+    let lines = match content {
+        LyricsContent::Failed(message) => message_lines(message, width, of(look, Component::Error)),
+        LyricsContent::Plain(_) | LyricsContent::Synced(_) => {
+            lyrics_lines(look, view, state, width, height)
+        }
+        other => {
+            let dim = Style::new().add_modifier(Modifier::DIM);
+            message_lines(&other.message().unwrap_or_default(), width, dim)
+        }
+    };
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The rows of the lyrics window: the lines wrapped by display width, the
+/// current line (and the ones before it) styled, from the first row that
+/// the view's place gives (spec 0021 "Following").
+fn lyrics_lines(
+    look: &Theme,
+    view: &LyricsView,
+    state: &State,
+    width: usize,
+    height: usize,
+) -> Vec<Line<'static>> {
+    let Some(lyrics) = &view.lyrics else {
+        return Vec::new();
+    };
+    let texts: Vec<&str> = if view.is_synced() {
+        lyrics.synced.iter().map(|l| l.text.as_str()).collect()
+    } else {
+        lyrics.plain.lines().collect()
+    };
+    let position = state.position;
+    let current = view.current(position);
+    let played = view.played(position);
+    // The wrapped rows of each line, with the row each starts at.
+    let mut rows: Vec<(usize, String)> = Vec::new();
+    let mut first_rows = Vec::with_capacity(texts.len());
+    for (n, text) in texts.iter().enumerate() {
+        first_rows.push(rows.len());
+        let shown = if current == Some(n) && text.trim().is_empty() {
+            "♪"
+        } else {
+            text
+        };
+        let wrapped = wrap(shown, width);
+        if wrapped.is_empty() {
+            rows.push((n, String::new()));
+        }
+        rows.extend(wrapped.into_iter().map(|row| (n, row)));
+    }
+    let start = if view.is_synced() && view.following {
+        let first = current.map_or(0, |n| first_rows[n]);
+        first.saturating_sub(height / 2)
+    } else {
+        first_rows
+            .get(view.offset(position, height))
+            .copied()
+            .unwrap_or(0)
+    };
+    let alignment = if view.right_to_left() {
+        Alignment::Right
+    } else {
+        Alignment::Left
+    };
+    rows.into_iter()
+        .skip(start)
+        .take(height)
+        .map(|(n, row)| {
+            let style = if !view.is_synced() {
+                Style::new()
+            } else if current == Some(n) {
+                of(look, Component::LyricsPlaying)
+            } else if n < played {
+                of(look, Component::LyricsPlayed)
+            } else {
+                Style::new()
+            };
+            Line::styled(row, style).alignment(alignment)
+        })
+        .collect()
 }
 
 /// Draws a search page's input row and, when there is one, its top-hit

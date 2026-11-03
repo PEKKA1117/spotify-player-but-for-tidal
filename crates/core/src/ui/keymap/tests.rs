@@ -17,7 +17,7 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 use super::super::dispatch::run_command;
 use super::super::{
     Action, Confirmed, Effect, Key, Page, PageKind, Popup, SearchFocus, State, TrackSource,
-    apply_keymap, help, update,
+    apply_keymap, help, hints, update,
 };
 use super::{
     ACTIONS, ActionBinding, ActionEntry, ActionKind, BaseKey, Binding, CommandEntry, KeyError,
@@ -341,7 +341,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 49] = [
+const DEFAULTS: [(&[&str], &str); 50] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -388,6 +388,8 @@ const DEFAULTS: [(&[&str], &str); 49] = [
     (&["g y"], "LikedTrackPage"),
     (&["g s"], "SearchPage"),
     (&["g m"], "MixesPage"),
+    // Spec 0021.
+    (&["l", "g L"], "LyricsPage"),
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
@@ -658,7 +660,7 @@ fn ac2_build_keymap() {
             file(
                 vec![
                     entry("x", "PlayRandom"),
-                    entry("n", "LyricsPage"),
+                    entry("n", "BrowsePage"),
                     entry("y", "PlayRandom"),
                 ],
                 vec![action("w", "GoToShow", Target::SelectedItem)],
@@ -670,7 +672,7 @@ fn ac2_build_keymap() {
                     ("w", None),
                     ("n", cmd(C::NextTrack)),
                 ],
-                vec!["PlayRandom", "LyricsPage", "GoToShow"],
+                vec!["PlayRandom", "BrowsePage", "GoToShow"],
             ),
         ),
         (
@@ -1280,7 +1282,7 @@ fn ac12_unsupported_notice() {
             vec![
                 entry("x", "PlayRandom"),
                 entry("g n", "NextTrack"),
-                entry("y", "LyricsPage"),
+                entry("y", "BrowsePage"),
                 entry("w", "PlayRandom"),
                 // Spec 0017: `SwitchTheme` is a command now; another
                 // skipped name takes its place.
@@ -1288,7 +1290,7 @@ fn ac12_unsupported_notice() {
             ],
             vec![],
             Some(
-                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SortTrackByTitle",
+                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle",
             ),
         ),
         (
@@ -1438,6 +1440,80 @@ fn ac9_mixes_and_radio_keys() {
     assert_eq!(bound(&moved, "r x"), Some(Binding::Command(C::NextTrack)));
 }
 
+// --- spec 0021 AC8 ------------------------------------------------------------
+
+/// Spec 0021 AC8: the defaults hold `l` and `g L` for `LyricsPage`, in the
+/// keys help and `g`'s key hints; on the lyrics page the keys help lists
+/// `esc` as following the current line again; `LyricsPage` is no longer
+/// unsupported; `command = "None"` removes a key; the defaults have no
+/// prefix conflict.
+#[test]
+fn ac8_lyrics_keys() {
+    use UiCommand as C;
+    let lyrics = Some(Binding::Command(C::LyricsPage));
+    let defaults = Keymap::default();
+    assert_eq!(bound(&defaults, "l"), lyrics);
+    assert_eq!(bound(&defaults, "g L"), lyrics);
+    assert_eq!(build(&KeymapFile::default()), Ok(Keymap::default()));
+    assert!(defaults.unsupported().is_empty());
+
+    // In the keys help, with its text.
+    let sections = help(&queue());
+    let found = sections
+        .iter()
+        .flat_map(|s| &s.rows)
+        .find(|r| r.command == "LyricsPage")
+        .map(|r| (r.keys.clone(), r.text.clone(), r.dim));
+    assert_eq!(
+        found,
+        Some(("l  g L".into(), "lyrics of the playing track".into(), false))
+    );
+
+    // Among `g`'s key hints.
+    let mut state = queue();
+    state.pending = vec![Key::Char('g')];
+    let hint = hints(&state).expect("g starts bindings");
+    let entry_l = hint.entries.iter().find(|e| e.key == "L").expect("g L");
+    assert_eq!(entry_l.text, "lyrics of the playing track");
+    assert_eq!(entry_l.more, 0);
+
+    // No longer unsupported: a spotify-player file binding it builds
+    // without a notice, and the key is in force.
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"LyricsPage"));
+    let built = keymap(vec![entry("y", "LyricsPage")], vec![]);
+    assert_eq!(built.unsupported(), Vec::<String>::new());
+    assert_eq!(bound(&built, "y"), lyrics);
+
+    // On the lyrics page the help lists `esc`, dim while following.
+    let mut state = State::default();
+    update(
+        &mut state,
+        Action::Player(protocol::Event::Player(snapshot(&[1], Some(1)))),
+    );
+    press(&mut state, &[Key::Char('l')]);
+    assert_eq!(state.page().kind, PageKind::Lyrics);
+    let esc = |state: &State| {
+        help(state)
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.command == "ClosePopup")
+            .map(|r| (r.keys.clone(), r.text.clone(), r.dim))
+    };
+    assert_eq!(
+        esc(&state),
+        Some(("esc".into(), "follow the current line again".into(), true))
+    );
+    // Elsewhere `esc` is not a row of the page's section.
+    assert_eq!(esc(&queue()), None);
+
+    // `command = "None"` removes the key; the other one stays.
+    let mut state = with_keymap(queue(), keymap(vec![entry("l", "None")], vec![]));
+    assert_eq!(press(&mut state, &[Key::Char('l')]), vec![]);
+    assert_eq!(state.page().kind, PageKind::Queue);
+    press(&mut state, &[Key::Char('g'), Key::Char('L')]);
+    assert_eq!(state.page().kind, PageKind::Lyrics);
+}
+
 // --- spec 0014 AC8 ------------------------------------------------------------
 
 /// Spec 0014 AC8: `SwitchDevice` is a command of the keymap, no longer a
@@ -1557,7 +1633,7 @@ fn ac9_file_beats_conflicting_defaults() {
             file(vec![entry("g", "LibraryPage")], vec![]),
             vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
             Some(
-                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage)"#,
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g L" (LyricsPage)"#,
             ),
         ),
         (

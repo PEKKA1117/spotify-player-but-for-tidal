@@ -11,7 +11,8 @@
 //!   that window, with a text that names what they do there
 //!   (`ChooseSelected`, `AddSelectedItemToQueue`, `RemoveFromQueue`,
 //!   `ShowActionsOnSelectedItem`, `RoleFilter`, `Search` (the filter, spec
-//!   0012), `ClosePopup`);
+//!   0012), `ClosePopup`); the lyrics page's (spec 0021) lists `ClosePopup`
+//!   alone, as following the current line again;
 //! - `Lists`: the six list-moving commands, on pages with a list and in
 //!   the popups that have one;
 //! - `Pages`: the page commands (`Queue`, `LibraryPage`, `LikedTrackPage`,
@@ -93,6 +94,8 @@ enum Where {
     TopHit,
     /// A text input (the search input).
     Input,
+    /// The lyrics page (spec 0021).
+    Lyrics,
     /// A filter being typed (spec 0012): the queue's (`None`) or a
     /// window's.
     Typing(Option<WindowKind>),
@@ -108,6 +111,9 @@ fn context(state: &State) -> Where {
     }
     if page.kind == PageKind::Queue {
         return Where::Queue;
+    }
+    if page.kind == PageKind::Lyrics {
+        return Where::Lyrics;
     }
     match page.search.as_ref().map(|s| s.focus) {
         Some(SearchFocus::Input) => Where::Input,
@@ -166,12 +172,12 @@ pub fn help(state: &State) -> Vec<HelpSection> {
             let inner = kind.map_or(Where::Queue, Where::Window);
             add(&window_title(inner), filter_rows());
         }
-        (Where::Queue | Where::Window(_) | Where::TopHit, _) => {
+        (Where::Queue | Where::Window(_) | Where::TopHit | Where::Lyrics, _) => {
             add(
                 &window_title(at),
                 command_rows(state, at, |c| in_window(state, at, c)),
             );
-            if matches!(at, Where::Queue | Where::Window(_)) {
+            if matches!(at, Where::Queue | Where::Window(_) | Where::Lyrics) {
                 add(
                     "Lists",
                     command_rows(state, at, |c| c.is_list_move() || in_lists(state, at, c)),
@@ -358,6 +364,7 @@ fn in_pages(page: &Page, command: UiCommand) -> bool {
         | C::LikedTrackPage
         | C::SearchPage
         | C::MixesPage
+        | C::LyricsPage
         | C::PreviousPage => true,
         C::FocusNextWindow | C::FocusPreviousWindow => {
             page.panes.len() > 1 || page.search.is_some()
@@ -383,6 +390,8 @@ fn in_window(state: &State, at: Where, command: UiCommand) -> bool {
             command,
             C::ChooseSelected | C::AddSelectedItemToQueue | C::ShowActionsOnSelectedItem
         ),
+        // Spec 0021: `Esc` follows the current line again.
+        Where::Lyrics => command == C::ClosePopup,
         Where::Window(kind) => match command {
             C::ChooseSelected
             | C::AddSelectedItemToQueue
@@ -485,6 +494,7 @@ fn window_title(at: Where) -> String {
             WindowKind::RadioTracks | WindowKind::ArtistRadioTracks => "Radio".into(),
         },
         Where::Typing(kind) => window_title(kind.map_or(Where::Queue, Where::Window)),
+        Where::Lyrics => "Lyrics".into(),
         Where::Popup | Where::Input => String::new(),
     }
 }
@@ -666,6 +676,7 @@ fn text(at: Where, command: UiCommand) -> String {
             Where::TopHit => "open or play the top hit",
             Where::Popup => "run the selected entry",
             Where::Input | Where::Typing(_) => "search",
+            Where::Lyrics => "nothing here",
             Where::Window(kind) => match kind {
                 WindowKind::Playlists | WindowKind::SearchPlaylists => "open the playlist",
                 WindowKind::Albums
@@ -728,7 +739,9 @@ fn text(at: Where, command: UiCommand) -> String {
         C::SearchPage => owned("the search page (on one: its input)"),
         C::MixesPage => owned("your mixes"),
         C::PreviousPage => owned("back"),
+        C::ClosePopup if at == Where::Lyrics => owned("follow the current line again"),
         C::ClosePopup => owned("close / cancel"),
+        C::LyricsPage => owned("lyrics of the playing track"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
         C::SwitchDevice => owned("choose the output device"),
@@ -741,7 +754,7 @@ fn no_selection(state: &State, at: Where) -> bool {
     match at {
         Where::Queue => filter::queue_selected(state).is_none(),
         Where::Popup => false,
-        Where::Window(_) | Where::TopHit | Where::Input | Where::Typing(_) => {
+        Where::Window(_) | Where::TopHit | Where::Input | Where::Typing(_) | Where::Lyrics => {
             state.page().selected().is_none()
         }
     }
@@ -783,6 +796,12 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
         C::SelectDown | C::SelectUp | C::SelectMotion => no_selection(state, at),
         C::SelectionActions => !select::selection_actions_apply(state),
         C::RemoveSelection => offline || select::focused_marks(state).is_none_or(|m| m.count == 0),
+        // Nothing to follow again when the view follows (spec 0021).
+        C::ClosePopup if at == Where::Lyrics => !state
+            .page()
+            .lyrics
+            .as_ref()
+            .is_some_and(|v| v.is_synced() && !v.following),
         // The filter acts on a loaded page only (spec 0012).
         C::Search => state.page().load != Load::Idle,
         _ => false,

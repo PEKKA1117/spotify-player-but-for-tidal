@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/ui.rs
-assertion_line: 4252
 expression: terminal.backend().buffer()
 ---
 Buffer {
@@ -23,11 +22,11 @@ Buffer {
         "││                             ││                             ││              ││",
         "││                             ││                             ││              ││",
         "││                             ││                             ││              ││",
-        "││                             ││                             ││              ││",
         "│┌g …─────────────────────────────────────────────────────────────────────────┐│",
-        "││a  actions on the selected row     y  favorite tracks                       ││",
-        "││g  move to the top                 s  the search page (on one: its…         ││",
-        "││l  the library                     m  your mixes                            ││",
+        "││a  actions on the selected row     s  the search page (on one: its…         ││",
+        "││g  move to the top                 m  your mixes                            ││",
+        "││l  the library                     L  lyrics of the playing track           ││",
+        "││y  favorite tracks                                                          ││",
         "│└────────────────────────────────────────────────────────────────────────────┘│",
         "└──────────────────────────────────────────────────────────────────────────────┘",
     ],
@@ -167,18 +166,10 @@ Buffer {
         x: 64, y: 16, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
         x: 78, y: 16, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: DIM,
         x: 79, y: 16, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
-        x: 1, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: DIM,
-        x: 2, y: 17, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
-        x: 31, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: DIM,
-        x: 32, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
-        x: 33, y: 17, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
-        x: 62, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
-        x: 63, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: DIM,
-        x: 64, y: 17, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
-        x: 78, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: DIM,
-        x: 79, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
-        x: 2, y: 18, fg: Rgb(64, 32, 32), bg: Rgb(32, 32, 64), underline: Reset, modifier: BOLD,
-        x: 5, y: 18, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
+        x: 2, y: 17, fg: Rgb(64, 32, 32), bg: Rgb(32, 32, 64), underline: Reset, modifier: BOLD,
+        x: 5, y: 17, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
+        x: 2, y: 18, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
+        x: 78, y: 18, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
         x: 2, y: 19, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,
         x: 78, y: 19, fg: Rgb(72, 32, 32), bg: Rgb(32, 32, 72), underline: Reset, modifier: NONE,
         x: 2, y: 20, fg: Rgb(250, 251, 252), bg: Rgb(1, 2, 3), underline: Reset, modifier: NONE,

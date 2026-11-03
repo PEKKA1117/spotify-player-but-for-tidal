@@ -2438,6 +2438,8 @@ mod tests {
         let help = help_states();
         // 0011 AC11: the mixes and radio pages.
         let mixes = mixes_states();
+        // 0021 AC9: the lyrics page in each state, CJK and right-to-left.
+        let lyrics = lyrics_states();
         // 0013 AC6: a pending sequence's hint over each kind of view.
         let hints = hint_states();
         // 0014 AC9: the devices popup in each of its states.
@@ -2455,6 +2457,7 @@ mod tests {
             .chain(&search)
             .chain(&help)
             .chain(&hints)
+            .chain(&lyrics)
             .cloned()
             .map(test_themed)
             .collect();
@@ -2470,6 +2473,7 @@ mod tests {
                 .chain(&search)
                 .chain(&help)
                 .chain(&mixes)
+                .chain(&lyrics)
                 .chain(&hints)
                 .chain(&devices)
                 .chain(&filters)
@@ -2600,6 +2604,292 @@ mod tests {
             }),
         );
         state
+    }
+
+    // --- the lyrics page (spec 0021) ---------------------------------------------------
+
+    use tidal_player_core::lyrics::{LyricLine, Lyrics};
+
+    /// Rows of the lyrics window at 80x24.
+    fn lyrics_rows() -> usize {
+        list_height(rect(0, 0, 80, 24), false, None)
+    }
+
+    /// 20 invented lines, `5 s` apart from `0:05`: line `i` at `i * 5 s`.
+    fn synced_lyrics() -> Lyrics {
+        Lyrics {
+            synced: (1..=20)
+                .map(|i| LyricLine {
+                    at: Duration::from_secs(i * 5),
+                    text: format!("Lantern {i} drifts down the river"),
+                })
+                .collect(),
+            plain: String::new(),
+            right_to_left: false,
+        }
+    }
+
+    /// 30 invented plain lines.
+    fn plain_lyrics() -> Lyrics {
+        Lyrics {
+            synced: vec![],
+            plain: (1..=30)
+                .map(|i| format!("Verse {i} of the quiet harbour"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            right_to_left: false,
+        }
+    }
+
+    /// The lyrics page of the playing track (entry 2), asked for and
+    /// answered with `lyrics`, the player at `secs`.
+    fn lyrics_at(lyrics: Option<Lyrics>, secs: u64) -> State {
+        let mut state = state_of(playing());
+        update(
+            &mut state,
+            Action::Resize {
+                list_height: lyrics_rows(),
+            },
+        );
+        let id = ask(&mut state, &[Key::Char('l')]);
+        let track = state.current().unwrap().track.id.0;
+        update(
+            &mut state,
+            Action::LibraryReply {
+                id,
+                result: Ok(LibraryResponse::Page(PageData::Lyrics { track, lyrics })),
+            },
+        );
+        at_position(&mut state, secs);
+        state
+    }
+
+    fn at_position(state: &mut State, secs: u64) {
+        update(
+            state,
+            Action::Player(Event::Position {
+                entry: EntryId(2),
+                position: Duration::from_secs(secs),
+            }),
+        );
+    }
+
+    /// The window row (0 = first inside the border) of the row with `part`.
+    fn window_row(text: &str, part: &str) -> usize {
+        let title = text
+            .split('\n')
+            .position(|r| r.contains("┌Lyrics"))
+            .unwrap_or_else(|| panic!("no lyrics window:\n{text}"));
+        row_of(text, part) - title - 1
+    }
+
+    #[test]
+    fn ac9_lyrics_80x24() {
+        let h = lyrics_rows();
+        // (snapshot, state, parts the text holds)
+        let long = {
+            let mut lyrics = synced_lyrics();
+            lyrics.synced[9].text =
+                "Lantern 10 drifts down the river past the market stalls and the \
+                 paper boats and the sleeping bridge zzend"
+                    .into();
+            lyrics
+        };
+        let gap = {
+            let mut lyrics = synced_lyrics();
+            lyrics.synced[9].text = String::new();
+            lyrics
+        };
+        let rtl = Lyrics {
+            synced: vec![],
+            plain: "مصباح على النهر\nيمضي الليل بهدوء".into(),
+            right_to_left: true,
+        };
+        let mut scrolled = lyrics_at(Some(synced_lyrics()), 5);
+        press(&mut scrolled, &[Key::Char('G')]);
+        let mut plain = lyrics_at(Some(plain_lyrics()), 5);
+        press(
+            &mut plain,
+            &[Key::Char('j'), Key::Char('j'), Key::Char('j')],
+        );
+        let mut loading = state_of(playing());
+        press(&mut loading, &[Key::Char('l')]);
+        let mut nothing = state_of(PlayerSnapshot {
+            current: None,
+            now_playing: None,
+            ..playing()
+        });
+        press(&mut nothing, &[Key::Char('l')]);
+        let mut failed = state_of(playing());
+        let id = ask(&mut failed, &[Key::Char('l')]);
+        fail(&mut failed, id, "Tidal answered 429: try again in a moment");
+        let cases: Vec<(&str, State, Vec<&str>)> = vec![
+            (
+                "before",
+                lyrics_at(Some(synced_lyrics()), 2),
+                vec!["Lyrics (synced)", "Lantern 1 drifts", "Lantern 12 drifts"],
+            ),
+            (
+                "middle",
+                lyrics_at(Some(synced_lyrics()), 53),
+                vec!["Lyrics (synced)", "Lantern 10 drifts"],
+            ),
+            (
+                "end",
+                lyrics_at(Some(synced_lyrics()), 100),
+                vec!["Lantern 20 drifts"],
+            ),
+            (
+                "scrolled",
+                scrolled,
+                vec!["Lyrics (synced) · scrolled", "Lantern 20 drifts"],
+            ),
+            ("plain", plain, vec!["Lyrics", "Verse 4 of", "Verse 16 of"]),
+            ("rtl", lyrics_at(Some(rtl), 5), vec!["مصباح على النهر"]),
+            (
+                "wrapped",
+                lyrics_at(Some(long), 53),
+                vec!["Lantern 10 drifts", "zzend"],
+            ),
+            ("gap", lyrics_at(Some(gap), 53), vec!["♪"]),
+            ("loading", loading, vec!["Loading…"]),
+            ("none", lyrics_at(None, 5), vec!["No lyrics for this track"]),
+            ("nothing", nothing, vec!["Nothing playing"]),
+            (
+                "failed",
+                failed,
+                vec!["Could not load the lyrics: Tidal answered 429"],
+            ),
+        ];
+        for (name, state, parts) in cases {
+            let text = draw(&state, 80, 24);
+            assert_contains(&text, &parts);
+            insta::assert_snapshot!(format!("ac9_lyrics_{name}"), text);
+        }
+
+        // Before the first line nothing is current: the view starts at the top.
+        let text = draw(&lyrics_at(Some(synced_lyrics()), 2), 80, 24);
+        assert_eq!(window_row(&text, "Lantern 1 drifts"), 0);
+        // In the middle the current line sits at the window's middle row.
+        let text = draw(&lyrics_at(Some(synced_lyrics()), 53), 80, 24);
+        assert_eq!(window_row(&text, "Lantern 10 drifts"), h / 2, "{text}");
+        // Scrolled by hand to the end: the current line (the first) is gone.
+        let text = draw(&lyrics_at(Some(synced_lyrics()), 5), 80, 24);
+        assert!(text.contains("Lantern 1 drifts"));
+        let mut state = lyrics_at(Some(synced_lyrics()), 5);
+        press(&mut state, &[Key::Char('G')]);
+        let text = draw(&state, 80, 24);
+        assert!(!text.contains("Lantern 1 drifts"), "{text}");
+        // Plain lyrics scrolled by three lines.
+        let mut state = lyrics_at(Some(plain_lyrics()), 5);
+        press(
+            &mut state,
+            &[Key::Char('j'), Key::Char('j'), Key::Char('j')],
+        );
+        let text = draw(&state, 80, 24);
+        assert!(
+            !text.contains("Verse 3 of") && text.contains("Verse 4 of"),
+            "{text}"
+        );
+        // Right-to-left lyrics end at the window's right edge.
+        let rtl = Lyrics {
+            synced: vec![],
+            plain: "مصباح على النهر".into(),
+            right_to_left: true,
+        };
+        let text = draw(&lyrics_at(Some(rtl), 5), 80, 24);
+        assert!(text.contains("مصباح على النهر││"), "{text}");
+        // An empty current line is drawn as `♪`, the cursor is not drawn.
+        let mut gap = synced_lyrics();
+        gap.synced[9].text = String::new();
+        let state = lyrics_at(Some(gap), 53);
+        assert!(draw(&state, 80, 24).contains('♪'));
+        // A wrapped current line is highlighted on every row.
+        let mut long = synced_lyrics();
+        long.synced[9].text = "Lantern 10 drifts down the river past the market stalls and the \
+             paper boats and the sleeping bridge zzend"
+            .into();
+        let state = lyrics_at(Some(long), 53);
+        for part in ["Lantern 10 drifts", "zzend"] {
+            let cell = cell_at(&state, 80, 24, part);
+            assert_eq!(cell.fg, ratatui::style::Color::Cyan, "{part}");
+            assert!(cell.modifier.contains(Mod::BOLD), "{part}");
+        }
+    }
+
+    #[test]
+    fn ac9_lyrics_narrow_50x20() {
+        let state = lyrics_at(Some(synced_lyrics()), 53);
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &["Lyrics (synced)", "Lantern 10 drifts"]);
+        insta::assert_snapshot!("ac9_lyrics_narrow", text);
+    }
+
+    /// The lyrics page in each state, for the no-panic sweep (AC9), with
+    /// CJK and right-to-left lines.
+    fn lyrics_states() -> Vec<State> {
+        let cjk = Lyrics {
+            synced: (1..=12)
+                .map(|i| LyricLine {
+                    at: Duration::from_secs(i * 5),
+                    text: if i % 3 == 0 {
+                        String::new()
+                    } else {
+                        "紙燈籠沿著河水慢慢漂向遠方的夜市和橋下的星光".repeat(2)
+                    },
+                })
+                .collect(),
+            plain: String::new(),
+            right_to_left: false,
+        };
+        let rtl = Lyrics {
+            synced: vec![],
+            plain: "مصباح على النهر يمضي الليل بهدوء\n\nمصباح".into(),
+            right_to_left: true,
+        };
+        let mut scrolled = lyrics_at(Some(synced_lyrics()), 5);
+        press(&mut scrolled, &[Key::Char('G')]);
+        let mut loading = state_of(playing());
+        press(&mut loading, &[Key::Char('l')]);
+        let mut nothing = state_of(PlayerSnapshot {
+            current: None,
+            now_playing: None,
+            ..playing()
+        });
+        press(&mut nothing, &[Key::Char('l')]);
+        let mut failed = state_of(playing());
+        let id = ask(&mut failed, &[Key::Char('l')]);
+        fail(&mut failed, id, "Could not reach Tidal: timed out");
+        vec![
+            lyrics_at(Some(synced_lyrics()), 53),
+            lyrics_at(Some(cjk), 28),
+            lyrics_at(Some(rtl), 5),
+            lyrics_at(Some(plain_lyrics()), 5),
+            lyrics_at(None, 5),
+            scrolled,
+            loading,
+            nothing,
+            failed,
+        ]
+    }
+
+    #[test]
+    fn ac10_lyrics_styles_in_a_theme() {
+        let state = test_themed(lyrics_at(Some(synced_lyrics()), 53));
+        let (played, playing, rest) = (
+            cell_at(&state, 80, 24, "Lantern 9 drifts"),
+            cell_at(&state, 80, 24, "Lantern 10 drifts"),
+            cell_at(&state, 80, 24, "Lantern 11 drifts"),
+        );
+        assert_eq!(played.fg, fg_of(Component::LyricsPlayed));
+        assert_eq!(playing.fg, fg_of(Component::LyricsPlaying));
+        assert_eq!(rest.fg, SCREEN_FG);
+        // The default theme: played dim, the current line cyan and bold.
+        let state = lyrics_at(Some(synced_lyrics()), 53);
+        let played = cell_at(&state, 80, 24, "Lantern 9 drifts");
+        assert!(played.modifier.contains(Mod::DIM));
+        let rest = cell_at(&state, 80, 24, "Lantern 11 drifts");
+        assert!(!rest.modifier.contains(Mod::DIM) && !rest.modifier.contains(Mod::BOLD));
     }
 
     fn mixes_states() -> Vec<State> {
@@ -3651,13 +3941,14 @@ mod tests {
             &text,
             &[
                 "┌g …",
-                "a  actions on the selected row     y  favorite tracks",
-                "g  move to the top                 s  the search page (on one: its…",
-                "l  the library                     m  your mixes",
+                "a  actions on the selected row     s  the search page (on one: its…",
+                "g  move to the top                 m  your mixes",
+                "l  the library                     L  lyrics of the playing track",
+                "y  favorite tracks",
             ],
         );
         // Docked: the box's bottom border is the page area's last row.
-        assert_eq!(row_of(&text, "┌g …"), 18, "{text}");
+        assert_eq!(row_of(&text, "┌g …"), 17, "{text}");
         assert!(row(&text, 22).starts_with("│└"), "{text}");
         // Not drawn when the timer says no.
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -3680,7 +3971,7 @@ mod tests {
         let text = draw(&pending(library(), &g), 40, 12);
         assert_contains(
             &text,
-            &["┌g …", "a  actions on the selected row", "… +4 more"],
+            &["┌g …", "a  actions on the selected row", "… +5 more"],
         );
         insta::assert_snapshot!("ac6_key_hints_40x12", text);
 
@@ -3688,7 +3979,10 @@ mod tests {
         let text = draw(&pending(library(), &g), 120, 30);
         assert_contains(
             &text,
-            &["┌g …", "a  actions on the selected row     l  the library"],
+            &[
+                "┌g …",
+                "a  actions on the selected row     y  favorite tracks",
+            ],
         );
         insta::assert_snapshot!("ac6_key_hints_120x30", text);
 

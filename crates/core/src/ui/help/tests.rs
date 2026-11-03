@@ -275,6 +275,7 @@ fn pages(focus: bool, tabs: bool) -> Vec<&'static str> {
         "LikedTrackPage",
         "SearchPage",
         "MixesPage",
+        "LyricsPage",
         "PreviousPage",
     ]);
     pages
@@ -1082,6 +1083,7 @@ fn ac1_hints_entries() {
             entry("y", "favorite tracks", false),
             entry("s", "the search page (on one: its input)", false),
             entry("m", "your mixes", false),
+            entry("L", "lyrics of the playing track", false),
         ]
     };
     let rows: Vec<(&str, State, Vec<HintEntry>)> = vec![
@@ -1121,6 +1123,7 @@ fn ac1_hints_entries() {
                 entry("y", "favorite tracks", false),
                 entry("s", "the search page (on one: its input)", false),
                 entry("m", "your mixes", false),
+                entry("L", "lyrics of the playing track", false),
                 entry("n", "next track", false),
                 entry("B", "go to the album (playing track)", false),
             ],

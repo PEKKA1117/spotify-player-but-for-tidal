@@ -258,6 +258,7 @@ mod tests {
         AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, ListItems, ListPage, ListRef,
         MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed, RoleCategory, TopHit,
     };
+    use crate::lyrics::{LyricLine, Lyrics};
     use crate::track::{AlbumRef, ArtistRef, TrackId};
     use serde::de::DeserializeOwned;
 
@@ -364,6 +365,8 @@ mod tests {
             PageRequest::Mix("016214541b7a008d226272cf9d0964".into()),
             PageRequest::TrackRadio(145060431),
             PageRequest::ArtistRadio(35361),
+            // 0021 AC1.
+            PageRequest::Lyrics(62300893),
         ]
         .into_iter()
         .map(LibraryRequest::Page)
@@ -530,6 +533,36 @@ mod tests {
                 PageData::Radio {
                     seed: RadioSeed::Artist(artist(12, "The Wonders")),
                     tracks: list(vec![], 0, 0),
+                },
+                // 0021 AC1: lyrics, synced and plain, and none.
+                PageData::Lyrics {
+                    track: 62300893,
+                    lyrics: Some(Lyrics {
+                        synced: vec![
+                            LyricLine {
+                                at: Duration::from_millis(6_320),
+                                text: "We hung the lanterns".into(),
+                            },
+                            LyricLine {
+                                at: Duration::from_millis(115_150),
+                                text: String::new(),
+                            },
+                        ],
+                        plain: "We hung the lanterns\n\nOn the wire".into(),
+                        right_to_left: true,
+                    }),
+                },
+                PageData::Lyrics {
+                    track: 1558491,
+                    lyrics: Some(Lyrics {
+                        synced: vec![],
+                        plain: "Only words".into(),
+                        right_to_left: false,
+                    }),
+                },
+                PageData::Lyrics {
+                    track: 1403577,
+                    lyrics: None,
                 },
             ])
             .collect();

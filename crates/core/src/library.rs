@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::lyrics::Lyrics;
 use crate::track::{ArtistRef, Track, TrackId};
 
 /// What kind of release an album is (`type` in Tidal's album object).
@@ -130,6 +131,8 @@ pub enum PageRequest {
     TrackRadio(u64),
     /// An artist's radio, by artist ID (spec 0011).
     ArtistRadio(u64),
+    /// A track's lyrics, by track ID (spec 0021).
+    Lyrics(u64),
 }
 
 /// A mix row and the mix page's header (spec 0011).
@@ -210,6 +213,12 @@ pub enum PageData {
     Radio {
         seed: RadioSeed,
         tracks: ListPage<Track>,
+    },
+    /// A track's lyrics (spec 0021); `lyrics` is `None` when Tidal has
+    /// none.
+    Lyrics {
+        track: u64,
+        lyrics: Option<Lyrics>,
     },
 }
 
