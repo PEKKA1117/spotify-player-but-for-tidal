@@ -490,8 +490,8 @@ mod tests {
                 written: true,
                 delays: vec![Ok(TENTH)],
                 result: Ok(()),
-                // The audio's 100 ms plus 500 ms, give or take one poll.
-                waited: (ms(600), ms(620)),
+                // The audio's 100 ms plus 500 ms, and not a bit more.
+                waited: (ms(600), ms(600)),
                 dropped: true,
             },
             Row {
@@ -499,7 +499,19 @@ mod tests {
                 written: true,
                 delays: vec![Ok(TENTH * 100)],
                 result: Ok(()),
-                waited: (ms(2_500), ms(2_520)),
+                waited: (ms(2_500), ms(2_500)),
+                dropped: true,
+            },
+            Row {
+                name: "stuck on one frame: a budget that is no multiple of the poll",
+                written: true,
+                delays: vec![Ok(1)],
+                result: Ok(()),
+                // One frame at 96 kHz is 10,416 ns.
+                waited: (
+                    ms(500) + Duration::from_nanos(10_416),
+                    ms(500) + Duration::from_nanos(10_416),
+                ),
                 dropped: true,
             },
             Row {
