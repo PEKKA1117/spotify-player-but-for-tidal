@@ -426,6 +426,10 @@ pub enum Component {
     Prompt,
     /// This player's own (spec 0020): the rows of a selection.
     SelectedRow,
+    /// spotify-player's (spec 0021): synced lyrics before the current line.
+    LyricsPlayed,
+    /// spotify-player's (spec 0021): the current synced line.
+    LyricsPlaying,
 }
 
 /// Every component, in the spec's table order.
@@ -483,6 +487,8 @@ impl Component {
             Self::Error => "error",
             Self::Prompt => "prompt",
             Self::SelectedRow => "selected_row",
+            Self::LyricsPlayed => "lyrics_played",
+            Self::LyricsPlaying => "lyrics_playing",
         }
     }
 
@@ -519,7 +525,9 @@ impl Component {
             | Self::PlaybackProgressBar
             | Self::PlaybackProgressBarUnfilled
             | Self::SecondaryRow
-            | Self::Like => StyleSpec::default(),
+            | Self::Like
+            | Self::LyricsPlayed
+            | Self::LyricsPlaying => StyleSpec::default(),
         }
     }
 }

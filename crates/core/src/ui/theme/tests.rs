@@ -340,29 +340,26 @@ fn ac2_build_themes() {
             .add(Modifiers::ITALIC | Modifiers::UNDERLINED)
     );
 
-    // spotify-player's four components this player does not draw:
-    // skipped, each once, in file order.
+    // spotify-player's two components this player does not draw: skipped,
+    // each once, in file order.
     let themes = build(&file(vec![
         entry(
             "a",
             &[],
             vec![
-                ("lyrics_played", None),
                 ("visualization", None),
+                ("playback_genres", None),
                 ("border", fg("Red")),
             ],
         ),
         entry(
             "b",
             &[],
-            vec![("lyrics_played", None), ("playback_genres", None)],
+            vec![("visualization", None), ("playback_genres", None)],
         ),
     ]))
     .unwrap();
-    assert_eq!(
-        themes.skipped(),
-        ["lyrics_played", "visualization", "playback_genres"]
-    );
+    assert_eq!(themes.skipped(), ["visualization", "playback_genres"]);
     assert_eq!(
         themes.list()[1].style(Component::Border),
         Style::new().fg(Color::Red)
@@ -859,9 +856,9 @@ fn skipping(names: &[&str]) -> Themes {
 fn ac6_theme_notice() {
     let cases: [(&[&str], Option<&str>); 3] = [
         (
-            &["lyrics_played", "lyrics_playing", "lyrics_played"],
+            &["playback_genres", "visualization", "playback_genres"],
             Some(
-                "theme.toml: 2 spotify-player styles not used here: lyrics_played, lyrics_playing",
+                "theme.toml: 2 spotify-player styles not used here: playback_genres, visualization",
             ),
         ),
         (
@@ -895,6 +892,42 @@ fn ac6_theme_notice() {
     }
 }
 
+/// 0021 AC10: `lyrics_played` and `lyrics_playing` are components with
+/// their defaults, and no longer skipped.
+#[test]
+fn ac10_lyrics_components() {
+    for (name, default) in [
+        ("lyrics_played", Style::new().add(DIM)),
+        ("lyrics_playing", Style::new().fg(Color::Cyan).add(BOLD)),
+    ] {
+        let component = Component::from_name(name).expect(name);
+        assert_eq!(component.name(), name);
+        assert!(COMPONENTS.contains(&component), "{name}");
+        assert!(!SKIPPED_COMPONENTS.contains(&name), "{name}");
+        assert_eq!(
+            Theme::default().style(component),
+            default,
+            "{name}: default"
+        );
+        let themes = build(&file(vec![entry("s", &[], vec![(name, fg("Red"))])]))
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(themes.skipped(), Vec::<&str>::new(), "{name}");
+        assert_eq!(
+            themes.list()[1].style(component),
+            Style::new().fg(Color::Red),
+            "{name}"
+        );
+        // A theme leaving it out keeps the default.
+        let themes = build(&file(vec![entry("t", &[], vec![])])).unwrap();
+        assert_eq!(themes.list()[1].style(component), default, "{name}");
+    }
+    // The other two stay skipped.
+    assert_eq!(
+        SKIPPED_COMPONENTS[..],
+        ["playback_genres", "visualization"][..]
+    );
+}
+
 /// AC6: with a keymap notice too, both are shown, the keymap's first,
 /// joined by ` · `, whichever is applied first.
 #[test]
@@ -910,12 +943,12 @@ fn ac6_both_notices() {
         .unwrap()
     };
     let want = "keymap.toml: 1 spotify-player command not supported here: PlayRandom \
-                · theme.toml: 1 spotify-player style not used here: lyrics_played";
+                · theme.toml: 1 spotify-player style not used here: playback_genres";
     let mut first = State::default();
     apply_keymap(&mut first, keymap());
-    apply_themes(&mut first, skipping(&["lyrics_played"]), 0);
+    apply_themes(&mut first, skipping(&["playback_genres"]), 0);
     let mut second = State::default();
-    apply_themes(&mut second, skipping(&["lyrics_played"]), 0);
+    apply_themes(&mut second, skipping(&["playback_genres"]), 0);
     apply_keymap(&mut second, keymap());
     for state in [&mut first, &mut second] {
         assert_eq!(state.message(), Some(want));
