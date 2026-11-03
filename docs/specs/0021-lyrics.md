@@ -1,6 +1,6 @@
 # 0021 — Lyrics
 
-- **Status**: approved (2026-11-03, by the user); API shapes verified by the live probe (2026-11-03, "Facts")
+- **Status**: implemented (2026-11-03; approved 2026-11-03; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-11-03, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#54](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/54)
 - **Depends on**: 0004 (implemented: the queue, the current entry, `Position` events), 0005 (implemented: clients, `Library`/`LibraryReply`, AC14), 0006 (implemented: pages, the history, failures in the page, disconnected rules), 0008 (implemented: the keymap, the keys help), 0013 (implemented: key hints), 0017 (implemented: themes, components, skipped spotify-player components)
@@ -30,11 +30,11 @@ tidalt had no lyrics. Tidal serves them from `GET /v1/tracks/{id}/lyrics`, verif
 |---|---|---|
 | `l` or `g L` (`LyricsPage`), from anywhere | the lyrics of the player's current entry | `Lyrics · <title> · <artists>` |
 
-- The page is a page of the history (0006): it is pushed on top; on top already, the key does nothing; going back leaves it; going forward or back onto it shows it again
+- The page is a page of the history (0006): it is pushed on top; on top already, the key does nothing; going back leaves it; going back onto it shows it again (the history has no forward step)
 - **It follows the current entry.** Whenever the current entry's track differs from the track the page shows, and the page is on top, the page shows `Loading…` and asks for the new track's lyrics (one request per change). When the page is not on top, nothing is asked; coming back onto it asks if the track changed meanwhile, and shows the kept lyrics with no request if not
 - The current entry counts whether it plays, is paused or is stopped (0009 restores a stopped one): the page shows its lyrics and the highlight at its position. With no current entry: `Nothing playing`, and no request
 - The window is titled `Lyrics`, and `Lyrics (synced)` for synced lyrics (`Lyrics (synced) · scrolled` while not following, below)
-- Messages in the window: `Loading…`, `No lyrics for this track`, `Nothing playing`; failures `Could not load the lyrics: <reason>` (0006's reasons: `Tidal answered 429: try again in a moment`, the session-expired and disconnected messages)
+- Messages in the window: `Loading…`, `No lyrics for this track`, `Nothing playing`; failures `Could not load the lyrics: <reason>` (0006's reasons: `Tidal answered 429: try again in a moment`, the session-expired message); a lost connection shows 0006's disconnected message as is, without the prefix, as the mix and radio pages do (0011)
 
 ### Synced and plain lyrics
 
@@ -125,7 +125,7 @@ Player (`tidal-player`):
 
 Client model (`tidal_player_core::ui`, pure):
 
-- **AC5** — Opening (table): `l` and `g L` push the lyrics page and emit `Library { Page(Lyrics(current track)) }`; on top already, nothing; with no current entry, the page shows `Nothing playing` and nothing is emitted; back and forward onto the page with the same track emit nothing
+- **AC5** — Opening (table): `l` and `g L` push the lyrics page and emit `Library { Page(Lyrics(current track)) }`; on top already, nothing; with no current entry, the page shows `Nothing playing` and nothing is emitted; going back onto the page with the same track emits nothing
 - **AC6** — Following the track (table): a snapshot with a new current track while the page is on top emits one request and shows `Loading…`; a new track while the page is not on top emits nothing, and coming back onto it emits one; a `Position` event emits nothing; an answer for a track that is no longer the page's track is dropped (the page stays `Loading…` for the current one); a snapshot with the same track emits nothing
 - **AC7** — Display state (table): for synced lyrics and a position, which line is current and which are played; seeking backwards moves it back; plain lyrics scroll with `j`/`k`/`C-f`/`C-b`/`g g`/`G` and clamp; on synced lyrics a movement key scrolls from the view's place and stops following (the view no longer moves with `Position`), `Esc` follows again (the view back on the current line; with a popup open `Esc` closes it and still does not follow; following already, nothing), and a new track or reopening the page follows; `Enter`, `Z`, `/`, `s c`, `d d` on the page emit nothing
 - **AC8** — Keymap (0008 AC2's table, new rows): the defaults hold `l` and `g L` → `LyricsPage`, in the keys help (`lyrics of the playing track`) and `g`'s key hints; on the lyrics page the keys help lists `esc` as `follow the current line again`; `LyricsPage` is no longer unsupported; `key_sequence = "l"`, `command = "None"` removes it; the default keymap has no prefix conflict. Disconnected and session expired: 0006 AC16's rows for the lyrics page
@@ -155,7 +155,7 @@ Docs:
 | Repeat one: the track starts again | Same track: no request; the position goes back, so does the highlight |
 | Paused or stopped | The lyrics stay, the highlight at the kept position |
 | Two TUIs on one daemon open the page | Two requests; the second is answered from the cache |
-| `429`, session expired, disconnected | In the page as 0006 (`Could not load the lyrics: …`); disconnected re-fetched on the next `Welcome` when on top (AC8) |
+| `429`, session expired, disconnected | In the page as 0006 (`Could not load the lyrics: …`; the disconnected message without the prefix); disconnected re-fetched on the next `Welcome` when on top (AC8) |
 | A line wider than the window | Wrapped; the current line highlighted on every row (AC9) |
 | Right-to-left lyrics in a terminal without bidi support | Right-aligned, characters in logical order: the terminal may show them reversed (decision 6) |
 | Scrolled by hand, then the track changes | The new track's lyrics, following again |
@@ -193,7 +193,7 @@ Checked by hand at acceptance with a real account (results in the PR description
 
 ## Facts vs. assumptions
 
-Verified on 2026-11-03 against the **live API** by `scripts/tidal-lyrics-probe.sh` (country NG, a `PREMIUM` subscription with `HI_RES`; read-only; the script is deleted once this spec is approved). Fixtures are written from these shapes:
+Verified on 2026-11-03 against the **live API** by `scripts/tidal-lyrics-probe.sh` (country NG, a `PREMIUM` subscription with `HI_RES`; read-only; the script was deleted once the spec was implemented; its output is not committed). Fixtures are written from these shapes:
 
 - `GET /v1/tracks/{id}/lyrics?countryCode=NG` → `200`, `content-type: application/json`, `{trackId, lyricsProvider: "MUSIXMATCH", providerCommontrackId, providerLyricsId, lyrics, subtitles, isRightToLeft}`, for Adele *Hello* (62300893), Fairuz *Kifak Inta* (1558491, `isRightToLeft: true`, Arabic), Jay Chou 青花瓷 (337502711) and Queen *Bohemian Rhapsody* (534050211)
 - `lyrics`: LF-separated plain text, blank lines between stanzas (60 lines, 1965 bytes for *Hello*). `subtitles`: one line per sung line, `[mm:ss.xx] text` (always two-digit minutes, two-digit fraction, **one space** after the stamp), no blank lines between stanzas, some stamps with no text (`[01:55.15] ` gaps; *Hello* has 4 such lines), the last line a lone stamp near the track's end (`[04:40.31]` for a 4:56 track). No CRLF. Every track with lyrics had both
@@ -226,6 +226,17 @@ Answered by the user (2026-11-03; folded into the body above):
 7. **An empty current line** (an instrumental gap): *drawn as `♪`*, so the highlight is visible. Alternative: an empty row, highlighted invisibly
 8. **Defaults**: *as spotify-player's*, as far as 0017 AC14 lets its `spotify_player` theme follow them: `lyrics_played` `Dim`, `lyrics_playing` `fg = "Cyan"`, `Bold`. Alternative: uncoloured (`Dim`, `Bold`)
 
+## Implementation notes (choices made where the spec was silent, 2026-11-03)
+
+- **Core**: `tidal_player_core::lyrics` holds `Lyrics`, `LyricLine` (`at` as whole milliseconds on the wire), `parse_lrc` and `current_line` (`partition_point`). `PageKind::Lyrics` has no payload; the page carries `Page.lyrics: Option<LyricsView>` (`track`, `lyrics`, `following`, `scroll`), and `Page::request()` replaces `PageKind::request()` in `fetch_page`. `apply_snapshot` returns effects and ends with `follow_track`, which acts only on a lyrics page on top and compares track IDs (the same track under a new entry ID asks nothing); `browse::back` calls it too, which is how coming back asks once; on `Welcome` it runs before `reconnected`, so a reconnect asks once. An answer is dropped when its request ID is stale or its `track` is not the page's. `l` on a failed lyrics page on top fetches it again, as other pages. Both texts blank → `No lyrics for this track`
+- **Scrolling**: the model scrolls in *lines* (it does not know the width); the TUI turns the line offset into rows with `pages.rs`'s `wrap` (display width). Following, the current line's first row sits at row `h / 2` (never above 0). A hand scroll clamps to `len - height`, or to the followed offset when that is further; any movement key on synced lyrics stops following even if the offset does not move; plain lyrics never show `· scrolled`. The window's inner height is 0006's `list_height`, so `Resize` is unchanged
+- **Keys help**: a `Where::Lyrics` section lists `ClosePopup` as `follow the current line again` (dim while following) with the Lists, Pages, Playback and App sections. `COMMANDS` holds 51 commands, `UNSUPPORTED_COMMANDS` 26
+- **API**: the call sits in `crates/api/src/library.rs` beside `page()`. It reads the body itself, so any `404` is `lyrics: None` whatever its body; other statuses go through 0006's `check`. A `200` that is not JSON is `malformed lyrics response from Tidal`. Every field is optional; `plain` turns CRLF into LF and drops trailing blank lines
+- **Player**: `LyricsCache` (`crates/app/src/player_runtime.rs`) wraps the `Library` given to `TokioJobs::with_library`: a `Mutex<VecDeque>` of `LYRICS_CACHE_SIZE` = 50, hits move to the back, inserts evict from the front, only `Ok(Page(Lyrics))` is kept. Two clients asking for the same uncached track at once both call the API (the answers are the same)
+- **TUI**: the messages are dim in the window, failures in `error`; plain lyrics are not styled and no cursor is drawn. Right-to-left lyrics use `Alignment::Right`
+- **Themes**: `COMPONENTS` holds 21; `SKIPPED_COMPONENTS` keeps `playback_genres` and `visualization`, which the tests that needed a skipped name now use
+- **Fixtures** (`crates/api/tests/fixtures/lyrics/`): invented text in the probe's shapes; `lyrics_synced.json` also carries CRLF and trailing blank lines, which the probe did not see
+
 ## Out of scope
 
 - `tidal-player playback lyrics` (decision 3)
@@ -236,3 +247,5 @@ Answered by the user (2026-11-03; folded into the body above):
 - Translations of lyrics
 
 ## Bugs
+
+- **Test plan red reasons (found at acceptance, 2026-11-03).** Some tests did not fail on the red reason the plan names. AC6 and AC7: the red stub left `l` unbound, so `ac6_follow_track` and the `ac7_*` tests failed on opening the page (an index out of bounds in the test helper), not on "never re-requests" or "never stops following"; with the opening made real in a throwaway run they failed for the planned reasons. AC9: the stub drew nothing, not the queue (`"Lyrics (synced)" missing`). AC11: slice A's client already sent the request, so the red was the stub API's `Track 1001 was not found`, not a dropped request. The new `ac8_reply_to_sender_lyrics` row and `ac17_no_panic_any_size` passed on the stubs and stay as regression guards. The tests were right; this entry corrects the plan
