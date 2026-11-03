@@ -256,6 +256,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `LikedTrackPage` | `g y` | 所有地方 | favorite tracks（收藏的曲目） |
 | `SearchPage` | `g s` | 所有地方 | the search page (on one: its input)（搜尋頁面；已在搜尋頁面時：其輸入框） |
 | `MixesPage` | `g m` | 所有地方 | your mixes（你的 mix） |
+| `LyricsPage` | `l`、`g L` | 所有地方 | lyrics of the playing track（正在播放曲目的歌詞） |
 | `Search` | `/` | 清單 | filter the rows（篩選列；見[篩選清單](tui.md#filtering-a-list)） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
 | `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選） |
@@ -290,9 +291,9 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 <a id="spotify-player-names-not-supported-here"></a>
 ### 此處不支援的 spotify-player 名稱
 
-這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SortTrackByTitle`。
+這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`LyricsPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
 - 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。

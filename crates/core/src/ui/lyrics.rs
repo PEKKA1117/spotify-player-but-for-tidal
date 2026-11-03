@@ -105,10 +105,10 @@ impl LyricsView {
 
     /// The current line at `position` (synced lyrics only): the last line
     /// whose time is at or before it.
-    pub fn current(&self, _position: Duration) -> Option<usize> {
-        // Spec 0021 red stub.
-        let _ = current_line;
-        None
+    pub fn current(&self, position: Duration) -> Option<usize> {
+        self.lyrics
+            .as_ref()
+            .and_then(|l| current_line(&l.synced, position))
     }
 
     /// How many lines are drawn as played: all those before the current
@@ -209,23 +209,39 @@ fn top_view(state: &mut State) -> Option<&mut LyricsView> {
 /// once; the same track, a page not on top and a `Position` event ask
 /// nothing.
 pub(super) fn follow_track(state: &mut State) -> Vec<Effect> {
-    // Spec 0021 red stub: never follows.
-    let _ = (state, browse::top, Load::Idle);
-    Vec::new()
+    let current = state.current().map(|e| e.track.clone());
+    let index = browse::top(state);
+    let page = &mut state.history[index];
+    let Some(view) = page.lyrics.as_mut() else {
+        return Vec::new();
+    };
+    if view.track.as_ref().map(|t| t.id) == current.as_ref().map(|t| t.id) {
+        return Vec::new();
+    }
+    *view = LyricsView::new(current);
+    page.load = Load::Idle;
+    let mut effects = Vec::new();
+    browse::fetch_page(state, index, &mut effects);
+    effects
 }
 
 /// A page command on the lyrics page: the list moves scroll; every other
 /// command that acts on rows does nothing there.
 pub(super) fn command(state: &mut State, command: UiCommand) -> Vec<Effect> {
-    // Spec 0021 red stub: never scrolls.
-    let _ = (state, command, top_view);
+    if command.is_list_move() {
+        let (position, height) = (state.position, state.list_height);
+        if let Some(view) = top_view(state) {
+            view.scroll_by(command, position, height);
+        }
+    }
     Vec::new()
 }
 
 /// `Esc` on the lyrics page: follow the current line again.
 pub(super) fn follow(state: &mut State) -> Vec<Effect> {
-    // Spec 0021 red stub: never follows.
-    let _ = state;
+    if let Some(view) = top_view(state) {
+        view.following = true;
+    }
     Vec::new()
 }
 

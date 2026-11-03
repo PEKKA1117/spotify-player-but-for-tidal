@@ -131,6 +131,8 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     if body.height == 0 {
         return;
     }
+    // spec 0021: slice C draws the lyrics page here (it has no windows, so
+    // nothing is drawn until then).
     if let Load::Failed(message) = &page.load {
         let lines: Vec<Line> = wrap(message, width)
             .into_iter()

@@ -178,8 +178,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
         C::SearchPage => return search::open(state),
         C::MixesPage => return browse::open(state, PageKind::Mixes),
-        // Spec 0021 red stub: does nothing.
-        C::LyricsPage => return Vec::new(),
+        C::LyricsPage => return browse::open(state, PageKind::Lyrics),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),

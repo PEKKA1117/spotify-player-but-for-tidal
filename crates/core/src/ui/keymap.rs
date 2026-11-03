@@ -620,7 +620,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 27] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 26] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -633,7 +633,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 27] = [
     "CurrentlyPlayingContextPage",
     "TopTrackPage",
     "RecentlyPlayedTrackPage",
-    "LyricsPage",
     "BrowsePage",
     "OpenSpotifyLinkFromClipboard",
     "SortTrackByTitle",
@@ -1067,6 +1066,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('y')], C::LikedTrackPage),
         (vec![g('s')], C::SearchPage),
         (vec![g('m')], C::MixesPage),
+        (vec![one(Char('l')), g('L')], C::LyricsPage),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),

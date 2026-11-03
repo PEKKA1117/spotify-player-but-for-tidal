@@ -11,7 +11,8 @@
 //!   that window, with a text that names what they do there
 //!   (`ChooseSelected`, `AddSelectedItemToQueue`, `RemoveFromQueue`,
 //!   `ShowActionsOnSelectedItem`, `RoleFilter`, `Search` (the filter, spec
-//!   0012), `ClosePopup`);
+//!   0012), `ClosePopup`); the lyrics page's (spec 0021) lists `ClosePopup`
+//!   alone, as following the current line again;
 //! - `Lists`: the six list-moving commands, on pages with a list and in
 //!   the popups that have one;
 //! - `Pages`: the page commands (`Queue`, `LibraryPage`, `LikedTrackPage`,

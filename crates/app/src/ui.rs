@@ -3651,13 +3651,14 @@ mod tests {
             &text,
             &[
                 "┌g …",
-                "a  actions on the selected row     y  favorite tracks",
-                "g  move to the top                 s  the search page (on one: its…",
-                "l  the library                     m  your mixes",
+                "a  actions on the selected row     s  the search page (on one: its…",
+                "g  move to the top                 m  your mixes",
+                "l  the library                     L  lyrics of the playing track",
+                "y  favorite tracks",
             ],
         );
         // Docked: the box's bottom border is the page area's last row.
-        assert_eq!(row_of(&text, "┌g …"), 18, "{text}");
+        assert_eq!(row_of(&text, "┌g …"), 17, "{text}");
         assert!(row(&text, 22).starts_with("│└"), "{text}");
         // Not drawn when the timer says no.
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -3680,7 +3681,7 @@ mod tests {
         let text = draw(&pending(library(), &g), 40, 12);
         assert_contains(
             &text,
-            &["┌g …", "a  actions on the selected row", "… +4 more"],
+            &["┌g …", "a  actions on the selected row", "… +5 more"],
         );
         insta::assert_snapshot!("ac6_key_hints_40x12", text);
 
@@ -3688,7 +3689,10 @@ mod tests {
         let text = draw(&pending(library(), &g), 120, 30);
         assert_contains(
             &text,
-            &["┌g …", "a  actions on the selected row     l  the library"],
+            &[
+                "┌g …",
+                "a  actions on the selected row     y  favorite tracks",
+            ],
         );
         insta::assert_snapshot!("ac6_key_hints_120x30", text);
 

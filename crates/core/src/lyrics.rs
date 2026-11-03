@@ -7,20 +7,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// One timed line of synced lyrics.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LyricLine {
     /// When the line starts, in milliseconds on the wire.
     #[serde(with = "millis")]
     pub at: Duration,
     /// The line's text; empty for an instrumental gap.
     pub text: String,
-}
-
-// Spec 0021 red stub: writes nothing useful.
-impl Serialize for LyricLine {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
 }
 
 /// The lyrics of a track (spec 0021 "Talking to the player").
@@ -38,7 +31,11 @@ pub struct Lyrics {
 mod millis {
     use std::time::Duration;
 
-    use serde::{Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(duration: &Duration, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u64(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+    }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         u64::deserialize(d).map(Duration::from_millis)
@@ -46,14 +43,71 @@ mod millis {
 }
 
 /// Parses LRC text into timed lines (spec 0021 "Parsing LRC").
-pub fn parse_lrc(_text: &str) -> Vec<LyricLine> {
-    Vec::new()
+///
+/// A line is zero or more time stamps (`[mm:ss]`, `[mm:ss.x]`, `[mm:ss.xx]`
+/// or `[mm:ss.xxx]`, minutes of any length, seconds under 60), then the
+/// text, trimmed; several stamps give one line each. Lines that do not
+/// start with a stamp (tags such as `[ar:…]`, plain text) are skipped.
+/// The result is sorted by time, stably.
+pub fn parse_lrc(text: &str) -> Vec<LyricLine> {
+    let mut lines = Vec::new();
+    for raw in text.split('\n') {
+        let mut rest = raw.trim_end_matches('\r');
+        let mut stamps = Vec::new();
+        while let Some((at, after)) = stamp(rest) {
+            stamps.push(at);
+            rest = after;
+        }
+        let body = rest.trim();
+        lines.extend(stamps.into_iter().map(|at| LyricLine {
+            at,
+            text: body.to_owned(),
+        }));
+    }
+    lines.sort_by_key(|line| line.at);
+    lines
+}
+
+/// A time stamp at the start of `text` and what follows it.
+fn stamp(text: &str) -> Option<(Duration, &str)> {
+    let inner = text.strip_prefix('[')?;
+    let (stamp, rest) = inner.split_once(']')?;
+    let (minutes, time) = stamp.split_once(':')?;
+    let (seconds, fraction) = match time.split_once('.') {
+        Some((seconds, fraction)) => (seconds, Some(fraction)),
+        None => (time, None),
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(minutes) || seconds.len() != 2 || !digits(seconds) {
+        return None;
+    }
+    let millis = match fraction {
+        None => 0,
+        Some(f) if digits(f) && f.len() <= 3 => {
+            // A decimal fraction of a second: `.5` is 500 ms, `.05` 50 ms.
+            f.parse::<u64>().ok()? * 10u64.pow(3 - f.len() as u32)
+        }
+        Some(_) => return None,
+    };
+    let seconds: u64 = seconds.parse().ok()?;
+    if seconds >= 60 {
+        return None;
+    }
+    let minutes: u64 = minutes.parse().ok()?;
+    let total = minutes
+        .checked_mul(60)?
+        .checked_add(seconds)?
+        .checked_mul(1000)?
+        .checked_add(millis)?;
+    Some((Duration::from_millis(total), rest))
 }
 
 /// The index of the last line with `at <= position`; `None` before the
-/// first line and for no lines.
-pub fn current_line(_lines: &[LyricLine], _position: Duration) -> Option<usize> {
-    None
+/// first line and for no lines. `lines` is sorted by time.
+pub fn current_line(lines: &[LyricLine], position: Duration) -> Option<usize> {
+    lines
+        .partition_point(|line| line.at <= position)
+        .checked_sub(1)
 }
 
 #[cfg(test)]

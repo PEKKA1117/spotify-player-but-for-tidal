@@ -257,6 +257,14 @@ key_sequence = "g s"
 command = "MixesPage"
 key_sequence = "g m"
 
+# LyricsPage: lyrics of the playing track (everywhere)
+[[keymaps]]
+command = "LyricsPage"
+key_sequence = "l"
+[[keymaps]]
+command = "LyricsPage"
+key_sequence = "g L"
+
 # Search: back to the search input (the search page)
 [[keymaps]]
 command = "Search"

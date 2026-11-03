@@ -26,9 +26,9 @@ expression: text
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
-││                                             ││                                             ││                      ││
 │┌g …─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     l  the library                     s  the search page (on one: its…              ││
-││g  move to the top                 y  favorite tracks                 m  your mixes                                 ││
+││a  actions on the selected row     y  favorite tracks                 L  lyrics of the playing track                ││
+││g  move to the top                 s  the search page (on one: its…                                                 ││
+││l  the library                     m  your mixes                                                                    ││
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

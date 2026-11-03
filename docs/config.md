@@ -245,6 +245,7 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `LikedTrackPage` | `g y` | everywhere | favorite tracks |
 | `SearchPage` | `g s` | everywhere | the search page (on one: its input) |
 | `MixesPage` | `g m` | everywhere | your mixes |
+| `LyricsPage` | `l`, `g L` | everywhere | lyrics of the playing track |
 | `Search` | `/` | lists | filter the rows (see [Filtering a list](tui.md#filtering-a-list)) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
 | `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter) |
@@ -277,9 +278,9 @@ The three removals ask `y/n` the way the actions popup does, a bound key being n
 
 ### spotify-player names not supported here
 
-These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, LyricsPage, SortTrackByTitle`.
+These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle`.
 
-- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `LyricsPage`, `BrowsePage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `MovePlaylistItemUp`, `MovePlaylistItemDown`, `CreatePlaylist`, `OpenLogs`
+- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `BrowsePage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `MovePlaylistItemUp`, `MovePlaylistItemDown`, `CreatePlaylist`, `OpenLogs`
 - Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
 
 A misspelt name (`NxtTrack`) is still an error.

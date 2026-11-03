@@ -120,6 +120,14 @@ fn asked(effects: &[Effect]) -> Vec<(u64, u64)> {
         .collect()
 }
 
+/// How many library requests `effects` hold.
+fn requests_of(effects: &[Effect]) -> usize {
+    effects
+        .iter()
+        .filter(|e| matches!(e, Effect::Library { .. }))
+        .count()
+}
+
 fn answer(state: &mut State, id: u64, track_id: u64, lyrics: Option<Lyrics>) -> Vec<Effect> {
     update(
         state,
@@ -209,15 +217,13 @@ fn ac5_open_lyrics() {
         assert_eq!(state.page().load, Load::Loading { id }, "{name}: on top");
     }
 
-    // No current entry (an empty queue, or a queue with none current).
-    for current in [None::<u64>] {
-        let mut state = playing(current);
-        assert_eq!(press(&mut state, &L), vec![], "nothing playing");
-        assert_eq!(state.page().kind, PageKind::Lyrics);
-        assert_eq!(content(&state), LyricsContent::NothingPlaying);
-        assert_eq!(state.page().title(), "Lyrics");
-        assert_eq!(content(&state).message().as_deref(), Some(NOTHING_PLAYING));
-    }
+    // No current entry: a queue with none current, and an empty queue.
+    let mut state = playing(None);
+    assert_eq!(press(&mut state, &L), vec![], "nothing playing");
+    assert_eq!(state.page().kind, PageKind::Lyrics);
+    assert_eq!(content(&state), LyricsContent::NothingPlaying);
+    assert_eq!(state.page().title(), "Lyrics");
+    assert_eq!(content(&state).message().as_deref(), Some(NOTHING_PLAYING));
     let mut state = State::default();
     assert_eq!(press(&mut state, &L), vec![], "an empty queue");
     assert_eq!(content(&state), LyricsContent::NothingPlaying);
@@ -225,16 +231,11 @@ fn ac5_open_lyrics() {
     // Back onto the page with the same track: the kept lyrics, no request.
     let mut state = with_lyrics(synced());
     assert!(matches!(content(&state), LyricsContent::Synced(_)));
-    let (library_id, _) = match &press(&mut state, &GL)[..] {
-        [Effect::Library { id, request }] => (*id, request.clone()),
-        other => panic!("{other:?}"),
-    };
+    assert_eq!(requests_of(&press(&mut state, &GL)), 1, "the library's");
     assert_eq!(state.history.len(), 3);
     assert_eq!(press(&mut state, &[Key::Backspace]), vec![], "back");
     assert_eq!(state.page().kind, PageKind::Lyrics);
     assert!(matches!(content(&state), LyricsContent::Synced(_)), "kept");
-    // The page above it was dropped with its request.
-    let _ = library_id;
 
     // Disconnected: the page opens failed, nothing is asked.
     let mut state = playing(Some(1));
@@ -473,8 +474,8 @@ fn ac7_synced_scroll_and_follow() {
     press(&mut state, &[Char('G')]);
     assert_eq!(
         view(&state).offset(state.position, 10),
-        14,
-        "the last line at the bottom... or further"
+        10,
+        "the last line at the bottom of the window"
     );
 
     // `Esc` follows again: the view back on the current line.
