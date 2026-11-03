@@ -1,8 +1,8 @@
 {
   "trackId": 7001,
   "lyricsProvider": "MUSIXMATCH",
-  "providerCommontrackId": 1234567,
-  "providerLyricsId": 7654321,
+  "providerCommontrackId": "1234567",
+  "providerLyricsId": "7654321",
   "lyrics": "First paper lantern\r\nDrifts over the quiet river\r\n\r\nSecond verse begins\r\nUnder an invented moon\r\n\r\n\r\n",
   "subtitles": "[00:12.50] First paper lantern\n[00:17.08] Drifts over the quiet river\n[00:22.00] \n[00:24.30] Second verse begins\n[00:29.99] Under an invented moon\n[00:35.12]",
   "isRightToLeft": false
