@@ -1097,6 +1097,39 @@ fn ac8_reply_to_sender_mixes_and_radio() {
     assert_eq!(library.seen(), want);
 }
 
+/// Spec 0021 AC4: a lyrics request is answered like any 0006 request (a new
+/// row of `ac8_reply_to_sender`): one reply, to the sender only.
+#[test]
+fn ac8_reply_to_sender_lyrics() {
+    use tidal_player_core::library::PageRequest;
+
+    let library = Arc::new(FakeLibrary::default());
+    let player = TestPlayer::start_with_library(&library);
+    let mut a = player.connect();
+    let mut b = player.connect();
+    a.subscribe();
+    b.subscribe();
+
+    let request = LibraryRequest::Page(PageRequest::Lyrics(7001));
+    let id = a.ask_library(request.clone());
+    assert_eq!(a.library_reply(), (id, Ok(LibraryResponse::Done)));
+    let got = b.request(NOOP);
+    assert_eq!(
+        library_replies(&got),
+        Vec::<&ServerMessage>::new(),
+        "{got:?}"
+    );
+    assert_eq!(library_replies(&b.drain()).len(), 0);
+    let got = a.request(NOOP);
+    assert_eq!(library_replies(&got).len(), 0, "{got:?}");
+
+    let settings = crate::player_runtime::LibrarySettings::default();
+    assert_eq!(
+        library.seen(),
+        vec![(request, settings.page_size, settings.hidden_words)]
+    );
+}
+
 /// AC8: a failing library's message is the `Err`, unchanged.
 #[test]
 fn ac8_errors() {

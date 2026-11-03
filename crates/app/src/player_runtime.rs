@@ -220,6 +220,33 @@ impl Library for LibraryClient {
     }
 }
 
+/// How many tracks' lyrics the player keeps (spec 0021 decision 2).
+pub const LYRICS_CACHE_SIZE: usize = 50;
+
+/// The [`Library`] with the lyrics of the last [`LYRICS_CACHE_SIZE`]
+/// tracks kept in memory (spec 0021 "What the player fetches and keeps").
+/// Stub: keeps nothing yet.
+pub struct LyricsCache {
+    inner: Arc<dyn Library>,
+}
+
+impl LyricsCache {
+    pub fn new(inner: Arc<dyn Library>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Library for LyricsCache {
+    fn request(
+        &self,
+        request: LibraryRequest,
+        page_size: u32,
+        hidden_words: Vec<String>,
+    ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+        self.inner.request(request, page_size, hidden_words)
+    }
+}
+
 /// A resolved stream, opened and ready for the engine.
 pub struct Prepared {
     pub track: TrackId,
@@ -1267,7 +1294,7 @@ impl TokioJobs {
     /// Serves library requests with `library`, passing `settings` to it.
     #[must_use]
     pub fn with_library(mut self, library: Arc<dyn Library>, settings: LibrarySettings) -> Self {
-        self.library = library;
+        self.library = Arc::new(LyricsCache::new(library));
         self.library_settings = settings;
         self
     }
@@ -3264,5 +3291,153 @@ mod tests {
         ]);
         assert_eq!(client.sent, vec![Command::SetDevice("default".into())]);
         assert_eq!(take(&log), vec![Call::SetDevice("default".into())]);
+    }
+
+    /// An API that answers lyrics requests from a table and counts its
+    /// calls (spec 0021 AC4).
+    #[derive(Default)]
+    struct CountingApi {
+        calls: std::sync::Mutex<Vec<u64>>,
+        /// Tracks whose request fails.
+        failing: std::sync::Mutex<HashSet<u64>>,
+        /// Tracks without lyrics (the rest have some).
+        none: HashSet<u64>,
+    }
+
+    impl CountingApi {
+        fn calls(&self) -> Vec<u64> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    fn lyrics_of(track: u64) -> tidal_player_core::lyrics::Lyrics {
+        tidal_player_core::lyrics::Lyrics {
+            synced: vec![],
+            plain: format!("words of {track}"),
+            right_to_left: false,
+        }
+    }
+
+    impl Library for CountingApi {
+        fn request(
+            &self,
+            request: LibraryRequest,
+            _: u32,
+            _: Vec<String>,
+        ) -> BoxFuture<'_, Result<LibraryResponse, String>> {
+            Box::pin(async move {
+                let LibraryRequest::Page(PageRequest::Lyrics(track)) = request else {
+                    return Ok(LibraryResponse::Done);
+                };
+                self.calls.lock().unwrap().push(track);
+                if self.failing.lock().unwrap().contains(&track) {
+                    return Err("Tidal answered 429: try again in a moment".into());
+                }
+                let lyrics = (!self.none.contains(&track)).then(|| lyrics_of(track));
+                Ok(LibraryResponse::Page(
+                    tidal_player_core::library::PageData::Lyrics { track, lyrics },
+                ))
+            })
+        }
+    }
+
+    /// Spec 0021 AC4: the lyrics cache keeps the last 50 tracks asked for,
+    /// "no lyrics" included, never a failure; a hit makes the track the
+    /// newest.
+    #[test]
+    fn ac4_lyrics_cache() {
+        use tidal_player_core::library::PageData;
+
+        enum Step {
+            /// Ask the track; the calls made so far are then `.1`.
+            Ask(u64, &'static [u64]),
+            /// The track's requests fail from now on.
+            Fail(u64),
+            /// The track's requests work again.
+            Heal(u64),
+        }
+        use Step::*;
+        let range = |from: u64, to: u64| (from..=to).collect::<Vec<_>>();
+        let leak = |v: Vec<u64>| -> &'static [u64] { Box::leak(v.into_boxed_slice()) };
+        let asked =
+            |to: u64| -> Vec<Step> { (1..=to).map(|t| Ask(t, leak(range(1, t)))).collect() };
+
+        let mut eviction = asked(51);
+        eviction.extend([
+            // 2 is still kept, 1 was the oldest and is gone.
+            Ask(2, leak(range(1, 51))),
+            Ask(1, leak([range(1, 51), vec![1]].concat())),
+            // Asking 1 evicted 3 (2 had just become the newest).
+            Ask(3, leak([range(1, 51), vec![1, 3]].concat())),
+            Ask(2, leak([range(1, 51), vec![1, 3]].concat())),
+        ]);
+        let mut recency = asked(50);
+        recency.extend([
+            Ask(1, leak(range(1, 50))),
+            // 51 evicts 2, the least recently asked, not 1.
+            Ask(51, leak(range(1, 51))),
+            Ask(1, leak(range(1, 51))),
+            Ask(2, leak([range(1, 51), vec![2]].concat())),
+        ]);
+        let mut fifty = asked(50);
+        fifty.push(Ask(50, leak(range(1, 50))));
+        fifty.push(Ask(1, leak(range(1, 50))));
+
+        let table: Vec<(&str, Vec<Step>)> = vec![
+            ("second request: no call", vec![Ask(1, &[1]), Ask(1, &[1])]),
+            ("no lyrics is kept", vec![Ask(9, &[9]), Ask(9, &[9])]),
+            (
+                "a failure is not kept",
+                vec![
+                    Fail(3),
+                    Ask(3, &[3]),
+                    Ask(3, &[3, 3]),
+                    Heal(3),
+                    Ask(3, &[3, 3, 3]),
+                    Ask(3, &[3, 3, 3]),
+                ],
+            ),
+            ("fifty are kept", fifty),
+            ("the 51st evicts the oldest", eviction),
+            ("a kept track becomes the newest", recency),
+        ];
+        for (name, steps) in table {
+            let api = Arc::new(CountingApi {
+                none: HashSet::from([9]),
+                ..CountingApi::default()
+            });
+            let cache = LyricsCache::new(api.clone());
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            for (n, step) in steps.into_iter().enumerate() {
+                match step {
+                    Fail(t) => {
+                        api.failing.lock().unwrap().insert(t);
+                    }
+                    Heal(t) => {
+                        api.failing.lock().unwrap().remove(&t);
+                    }
+                    Ask(track, calls) => {
+                        let got = rt.block_on(cache.request(
+                            LibraryRequest::Page(PageRequest::Lyrics(track)),
+                            100,
+                            vec![],
+                        ));
+                        if api.failing.lock().unwrap().contains(&track) {
+                            assert!(got.is_err(), "{name} step {n}: {got:?}");
+                        } else {
+                            let lyrics = (track != 9).then(|| lyrics_of(track));
+                            assert_eq!(
+                                got,
+                                Ok(LibraryResponse::Page(PageData::Lyrics { track, lyrics })),
+                                "{name} step {n}"
+                            );
+                        }
+                        assert_eq!(api.calls(), calls, "{name} step {n}");
+                    }
+                }
+            }
+        }
     }
 }
