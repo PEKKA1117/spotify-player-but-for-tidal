@@ -134,10 +134,12 @@ playback_progress_bar = { fg = "#bd93f9" }
 | `error`* | 訊息列與載入失敗處（頁面、視窗、失敗的 `Loading more…`） | `fg = "Red"` | `fg = "Red"` |
 | `prompt`* | 開啟中的提示（`Add to queue: …`、`Play next: …`）、播放清單名稱提示、搜尋輸入框 | `Bold` | `Bold` |
 | `selected_row`* | 清單或佇列中[選取](tui.md#selecting-rows)的列（以 `+ ` 標記） | `Bold` | 無 |
+| `lyrics_played` | [歌詞頁](tui.md#lyrics)中，目前這一行之前的同步歌詞行 | `Dim` | `Dim` |
+| `lyrics_playing` | 歌詞頁目前的同步歌詞行（換行時每一列都套用） | `fg = "Cyan"`、`Bold` | `fg = "Green"`、`Bold` |
 
 佈景主題沒寫出的元件維持今天的外觀，**不會**採用 spotify-player 色彩繽紛的預設值：只有調色盤的佈景主題（例如 spotify-player 的 `dracula`）只會改變背景、前景和錯誤的紅色。想要 spotify-player 的外觀，請複製 [`examples/theme.toml`](../../examples/theme.toml) 中的 `spotify_player` 佈景主題（它把預設值全部寫了出來）再修改。調色盤的 `background` 和 `foreground` 是整個畫面的樣式：每個儲存格都從它們開始，上表的樣式再疊上去。
 
-本播放器沒有繪製的 spotify-player 元件（`playback_genres`、`lyrics_played`、`lyrics_playing`、`visualization`）會被接受並略過，因此它的佈景主題可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`theme.toml: 2 spotify-player styles not used here: lyrics_played, lyrics_playing`（每個名稱只出現一次，依檔案順序；若有按鍵對應的通知，則接在它之後，以 ` · ` 相連）。其他名稱都是錯誤。
+本播放器沒有繪製的 spotify-player 元件（`playback_genres`、`visualization`）會被接受並略過，因此它的佈景主題可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`theme.toml: 2 spotify-player styles not used here: playback_genres, visualization`（每個名稱只出現一次，依檔案順序；若有按鍵對應的通知，則接在它之後，以 ` · ` 相連）。其他名稱都是錯誤。
 
 <a id="what-the-tui-adds-on-top"></a>
 ### TUI 疊加的效果
@@ -259,7 +261,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `LyricsPage` | `l`、`g L` | 所有地方 | lyrics of the playing track（正在播放曲目的歌詞） |
 | `Search` | `/` | 清單 | filter the rows（篩選列；見[篩選清單](tui.md#filtering-a-list)） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
-| `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選） |
+| `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選；在歌詞頁：重新跟隨目前這一行） |
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help（此說明） |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches)（結束；連接中的 TUI 會中斷連接） |
 

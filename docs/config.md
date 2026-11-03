@@ -128,10 +128,12 @@ Where each component is drawn, its default (the `default` theme's look, and what
 | `error`* | the message row and failed loads (a page, a window, a `Loading more…` that failed) | `fg = "Red"` | `fg = "Red"` |
 | `prompt`* | the open prompt (`Add to queue: …`, `Play next: …`), the playlist-name prompt, the search input | `Bold` | `Bold` |
 | `selected_row`* | the rows of a [selection](tui.md#selecting-rows) in a list or the queue (marked with `+ `) | `Bold` | none |
+| `lyrics_played` | the [lyrics page](tui.md#lyrics)'s synced lines before the current one | `Dim` | `Dim` |
+| `lyrics_playing` | the lyrics page's current synced line (every row of it, when it wraps) | `fg = "Cyan"`, `Bold` | `fg = "Green"`, `Bold` |
 
 A component a theme leaves out keeps today's look, **not** spotify-player's colourful defaults: a palette-only theme such as spotify-player's `dracula` changes only the background, the foreground and the red of errors. To get spotify-player's look, copy the `spotify_player` theme in [`examples/theme.toml`](../examples/theme.toml), which spells its defaults out, and edit it. The palette's `background` and `foreground` are the style of the whole screen: every cell starts in them and the styles above are laid over.
 
-spotify-player components this player does not draw (`playback_genres`, `lyrics_played`, `lyrics_playing`, `visualization`) are accepted and skipped, so its themes can be copied as is. The TUI's message row says once at start which ones: `theme.toml: 2 spotify-player styles not used here: lyrics_played, lyrics_playing` (each name once, in file order; after the keymap's notice, if any, joined by ` · `). Any other name is an error.
+spotify-player components this player does not draw (`playback_genres`, `visualization`) are accepted and skipped, so its themes can be copied as is. The TUI's message row says once at start which ones: `theme.toml: 2 spotify-player styles not used here: playback_genres, visualization` (each name once, in file order; after the keymap's notice, if any, joined by ` · `). Any other name is an error.
 
 ### What the TUI adds on top
 
@@ -248,7 +250,7 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `LyricsPage` | `l`, `g L` | everywhere | lyrics of the playing track |
 | `Search` | `/` | lists | filter the rows (see [Filtering a list](tui.md#filtering-a-list)) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
-| `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter) |
+| `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter; on the lyrics page: follow the current line again) |
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
 

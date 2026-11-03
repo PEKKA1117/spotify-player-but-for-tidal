@@ -2,7 +2,7 @@ English | [正體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device) and [spec 0016](specs/0016-cover-art.md) (the album cover).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device) and [spec 0016](specs/0016-cover-art.md) (the album cover) and [spec 0021](specs/0021-lyrics.md) (lyrics).
 
 ## The screen
 
@@ -109,6 +109,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g y` | `LikedTrackPage` | open your favorite tracks |
 | `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
 | `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
+| `l`, `g L` | `LyricsPage` | open the [lyrics](#lyrics) of the playing track |
 | `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
 | `/` | `Search` | [filter](#filtering-a-list) the rows of the focused window or the queue |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
@@ -117,11 +118,11 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
-| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows) |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows); on the lyrics page: follow the current line again |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
-`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m` and `g a` are `g` and the second key. `s` starts the [selection](#selecting-rows) keys the same way. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
+`g g` is two presses of `g`; `g l`, `g y`, `g s`, `g m`, `g L` and `g a` are `g` and the second key. `s` starts the [selection](#selecting-rows) keys the same way. A `g` followed by any other key does what that key does. Wait after `g` and a [hint](#key-hints) lists the second keys. With an empty queue only the volume, mute and mode keys (and `o`/`O`, `q`) do something on the queue; the modes and the volume then apply to what you add next.
 
 While a popup is open, only its own keys act (see [Actions](#actions)); `space`, `n`, `q` and the others do not reach the player. Text inputs (the `o`/`O` prompt, the search input, the playlist name, a [filter](#filtering-a-list) while you type it) take every printable key whatever the keymap says.
 
@@ -178,12 +179,13 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Search | `g s` | the input, the top hit, Tracks, Albums, Artists, Playlists (see [Search](#search)) |
 | Mixes | `g m` | your mixes (see [Mixes and radio](#mixes-and-radio)) |
 | Mix | `Enter` on a mix | the mix's tracks |
+| Lyrics | `l`, `g L` | the lyrics of the playing track (see [Lyrics](#lyrics)) |
 | Radio | `r` on a track or an artist; *Go to radio* | the radio's tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
 | Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
 
-Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, `Mixes · 7 mixes`, `<mix> · 10 tracks`, `<track> Radio · <artists>`, `<artist> Radio`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
+Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, `Mixes · 7 mixes`, `<mix> · 10 tracks`, `<track> Radio · <artists>`, `<artist> Radio`, `Lyrics · <track> · <artists>`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -341,6 +343,29 @@ Nothing matches: `No tracks found`, `No albums found`, `No artists found`, `No p
 `r` on a selected track or artist (on any page, the queue included) opens its **radio**: `<track> Radio · <artists>` or `<artist> Radio`, up to 100 tracks Tidal suggests. Nothing plays and the queue stays as it is until you press `Enter` on a track (it plays with the rest of the radio queued) or `Z`. *Go to radio* in the [actions](#actions) popup does the same, and so does an `[[actions]]` entry bound to another key (see [config](config.md#actions)); albums, playlists and mixes have no radio.
 
 The pages arrive whole, so they have no scroll loading, and each is fetched fresh when opened; `Backspace` goes back to a page as you left it. Messages in the page: `No mixes yet`, `This mix has no tracks`, `No radio for this track`, `No radio for this artist` (Tidal has none for it, not a failure), and for failures `Could not load the mixes: <reason>`, `Mix <id> was not found`, `Track 1 was not found`, `Artist 1 was not found`. Track rows are the usual ones, a track you cannot stream dimmed.
+
+## Lyrics
+
+`l` (or `g L`) opens the **lyrics** of the track that is playing, in one window titled `Lyrics`. The page follows the player: when the current track changes (you press `n`, autoplay moves on) the page shows `Loading…` and then the new track's lyrics, as long as it is on top; coming back to it after other pages shows what it had, fetched again only if the track changed meanwhile. A paused or stopped track keeps its lyrics and its highlight.
+
+```
+┌Lyrics (synced)───────────────────────────────┐
+│Lantern 5 drifts down the river               │  dim: played
+│Lantern 6 drifts down the river               │
+│Lantern 7 drifts down the river               │
+│Lantern 8 drifts down the river               │
+│Lantern 9 drifts down the river               │
+│Lantern 10 drifts down the river              │  cyan, bold: the current line
+│Lantern 11 drifts down the river              │
+└──────────────────────────────────────────────┘
+```
+
+- **Synced lyrics** (Tidal has timed lines for the track): the window is titled `Lyrics (synced)`. The line being sung is drawn in `lyrics_playing`, the lines before it in `lyrics_played`, the rest in the screen's style (see [Components](config.md#components)). The window scrolls so that the current line stays at its middle row; at the top of the song it stays at the top. A timed line with no text is an empty row, drawn as `♪` while it is the current one. Seeking moves the highlight along
+- **Scrolling by hand**: the list keys (`j`, `k`, `C-f`, `C-b`, `g g`, `G`, the arrows) scroll the lyrics. For synced lyrics the first of them stops following: the title says `Lyrics (synced) · scrolled` and the view stays where you put it while the highlight keeps moving. `Esc` jumps back to the current line (with a popup open it closes the popup first). A new track follows again
+- **Plain lyrics** (no timed lines): the text as Tidal gives it, from the top, scrolled with the same keys, nothing highlighted
+- A line wider than the window wraps by display width (CJK characters take two columns) and is highlighted on all its rows. Lyrics Tidal marks as right-to-left are right-aligned; the characters are sent in their logical order and the terminal orders them, so a terminal without bidirectional text support may show them reversed
+- The other keys that act on a row (`Enter`, `Z`, the actions) do nothing here, and there is no cursor
+- Messages in the window: `Loading…`, `No lyrics for this track` (an instrumental, or Tidal has none), `Nothing playing` (no current track), and for failures `Could not load the lyrics: <reason>` (for example `Tidal answered 429: try again in a moment`)
 
 ## Playing and queueing from a page
 

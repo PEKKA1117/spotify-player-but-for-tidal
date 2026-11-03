@@ -83,7 +83,7 @@ Where each component is drawn, and its default: the built-in `default` theme's s
 
 The palette's `background` and `foreground` are the style of the whole screen (spotify-player's `app` style): every cell starts in them, and the styles above are laid over.
 
-spotify-player components this player does not draw (`playback_genres`, `lyrics_played`, `lyrics_playing`, `visualization`) are accepted and skipped: the TUI's message row says once at start `theme.toml: 2 spotify-player styles not used here: lyrics_played, lyrics_playing` (each name once, in file order), as 0008 does for the keymap. Any other name is an error.
+spotify-player components this player does not draw (`playback_genres`, `visualization`) are accepted and skipped: the TUI's message row says once at start `theme.toml: 2 spotify-player styles not used here: playback_genres, visualization` (each name once, in file order), as 0008 does for the keymap. Any other name is an error.
 
 ### State cues on top of the theme
 

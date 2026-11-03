@@ -33,6 +33,9 @@ like = {}
 error = { fg = "Red" }
 prompt = { modifiers = ["Bold"] }
 selected_row = { modifiers = ["Bold"] }
+# spotify-player's, drawn on the lyrics page.
+lyrics_played = { modifiers = ["Dim"] }
+lyrics_playing = { fg = "Cyan", modifiers = ["Bold"] }
 
 # ---------------------------------------------------------------------------
 # A selection of spotify-player's sample themes, unchanged, from its
