@@ -2,7 +2,7 @@
 
 - **Status**: implemented (2026-10-24)
 - **Owner**: tech-lead (primary session)
-- **Issue**: [#50](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/50)
+- **Issue**: [#50](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/50), [#73](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/73) (Bug 3)
 - **Depends on**: 0001 (implemented: the workspace's crates and their dependency rules)
 - **User docs**: none (maintainer tooling); `CLAUDE.md` "Build & tooling" names `cargo xtask publish`
 
@@ -16,7 +16,7 @@ Unchanged from today except the publish step:
 
 1. The tag must equal `v` + `tidal-player`'s version, else the run fails before anything is built
 2. The release binary is built; `tidal-player-vX.Y.Z-src.zip`, `tidal-player-vX.Y.Z-x86_64-unknown-linux-gnu.zip` and `SHA256SUMS` are made
-3. The run waits for the tag's CI run and fails if it fails (a crates.io upload cannot be taken back)
+3. The run waits for the CI run of the push to `master` on the tagged commit (`GITHUB_SHA`) and fails if it fails, or if there is none (a crates.io upload cannot be taken back). A release tag is pushed on a PR's merge commit, which `master`'s CI has already checked; a tag push runs no CI of its own (Bug 3, spec 0001 AC9), so a tag on a commit that is not on `master` is refused
 4. **Publish** (`cargo xtask publish`): every workspace crate that may be published (not `publish = false`) whose version is **not yet on crates.io** is published, in dependency order (`tidal-player-core` before `tidal-player-api` and `tidal-player-audio`, those before `tidal-player`). A crate whose version is already there is skipped and named (`tidal-player-api 1.1.0: already on crates.io`). A version crates.io has yanked counts as already there (it refuses a re-upload). No new version: `nothing to publish`, and the run goes on
 5. The GitHub release is created: `.github/release-notes.md`'s install steps, GitHub's generated notes, and the three files (then the maintainer adds its `## New in` section, `CLAUDE.md` "Conventions")
 
@@ -36,6 +36,9 @@ Unchanged from today except the publish step:
 - **AC4** — The workflow: `release.yml`'s publish step runs `cargo xtask publish` with `CARGO_REGISTRY_TOKEN`, and no step runs `cargo publish --workspace` (a test reads the file)
 - **AC5** — Re-released `v1.2.0` (by hand, at acceptance; it needs the real crates.io and a tag): the run publishes `tidal-player-core` 1.2.0 and `tidal-player` 1.2.0, skips `api` and `audio` 1.1.0, and creates the GitHub release with its three files. No automated test: it would publish for real
 - **AC6** — Pinned internal dependencies (Bug 2): every dependency of a workspace crate on another workspace crate that carries a version requires exactly that version (`=x.y.z`, a single `=` comparator), so a published crate needs the crates it was released with (a test reads the real workspace)
+- **AC7** — The release's CI gate (Bug 3; a test reads `release.yml`): the step before the publish step that waits for CI lists `ci.yml` runs with `--event push`, `--branch master` and `--commit "${GITHUB_SHA}"`, never with the tag's name (`GITHUB_REF_NAME`) as the branch; with no run it fails (`exit 1`); otherwise it watches the run with `--exit-status`, so a failed or cancelled run fails the release
+- **AC8** — CI runs once per commit (Bug 3; a test reads `ci.yml`): its triggers are exactly `push` to `branches: [master]` and `pull_request`, so a tag push and a push to any other branch run nothing; every job's `if` is `github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/')` (master's pushes, and pull requests from `feat/*` and `bugfix/*`)
+- **AC9** — The first release after the fix (by hand, at acceptance, like AC5): on its merge commit Actions shows one CI run (the push to `master`) and none for the tag, and the release's wait step watches that run, then publishes. No automated test: it needs a real release
 
 ## Edge cases & errors
 
@@ -46,6 +49,9 @@ Unchanged from today except the publish step:
 | A new crate added to the workspace | Never on the index (404): published with the others, in dependency order |
 | A crate published, a later one failed | The published one stays; a re-run skips it and publishes the rest |
 | `curl` missing | Error naming it; nothing published |
+| A tag on a commit that is not on `master` (no `master` CI run for it) | After the wait (5 minutes), error `no CI run on master for <sha>: tag a commit of master`; nothing published |
+| `master`'s CI run on the tagged commit failed or was cancelled | The wait fails; nothing published. Fix on a new PR and tag its merge commit, or re-run the CI run (if it was flaky) and then the release job |
+| `master`'s CI run still in progress when the tag is pushed | The release waits for it |
 
 ## Test plan
 
@@ -59,6 +65,9 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 | AC4 | `xtask/tests/release_workflow.rs` :: `ac4_workflow_uses_xtask_publish` | the step's `run:` and no `--workspace` publish | the workflow still has `cargo publish --workspace` (the red commit leaves it) |
 | AC5 | by hand at acceptance (see AC5) | the real release | — |
 | AC6 | `xtask/tests/workspace.rs` :: `ac6_internal_dependencies_are_pinned` | every internal dependency's requirement is one `=` comparator | `[workspace.dependencies]` still has caret requirements (`^1.2.1`) |
+| AC7 | `xtask/tests/release_workflow.rs` :: `ac7_release_waits_for_master_ci` | the wait step's `gh run list` flags, its `exit 1` with no run, `gh run watch --exit-status`, and that it comes before the publish step | the step still lists runs with `--branch "${GITHUB_REF_NAME}"` (the red commit leaves `release.yml` as it is) |
+| AC8 | `xtask/tests/release_workflow.rs` :: `ac8_ci_runs_once_per_commit` | `ci.yml`'s `on:` block (comments and blank lines dropped) is exactly the three trigger lines; every job (`runs-on:`) has one `if:` equal to the expected one | `on:` still has a bare `push:` (the red commit leaves `ci.yml` as it is) |
+| AC9 | by hand at acceptance (see AC9) | the first real release after the merge | — |
 
 ## Bugs
 
@@ -75,6 +84,13 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 - **Actual (risk)**: `[workspace.dependencies]` gives `tidal-player-core`, `-api` and `-audio` caret requirements (`version = "1.2.1"`). A fix or feature is a patch release and the major version stays `1` (`CLAUDE.md` "Versions"), so a later `1.x` of a library may change its API incompatibly. Without `--locked`, cargo resolves an older `tidal-player` against the newest `1.x` and the install fails to compile
 - **Root cause**: the requirements follow cargo's default (`^`), which assumes semver compatibility the release rule does not promise
 - **New criteria**: AC6. The `[workspace.dependencies]` entries of the internal crates use `version = "=x.y.z"`, and a bumped crate's entry gets `=<new version>`. Applies from the first release after the fix; published versions up to v1.2.1 keep `^` (`cargo install --locked` works around it)
+
+### Bug 3 — every release commit (and every PR push) runs CI twice (#73)
+
+- **Expected**: each commit is checked once, and nothing is published unless CI passed on the released commit
+- **Actual**: `ci.yml` runs on every `push` and `pull_request`. Merging a PR pushes its merge commit to `master` (a CI run), then the release tag is pushed on the same commit (a second, identical run): `v1.2.1` on `d04867c` ran [master](https://github.com/PEKKA1117/spotify-player-but-for-tidal/actions/runs/40168880426) and [the tag](https://github.com/PEKKA1117/spotify-player-but-for-tidal/actions/runs/40169113802). A `feat/*` or `bugfix/*` branch with an open PR runs a `push` and a `pull_request` run for every push
+- **Root cause**: the triggers are bare `push` and `pull_request`, and the release (step 3) waited for the tag's own CI run, so the tag's run could not be dropped
+- **New criteria**: AC7 (the release waits for `master`'s run on `GITHUB_SHA`), AC8 (CI on pushes to `master` and pull requests only; spec 0001 AC9 changed with it), AC9 (the first release after the fix)
 
 ## Implementation notes
 
