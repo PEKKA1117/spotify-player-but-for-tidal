@@ -1,20 +1,23 @@
-# Spec 0001 AC9: the "Build & tooling" checks on pushes and pull requests.
+# Spec 0001 AC9: the "Build & tooling" checks, once per commit (spec 0018
+# Bug 3): on pushes to master (merge commits, which the release then waits
+# for) and on pull requests. A pushed branch is checked by its pull request,
+# and a tag push runs nothing.
 name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
 
 env:
   CARGO_TERM_COLOR: always
 
-# The jobs build and test code, so they run only where code changes: tags (the
-# release waits for them), master, and feat/* and bugfix/* branches; docs/* and
-# chore/* skip them. `head_ref` is the PR's branch; on a push it is empty and
-# `ref_name` is the branch or tag.
+# The jobs build and test code, so they run only where code changes: master,
+# and pull requests from feat/* and bugfix/* branches; docs/* and chore/* skip
+# them. `head_ref` is the PR's branch.
 jobs:
   check:
-    if: ${{ github.ref_type == 'tag' || github.ref_name == 'master' || startsWith(github.head_ref || github.ref_name, 'feat/') || startsWith(github.head_ref || github.ref_name, 'bugfix/') }}
+    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -37,7 +40,7 @@ jobs:
 
   # AC7: the audio crate must build and test without the ALSA headers.
   audio-no-alsa:
-    if: ${{ github.ref_type == 'tag' || github.ref_name == 'master' || startsWith(github.head_ref || github.ref_name, 'feat/') || startsWith(github.head_ref || github.ref_name, 'bugfix/') }}
+    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

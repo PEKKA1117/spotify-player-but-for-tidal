@@ -50,19 +50,21 @@ jobs:
           cp target/release/tidal-player README.md LICENSE-MIT LICENSE-APACHE "${bin}/"
           zip -r "dist/${bin}.zip" "${bin}"
           cd dist && sha256sum -- *.zip > SHA256SUMS
-      # The tag push also runs CI on this commit, alongside this job: wait for
-      # it rather than run the same checks again. Nothing is published unless
-      # it passes, since a crates.io upload cannot be taken back.
-      - name: Wait for CI on this tag
+      # A tag push runs no CI (spec 0018 Bug 3): the tagged commit is a merge
+      # commit that master's push already checked, so wait for that run rather
+      # than run the same checks again. A tag on a commit that is not on master
+      # has no such run and is refused. Nothing is published unless the run
+      # passes, since a crates.io upload cannot be taken back.
+      - name: Wait for master's CI on this commit
         run: |
           for _ in $(seq 30); do
             run=$(gh run list --workflow ci.yml --event push --commit "${GITHUB_SHA}" \
-              --branch "${GITHUB_REF_NAME}" --json databaseId -q '.[0].databaseId')
+              --branch master --json databaseId -q '.[0].databaseId')
             [ -n "${run}" ] && break
             sleep 10
           done
           if [ -z "${run}" ]; then
-            echo "no CI run for ${GITHUB_REF_NAME} (${GITHUB_SHA})" >&2
+            echo "no CI run on master for ${GITHUB_SHA}: tag a commit of master" >&2
             exit 1
           fi
           gh run watch "${run}" --exit-status --interval 30 > /dev/null
