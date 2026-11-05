@@ -460,6 +460,8 @@ pub struct PlayerSettings {
     pub cover_img_rows: u16,
     /// The cover's graphics protocol.
     pub cover_img_protocol: crate::cover::ProtocolSetting,
+    /// The command run on each player event (spec 0025).
+    pub hook: Option<crate::config::HookCommand>,
 }
 
 impl Default for PlayerSettings {
@@ -484,6 +486,7 @@ impl Default for PlayerSettings {
             cover_img: true,
             cover_img_rows: 6,
             cover_img_protocol: crate::cover::ProtocolSetting::Auto,
+            hook: None,
         }
     }
 }

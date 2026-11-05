@@ -40,6 +40,14 @@ impl ConfigError {
 /// the TUI model's own type, which `tui_state` hands it.
 pub use tidal_player_core::ui::LibraryLayout;
 
+/// `player_event_hook_command` (spec 0025): the command run on each player
+/// event, and the arguments that come before the event's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookCommand {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
 /// What `app.toml` sets; `None`: not set there (the layer below the
 /// environment falls through to the default).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -70,6 +78,8 @@ pub struct AppConfig {
     pub key_hints_delay_ms: Option<u64>,
     /// Spec 0019: whether the TUI asks before removing.
     pub confirm_removals: Option<bool>,
+    /// Spec 0025: the command run on each player event.
+    pub player_event_hook_command: Option<HookCommand>,
     /// Spec 0016: whether the TUI draws the album cover.
     pub cover_img: Option<bool>,
     /// Spec 0016: the playback window's height with the cover.
@@ -1856,5 +1866,93 @@ mod tests {
                 .map_err(str::to_owned);
             assert_eq!(got, want, "{name}");
         }
+    }
+
+    /// Spec 0025 AC1: the setting, and everything it refuses.
+    #[test]
+    fn ac1_player_event_hook_command() {
+        let path = Path::new("/c/app.toml");
+        let good = [
+            (
+                "command = \"a.sh\"",
+                HookCommand {
+                    command: "a.sh".into(),
+                    args: Vec::new(),
+                },
+            ),
+            (
+                "command = \"a.sh\", args = [\"-b\", \"c d\"]",
+                HookCommand {
+                    command: "a.sh".into(),
+                    args: vec!["-b".into(), "c d".into()],
+                },
+            ),
+        ];
+        for (table, want) in good {
+            let text = format!("player_event_hook_command = {{ {table} }}");
+            let got = parse_app_toml(path, &text).unwrap_or_else(|e| panic!("{table}: {e}"));
+            assert_eq!(got.player_event_hook_command, Some(want), "{table}");
+        }
+        let key = "player_event_hook_command";
+        let bad = [
+            (
+                format!("{key} = \"a.sh\""),
+                format!(
+                    "/c/app.toml: invalid {key}: expected a table with command and args, got \"a.sh\""
+                ),
+            ),
+            (
+                format!("{key} = {{ args = [] }}"),
+                format!(
+                    "/c/app.toml: invalid {key}.command: expected a non-empty string, got nothing"
+                ),
+            ),
+            (
+                format!("{key} = {{ command = \"\" }}"),
+                format!(
+                    "/c/app.toml: invalid {key}.command: expected a non-empty string, got \"\""
+                ),
+            ),
+            (
+                format!("{key} = {{ command = 1 }}"),
+                format!("/c/app.toml: invalid {key}.command: expected a non-empty string, got 1"),
+            ),
+            (
+                format!("{key} = {{ command = \"a.sh\", args = \"-b\" }}"),
+                format!(
+                    "/c/app.toml: invalid {key}.args: expected an array of strings, got \"-b\""
+                ),
+            ),
+            (
+                format!("{key} = {{ command = \"a.sh\", args = [1] }}"),
+                format!(
+                    "/c/app.toml: invalid {key}.args: expected an array of strings, got an array containing 1"
+                ),
+            ),
+            (
+                format!("{key} = {{ command = \"a.sh\", shell = true }}"),
+                format!("/c/app.toml: unknown setting \"{key}.shell\""),
+            ),
+        ];
+        for (text, want) in bad {
+            let got = parse_app_toml(path, &text).map(|_| ()).map_err(|e| e.0);
+            assert_eq!(got, Err(want), "{text}");
+        }
+    }
+
+    /// Spec 0025 AC13: what `app.toml` says is in the settings every player
+    /// starts from.
+    #[test]
+    fn ac13_hook_reaches_the_settings() {
+        let path = Path::new("/c/app.toml");
+        let text = "player_event_hook_command = { command = \"a.sh\" }";
+        let file = parse_app_toml(path, text).expect("it parses");
+        let settings =
+            crate::play::resolve_player_config_with(&file, |_| None).expect("the settings resolve");
+        assert_eq!(settings.hook, file.player_event_hook_command);
+        assert!(settings.hook.is_some());
+        let none = crate::play::resolve_player_config_with(&AppConfig::default(), |_| None)
+            .expect("the settings resolve");
+        assert_eq!(none.hook, None);
     }
 }

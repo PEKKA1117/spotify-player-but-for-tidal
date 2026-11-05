@@ -6,6 +6,7 @@ pub mod config;
 pub mod cover;
 pub mod covers;
 pub mod daemon;
+pub mod hook;
 pub mod http_source;
 pub mod input;
 pub mod ipc;

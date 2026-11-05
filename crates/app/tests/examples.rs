@@ -230,3 +230,19 @@ fn ac14_example_theme_toml_loads() {
     let file = parse_app_toml(&path, &text).unwrap();
     assert_eq!(file.theme.as_deref(), Some("default"));
 }
+
+/// Spec 0025 AC15: `examples/app.toml` shows the hook commented out, so
+/// copying the file runs nothing, and the line works once uncommented.
+#[test]
+fn ac15_example_shows_the_hook() {
+    let (path, text) = example("app.toml");
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("# player_event_hook_command = "))
+        .expect("the commented example");
+    let config = parse_app_toml(&path, line.trim_start_matches("# "))
+        .expect("the example parses once uncommented");
+    assert!(config.player_event_hook_command.is_some());
+    let file = parse_app_toml(&path, &text).expect("examples/app.toml parses");
+    assert_eq!(file.player_event_hook_command, None);
+}

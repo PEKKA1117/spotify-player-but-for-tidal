@@ -1,5 +1,6 @@
 //! See docs/specs/0001-architecture.md.
 
+pub mod hook;
 pub mod item;
 pub mod library;
 pub mod lyrics;

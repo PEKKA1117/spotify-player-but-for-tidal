@@ -33,7 +33,7 @@ The event's arguments follow `args`, so with the example above a track change ru
 | `Changed` | `TRACK_ID` | A track starts: its first frame was written, or playback moved into it gaplessly. This includes a repeat of the same track, playing a track again after a stop and starting a restored track at its saved position |
 | `Playing` | `TRACK_ID POSITION_MS` | Playback starts or resumes: right after `Changed`, or on leaving a pause |
 | `Paused` | `TRACK_ID POSITION_MS` | A playing track is paused |
-| `Stopped` | `TRACK_ID POSITION_MS` | A playing or paused track stops: `Stop`, the queue ran out or was cleared, or the player is shutting down |
+| `Stopped` | `TRACK_ID POSITION_MS` | The player stops with a track started since the last `Stopped`: `Stop`, the queue ran out or was cleared, a skip that found nothing to play, or the player is shutting down. `TRACK_ID` is the track that last started |
 | `EndOfTrack` | `TRACK_ID` | The track played to its end, gaplessly or not. A skip or a stop is not an end |
 | `Seeked` | `TRACK_ID POSITION_MS` | The position of a playing or paused track was changed by hand |
 | `VolumeChanged` | `PERCENT` | The volume heard changed: `0` to `100`, and `0` while muted |
@@ -62,7 +62,7 @@ So a script needs no Tidal session to show or scrobble what plays.
 
 The commands of one player run one at a time, in the order of their events, on a thread of their own: playback never waits for one.
 
-- **Waiting events**: at most 64. When it is full the oldest is dropped. A waiting `Seeked` or `VolumeChanged` is replaced in place by a newer event of its kind, so holding a key costs one run, not hundreds
+- **Waiting events**: at most 64. When it is full the oldest is dropped. A `Seeked` or `VolumeChanged` that is last in line is replaced by a newer event of its kind, so holding a key costs one run, not hundreds, and the order of events never changes
 - **Time limit**: a command still running after 30 s is killed, and the next one runs
 - **Input and output**: stdin and stdout are `/dev/null`. stderr is the player's stderr under the daemon and `play`, which is the journal under systemd, and `/dev/null` in standalone, where it would draw over the TUI
 
@@ -87,13 +87,13 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 
 1. **AC1 Setting**: `player_event_hook_command` in `app.toml` takes a table with `command` (a non-empty string) and optional `args` (an array of strings). Anything else (a string, an empty `command`, a missing `command`, an unknown field, `args` that is not an array of strings) is an `app.toml` error with exit 2, in 0008's wording. Without it no hook runs and no thread is started
 2. **AC2 Track events**: from the state before and after an input, `Changed` and `Playing` run for a started track (a repeat and a play after a stop included), `Playing` for leaving a pause, `Paused` for pausing a playing track, and `EndOfTrack` only for a track that played to its end, in the order of "Events"
-3. **AC3 Stopped**: `Stopped` runs when a playing or paused track stops, by `Stop`, an empty queue or a cleared queue, and names the track that stopped even when it left the queue
+3. **AC3 Stopped**: `Stopped` runs once when the player stops after a track started, by `Stop`, an empty queue, a cleared queue or a skip that found nothing to play, and names the track that last started even when it left the queue; a player that stops without a track having started runs nothing
 4. **AC4 Seeked**: `Seeked` runs with the new position for a seek on a playing or paused track and for `Previous` restarting it, and not for a seek while stopped or loading, a seek to the same position or a `Previous` that moves to another track
 5. **AC5 Volume**: `VolumeChanged` runs when the volume heard changes, `0` while muted, and not for a change that leaves it the same
 6. **AC6 Device**: `DeviceChanged` runs when `device` changes, and moving a playing track to another device runs no `Changed`, `Playing` or `Seeked`
-7. **AC7 Silence**: loading, buffering, recovering from buffering, releasing the output while paused, a pause held over a load, queue edits and a restored session run nothing; quickly skipping past tracks that never start runs nothing for them
+7. **AC7 Silence**: loading, buffering, recovering from buffering, releasing the output while paused, pausing a track still loading, queue edits and a restored session run nothing; quickly skipping past tracks that never start runs nothing for them. A track that starts under such a pause runs `Changed` alone, and `Playing` when it resumes
 8. **AC8 Arguments and environment**: the command gets `args`, then the event's name and arguments; events about a track set the four variables as "The environment" says, an absent album or duration leaving its variable unset, and `VolumeChanged` and `DeviceChanged` set none of them
-9. **AC9 Queue**: events run one at a time in order; the 65th waiting event drops the oldest; a waiting `Seeked` or `VolumeChanged` is replaced in place by a newer one of its kind
+9. **AC9 Queue**: events run one at a time in order; the 65th waiting event drops the oldest; a `Seeked` or `VolumeChanged` last in line is replaced by a newer one of its kind, and one with another event behind it is not
 10. **AC10 Real sequences**: driven through `PlayerRuntime` with a fake engine, a gapless transition, a non-gapless end, the end of the queue and a skip give the sequences "Events" says, and a skip gives no `EndOfTrack`
 11. **AC11 Failures**: a command that cannot start, a non-zero exit and a timeout each give their message once as the player's message; a later failure says nothing until a success; a success re-arms it; playback is unchanged throughout
 12. **AC12 Never blocks**: `PlayerRuntime::handle` returns while a hook command is still running
@@ -112,6 +112,7 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 | The same track twice in a row in the queue | `EndOfTrack`, then `Changed` for the second: they are two entries |
 | A track that fails to start | No `Changed`: it never played. The skip it causes runs nothing either |
 | Removing the playing track from the queue | What the player does (0004) decides: stopping gives `Stopped` with the removed track |
+| A skip whose track fails, with nothing left to play | `Stopped` with the track that last started: a status bar must not keep showing it |
 | The output is released while paused, then resumes | `Paused` and `Playing` only: `released` is not an event |
 | A seek past the end | The player's behaviour (0004): a seek that ends the track gives `EndOfTrack` if the engine reports an end |
 | Mute, then unmute | `VolumeChanged 0`, then `VolumeChanged PERCENT` |
@@ -130,11 +131,11 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 | AC6 | `crates/core/src/hook/tests.rs` :: `ac6_device` + `crates/app/src/player_runtime.rs` :: `ac6_device_move_runs_only_device_changed` | the event; a move of a playing track through the runtime | no events derived; nothing recorded |
 | AC7 | `crates/core/src/hook/tests.rs` :: `ac7_silence` (table) | no events for each case | a stub deriving events for every change fails it |
 | AC8 | `crates/core/src/hook/tests.rs` :: `ac8_arguments_and_environment` (table) | argv and variables per event; absent album and duration | empty argv |
-| AC9 | `crates/core/src/hook/tests.rs` :: `ac9_queue` (table) | order, the limit, replacement in place | queue keeps nothing |
+| AC9 | `crates/core/src/hook/tests.rs` :: `ac9_queue` (table) + `crates/app/src/hook.rs` :: `ac9_one_at_a_time` | order, the limit, replacement of the last; never two commands at once | queue keeps nothing; nothing runs |
 | AC10 | `crates/app/src/player_runtime.rs` :: `ac10_real_sequences` (table) | recorded events for the four sequences | nothing recorded |
 | AC11 | `crates/app/src/hook.rs` :: `ac11_failures` (table, fake runner) | messages and their re-arming | no message reported |
 | AC12 | `crates/app/src/hook.rs` :: `ac12_never_blocks` | a runner held on a barrier; `send` returns at once | the send waits |
-| AC13 | `crates/app/src/play.rs` :: `ac13_hook_per_run_mode` (table) + hands-on check | the settings reach standalone, daemon and `play`; a client gets none | settings carry no hook |
+| AC13 | `crates/app/src/config.rs` :: `ac13_hook_reaches_the_settings` + hands-on check | `app.toml`'s command is in the settings all three players start from; the check above runs it with a TUI attached, since `main` starts the players and has no seam | settings carry no hook |
 | AC14 | `crates/app/src/hook.rs` :: `ac14_shutting_down` + `crates/app/src/player_runtime.rs` :: `ac14_shutdown_sends_stopped` | the 2 s limit with a stuck runner; `Stopped` for playing and paused, none when stopped | no drain; nothing recorded |
 | AC15 | `crates/app/tests/examples.rs` (the example parses) + reviewed at acceptance | docs read by hand: prose has no automated check | the commented example is not found |
 | AC16 | `crates/app/tests/hook.rs` :: `ac16_real_process` | a `/bin/sh` script writes what it got to a file; a sleeping one is killed at a short limit | no process runs |
@@ -143,7 +144,7 @@ Checked by hand at acceptance, against the live API: the release build as a daem
 
 ## Crate placement
 
-- `tidal-player-core`, new `hook` module: `HookEvent`, deriving events from two snapshots, argv and environment of an event, the waiting queue. All pure
+- `tidal-player-core`, new `hook` module: `HookEvent`, `HookTracker` (events from the snapshots around an input, remembering the track that last started), argv and environment of an event, the waiting queue. All pure
 - `tidal-player` (`crates/app`), new `hook` module: the worker thread, the failure reporting and the process behind a `Runner` seam
 - `crates/app/src/player_runtime.rs`: `handle` takes the snapshot before an input when a hook is set too, and hands the events to the hook. `Command`, `Event` and the socket protocol do not change
 - A failure reaches the player as a new `RuntimeInput::HookFailed(String)`, turned into `PlayerInput::Notice` as a failed save is
@@ -157,7 +158,7 @@ Verified in the code at `463e3e5`:
 - `PlayerSnapshot.position` follows the engine's `Position` events, and `device` is the selected device
 - No `tracing` subscriber is installed anywhere in the workspace, so `tracing::warn!` writes nothing: the issue's "logged" cannot mean `tracing`
 - At `Shutdown` the runtime skips `track_change`, so the snapshot does not show a stop: `Stopped` needs its own case
-- `Command::Previous` is not in `handle`'s seek check, though it can restart the track: the hook's check adds it, and `Seeked` needs the same `current` and a changed position, so a `Previous` that moves to another track or a seek to the same position runs no `Seeked`
+- `Command::Previous` is not in `handle`'s seek check, though it can restart the track (a `seek_to(0)`): the hook's check adds it, and `Seeked` needs the same `current` and a changed position, so a `Previous` that moves to another track or a seek to the same position runs no `Seeked`
 
 Assumptions, to confirm while implementing; a wrong one comes back to this spec:
 
