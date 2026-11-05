@@ -324,8 +324,8 @@ pub struct Window {
     pub list: ListRef,
     /// The loaded rows.
     pub rows: Rows,
-    /// Each loaded row's position in Tidal's list (`offset` + index in its
-    /// page): a playlist removal is addressed by it.
+    /// Each loaded row's position in Tidal's list, dropped videos counted
+    /// ([`ListPage::position`]): a playlist removal is addressed by it.
     pub positions: Vec<u32>,
     /// Tidal's total, known from the first page; `None` before it.
     pub total: Option<u32>,
@@ -612,7 +612,7 @@ impl Window {
             page: &ListPage<T>,
         ) {
             for (i, item) in page.items.iter().enumerate() {
-                let position = page.offset + i as u32;
+                let position = page.position(i);
                 if !positions.contains(&position) {
                     rows.push(item.clone());
                     positions.push(position);

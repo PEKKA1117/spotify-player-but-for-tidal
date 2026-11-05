@@ -82,6 +82,16 @@ pub struct ListPage<T> {
     pub positions: Vec<u32>,
 }
 
+impl<T> ListPage<T> {
+    /// Item `index`'s position in Tidal's list.
+    pub fn position(&self, index: usize) -> u32 {
+        self.positions
+            .get(index)
+            .copied()
+            .unwrap_or(self.offset + index as u32)
+    }
+}
+
 /// One page of any list, tagged by its row type: the answer to
 /// [`LibraryRequest::More`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

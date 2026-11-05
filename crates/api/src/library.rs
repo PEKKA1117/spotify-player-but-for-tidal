@@ -632,7 +632,8 @@ impl LibraryClient {
         Ok(page.map(|t| Some(Track::from(t)), offset))
     }
 
-    /// Items that are not tracks (videos) are left out.
+    /// Items that are not tracks (videos) are left out, and the page names
+    /// the positions of the rest (spec 0006 AC21).
     async fn playlist_tracks(
         &self,
         uuid: &str,
@@ -649,14 +650,22 @@ impl LibraryClient {
                 "playlist",
             )
             .await?;
+        let listed = page.items.len();
         let mut malformed = false;
-        let page = page.map(
+        let mut next = offset;
+        let mut positions = Vec::with_capacity(listed);
+        let mut page = page.map(
             |e| {
+                let position = next;
+                next += 1;
                 if e.kind != "track" {
                     return None;
                 }
                 match serde_json::from_value::<TrackDto>(e.item) {
-                    Ok(dto) => Some(Track::from(dto)),
+                    Ok(dto) => {
+                        positions.push(position);
+                        Some(Track::from(dto))
+                    }
                     Err(_) => {
                         malformed = true;
                         None
@@ -667,6 +676,9 @@ impl LibraryClient {
         );
         if malformed {
             return Err(LibraryError::Malformed("playlist"));
+        }
+        if page.items.len() < listed {
+            page.positions = positions;
         }
         Ok(page)
     }
