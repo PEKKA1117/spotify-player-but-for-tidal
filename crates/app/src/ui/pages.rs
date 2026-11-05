@@ -16,7 +16,10 @@ use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::ui::{
     Header, HelpSection, Hints, LibraryLayout, Load, LyricsContent, LyricsView, NEW_PLAYLIST,
     PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme,
-    Window, WindowKind, device_rows, popup, select, theme::Component,
+    Window, WindowKind, device_rows,
+    popup::{self, DESCRIPTION, NEW_DESCRIPTION, PlaylistField},
+    select,
+    theme::Component,
 };
 
 use super::theme::of;
@@ -100,17 +103,22 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         height: area.height - 1,
         ..area
     };
-    // A mix page (spec 0011): its subtitle as a second, dim title row
-    // when the page is tall enough.
-    if let Some(Header::Mix(MixSummary {
-        subtitle: Some(subtitle),
-        ..
-    })) = &page.header
+    // A mix's subtitle (spec 0011) or a playlist's description (spec 0022)
+    // as a second, dim title row when the page is tall enough.
+    let subtitle = match &page.header {
+        Some(Header::Mix(MixSummary { subtitle, .. })) => subtitle.clone(),
+        Some(Header::Playlist { playlist, .. }) => playlist
+            .description
+            .as_ref()
+            .map(|text| text.lines().collect::<Vec<_>>().join(" ")),
+        _ => None,
+    };
+    if let Some(subtitle) = subtitle
         && area.height >= MIX_SUBTITLE_HEIGHT
     {
         frame.render_widget(
             Paragraph::new(Line::styled(
-                fit(subtitle, width),
+                fit(&subtitle, width),
                 of(look, Component::PlaylistDesc),
             )),
             Rect { height: 1, ..body },
@@ -822,8 +830,24 @@ pub(super) fn render_popup(state: &State, frame: &mut Frame, page: Option<Rect>,
         return;
     };
     let look = state.theme();
-    if let Popup::NewPlaylist { name, .. } = popup {
-        draw_prompt(frame, prompt_row, look, PLAYLIST_NAME, name);
+    let prompt = match popup {
+        Popup::NewPlaylist {
+            name,
+            description: None,
+            ..
+        } => Some((PLAYLIST_NAME, name)),
+        Popup::NewPlaylist {
+            description: Some(text),
+            ..
+        } => Some((NEW_DESCRIPTION, text)),
+        Popup::EditPlaylist { field, text, .. } => Some(match field {
+            PlaylistField::Title => (PLAYLIST_NAME, text),
+            PlaylistField::Description => (DESCRIPTION, text),
+        }),
+        _ => None,
+    };
+    if let Some((label, text)) = prompt {
+        draw_prompt(frame, prompt_row, look, label, text);
         return;
     }
     let Some(page) = page else {

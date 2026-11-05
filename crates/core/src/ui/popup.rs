@@ -540,6 +540,21 @@ pub fn playlist_actions(playlist: &PlaylistSummary) -> Vec<MenuAction> {
         MenuAction::PlayNext(item),
     ];
     if playlist.own {
+        let (uuid, title) = (playlist.uuid.clone(), playlist.title.clone());
+        actions.push(MenuAction::RenamePlaylist {
+            uuid: uuid.clone(),
+            title: title.clone(),
+        });
+        actions.push(MenuAction::EditDescription {
+            uuid: uuid.clone(),
+            title: title.clone(),
+            description: playlist.description.clone().unwrap_or_default(),
+        });
+        actions.push(MenuAction::SetPublic {
+            uuid,
+            title,
+            public: !playlist.public,
+        });
         actions.push(MenuAction::DeletePlaylist {
             uuid: playlist.uuid.clone(),
             title: playlist.title.clone(),

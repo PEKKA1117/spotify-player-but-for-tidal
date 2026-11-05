@@ -1131,6 +1131,20 @@ fn ac13_actions_popup() {
                     M::Open(PageKind::Playlist("p1".into())),
                     M::AddToQueue(p1.clone()),
                     M::PlayNext(p1),
+                    M::RenamePlaylist {
+                        uuid: "p1".into(),
+                        title: "Mine".into(),
+                    },
+                    M::EditDescription {
+                        uuid: "p1".into(),
+                        title: "Mine".into(),
+                        description: String::new(),
+                    },
+                    M::SetPublic {
+                        uuid: "p1".into(),
+                        title: "Mine".into(),
+                        public: true,
+                    },
                     M::DeletePlaylist {
                         uuid: "p1".into(),
                         title: "Mine".into(),
@@ -3607,7 +3621,13 @@ fn ac6_actions_of_a_playlist() {
     assert_eq!(labels(&own(true)), edit("Make private"));
     assert_eq!(
         labels(&playlist("p2", "Theirs", false)),
-        vec!["Open", "Add to queue", "Play next", "Add to favorites"]
+        vec![
+            "Open",
+            "Add to queue",
+            "Play next",
+            "Add to favorites",
+            "Remove from favorites"
+        ]
     );
 }
 
@@ -3628,7 +3648,8 @@ fn ac7_edit_prompts() {
     let rename = "Rename…";
     let describe = "Edit description…";
     // (name, action, the text it opens with, keys, what is sent)
-    let rows: Vec<(&str, &str, &str, Vec<Key>, Vec<Out>)> = vec![
+    type Row<'a> = (&'a str, &'a str, &'a str, Vec<Key>, Vec<Out>);
+    let rows: Vec<Row> = vec![
         (
             "a name",
             rename,

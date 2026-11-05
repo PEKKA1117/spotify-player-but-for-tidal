@@ -9,12 +9,12 @@ use crate::track::Track;
 use super::dispatch::step;
 use super::keymap::{ActionBinding, ActionKind, Target, UiCommand};
 use super::page::{
-    Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind, group,
-    is_search_list, largest_page,
+    Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind,
+    group, is_search_list, largest_page,
 };
 use super::popup::{
-    self, Confirmed, DeviceList, MenuAction, Popup, Removal, RemoveFrom, Removed, RemovedTarget,
-    TrackSource, device_rows,
+    self, Confirmed, DeviceList, MenuAction, PlaylistField, Popup, Removal, RemoveFrom, Removed,
+    RemovedTarget, TrackSource, device_rows,
 };
 use super::{Connection, DISCONNECTED, Effect, Key, SHUT_DOWN, State, filter, select};
 
@@ -78,6 +78,25 @@ pub enum Write {
         uuid: String,
         title: String,
     },
+    /// A rename, a description, public or private: `done` is the message.
+    Edit {
+        uuid: String,
+        done: String,
+    },
+    /// A move to position `to` (spec 0022).
+    Move {
+        uuid: String,
+        to: u32,
+    },
+}
+
+/// A move on its way (spec 0022 "Holding the key"): the page it started on
+/// and where the screen has the track now, which is ahead of Tidal when
+/// keys were pressed since.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Moving {
+    page: usize,
+    screen: u32,
 }
 
 /// Whether requests can reach the player.
@@ -656,6 +675,7 @@ fn names(kind: ActionKind, action: &MenuAction) -> bool {
 pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>> {
     match (state.popup.as_mut()?, key) {
         (Popup::NewPlaylist { .. }, _) => Some(name_key(state, key)),
+        (Popup::EditPlaylist { .. }, _) => Some(edit_key(state, key)),
         (Popup::Confirm { .. }, Key::Char('y')) => match state.popup.take() {
             Some(Popup::Confirm { on_yes, .. }) => Some(confirmed(state, on_yes)),
             _ => Some(Vec::new()),
@@ -700,40 +720,54 @@ pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>
     }
 }
 
-/// A key in the new-playlist name prompt: it edits the name; `Enter`
-/// creates the playlist (closing the prompt), `Esc` closes it.
+/// A key that edits a prompt's `text`.
+fn edit_text(text: &mut String, key: Key) {
+    match key {
+        Key::Char(c) => text.push(c),
+        Key::Backspace => {
+            text.pop();
+        }
+        _ => {}
+    }
+}
+
+/// A key in the new-playlist prompts: `Enter` goes from the name to the
+/// description (a blank name closes the prompt), then creates the playlist;
+/// `Esc` closes them.
 fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
     let Some(Popup::NewPlaylist {
         tracks,
         mut name,
-        description,
+        mut description,
     }) = state.popup.take()
     else {
         return Vec::new();
     };
-    match key {
-        Key::Esc => state.selection_add = None,
-        Key::Enter => {
-            let title = name.trim().to_owned();
-            if !title.is_empty() {
-                return write(
-                    state,
-                    LibraryRequest::CreatePlaylist {
-                        title: title.clone(),
-                        description: String::new(),
-                    },
-                    Write::Create { title, tracks },
-                );
+    match (key, &description) {
+        (Key::Esc, _) => state.selection_add = None,
+        (Key::Enter, None) => {
+            if !name.trim().is_empty() {
+                state.popup = Some(Popup::NewPlaylist {
+                    tracks,
+                    name,
+                    description: Some(String::new()),
+                });
             }
         }
+        (Key::Enter, Some(text)) => {
+            let title = name.trim().to_owned();
+            let description = text.trim().to_owned();
+            return write(
+                state,
+                LibraryRequest::CreatePlaylist {
+                    title: title.clone(),
+                    description,
+                },
+                Write::Create { title, tracks },
+            );
+        }
         _ => {
-            match key {
-                Key::Char(c) => name.push(c),
-                Key::Backspace => {
-                    name.pop();
-                }
-                _ => {}
-            }
+            edit_text(description.as_mut().unwrap_or(&mut name), key);
             state.popup = Some(Popup::NewPlaylist {
                 tracks,
                 name,
@@ -742,6 +776,197 @@ fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
         }
     }
     Vec::new()
+}
+
+/// A key in the prompt of *Rename…* or *Edit description…*: `Enter` saves
+/// what changed (a blank name is refused: Tidal ignores an empty one and
+/// stores spaces, spec 0022), `Esc` closes it.
+fn edit_key(state: &mut State, key: Key) -> Vec<Effect> {
+    let Some(Popup::EditPlaylist {
+        uuid,
+        title,
+        field,
+        original,
+        mut text,
+    }) = state.popup.take()
+    else {
+        return Vec::new();
+    };
+    match key {
+        Key::Esc => Vec::new(),
+        Key::Enter => {
+            let new = text.trim().to_owned();
+            if new == original.trim() || (field == PlaylistField::Title && new.is_empty()) {
+                return Vec::new();
+            }
+            let (request, done) = match field {
+                PlaylistField::Title => (
+                    LibraryRequest::EditPlaylist {
+                        uuid: uuid.clone(),
+                        title: Some(new.clone()),
+                        description: None,
+                    },
+                    format!("Renamed {new}"),
+                ),
+                PlaylistField::Description => (
+                    LibraryRequest::EditPlaylist {
+                        uuid: uuid.clone(),
+                        title: None,
+                        description: Some(new),
+                    },
+                    format!("Saved the description of {title}"),
+                ),
+            };
+            write(state, request, Write::Edit { uuid, done })
+        }
+        _ => {
+            edit_text(&mut text, key);
+            state.popup = Some(Popup::EditPlaylist {
+                uuid,
+                title,
+                field,
+                original,
+                text,
+            });
+            Vec::new()
+        }
+    }
+}
+
+/// `N` on the library page (spec 0022).
+pub(super) fn create_playlist(state: &mut State) {
+    if state.page().kind == PageKind::Library {
+        state.popup = Some(Popup::NewPlaylist {
+            tracks: None,
+            name: String::new(),
+            description: None,
+        });
+    }
+}
+
+/// `C-j`/`C-k` (spec 0022): the row under the cursor swaps with its
+/// neighbour at once; the request goes now, or when the one on its way is
+/// answered ([`moved`]).
+pub(super) fn move_item(state: &mut State, down: bool) -> Vec<Effect> {
+    let index = top(state);
+    let page = &state.history[index];
+    let focus = page.focus;
+    let window = page
+        .windows
+        .get(focus)
+        .filter(|w| w.kind == WindowKind::PlaylistTracks);
+    let (Some(_), Some(window), Load::Idle, true) = (
+        page.own_playlist(),
+        window,
+        &page.load,
+        page.windows_focused(),
+    ) else {
+        return Vec::new();
+    };
+    if window.filter.active() {
+        state.message = Some("Clear the filter to move tracks".into());
+        return Vec::new();
+    }
+    if window.selection.motion() {
+        state.message = Some("Leave motion mode to move tracks".into());
+        return Vec::new();
+    }
+    let Some(row) = window.index(window.cursor) else {
+        return Vec::new();
+    };
+    let from = window.positions[row];
+    if let Some(moving) = &state.moving
+        && (moving.page != index || moving.screen != from)
+    {
+        return Vec::new();
+    }
+    if state.moving.is_none() && !connected(state) {
+        return Vec::new();
+    }
+    let neighbour = if down { row + 1 } else { row.wrapping_sub(1) };
+    if neighbour >= window.rows.len() {
+        let mut effects = Vec::new();
+        if down {
+            near_end(state, index, focus, &mut effects);
+        }
+        return effects;
+    }
+    let etag = page.etag().unwrap_or_default().to_owned();
+    let PageKind::Playlist(uuid) = page.kind.clone() else {
+        return Vec::new();
+    };
+
+    let window = &mut state.history[index].windows[focus];
+    window.move_row(row, neighbour);
+    window.selection.swap(row, neighbour);
+    window.cursor = neighbour;
+    let to = window.positions[neighbour];
+    let mut effects = Vec::new();
+    if let Some(moving) = &mut state.moving {
+        moving.screen = to;
+    } else {
+        state.moving = Some(Moving {
+            page: index,
+            screen: to,
+        });
+        effects = send_move(state, uuid, from, to, etag);
+    }
+    near_end(state, index, focus, &mut effects);
+    effects
+}
+
+/// Sends a move; with no connection there is nothing on its way.
+fn send_move(state: &mut State, uuid: String, from: u32, to: u32, etag: String) -> Vec<Effect> {
+    let request = LibraryRequest::MovePlaylistItem {
+        uuid: uuid.clone(),
+        from,
+        to,
+        etag,
+    };
+    let (effects, id) = write_id(state, request, Write::Move { uuid, to });
+    if id.is_none() {
+        state.moving = None;
+    }
+    effects
+}
+
+/// A move's answer: the page keeps the new ETag and what was pressed since
+/// goes in one request; a failure drops that and shows Tidal's order.
+fn moved(
+    state: &mut State,
+    uuid: String,
+    to: u32,
+    result: Result<LibraryResponse, String>,
+    effects: &mut Vec<Effect>,
+) {
+    let Some(moving) = state.moving.take() else {
+        return;
+    };
+    let etag = match result {
+        Ok(LibraryResponse::Moved { etag: Some(etag) }) => etag,
+        other => {
+            if let Err(message) = other {
+                state.message = Some(message);
+            }
+            refetch(
+                state,
+                |k| matches!(k, PageKind::Playlist(u) if *u == uuid),
+                effects,
+            );
+            return;
+        }
+    };
+    if let Some(page) = state.history.get_mut(moving.page)
+        && page.kind == PageKind::Playlist(uuid.clone())
+        && let Some(Header::Playlist { etag: held, .. }) = &mut page.header
+    {
+        *held = Some(etag.clone());
+    }
+    if moving.screen != to {
+        let screen = moving.screen;
+        state.moving = Some(moving);
+        effects.extend(send_move(state, uuid, to, screen, etag));
+    }
 }
 
 /// A command while a popup is open: only the popup's act (the list
@@ -1009,9 +1234,50 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
                 }],
             },
         ),
-        MenuAction::RenamePlaylist { .. }
-        | MenuAction::EditDescription { .. }
-        | MenuAction::SetPublic { .. } => Vec::new(),
+        MenuAction::RenamePlaylist { uuid, title } => {
+            state.popup = Some(Popup::EditPlaylist {
+                uuid,
+                original: title.clone(),
+                text: title.clone(),
+                title,
+                field: PlaylistField::Title,
+            });
+            Vec::new()
+        }
+        MenuAction::EditDescription {
+            uuid,
+            title,
+            description,
+        } => {
+            // The prompt is one line.
+            let text = description.lines().collect::<Vec<_>>().join(" ");
+            state.popup = Some(Popup::EditPlaylist {
+                uuid,
+                title,
+                field: PlaylistField::Description,
+                original: text.clone(),
+                text,
+            });
+            Vec::new()
+        }
+        MenuAction::SetPublic {
+            uuid,
+            title,
+            public,
+        } => {
+            let done = format!(
+                "{title} is now {}",
+                if public { "public" } else { "private" }
+            );
+            write(
+                state,
+                LibraryRequest::SetPlaylistPublic {
+                    uuid: uuid.clone(),
+                    public,
+                },
+                Write::Edit { uuid, done },
+            )
+        }
         MenuAction::DeletePlaylist { uuid, title } => {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),
@@ -1392,6 +1658,10 @@ fn written(
     result: Result<LibraryResponse, String>,
     effects: &mut Vec<Effect>,
 ) {
+    if let Write::Move { uuid, to } = write {
+        moved(state, uuid, to, result, effects);
+        return;
+    }
     let response = match result {
         Ok(response) => response,
         Err(message) => {
@@ -1458,12 +1728,23 @@ fn written(
             state.message = Some(format!("Deleted {title}"));
             refetch(state, |k| *k == PageKind::Library, effects);
         }
+        Write::Edit { uuid, done } => {
+            state.message = Some(done);
+            refetch(
+                state,
+                |k| *k == PageKind::Library || matches!(k, PageKind::Playlist(u) if *u == uuid),
+                effects,
+            );
+        }
+        // Answered above.
+        Write::Move { .. } => {}
     }
 }
 
 /// The connection is gone: pending loads fail with its message, pending
 /// writes and a whole-list load are dropped.
 pub(super) fn disconnected(state: &mut State) {
+    state.moving = None;
     let message = connection_message(state);
     let fail = |load: &mut Load| {
         if matches!(load, Load::Loading { .. }) {

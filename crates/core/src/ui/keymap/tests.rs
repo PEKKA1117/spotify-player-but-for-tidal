@@ -344,7 +344,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 50] = [
+const DEFAULTS: [(&[&str], &str); 53] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -386,6 +386,9 @@ const DEFAULTS: [(&[&str], &str); 50] = [
     (&["]"], "NextTab"),
     (&["["], "PreviousTab"),
     (&["f"], "RoleFilter"),
+    (&["N"], "CreatePlaylist"),
+    (&["C-k"], "MovePlaylistItemUp"),
+    (&["C-j"], "MovePlaylistItemDown"),
     (&["z"], "Queue"),
     (&["g l"], "LibraryPage"),
     (&["g y"], "LikedTrackPage"),
@@ -838,6 +841,14 @@ fn acting(command: UiCommand) -> State {
         }
         C::FocusNextWindow | C::FocusPreviousWindow | C::PreviousPage | C::Queue => library(0, 0),
         C::AddSelectedItemToQueue => library(1, 0),
+        // Spec 0022: the library, and a row with a neighbour on that side.
+        C::CreatePlaylist => library(0, 0),
+        C::MovePlaylistItemDown => playlist_page(true),
+        C::MovePlaylistItemUp => {
+            let mut state = playlist_page(true);
+            press(&mut state, &[Key::Char('j')]);
+            state
+        }
         // Spec 0020: they act on a selection.
         C::SelectionActions | C::RemoveSelection => {
             let mut state = queue();

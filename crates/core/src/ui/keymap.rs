@@ -318,7 +318,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 51] = [
+pub const COMMANDS: [UiCommand; 54] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -358,6 +358,9 @@ pub const COMMANDS: [UiCommand; 51] = [
     UiCommand::NextTab,
     UiCommand::PreviousTab,
     UiCommand::RoleFilter,
+    UiCommand::CreatePlaylist,
+    UiCommand::MovePlaylistItemUp,
+    UiCommand::MovePlaylistItemDown,
     UiCommand::Queue,
     UiCommand::LibraryPage,
     UiCommand::LikedTrackPage,
@@ -628,7 +631,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 26] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 23] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -651,9 +654,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 26] = [
     "ReverseTrackOrder",
     "SortLibraryAlphabetically",
     "SortLibraryByRecent",
-    "MovePlaylistItemUp",
-    "MovePlaylistItemDown",
-    "CreatePlaylist",
     "OpenLogs",
 ];
 
@@ -1069,6 +1069,9 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Char(']'))], C::NextTab),
         (vec![one(Char('['))], C::PreviousTab),
         (vec![one(Char('f'))], C::RoleFilter),
+        (vec![one(Char('N'))], C::CreatePlaylist),
+        (vec![one(Ctrl('k'))], C::MovePlaylistItemUp),
+        (vec![one(Ctrl('j'))], C::MovePlaylistItemDown),
         (vec![one(Char('z'))], C::Queue),
         (vec![g('l')], C::LibraryPage),
         (vec![g('y')], C::LikedTrackPage),

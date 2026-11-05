@@ -242,6 +242,9 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `NextTab` | `]` | panes with tabs | next tab |
 | `PreviousTab` | `[` | panes with tabs | previous tab |
 | `RoleFilter` | `f` | the artist's *All tracks* | the role filter |
+| `CreatePlaylist` | `N` | the library | a new playlist |
+| `MovePlaylistItemUp` | `C-k` | your own playlist's page | move the track up |
+| `MovePlaylistItemDown` | `C-j` | your own playlist's page | move the track down |
 | `Queue` | `z` | everywhere | the queue page |
 | `LibraryPage` | `g l` | everywhere | the library |
 | `LikedTrackPage` | `g y` | everywhere | favorite tracks |
@@ -282,7 +285,7 @@ The three removals ask `y/n` the way the actions popup does, a bound key being n
 
 These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle`.
 
-- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `BrowsePage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `MovePlaylistItemUp`, `MovePlaylistItemDown`, `CreatePlaylist`, `OpenLogs`
+- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `BrowsePage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `OpenLogs`
 - Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
 
 A misspelt name (`NxtTrack`) is still an error.

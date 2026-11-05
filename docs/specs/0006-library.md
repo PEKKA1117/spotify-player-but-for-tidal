@@ -373,7 +373,7 @@ Verified from tidalt's code and history (2026-10-07): the list under "What tidal
 
 - Search (0007)
 - Mixes, radio and "My mixes" pages (0011); spotify-player's *GoToRadio*
-- Renaming playlists, editing their descriptions, reordering their tracks, playlist folders; making a playlist public
+- Renaming playlists, editing their descriptions, reordering their tracks, making a playlist public (0022); playlist folders (#87)
 - Caching pages or images, remembering the page history across runs (0009 left both out)
 - Cover art on pages (0004's placement rule applies when it comes)
 - Sorting and filtering lists (spotify-player's `s t`, `/` in a page), the help popup (`?`), configurable keys and page percentages (0008)

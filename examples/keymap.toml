@@ -232,6 +232,21 @@ key_sequence = "["
 command = "RoleFilter"
 key_sequence = "f"
 
+# CreatePlaylist: a new playlist (the library)
+[[keymaps]]
+command = "CreatePlaylist"
+key_sequence = "N"
+
+# MovePlaylistItemUp: moves the track up (your own playlist's page)
+[[keymaps]]
+command = "MovePlaylistItemUp"
+key_sequence = "C-k"
+
+# MovePlaylistItemDown: moves the track down (your own playlist's page)
+[[keymaps]]
+command = "MovePlaylistItemDown"
+key_sequence = "C-j"
+
 # Queue: the queue page (everywhere)
 [[keymaps]]
 command = "Queue"

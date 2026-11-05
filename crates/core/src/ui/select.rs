@@ -65,6 +65,17 @@ impl<K: Ord + Copy> Selection<K> {
         self.rows.insert(row);
     }
 
+    /// The marks of rows `a` and `b` change places (spec 0022).
+    pub(super) fn swap(&mut self, a: K, b: K) {
+        let (had_a, had_b) = (self.rows.remove(&a), self.rows.remove(&b));
+        if had_a {
+            self.rows.insert(b);
+        }
+        if had_b {
+            self.rows.insert(a);
+        }
+    }
+
     /// Selects `row`, or unselects it.
     fn toggle(&mut self, row: K) {
         if !self.rows.remove(&row) {

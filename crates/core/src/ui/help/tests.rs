@@ -348,7 +348,18 @@ fn ac7_help_sections() {
         (
             "own playlist".into(),
             playlist_page(true),
-            page_sections(("Playlist", browse_rm.clone()), false, false),
+            page_sections(
+                (
+                    "Playlist",
+                    [
+                        ROWS_RM.to_vec(),
+                        vec!["MovePlaylistItemUp", "MovePlaylistItemDown", "Search"],
+                    ]
+                    .concat(),
+                ),
+                false,
+                false,
+            ),
         ),
         (
             "followed playlist".into(),
@@ -364,7 +375,14 @@ fn ac7_help_sections() {
         cases.push((
             title.into(),
             focused(PageKind::Library, window),
-            page_sections((title, browse_rm.clone()), true, false),
+            page_sections(
+                (
+                    title,
+                    [ROWS_RM.to_vec(), vec!["CreatePlaylist", "Search"]].concat(),
+                ),
+                true,
+                false,
+            ),
         ));
     }
     for (window, title) in [

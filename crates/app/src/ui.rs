@@ -2082,16 +2082,11 @@ mod tests {
 
     fn confirm_popup() -> State {
         let mut state = library();
-        // Open, Add to queue, Play next, Delete playlist.
-        press(
-            &mut state,
-            &[
-                Key::Ctrl(' '),
-                Key::Char('j'),
-                Key::Char('j'),
-                Key::Char('j'),
-            ],
-        );
+        // Open, Add to queue, Play next, Rename…, Edit description…, Make
+        // public, Delete playlist.
+        let mut keys = vec![Key::Ctrl(' ')];
+        keys.extend([Key::Char('j'); 6]);
+        press(&mut state, &keys);
         press(&mut state, &[Key::Enter]);
         state
     }

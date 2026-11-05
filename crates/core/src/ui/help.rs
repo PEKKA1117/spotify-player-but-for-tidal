@@ -398,6 +398,10 @@ fn in_window(state: &State, at: Where, command: UiCommand) -> bool {
             | C::ShowActionsOnSelectedItem
             | C::Search => true,
             C::RoleFilter => kind == WindowKind::AllTracks,
+            C::CreatePlaylist => state.page().kind == PageKind::Library,
+            C::MovePlaylistItemUp | C::MovePlaylistItemDown => {
+                kind == WindowKind::PlaylistTracks && state.page().own_playlist().is_some()
+            }
             C::RemoveSelectedItem => browse::removable(state.page(), kind),
             _ => false,
         },
@@ -794,7 +798,9 @@ fn dim(state: &State, at: Where, command: UiCommand) -> bool {
         C::ChooseSelected
         | C::AddSelectedItemToQueue
         | C::RemoveFromQueue
-        | C::RemoveSelectedItem => offline || no_selection(state, at),
+        | C::RemoveSelectedItem
+        | C::MovePlaylistItemUp
+        | C::MovePlaylistItemDown => offline || no_selection(state, at),
         C::ShowActionsOnSelectedItem => no_selection(state, at),
         // Spec 0020: `s c` does nothing in motion mode, `s a` and `d s`
         // with nothing selected, `s a` on mixes.

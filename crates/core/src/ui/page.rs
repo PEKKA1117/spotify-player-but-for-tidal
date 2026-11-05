@@ -588,7 +588,17 @@ impl Window {
 
     /// Moves loaded row `row` to its neighbour's place `to`, as Tidal moves
     /// the item: see spec 0022 "What the player fetches and sends".
-    pub(super) fn move_row(&mut self, _row: usize, _to: usize) {}
+    pub(super) fn move_row(&mut self, row: usize, to: usize) {
+        if let Rows::Tracks(rows) = &mut self.rows {
+            rows.swap(row, to);
+        }
+        let (from_at, to_at) = (self.positions[row], self.positions[to]);
+        self.positions[row] = if from_at < to_at {
+            to_at - 1
+        } else {
+            to_at + 1
+        };
+    }
 
     /// Appends one list page asked with `limit`: rows already loaded are
     /// skipped (by ID; for a playlist's tracks by position, as a playlist
@@ -1014,6 +1024,7 @@ impl Page {
             (_, Some(Header::Playlist { playlist, .. })) => std::iter::once(playlist.title.clone())
                 .chain(tracks)
                 .chain(playlist.duration.map(clock))
+                .chain(playlist.public.then(|| "public".to_owned()))
                 .collect(),
             (_, Some(Header::Artist(artist))) => vec![artist.name.clone()],
             (_, Some(Header::Mix(mix))) => {
