@@ -245,8 +245,11 @@ fn rows(items: &ListItems) -> (&'static str, Vec<String>, (u32, u32)) {
     }
 }
 
-/// `(title, kind, row keys, more)` of each section.
-fn sections(page: PageData) -> (String, Vec<(String, &'static str, Vec<String>, BrowseMore)>) {
+/// A section as `(title, kind, row keys, more)`.
+type Shown = (String, &'static str, Vec<String>, BrowseMore);
+
+/// The page's title and its sections as [`Shown`].
+fn sections(page: PageData) -> (String, Vec<Shown>) {
     let PageData::Browse { title, sections } = page else {
         panic!("not a browse page");
     };
@@ -273,7 +276,7 @@ fn page_link(path: &str) -> BrowseRef {
 }
 
 const DISCOVERY: &str = "016214541b7a008d226272cf9d0964";
-const MIX_1: &str = "00209e91224287130d9eb3ea64016b";
+const MIX_1: &str = DISCOVERY;
 const RADIO: &str = "000c9493c96d7c4ff25f1bf7da4852";
 const SKILLET: &str = "51b42ddc-1789-4706-9570-c6b51c14b489";
 const THORO: &str = "34c543c9-bb74-4b79-91a8-feb6d815f43c";
@@ -949,7 +952,7 @@ async fn ac12_failures() {
             Ask::Page("pages/home"),
             "/v1/pages/home",
             200,
-            "[]",
+            "\"not a page\"",
             "malformed browse response from Tidal",
         ),
         (
