@@ -69,6 +69,8 @@ fn playlist(uuid: &str, title: &str, own: bool) -> PlaylistSummary {
         tracks: Some(2),
         duration: None,
         own,
+        description: None,
+        public: false,
     }
 }
 
@@ -342,7 +344,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 50] = [
+const DEFAULTS: [(&[&str], &str); 53] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -384,6 +386,9 @@ const DEFAULTS: [(&[&str], &str); 50] = [
     (&["]"], "NextTab"),
     (&["["], "PreviousTab"),
     (&["f"], "RoleFilter"),
+    (&["N"], "CreatePlaylist"),
+    (&["C-k"], "MovePlaylistItemUp"),
+    (&["C-j"], "MovePlaylistItemDown"),
     (&["z"], "Queue"),
     (&["g l"], "LibraryPage"),
     (&["g y"], "LikedTrackPage"),
@@ -836,6 +841,14 @@ fn acting(command: UiCommand) -> State {
         }
         C::FocusNextWindow | C::FocusPreviousWindow | C::PreviousPage | C::Queue => library(0, 0),
         C::AddSelectedItemToQueue => library(1, 0),
+        // Spec 0022: the library, and a row with a neighbour on that side.
+        C::CreatePlaylist => library(0, 0),
+        C::MovePlaylistItemDown => playlist_page(true),
+        C::MovePlaylistItemUp => {
+            let mut state = playlist_page(true);
+            press(&mut state, &[Key::Char('j')]);
+            state
+        }
         // Spec 0020: they act on a selection.
         C::SelectionActions | C::RemoveSelection => {
             let mut state = queue();
@@ -1208,8 +1221,9 @@ fn ac6_text_inputs_first() {
         _ => None,
     };
     let new_playlist = Popup::NewPlaylist {
-        tracks: TrackSource::Tracks(vec![track(1)]),
+        tracks: Some(TrackSource::Tracks(vec![track(1)])),
         name: String::new(),
+        description: None,
     };
     let mut state = with_keymap(queue(), custom());
     state.popup = Some(new_playlist.clone());
@@ -1217,12 +1231,14 @@ fn ac6_text_inputs_first() {
     assert_eq!(name(&state), Some("qj? n".into()));
     assert_eq!(press(&mut state, &[Key::Backspace, Key::Backspace]), vec![]);
     assert_eq!(name(&state), Some("qj?".into()));
+    assert_eq!(press(&mut state, &[Key::Enter]), vec![], "the description");
     assert_eq!(
         press(&mut state, &[Key::Enter]),
         vec![Effect::Library {
             id: 1,
             request: LibraryRequest::CreatePlaylist {
-                title: "qj?".into()
+                title: "qj?".into(),
+                description: String::new(),
             },
         }]
     );
@@ -1859,4 +1875,40 @@ fn ac13_select_defaults() {
         .collect();
     starting.sort();
     assert_eq!(starting, ["d d", "d s", "s a", "s c", "s j", "s k", "s m"]);
+}
+
+/// Spec 0022 AC13: the playlist commands' default keys.
+#[test]
+fn ac13_playlist_commands_bound() {
+    let defaults = Keymap::default();
+    for (key, command) in [
+        ("N", UiCommand::CreatePlaylist),
+        ("C-k", UiCommand::MovePlaylistItemUp),
+        ("C-j", UiCommand::MovePlaylistItemDown),
+    ] {
+        assert_eq!(
+            bound(&defaults, key),
+            Some(Binding::Command(command)),
+            "{key}"
+        );
+    }
+}
+
+/// Spec 0022 AC13: a spotify-player keymap's playlist commands are read,
+/// no longer skipped with a notice.
+#[test]
+fn ac13_off_the_skip_list() {
+    let built = keymap(
+        vec![
+            entry("M-n", "CreatePlaylist"),
+            entry("M-k", "MovePlaylistItemUp"),
+            entry("M-j", "MovePlaylistItemDown"),
+        ],
+        vec![],
+    );
+    assert!(built.unsupported().is_empty(), "{:?}", built.unsupported());
+    assert_eq!(
+        bound(&built, "M-k"),
+        Some(Binding::Command(UiCommand::MovePlaylistItemUp))
+    );
 }

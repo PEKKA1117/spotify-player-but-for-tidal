@@ -318,6 +318,8 @@ mod tests {
             tracks: Some(42),
             duration: Some(Duration::from_secs(9667)),
             own,
+            description: None,
+            public: false,
         }
     }
 
@@ -415,6 +417,22 @@ mod tests {
             },
             LibraryRequest::CreatePlaylist {
                 title: "Late night".into(),
+                description: "For the road".into(),
+            },
+            LibraryRequest::MovePlaylistItem {
+                uuid: UUID.into(),
+                from: 3,
+                to: 1,
+                etag: "\"1759831234567\"".into(),
+            },
+            LibraryRequest::EditPlaylist {
+                uuid: UUID.into(),
+                title: Some("Late night".into()),
+                description: None,
+            },
+            LibraryRequest::SetPlaylistPublic {
+                uuid: UUID.into(),
+                public: true,
             },
             LibraryRequest::DeletePlaylist { uuid: UUID.into() },
         ]);
@@ -588,6 +606,10 @@ mod tests {
             LibraryResponse::Favorite(true),
             LibraryResponse::Favorite(false),
             LibraryResponse::Created(playlist(true)),
+            LibraryResponse::Moved {
+                etag: Some("\"1\"".into()),
+            },
+            LibraryResponse::Moved { etag: None },
             LibraryResponse::Done,
         ]);
         responses

@@ -307,6 +307,8 @@ fn playlist_summary(uuid: &str, title: &str, tracks: u32, secs: u64, own: bool) 
         tracks: Some(tracks),
         duration: Some(Duration::from_secs(secs)),
         own,
+        description: None,
+        public: false,
     }
 }
 
@@ -1421,6 +1423,7 @@ async fn ac7_writes() {
         name: "create a playlist".into(),
         request: LibraryRequest::CreatePlaylist {
             title: "My mix".into(),
+            description: String::new(),
         },
         answers: vec![answer(
             "POST",
@@ -1442,6 +1445,8 @@ async fn ac7_writes() {
             tracks: Some(0),
             duration: Some(Duration::ZERO),
             own: true,
+            description: None,
+            public: false,
         })),
     });
     rows.push(Row {
@@ -1823,7 +1828,10 @@ async fn ac7_errors_pass_through() {
             ),
             (
                 "create",
-                LibraryRequest::CreatePlaylist { title: "t".into() },
+                LibraryRequest::CreatePlaylist {
+                    title: "t".into(),
+                    description: String::new(),
+                },
             ),
             (
                 "add to playlist",
@@ -1891,4 +1899,212 @@ async fn ac7_errors_pass_through() {
         );
         assert!(error.auth().is_some_and(AuthError::is_transient), "{name}");
     }
+}
+
+// --- spec 0022: editing playlists --------------------------------------------
+
+fn item_path(index: &str) -> String {
+    format!("/v1/playlists/{UUID}/items/{index}")
+}
+
+fn move_request() -> LibraryRequest {
+    LibraryRequest::MovePlaylistItem {
+        uuid: UUID.into(),
+        from: 3,
+        to: 1,
+        etag: E1.into(),
+    }
+}
+
+/// AC1: the position in the path, the final position as `toIndex`, the
+/// ETag in `If-None-Match`.
+#[tokio::test]
+async fn ac1_move_item_sends_to_index_and_etag() {
+    let s = Setup::new().await;
+    mount_in_order(&s, &[answer("POST", &item_path("3"), 200, "", Some(E2))]).await;
+    s.ask(move_request()).await.unwrap();
+    assert_eq!(
+        s.seen().await,
+        vec![seen("POST", &item_path("3"), &CC, Some(E1), "toIndex=1")]
+    );
+}
+
+/// AC1: the answer carries the response's `ETag`, or none.
+#[tokio::test]
+async fn ac1_move_item_answers_the_new_etag() {
+    for (etag, want) in [(Some(E2), Some(E2.to_owned())), (None, None)] {
+        let s = Setup::new().await;
+        mount_in_order(&s, &[answer("POST", &item_path("3"), 200, "", etag)]).await;
+        assert_eq!(
+            s.ask(move_request()).await,
+            Ok(LibraryResponse::Moved { etag: want })
+        );
+    }
+}
+
+/// AC1: a `412` is the changed-playlist message after one request.
+#[tokio::test]
+async fn ac1_move_item_412_is_not_retried() {
+    let s = Setup::new().await;
+    let refused = r#"{"status":412,"subStatus":7002,"userMessage":"etag"}"#;
+    mount_in_order(&s, &[answer("POST", &item_path("3"), 412, refused, None)]).await;
+    let got = s.ask(move_request()).await.map_err(|e| e.to_string());
+    assert_eq!(
+        got,
+        Err("The playlist changed: nothing was changed, try again".to_owned())
+    );
+    assert_eq!(s.seen().await.len(), 1);
+}
+
+/// AC2: only the fields given, and no ETag: Tidal checks none here.
+#[tokio::test]
+async fn ac2_edit_playlist_sends_only_given_fields() {
+    let path = format!("/v1/playlists/{UUID}");
+    let rows: [(&str, Option<&str>, Option<&str>, &str); 4] = [
+        ("title", Some("New name"), None, "title=New+name"),
+        ("description", None, Some("Words"), "description=Words"),
+        ("both", Some("A"), Some("B"), "title=A&description=B"),
+        ("clears the description", None, Some(""), "description="),
+    ];
+    for (name, title, description, body) in rows {
+        let s = Setup::new().await;
+        mount_in_order(&s, &[answer("POST", &path, 200, "", Some(E2))]).await;
+        let got = s
+            .ask(LibraryRequest::EditPlaylist {
+                uuid: UUID.into(),
+                title: title.map(Into::into),
+                description: description.map(Into::into),
+            })
+            .await;
+        assert_eq!(got, Ok(LibraryResponse::Done), "{name}");
+        assert_eq!(
+            s.seen().await,
+            vec![seen("POST", &path, &CC, None, body)],
+            "{name}"
+        );
+    }
+}
+
+/// AC3: `PUT` on the v2 API, with `countryCode`; the `200` is empty.
+#[tokio::test]
+async fn ac3_set_public_uses_the_v2_base() {
+    for (public, verb) in [(true, "set-public"), (false, "set-private")] {
+        let path = format!("/v2/playlists/{UUID}/{verb}");
+        let s = Setup::new().await;
+        mount_in_order(&s, &[answer("PUT", &path, 200, "", None)]).await;
+        let got = s
+            .ask(LibraryRequest::SetPlaylistPublic {
+                uuid: UUID.into(),
+                public,
+            })
+            .await;
+        assert_eq!(got, Ok(LibraryResponse::Done), "{verb}");
+        assert_eq!(
+            s.seen().await,
+            vec![seen("PUT", &path, &CC, None, "")],
+            "{verb}"
+        );
+    }
+}
+
+/// `PLAYLIST` (a header) with `description` and `publicPlaylist` set.
+fn described(body: &str, description: &str, public: bool) -> Value {
+    let mut playlist: Value = serde_json::from_str(body).unwrap();
+    playlist["description"] = json!(description);
+    playlist["publicPlaylist"] = json!(public);
+    playlist
+}
+
+/// AC4: from the playlist header and the playlists list; an empty
+/// description is `None`.
+#[tokio::test]
+async fn ac4_summary_carries_description_and_public() {
+    for (description, public, want) in
+        [("Words", true, Some("Words".to_owned())), ("", false, None)]
+    {
+        let s = Setup::new().await;
+        let header = described(PLAYLIST, description, public).to_string();
+        s.get(&format!("/v1/playlists/{UUID}"), None, 200, &header)
+            .await;
+        s.get(
+            &format!("/v1/playlists/{UUID}/items"),
+            None,
+            200,
+            PLAYLIST_ITEMS,
+        )
+        .await;
+        let got = s
+            .ask(LibraryRequest::Page(PageRequest::Playlist(UUID.into())))
+            .await
+            .unwrap();
+        let LibraryResponse::Page(PageData::Playlist { playlist, .. }) = got else {
+            panic!("not a playlist page");
+        };
+        assert_eq!(
+            (playlist.description.clone(), playlist.public),
+            (want.clone(), public),
+            "header"
+        );
+
+        let s = Setup::new().await;
+        let mut list: Value = serde_json::from_str(PLAYLISTS).unwrap();
+        let first = list["items"][0]["playlist"].to_string();
+        list["items"][0]["playlist"] = described(&first, description, public);
+        s.get(
+            "/v1/users/1/playlistsAndFavoritePlaylists",
+            None,
+            200,
+            &list.to_string(),
+        )
+        .await;
+        let got = s
+            .ask(LibraryRequest::More {
+                list: ListRef::Playlists,
+                offset: 0,
+                limit: 10,
+            })
+            .await
+            .unwrap();
+        let LibraryResponse::Items(ListItems::Playlists(page)) = got else {
+            panic!("not playlists");
+        };
+        assert_eq!(
+            (page.items[0].description.clone(), page.items[0].public),
+            (want, public),
+            "list"
+        );
+    }
+}
+
+/// AC4: the description given goes in the form.
+#[tokio::test]
+async fn ac4_create_sends_the_description() {
+    let s = Setup::new().await;
+    mount_in_order(
+        &s,
+        &[answer(
+            "POST",
+            "/v1/users/1/playlists",
+            201,
+            CREATED,
+            Some(E1),
+        )],
+    )
+    .await;
+    s.ask(LibraryRequest::CreatePlaylist {
+        title: "My mix".into(),
+        description: "For the road".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        s.seen().await,
+        vec![seen(
+            "POST",
+            "/v1/users/1/playlists",
+            &CC,
+            None,
+            "title=My+mix&description=For+the+road",
+        )]
+    );
 }

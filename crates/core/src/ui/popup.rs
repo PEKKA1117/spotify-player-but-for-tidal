@@ -15,6 +15,10 @@ use super::select::{Held, Origin};
 pub const NEW_PLAYLIST: &str = "New playlist…";
 /// The name prompt's label.
 pub const PLAYLIST_NAME: &str = "Playlist name: ";
+/// The description prompt of a new playlist (spec 0022).
+pub const NEW_DESCRIPTION: &str = "Description (optional): ";
+/// The description prompt of *Edit description…* (spec 0022).
+pub const DESCRIPTION: &str = "Description: ";
 
 /// The tracks an *Add to playlist…* adds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +27,13 @@ pub enum TrackSource {
     Tracks(Vec<Track>),
     /// An album's tracks, fetched whole first.
     Album(u64),
+}
+
+/// What [`Popup::EditPlaylist`] edits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistField {
+    Title,
+    Description,
 }
 
 /// One row of the actions popup, with what it acts on.
@@ -59,6 +70,20 @@ pub enum MenuAction {
     RemoveFromQueue(EntryId),
     /// *Delete playlist*: asks first.
     DeletePlaylist { uuid: String, title: String },
+    /// *Rename…*: opens [`Popup::EditPlaylist`].
+    RenamePlaylist { uuid: String, title: String },
+    /// *Edit description…*: opens [`Popup::EditPlaylist`].
+    EditDescription {
+        uuid: String,
+        title: String,
+        description: String,
+    },
+    /// *Make public* (`public`) or *Make private*.
+    SetPublic {
+        uuid: String,
+        title: String,
+        public: bool,
+    },
 }
 
 impl MenuAction {
@@ -77,6 +102,10 @@ impl MenuAction {
             Self::RemoveFromPlaylist { .. } => "Remove from this playlist".into(),
             Self::RemoveFromQueue(_) => "Remove from queue".into(),
             Self::DeletePlaylist { .. } => "Delete playlist".into(),
+            Self::RenamePlaylist { .. } => "Rename…".into(),
+            Self::EditDescription { .. } => "Edit description…".into(),
+            Self::SetPublic { public: true, .. } => "Make public".into(),
+            Self::SetPublic { public: false, .. } => "Make private".into(),
         }
     }
 }
@@ -276,8 +305,23 @@ pub enum Popup {
         playlists: Window,
         cursor: usize,
     },
-    /// The one-row name prompt ([`PLAYLIST_NAME`]) of *New playlist…*.
-    NewPlaylist { tracks: TrackSource, name: String },
+    /// The one-row prompts of a new playlist: [`PLAYLIST_NAME`], then
+    /// [`NEW_DESCRIPTION`] once `description` is `Some` (spec 0022).
+    /// `tracks`: added after, for *New playlist…*.
+    NewPlaylist {
+        tracks: Option<TrackSource>,
+        name: String,
+        description: Option<String>,
+    },
+    /// The one-row prompt of *Rename…* and *Edit description…*, holding
+    /// `text`, which began as `original` (spec 0022).
+    EditPlaylist {
+        uuid: String,
+        title: String,
+        field: PlaylistField,
+        original: String,
+        text: String,
+    },
     /// A `y/n` question; `scroll` is the first line of its target list
     /// shown ([`target_lines`], spec 0020).
     Confirm {
@@ -496,6 +540,21 @@ pub fn playlist_actions(playlist: &PlaylistSummary) -> Vec<MenuAction> {
         MenuAction::PlayNext(item),
     ];
     if playlist.own {
+        let (uuid, title) = (playlist.uuid.clone(), playlist.title.clone());
+        actions.push(MenuAction::RenamePlaylist {
+            uuid: uuid.clone(),
+            title: title.clone(),
+        });
+        actions.push(MenuAction::EditDescription {
+            uuid: uuid.clone(),
+            title: title.clone(),
+            description: playlist.description.clone().unwrap_or_default(),
+        });
+        actions.push(MenuAction::SetPublic {
+            uuid,
+            title,
+            public: !playlist.public,
+        });
         actions.push(MenuAction::DeletePlaylist {
             uuid: playlist.uuid.clone(),
             title: playlist.title.clone(),

@@ -74,6 +74,8 @@ fn playlist(i: u64) -> PlaylistSummary {
         tracks: Some(2),
         duration: None,
         own: true,
+        description: None,
+        public: false,
     }
 }
 

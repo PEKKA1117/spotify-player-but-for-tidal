@@ -10,7 +10,7 @@ expression: text
 │   Z  C-z          add to the end of… │
 │   d d             remove from the li…│
 │   g a  C-space    actions on the sel…│
+│   N               new playlist       │
 │   /               filter the rows    │
-│ Lists                                │
 │ / filter · enter run · esc close     │
 └──────────────────────────────────────┘

@@ -45,6 +45,10 @@ pub struct PlaylistSummary {
     /// The user's own playlist (`USER_CREATED`); `false` for a favorite
     /// (followed) one.
     pub own: bool,
+    /// Tidal's description; `None` when empty (spec 0022).
+    pub description: Option<String>,
+    /// `publicPlaylist` (spec 0022).
+    pub public: bool,
 }
 
 /// One of the four role categories of Tidal's credits (`roleCategories`).
@@ -279,7 +283,23 @@ pub enum LibraryRequest {
         etag: String,
     },
     /// Creates a private playlist → [`LibraryResponse::Created`].
-    CreatePlaylist { title: String },
+    CreatePlaylist { title: String, description: String },
+    /// Moves the track at position `from` to the final position `to`
+    /// (spec 0022), checked against `etag` → [`LibraryResponse::Moved`].
+    MovePlaylistItem {
+        uuid: String,
+        from: u32,
+        to: u32,
+        etag: String,
+    },
+    /// Changes the fields given (spec 0022) → [`LibraryResponse::Done`].
+    EditPlaylist {
+        uuid: String,
+        title: Option<String>,
+        description: Option<String>,
+    },
+    /// → [`LibraryResponse::Done`].
+    SetPlaylistPublic { uuid: String, public: bool },
     /// → [`LibraryResponse::Done`].
     DeletePlaylist { uuid: String },
 }
@@ -292,6 +312,10 @@ pub enum LibraryResponse {
     Items(ListItems),
     Favorite(bool),
     Created(PlaylistSummary),
+    /// A move's answer: the playlist's new ETag (spec 0022).
+    Moved {
+        etag: Option<String>,
+    },
     Done,
 }
 

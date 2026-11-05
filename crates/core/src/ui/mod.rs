@@ -60,7 +60,7 @@ use crate::protocol::{
 };
 use crate::track::EntryId;
 
-pub use browse::{PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use browse::{Moving, PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
 pub use filter::{Filter, MAX_FILTER};
 pub use help::{
     Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
@@ -237,6 +237,8 @@ pub struct State {
     pub whole_list: Option<WholeList>,
     /// The library writes waiting for their reply, by request ID.
     pub writes: Vec<(u64, Write)>,
+    /// The playlist move on its way, if any (spec 0022).
+    pub moving: Option<Moving>,
     /// The writes sent for a selection, until all are answered (spec
     /// 0020).
     pub batches: Vec<select::Batch>,
@@ -288,6 +290,7 @@ impl Default for State {
             help: None,
             whole_list: None,
             writes: Vec::new(),
+            moving: None,
             batches: Vec::new(),
             selection_add: None,
             page_size: DEFAULT_PAGE_SIZE,
@@ -486,8 +489,13 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             let text = text.chars().filter(|c| !c.is_control());
             if let Some(prompt) = state.prompt.as_mut() {
                 prompt.text.extend(text);
-            } else if let Some(Popup::NewPlaylist { name, .. }) = state.popup.as_mut() {
-                name.extend(text);
+            } else if let Some(Popup::NewPlaylist {
+                name, description, ..
+            }) = state.popup.as_mut()
+            {
+                description.as_mut().unwrap_or(name).extend(text);
+            } else if let Some(Popup::EditPlaylist { text: held, .. }) = state.popup.as_mut() {
+                held.extend(text);
             } else if state.popup.is_none() {
                 let text: String = text.collect();
                 search::paste(state, &text);

@@ -15,12 +15,12 @@ expression: text
 ││       │   Z  C-z          add to the end of the queue              │       ││
 ││       │   d d             remove from the list                     │       ││
 ││       │   g a  C-space    actions on the selected row              │       ││
+││       │   N               new playlist                             │       ││
 ││       │   /               filter the rows                          │       ││
 ││       │ Lists                                                      │       ││
 ││       │   j  down  C-n    move down                                │       ││
 ││       │   k  up  C-p      move up                                  │       ││
 ││       │   C-f  page_down  move down a window                       │       ││
-││       │   C-b  page_up    move up a window                         │       ││
 ││       │ / filter · enter run · esc close                           │       ││
 ││       └────────────────────────────────────────────────────────────┘       ││
 ││                             ││                             ││              ││

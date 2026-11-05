@@ -118,6 +118,8 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
+| `N` | `CreatePlaylist` | in the library: [a new playlist](#editing-your-playlists) |
+| `C-k` / `C-j` | `MovePlaylistItemUp` / `MovePlaylistItemDown` | on your own playlist's page: [move the track](#editing-your-playlists) up / down |
 | `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows); on the lyrics page: follow the current line again |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
@@ -401,9 +403,25 @@ The pages arrive whole, so they have no scroll loading, and each is fetched fres
 The result shows in the playback window's message row: `Added to favorites`, `Removed from favorites`, `Added 12 tracks to <playlist>`, `Removed from <playlist>`, `Created <playlist>`, `Deleted <playlist>`, or the error. A page that shows what changed (the favorites, the library, the playlist) is fetched again after a change.
 
 - **Add to playlist…** opens a second popup listing your own playlists (newest first) under *New playlist…*; `Enter` adds the track, or all the tracks of the album, at the end of the playlist. If a track is already in the playlist (as far as the loaded copy shows) it asks `Already in <playlist>: add again? (y/n)`
-- **New playlist…** asks `Playlist name: ` in the top row of the page; `Enter` creates a private playlist with that name and adds the tracks to it; `Esc` cancels; an empty name does nothing
+- **New playlist…** asks `Playlist name: `, then `Description (optional): `, in the top row of the page; `Enter` goes on, then creates a private playlist and adds the tracks to it; `Esc` cancels; an empty name does nothing
 - **Remove from this playlist** asks `Remove <title> from <playlist>? (y/n)`; `y` removes the track at that position. If the playlist was changed elsewhere in the meantime, nothing is removed (`The playlist changed: nothing was changed, try again`) and the page is fetched again
 - **Delete playlist** asks `Delete <playlist>? (y/n)`; `y` deletes it, `n` or `Esc` cancels
+
+### Editing your playlists
+
+`N` in the library creates a private playlist, with the same two prompts as *New playlist…*.
+
+The actions popup of one of your own playlists in the library adds:
+
+- **Rename…** asks `Playlist name: ` holding the current name; `Enter` saves, `Esc` cancels. An empty or unchanged name changes nothing
+- **Edit description…** asks `Description: ` holding the current description; `Enter` saves, and an empty text clears it, `Esc` cancels. The prompt is one line, so line breaks become spaces if you change the text
+- **Make public** or **Make private** changes it at once
+
+Tidal does not check these three against changes made elsewhere: the last one saved wins.
+
+On the page of one of your own playlists, `C-k` and `C-j` move the track under the cursor up and down, and the cursor stays on it. The row moves at once and the change is saved in the background, so you can hold the key. On the last row loaded, `C-j` loads the next page first. Moving does not change the queue. It is refused while the window has a kept filter (`Clear the filter to move tracks`) or in motion mode (`Leave motion mode to move tracks`). If the move fails, for instance because the playlist changed elsewhere, the message says so and the page reloads in Tidal's order.
+
+A public playlist says `public` in the page's title, and a description shows on the row under it.
 
 ### Confirming removals
 

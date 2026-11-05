@@ -266,6 +266,8 @@ fn essentials() -> PlaylistSummary {
         tracks: Some(15),
         duration: Some(Duration::from_secs(3509)),
         own: false,
+        description: Some("Essentials.".into()),
+        public: true,
     }
 }
 

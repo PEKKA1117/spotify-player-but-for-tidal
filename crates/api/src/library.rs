@@ -210,12 +210,34 @@ impl LibraryClient {
                 self.remove_from_playlist(&uuid, &indices, &etag).await?;
                 Ok(LibraryResponse::Done)
             }
-            LibraryRequest::CreatePlaylist { title } => self
-                .create_playlist(&title)
+            LibraryRequest::CreatePlaylist { title, description } => self
+                .create_playlist(&title, &description)
                 .await
                 .map(LibraryResponse::Created),
             LibraryRequest::DeletePlaylist { uuid } => {
                 self.delete_playlist(&uuid).await?;
+                Ok(LibraryResponse::Done)
+            }
+            LibraryRequest::MovePlaylistItem {
+                uuid,
+                from,
+                to,
+                etag,
+            } => {
+                let etag = self.move_playlist_item(&uuid, from, to, &etag).await?;
+                Ok(LibraryResponse::Moved { etag })
+            }
+            LibraryRequest::EditPlaylist {
+                uuid,
+                title,
+                description,
+            } => {
+                self.edit_playlist(&uuid, title.as_deref(), description.as_deref())
+                    .await?;
+                Ok(LibraryResponse::Done)
+            }
+            LibraryRequest::SetPlaylistPublic { uuid, public } => {
+                self.set_playlist_public(&uuid, public).await?;
                 Ok(LibraryResponse::Done)
             }
         }
@@ -1002,13 +1024,13 @@ impl LibraryClient {
 
     // Playlists -------------------------------------------------------
 
-    async fn create_playlist(&self, title: &str) -> Result<PlaylistSummary> {
+    async fn create_playlist(&self, title: &str, description: &str) -> Result<PlaylistSummary> {
         let (user, _) = self.auth.account().await;
         let response = self
             .write(
                 Method::POST,
                 &format!("users/{user}/playlists"),
-                Some(&[("title", title), ("description", "")]),
+                Some(&[("title", title), ("description", description)]),
                 &[],
             )
             .await?;
@@ -1100,6 +1122,59 @@ impl LibraryClient {
                 &format!("playlists/{uuid}/items/{positions}"),
                 None,
                 &[("if-none-match", etag)],
+            )
+            .await?;
+        check_edit(&response, uuid).map(drop)
+    }
+
+    /// Moves the item at `from` to the final position `to`, and returns
+    /// the new `ETag`. Never retried, as a removal (spec 0022).
+    async fn move_playlist_item(
+        &self,
+        uuid: &str,
+        from: u32,
+        to: u32,
+        etag: &str,
+    ) -> Result<Option<String>> {
+        let to = to.to_string();
+        let response = self
+            .write(
+                Method::POST,
+                &format!("playlists/{uuid}/items/{from}"),
+                Some(&[("toIndex", &to)]),
+                &[("if-none-match", etag)],
+            )
+            .await?;
+        let response = check_edit(&response, uuid)?;
+        Ok(response.header("etag").map(str::to_owned))
+    }
+
+    /// Tidal checks no `ETag` here: the last write wins (spec 0022).
+    async fn edit_playlist(
+        &self,
+        uuid: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<()> {
+        let form: Vec<(&str, &str)> = [("title", title), ("description", description)]
+            .into_iter()
+            .filter_map(|(field, value)| value.map(|value| (field, value)))
+            .collect();
+        let response = self
+            .write(Method::POST, &format!("playlists/{uuid}"), Some(&form), &[])
+            .await?;
+        check_edit(&response, uuid).map(drop)
+    }
+
+    /// On the v2 API, reached from the v1 base: `Url` resolves the `..`.
+    async fn set_playlist_public(&self, uuid: &str, public: bool) -> Result<()> {
+        let verb = if public { "set-public" } else { "set-private" };
+        let response = self
+            .write(
+                Method::PUT,
+                &format!("../v2/playlists/{uuid}/{verb}"),
+                None,
+                &[],
             )
             .await?;
         check_edit(&response, uuid).map(drop)
@@ -1393,6 +1468,10 @@ struct PlaylistDto {
     /// Whole seconds.
     duration: Option<u64>,
     creator: Option<Creator>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default, rename = "publicPlaylist")]
+    public: bool,
 }
 
 impl PlaylistDto {
@@ -1403,6 +1482,8 @@ impl PlaylistDto {
             tracks: self.tracks,
             duration: self.duration.map(Duration::from_secs),
             own,
+            description: self.description.filter(|d| !d.is_empty()),
+            public: self.public,
         }
     }
 }

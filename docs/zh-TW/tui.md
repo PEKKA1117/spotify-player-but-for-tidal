@@ -124,6 +124,8 @@
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | 對選取列的[動作](#actions) |
 | `a` | `ShowActionsOnCurrentTrack` | 對正在播放曲目的動作 |
 | `f` | `RoleFilter` | 在藝人的 *All tracks* 中：[角色篩選](#the-role-filter) |
+| `N` | `CreatePlaylist` | 在音樂庫中：[新增播放清單](#editing-your-playlists) |
+| `C-k` / `C-j` | `MovePlaylistItemUp` / `MovePlaylistItemDown` | 在你自己的播放清單頁：將[曲目](#editing-your-playlists)上移／下移 |
 | `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗保留的[篩選](#filtering-a-list)，沒有篩選時清除其[選取](#selecting-rows)；在歌詞頁：重新跟隨目前這一行 |
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
@@ -423,9 +425,26 @@
 結果會顯示在播放視窗的訊息列：`Added to favorites`、`Removed from favorites`、`Added 12 tracks to <playlist>`、`Removed from <playlist>`、`Created <playlist>`、`Deleted <playlist>`，或錯誤訊息。顯示變動內容的頁面（收藏、音樂庫、播放清單）在變動後會重新抓取。
 
 - **Add to playlist…** 會開啟第二個選單，在 *New playlist…* 之下列出你自己的播放清單（最新的在前）；`Enter` 將該曲目，或專輯的所有曲目，加到播放清單尾端。若曲目已在播放清單中（依已載入的內容判斷），會詢問 `Already in <playlist>: add again? (y/n)`
-- **New playlist…** 會在頁面頂端那一列詢問 `Playlist name: `；`Enter` 以該名稱建立私人播放清單並將曲目加入；`Esc` 取消；名稱為空時沒有作用
+- **New playlist…** 會在頁面頂端那一列依序詢問 `Playlist name: ` 和 `Description (optional): `；`Enter` 進到下一步，接著建立私人播放清單並將曲目加入；`Esc` 取消；名稱為空時沒有作用
 - **Remove from this playlist** 會詢問 `Remove <title> from <playlist>? (y/n)`；`y` 移除該位置的曲目。若播放清單在這段期間已於其他地方被更改，則不會移除任何內容（`The playlist changed: nothing was changed, try again`），並重新抓取該頁面
 - **Delete playlist** 會詢問 `Delete <playlist>? (y/n)`；`y` 刪除，`n` 或 `Esc` 取消
+
+<a id="editing-your-playlists"></a>
+### 編輯你的播放清單
+
+在音樂庫按 `N` 會建立私人播放清單，提示和 *New playlist…* 相同，共兩步。
+
+音樂庫中你自己的播放清單，動作選單會多出：
+
+- **Rename…** 會詢問 `Playlist name: ` 並帶入目前的名稱；`Enter` 儲存，`Esc` 取消。名稱為空或沒有變更時不會有任何改動
+- **Edit description…** 會詢問 `Description: ` 並帶入目前的描述；`Enter` 儲存，內容為空就清除描述，`Esc` 取消。提示只有一行，所以修改內容時換行會變成空格
+- **Make public** 或 **Make private** 會立即變更
+
+Tidal 不會比對這三項在其他地方的變更：以最後儲存的為準。
+
+在你自己的播放清單頁，`C-k` 和 `C-j` 會把游標所在的曲目上移、下移，游標跟著曲目走。該列會立即移動，變更在背景儲存，所以可以按住不放。在已載入的最後一列，`C-j` 會先載入下一頁。移動不會改變佇列。視窗有保留的篩選時（`Clear the filter to move tracks`）或在動作模式中（`Leave motion mode to move tracks`）無法移動。移動失敗時（例如播放清單已在其他地方被更改），訊息會說明原因，頁面會依 Tidal 的順序重新載入。
+
+公開的播放清單會在頁面標題顯示 `public`，描述則顯示在標題下一列。
 
 <a id="confirming-removals"></a>
 ### 移除前的確認

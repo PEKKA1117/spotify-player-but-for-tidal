@@ -253,6 +253,9 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `NextTab` | `]` | 有分頁的窗格 | next tab（下一個分頁） |
 | `PreviousTab` | `[` | 有分頁的窗格 | previous tab（上一個分頁） |
 | `RoleFilter` | `f` | 藝人的 *All tracks*（所有曲目） | the role filter（角色篩選器） |
+| `CreatePlaylist` | `N` | 音樂庫 | 新增播放清單 |
+| `MovePlaylistItemUp` | `C-k` | 你自己的播放清單頁 | 將曲目上移 |
+| `MovePlaylistItemDown` | `C-j` | 你自己的播放清單頁 | 將曲目下移 |
 | `Queue` | `z` | 所有地方 | the queue page（佇列頁面） |
 | `LibraryPage` | `g l` | 所有地方 | the library（音樂庫） |
 | `LikedTrackPage` | `g y` | 所有地方 | favorite tracks（收藏的曲目） |
@@ -295,7 +298,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 
 這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`MovePlaylistItemUp`、`MovePlaylistItemDown`、`CreatePlaylist`、`OpenLogs`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`BrowsePage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`OpenLogs`
 - 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。

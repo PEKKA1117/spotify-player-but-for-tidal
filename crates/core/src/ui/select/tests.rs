@@ -75,6 +75,8 @@ fn playlist(uuid: &str, title: &str, own: bool) -> PlaylistSummary {
         tracks: Some(2),
         duration: None,
         own,
+        description: None,
+        public: false,
     }
 }
 
