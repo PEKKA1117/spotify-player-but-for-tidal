@@ -222,7 +222,7 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 - v2 unknown module: `400`, `{"error":"BAD_REQUEST","httpStatus":400,"subStatus":1002}`, not a `404`
 - In the code: `Window::next_offset` advances by the page size asked, `Window::whole` marks lists never asked for more, `Window::hidden` counts rows left out, panes hold any number of tabs, and `g b` is free among the defaults
 
-**Checked in the hands-on run** (2026-11-05, live Tidal): `limit=50` on `pages/data/…` (a list past its first page); `TRACK_MIX` and `HISTORY_*` mixes open through 0011's endpoints; the v2 base as `../v2/…` against the v1 base; `Enter` on a track of a section plays it, and in a mixed section queues only its tracks (16 of 41 rows).
+**Checked in the hands-on run** (2026-11-05, live Tidal): `limit=50` on `pages/data/…` (a list past its first page); `TRACK_MIX` and `HISTORY_*` mixes open through 0011's endpoints; the v2 base as `../v2/…` against the v1 base; `Enter` on a track of a section plays it, and in a mixed section (*Recently played*: tracks, playlists, albums, mixes) the queue holds only its tracks.
 
 **Not verified**:
 
