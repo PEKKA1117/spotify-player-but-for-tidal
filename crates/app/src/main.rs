@@ -1100,6 +1100,25 @@ mod tests {
             assert_eq!(state.key_hints, on);
         }
     }
+    /// 0024 AC16 (wiring): every TUI, attached or standalone, takes
+    /// `hide_browse_pages` from the resolved settings.
+    #[test]
+    fn ac16_tui_state_hide_browse_pages() {
+        let names = |list: &[&str]| list.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+        let default = tidal_player::play::PlayerSettings::default();
+        assert_eq!(
+            configured_tui_state(&default, Keymap::default()).hide_browse_pages,
+            names(&["videos", "tidal_magazine"])
+        );
+        for hidden in [names(&[]), names(&["a", "b"])] {
+            let settings = tidal_player::play::PlayerSettings {
+                hide_browse_pages: hidden.clone(),
+                ..Default::default()
+            };
+            let state = configured_tui_state(&settings, Keymap::default());
+            assert_eq!(state.hide_browse_pages, hidden);
+        }
+    }
     /// 0019 AC7 (wiring): every TUI, attached or standalone, takes
     /// `confirm_removals` from the resolved settings.
     #[test]

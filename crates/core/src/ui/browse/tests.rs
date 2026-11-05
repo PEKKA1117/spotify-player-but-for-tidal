@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use crate::item::Item;
 use crate::library::{
-    AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, LibraryRequest, LibraryResponse,
-    ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed,
-    RoleCategory,
+    AlbumKind, AlbumSummary, BrowseMore, BrowseRef, BrowseSection, CreditedTrack, FavoriteKind,
+    LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData,
+    PageLink, PageRequest, PlaylistSummary, RadioSeed, RoleCategory,
 };
 use crate::protocol::RepeatMode;
 use crate::protocol::{self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry};
@@ -17,7 +17,7 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 use super::super::keymap::{ActionEntry, ActionKind, KeymapFile, Target, build};
 use super::super::{
     Action, BaseKey, Confirmed, DISCONNECTED, Effect, Key, Load, MenuAction, PLAYLIST_CHANGED,
-    PageKind, Popup, SHUT_DOWN, State, TrackSource, Window, apply_keymap, update,
+    PageKind, Popup, Row, SHUT_DOWN, State, TrackSource, Window, apply_keymap, update,
 };
 
 // --- fixtures ----------------------------------------------------------------
@@ -3969,4 +3969,557 @@ fn ac11_not_an_own_playlist() {
     assert_eq!(followed.message(), None);
     let mut other = library();
     assert_eq!(press(&mut other, &[CJ]), vec![]);
+}
+
+// --- spec 0024: browse ----------------------------------------------------------
+
+const GB: [Key; 2] = [Key::Char('g'), Key::Char('b')];
+
+fn link(title: &str, path: &str) -> PageLink {
+    PageLink {
+        title: title.into(),
+        target: BrowseRef::Page(format!("pages/{path}")),
+    }
+}
+
+fn links(items: Vec<PageLink>) -> ListItems {
+    let total = items.len() as u32;
+    ListItems::Links(list(items, 0, total))
+}
+
+fn section(title: &str, rows: ListItems, more: BrowseMore) -> BrowseSection {
+    BrowseSection {
+        title: title.into(),
+        rows,
+        more,
+    }
+}
+
+fn browse_data(title: &str, sections: Vec<BrowseSection>) -> PageData {
+    PageData::Browse {
+        title: title.into(),
+        sections,
+    }
+}
+
+fn albums_items(ids: &[u64], offset: u32, total: u32) -> ListItems {
+    ListItems::Albums(list(
+        ids.iter().map(|&id| album(id)).collect(),
+        offset,
+        total,
+    ))
+}
+
+/// The root page: *Discover* (*Home*, *Staff picks*, *For you*, *New*,
+/// *Videos*), *Genres*, *Moods & Activities* (only *Videos*), *Decades*.
+fn root_data() -> PageData {
+    let home = PageLink {
+        title: "Home".into(),
+        target: BrowseRef::Home,
+    };
+    browse_data(
+        "Browse",
+        vec![
+            section(
+                "Discover",
+                links(vec![
+                    home,
+                    link("Staff picks", "home"),
+                    link("For you", "for_you"),
+                    link("New", "explore_new_music"),
+                    link("Videos", "videos"),
+                ]),
+                BrowseMore::None,
+            ),
+            section(
+                "Genres",
+                links(vec![
+                    link("Hip-Hop", "genre_hiphop"),
+                    link("Pop", "genre_pop"),
+                ]),
+                BrowseMore::None,
+            ),
+            section(
+                "Moods & Activities",
+                links(vec![link("Magazine", "tidal_magazine")]),
+                BrowseMore::None,
+            ),
+            section(
+                "Decades",
+                links(vec![link("80s", "decades_80s")]),
+                BrowseMore::None,
+            ),
+        ],
+    )
+}
+
+fn root_page() -> State {
+    let mut state = small();
+    open(&mut state, &GB, root_data());
+    state
+}
+
+fn tab_names(state: &State) -> Vec<String> {
+    state.page().windows.iter().map(Window::tab_name).collect()
+}
+
+/// A genre page of three sections, whole: albums 10 and 11, a playlist, an
+/// artist and a mix, tracks 1 to 3.
+fn genre_data() -> PageData {
+    browse_data(
+        "Hip-Hop",
+        vec![
+            section(
+                "New Albums",
+                albums_items(&[10, 11], 0, 2),
+                BrowseMore::None,
+            ),
+            section(
+                "Playlists",
+                ListItems::Playlists(list(vec![playlist("pl1", "Pl 1", false)], 0, 1)),
+                BrowseMore::None,
+            ),
+            section(
+                "Artists",
+                ListItems::Artists(list(vec![artist(30)], 0, 1)),
+                BrowseMore::None,
+            ),
+            section(
+                "Mixes",
+                ListItems::Mixes(list(vec![mix(1)], 0, 1)),
+                BrowseMore::None,
+            ),
+            section(
+                "Tracks",
+                ListItems::Tracks(list(tracks(1..4), 0, 3)),
+                BrowseMore::None,
+            ),
+        ],
+    )
+}
+
+/// AC5: `g b` requests the root and shows its four sections as tabs,
+/// *Discover* holding *Home*, *Staff picks*, *For you* and the links of
+/// explore's untitled module.
+#[test]
+fn ac5_root_page() {
+    let mut state = small();
+    let (id, request) = one_request(&press(&mut state, &GB));
+    assert_eq!(
+        request,
+        LibraryRequest::Page(PageRequest::Browse(BrowseRef::Root))
+    );
+    assert_eq!(
+        kinds(&state),
+        vec![PageKind::Queue, PageKind::Browse(BrowseRef::Root)]
+    );
+    assert_eq!(state.page().load, Load::Loading { id });
+    reply(&mut state, id, LibraryResponse::Page(root_data()));
+    assert_eq!(state.page().load, Load::Idle);
+    assert_eq!(
+        tab_names(&state),
+        vec!["Discover", "Genres", "Moods & Activities", "Decades"]
+    );
+    assert_eq!(state.page().title(), "Browse");
+    let titles: Vec<String> = (0..5)
+        .map(|i| match window(&state, 0).row(i) {
+            Some(Row::Link(link)) => link.title.clone(),
+            other => panic!("not a link: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        vec!["Home", "Staff picks", "For you", "New", "Videos"]
+    );
+    assert_eq!(press(&mut state, &GB), vec![], "on top already");
+    assert_eq!(state.history.len(), 2);
+    // `Enter` on *Home* asks for the personal home.
+    let (_, request) = one_request(&press(&mut state, &[Key::Enter]));
+    assert_eq!(
+        request,
+        LibraryRequest::Page(PageRequest::Browse(BrowseRef::Home))
+    );
+}
+
+/// AC9: `Enter` on a link pushes a browse page and requests it; `[` and
+/// `]` wrap; `Enter` on an album, playlist, artist or mix opens that page;
+/// `Backspace` restores the tab and cursor with no request; `g b` from
+/// another page fetches the root.
+#[test]
+fn ac9_navigation() {
+    use Key::{Backspace, Char, Enter};
+    let mut state = root_page();
+    // A genre: a link to its page.
+    press(&mut state, &[Char(']')]);
+    let (id, request) = one_request(&press(&mut state, &[Enter]));
+    assert_eq!(
+        request,
+        LibraryRequest::Page(PageRequest::Browse(BrowseRef::Page(
+            "pages/genre_hiphop".into()
+        )))
+    );
+    assert_eq!(
+        state.page().kind,
+        PageKind::Browse(BrowseRef::Page("pages/genre_hiphop".into()))
+    );
+    reply(&mut state, id, LibraryResponse::Page(genre_data()));
+    assert_eq!(state.page().title(), "Hip-Hop");
+
+    // Tabs wrap in both directions.
+    let focus = |state: &State| state.page().focus;
+    let moves: [(Key, usize); 7] = [
+        (Char(']'), 1),
+        (Char(']'), 2),
+        (Char(']'), 3),
+        (Char(']'), 4),
+        (Char(']'), 0),
+        (Char('['), 4),
+        (Char('['), 3),
+    ];
+    for (key, want) in moves {
+        assert_eq!(press(&mut state, &[key]), vec![], "{key:?}");
+        assert_eq!(focus(&state), want, "{key:?}");
+    }
+
+    // Each kind of row opens its page.
+    let rows: [(usize, PageRequest); 4] = [
+        (0, PageRequest::Album(10)),
+        (1, PageRequest::Playlist("pl1".into())),
+        (2, PageRequest::Artist(30)),
+        (3, PageRequest::Mix("m1".into())),
+    ];
+    for (tab, want) in rows {
+        let mut state = state.clone();
+        let jumps = (tab + 5 - focus(&state)) % 5;
+        press(&mut state, &vec![Char(']'); jumps]);
+        let (_, request) = one_request(&press(&mut state, &[Enter]));
+        assert_eq!(request, LibraryRequest::Page(want), "tab {tab}");
+    }
+
+    // Back: the tab and cursor as they were, nothing asked.
+    press(&mut state, &[Char(']'), Char(']'), Char('j')]);
+    let before = (
+        state.page().focus,
+        window(&state, state.page().focus).cursor,
+    );
+    let (id, _) = one_request(&press(&mut state, &[Enter]));
+    assert!(matches!(state.page().kind, PageKind::Album(_)));
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Album {
+            album: album(10),
+            tracks: list(tracks(1..3), 0, 2),
+        }),
+    );
+    assert_eq!(press(&mut state, &[Backspace]), vec![]);
+    assert_eq!(
+        (
+            state.page().focus,
+            window(&state, state.page().focus).cursor
+        ),
+        before
+    );
+
+    // `g b` from another page fetches the root again.
+    let mut state = library();
+    let (_, request) = one_request(&press(&mut state, &GB));
+    assert_eq!(
+        request,
+        LibraryRequest::Page(PageRequest::Browse(BrowseRef::Root))
+    );
+    assert_eq!(
+        kinds(&state),
+        vec![
+            PageKind::Queue,
+            PageKind::Library,
+            PageKind::Browse(BrowseRef::Root)
+        ]
+    );
+}
+
+/// AC4 (UI half): a section with a `dataApiPath` asks for more as it
+/// scrolls, from the offset after what the page held (rows left out
+/// counted); a whole section, and one with every row, never asks.
+#[test]
+fn ac4_section_scroll() {
+    use Key::Char;
+    let path = "pages/data/abc?albumId=1";
+    // 3 albums kept of 4 asked (one left out), 12 in all.
+    let mut page = list(vec![album(10), album(11), album(12)], 0, 12);
+    page.hidden = 1;
+    let data = browse_data(
+        "New",
+        vec![section(
+            "New Albums",
+            ListItems::Albums(page),
+            BrowseMore::Data(path.into()),
+        )],
+    );
+    let mut state = small();
+    open(&mut state, &GB, data);
+    assert_eq!(window(&state, 0).next_offset, 4);
+    assert_eq!(window(&state, 0).total, Some(12));
+    assert_eq!(window(&state, 0).title(), "New Albums (12)");
+    // Near the end of the loaded rows: the next page is asked.
+    let (id, request) = one_request(&press(&mut state, &[Char('j')]));
+    assert_eq!(request, more(ListRef::BrowseData(path.into()), 4, 2));
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Items(albums_items(&[13, 14], 4, 12)),
+    );
+    assert_eq!(window(&state, 0).rows.len(), 5);
+    assert_eq!(window(&state, 0).next_offset, 6);
+
+    // A section without a path never asks; nor does one that is complete.
+    let whole = |more: BrowseMore, total: u32| {
+        let mut state = small();
+        open(
+            &mut state,
+            &GB,
+            browse_data(
+                "New",
+                vec![section("A", albums_items(&[10, 11, 12], 0, total), more)],
+            ),
+        );
+        state
+    };
+    for (name, mut state) in [
+        ("no path", whole(BrowseMore::None, 9)),
+        ("complete", whole(BrowseMore::Data(path.into()), 3)),
+    ] {
+        for key in [Char('j'), Char('j'), Char('G')] {
+            assert_eq!(press(&mut state, &[key]), vec![], "{name}");
+        }
+    }
+}
+
+/// A *Recently played*-like section: a preview of tracks 1 to 3 with a
+/// `viewAll`.
+fn view_all_section(title: &str, path: &str) -> BrowseSection {
+    section(
+        title,
+        ListItems::Tracks(list(tracks(1..4), 0, 3)),
+        BrowseMore::ViewAll(path.into()),
+    )
+}
+
+fn mixed_items() -> ListItems {
+    ListItems::Mixed(list(
+        vec![
+            MixedRow::Track(track(1)),
+            MixedRow::Album(album(10)),
+            MixedRow::Track(track(2)),
+            MixedRow::Playlist(playlist("pl1", "Pl 1", false)),
+            MixedRow::Artist(artist(30)),
+            MixedRow::Mix(mix(1)),
+            MixedRow::Track(track(3)),
+        ],
+        0,
+        7,
+    ))
+}
+
+/// AC7 (UI half): the first time a tab with a `viewAll` is shown it asks
+/// once; the answer replaces the preview whatever its kinds, the cursor
+/// stays, and the title ends in `…` until then; a failure keeps the
+/// preview and goes to the message row.
+#[test]
+fn ac7_view_all_tab() {
+    use Key::Char;
+    let data = browse_data(
+        "Home",
+        vec![
+            view_all_section("Recently", "home/pages/recent"),
+            view_all_section("Picks", "home/pages/picks"),
+            section(
+                "Whole",
+                ListItems::Tracks(list(tracks(1..3), 0, 2)),
+                BrowseMore::None,
+            ),
+        ],
+    );
+    let mut state = small();
+    let effects = open(&mut state, &GB, data);
+    // The first tab is shown at once.
+    let (id, request) = one_request(&effects);
+    assert_eq!(
+        request,
+        more(ListRef::BrowseViewAll("home/pages/recent".into()), 0, 2)
+    );
+    assert_eq!(tab_names(&state), vec!["Recently…", "Picks…", "Whole"]);
+    assert_eq!(window(&state, 0).title(), "Recently… (3)");
+    // Nothing more while it is on its way; the cursor moves meanwhile.
+    assert_eq!(press(&mut state, &[Char('j')]), vec![]);
+    assert_eq!(window(&state, 0).cursor, 1);
+    reply(&mut state, id, LibraryResponse::Items(mixed_items()));
+    assert!(
+        window(&state, 0).rows.is_mixed(),
+        "{:?}",
+        window(&state, 0).rows
+    );
+    assert_eq!(window(&state, 0).rows.len(), 7);
+    assert_eq!(window(&state, 0).cursor, 1);
+    assert_eq!(window(&state, 0).title(), "Recently (7)");
+    assert!(window(&state, 0).complete());
+    // Moving asks for nothing more.
+    assert_eq!(
+        press(&mut state, &[Char('j'), Char('j'), Char('G')]),
+        vec![]
+    );
+
+    // The second tab asks when first shown, and fails: preview kept.
+    let (id, request) = one_request(&press(&mut state, &[Char(']')]));
+    assert_eq!(
+        request,
+        more(ListRef::BrowseViewAll("home/pages/picks".into()), 0, 2)
+    );
+    fail(&mut state, id, "Tidal answered 400");
+    assert_eq!(state.message(), Some("Tidal answered 400"));
+    assert_eq!(window(&state, 1).rows.len(), 3);
+    assert_eq!(tab_names(&state)[1], "Picks");
+    // A tab already shown never asks again; nor does a whole one.
+    assert_eq!(
+        press(&mut state, &[Char('['), Char(']'), Char(']')]),
+        vec![]
+    );
+    assert_eq!(press(&mut state, &[Char(']'), Char(']')]), vec![]);
+}
+
+/// AC10: `Enter` on a track of a mixed section queues only its tracks,
+/// from that track; `Z` and the actions popup work on its rows; a link has
+/// neither.
+#[test]
+fn ac10_rows_and_actions() {
+    use Key::{Char, Enter};
+    let mixed = || {
+        let mut state = small();
+        open(
+            &mut state,
+            &GB,
+            browse_data(
+                "Home",
+                vec![section("Mixed", mixed_items(), BrowseMore::None)],
+            ),
+        );
+        state
+    };
+    // The third row is track 2: the tracks are 1, 2 and 3, from the second.
+    let mut state = mixed();
+    press(&mut state, &[Char('j'), Char('j')]);
+    assert_eq!(
+        outs(&press(&mut state, &[Enter])),
+        send(Command::LoadQueue {
+            tracks: tracks([1, 2, 3]),
+            start: 1,
+        })
+    );
+    // A row of another kind opens its page, as anywhere.
+    let mut state = mixed();
+    press(&mut state, &[Char('j')]);
+    let (_, request) = one_request(&press(&mut state, &[Enter]));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Album(10)));
+
+    // `Z` per row of the mixed section.
+    let rows: [(usize, Option<Item>); 7] = [
+        (0, Some(Item::Track(TrackId(1)))),
+        (1, Some(Item::Album(10))),
+        (3, Some(Item::Playlist("pl1".into()))),
+        (4, None),
+        (5, None),
+        (6, Some(Item::Track(TrackId(3)))),
+        (2, Some(Item::Track(TrackId(2)))),
+    ];
+    for (row, item) in rows {
+        let mut state = mixed();
+        press(&mut state, &vec![Char('j'); row]);
+        let want = item.map_or(vec![], |item| send(open_items(item, InsertAt::End)));
+        assert_eq!(outs(&press(&mut state, &[Char('Z')])), want, "row {row}");
+    }
+    // The actions popup of a track.
+    let mut state = mixed();
+    assert_eq!(press(&mut state, &GA), vec![]);
+    assert!(
+        labels(&state).iter().any(|l| l == "Add to queue"),
+        "{:?}",
+        labels(&state)
+    );
+
+    // A link: `Enter` opens, `Z` and the popup do nothing.
+    let mut state = root_page();
+    assert_eq!(press(&mut state, &[Char('Z')]), vec![]);
+    assert_eq!(press(&mut state, &GA), vec![]);
+    assert_eq!(state.popup, None);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(state.popup, None);
+}
+
+/// AC16: links to a hidden page are not shown, on the root and on any
+/// browse page; a section left with none is dropped; the name must match
+/// exactly; `[]` shows them all.
+#[test]
+fn ac16_hidden_links() {
+    let hidden = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    let titles = |state: &State, tab: usize| -> Vec<String> {
+        (0..window(state, tab).len())
+            .filter_map(|i| match window(state, tab).row(i) {
+                Some(Row::Link(link)) => Some(link.title.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    // (name, hidden pages, tabs, links of the first tab)
+    type Case = (
+        &'static str,
+        Vec<String>,
+        Vec<&'static str>,
+        Vec<&'static str>,
+    );
+    let rows: [Case; 5] = [
+        (
+            "the default pair",
+            hidden(&["videos", "tidal_magazine"]),
+            vec!["Discover", "Genres", "Decades"],
+            vec!["Home", "Staff picks", "For you", "New"],
+        ),
+        (
+            "nothing hidden",
+            hidden(&[]),
+            vec!["Discover", "Genres", "Moods & Activities", "Decades"],
+            vec!["Home", "Staff picks", "For you", "New", "Videos"],
+        ),
+        (
+            "a name that matches no link",
+            hidden(&["nothing_here"]),
+            vec!["Discover", "Genres", "Moods & Activities", "Decades"],
+            vec!["Home", "Staff picks", "For you", "New", "Videos"],
+        ),
+        (
+            "exact match, case included",
+            hidden(&["Videos", "video", "pages/videos"]),
+            vec!["Discover", "Genres", "Moods & Activities", "Decades"],
+            vec!["Home", "Staff picks", "For you", "New", "Videos"],
+        ),
+        (
+            "a page reached some other way is no link",
+            hidden(&["home"]),
+            vec!["Discover", "Genres", "Moods & Activities", "Decades"],
+            vec!["Home", "For you", "New", "Videos"],
+        ),
+    ];
+    for (name, hide, tabs, first) in rows {
+        let mut state = small();
+        state.hide_browse_pages = hide.clone();
+        open(&mut state, &GB, root_data());
+        assert_eq!(tab_names(&state), tabs, "{name}");
+        assert_eq!(titles(&state, 0), first, "{name}");
+        // Any browse page: the same rule.
+        let mut state = small();
+        state.hide_browse_pages = hide;
+        open(&mut state, &GB, root_data());
+        let (id, _) = one_request(&press(&mut state, &[Key::Enter]));
+        reply(&mut state, id, LibraryResponse::Page(root_data()));
+        assert_eq!(tab_names(&state), tabs, "{name}: below the root");
+    }
 }

@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use crate::item::parse_item;
+use crate::library::BrowseRef;
 use crate::protocol::{Command, InsertAt};
 
 use super::keymap::{Binding, Lookup, UiCommand};
@@ -178,6 +179,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
         C::SearchPage => return search::open(state),
         C::MixesPage => return browse::open(state, PageKind::Mixes),
+        C::BrowsePage => return browse::open(state, PageKind::Browse(BrowseRef::Root)),
         C::LyricsPage => return browse::open(state, PageKind::Lyrics),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),

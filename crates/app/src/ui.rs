@@ -3942,8 +3942,8 @@ mod tests {
                 "┌g …",
                 "a  actions on the selected row     s  the search page (on one: its…",
                 "g  move to the top                 m  your mixes",
-                "l  the library                     L  lyrics of the playing track",
-                "y  favorite tracks",
+                "l  the library                     b  browse what Tidal picks",
+                "y  favorite tracks                 L  lyrics of the playing track",
             ],
         );
         // Docked: the box's bottom border is the page area's last row.
@@ -3970,7 +3970,7 @@ mod tests {
         let text = draw(&pending(library(), &g), 40, 12);
         assert_contains(
             &text,
-            &["┌g …", "a  actions on the selected row", "… +5 more"],
+            &["┌g …", "a  actions on the selected row", "… +6 more"],
         );
         insta::assert_snapshot!("ac6_key_hints_40x12", text);
 
@@ -5279,5 +5279,241 @@ mod tests {
         });
         let text = page_text(&state, 80, 24);
         assert!(text.contains("Description: Words"), "{text}");
+    }
+    // --- spec 0024: browse -----------------------------------------------------
+
+    use tidal_player_core::library::{BrowseMore, BrowseRef, BrowseSection, MixedRow, PageLink};
+
+    fn browse_link(title: &str, path: &str) -> PageLink {
+        PageLink {
+            title: title.into(),
+            target: BrowseRef::Page(format!("pages/{path}")),
+        }
+    }
+
+    fn links_section(title: &str, titles: &[&str]) -> BrowseSection {
+        let items: Vec<PageLink> = titles
+            .iter()
+            .map(|t| browse_link(t, &t.to_lowercase().replace(' ', "_")))
+            .collect();
+        let total = items.len() as u32;
+        BrowseSection {
+            title: title.into(),
+            rows: ListItems::Links(list(items, total, 0)),
+            more: BrowseMore::None,
+        }
+    }
+
+    fn tracks_section(title: &str, n: u64) -> BrowseSection {
+        BrowseSection {
+            title: title.into(),
+            rows: ListItems::Tracks(list(browse_tracks(n), n as u32, 0)),
+            more: BrowseMore::None,
+        }
+    }
+
+    /// `g b`, answered with `title` and `sections`.
+    fn browse_page(title: &str, sections: Vec<BrowseSection>) -> State {
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('b')]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Browse {
+                title: title.into(),
+                sections,
+            }),
+        );
+        state
+    }
+
+    fn root_sections() -> Vec<BrowseSection> {
+        vec![
+            links_section(
+                "Discover",
+                &[
+                    "Home",
+                    "Staff picks",
+                    "For you",
+                    "New",
+                    "Top",
+                    "HiRes",
+                    "Clean Content",
+                ],
+            ),
+            links_section("Genres", &["Hip-Hop", "Pop", "Rock", "Jazz"]),
+            links_section("Moods & Activities", &["Chill", "Workout"]),
+            links_section("Decades", &["60s", "70s", "80s"]),
+        ]
+    }
+
+    /// A genre page of twelve sections, the longest title 117 characters.
+    fn genre_sections() -> Vec<BrowseSection> {
+        let long = "A".repeat(116) + "Z";
+        let titles = [
+            "Top Tracks",
+            "New Albums",
+            "Essentials",
+            "Hip-Hop Classics",
+            "Rising Artists",
+            "Featured Playlists",
+            "Behind the Beats",
+            "Throwback Jams",
+            "Staff Picks",
+            "Deep Cuts",
+            "Live Sessions",
+            long.as_str(),
+        ];
+        titles
+            .iter()
+            .map(|t| tracks_section(t, 6))
+            .collect::<Vec<_>>()
+    }
+
+    /// Row `n` of the page below the playback window: 0 its title, 1 its
+    /// tab strip or window border.
+    fn assert_row_has(text: &str, n: usize, parts: &[&str]) {
+        let row = row(text, 5 + n);
+        for part in parts {
+            assert!(row.contains(part), "{part:?} missing from row {n}:\n{text}");
+        }
+    }
+
+    #[test]
+    fn ac13_browse_80x24() {
+        // The root: its title, the four tabs, *Discover* active with its
+        // links, the first highlighted.
+        let state = browse_page("Browse", root_sections());
+        let text = draw(&state, 80, 24);
+        assert_row_has(&text, 0, &["Browse"]);
+        assert_row_has(
+            &text,
+            1,
+            &["Discover", "Genres", "Moods & Activities", "Decades", "[ ]"],
+        );
+        assert_contains(&text, &["Home", "Staff picks", "For you", "Clean Content"]);
+        assert!(!text.contains("Hip-Hop"), "{text}");
+        assert!(
+            cell_at(&state, 80, 24, "Home")
+                .modifier
+                .contains(Mod::REVERSED),
+            "the cursor row is not highlighted"
+        );
+        insta::assert_snapshot!("ac13_browse_80x24", text);
+    }
+
+    #[test]
+    fn ac13_browse_150x42() {
+        // Twelve sections do not fit: the strip scrolls with the active
+        // tab, `…` on a side with more, and a 117-character title is cut.
+        let mut state = browse_page("Hip-Hop", genre_sections());
+        let first = draw(&state, 150, 42);
+        assert_row_has(&first, 1, &["Top Tracks", "New Albums", " │ …", "[ ]"]);
+        assert!(!row(&first, 6).contains("… │"), "{first}");
+        press_keys(&mut state, &[Key::Char(']'); 6]);
+        let middle = draw(&state, 150, 42);
+        assert_row_has(&middle, 1, &["Behind the Beats", "… │", " │ …", "[ ]"]);
+        assert_contains(&middle, &["Behind the Beats (6)"]);
+        press_keys(&mut state, &[Key::Char(']'); 5]);
+        let last = draw(&state, 150, 42);
+        assert_row_has(&last, 1, &["… │", "[ ]"]);
+        assert!(!row(&last, 6).contains(" │ …"), "{last}");
+        assert!(
+            !last.contains(&"A".repeat(60)) || row(&last, 6).contains('…'),
+            "{last}"
+        );
+        // A title too long for the strip is cut to fit.
+        let cut = draw(&state, 100, 30);
+        assert_row_has(&cut, 1, &["… │", "AAAA", "…  [ ]"]);
+        assert!(!row(&cut, 6).contains("AAAZ"), "{cut}");
+        insta::assert_snapshot!("ac13_browse_150x42", middle);
+        insta::assert_snapshot!("ac13_browse_150x42_last", last);
+    }
+
+    #[test]
+    fn ac13_browse_narrow_50x20() {
+        // Under 60 columns: the active tab's name and `[ ]`.
+        let mut state = browse_page("Hip-Hop", genre_sections());
+        press_keys(&mut state, &[Key::Char(']'); 2]);
+        let text = draw(&state, 50, 20);
+        assert_row_has(&text, 1, &["Essentials", "[ ]"]);
+        assert!(!row(&text, 6).contains("New Albums"), "{text}");
+        insta::assert_snapshot!("ac13_browse_narrow_50x20", text);
+    }
+
+    #[test]
+    fn ac13_browse_mixed_80x24() {
+        // A section of several kinds puts the kind first on each row.
+        let mixed = BrowseSection {
+            title: "Recently played".into(),
+            rows: ListItems::Mixed(list(
+                vec![
+                    MixedRow::Track(browse_tracks(1).remove(0)),
+                    MixedRow::Album(AlbumSummary {
+                        id: 5,
+                        title: "Collide".into(),
+                        artists: vec![artist_ref(1, "Pierce The Veil")],
+                        year: Some(2012),
+                        kind: AlbumKind::Album,
+                        tracks: Some(11),
+                        duration: None,
+                    }),
+                    MixedRow::Playlist(playlist("p1", "Running", 42, false)),
+                    MixedRow::Artist(artist_ref(2, "Sleeping With Sirens")),
+                    MixedRow::Mix(mix_summary("m1", "My Mix 1", Some("Pierce The Veil"))),
+                ],
+                5,
+                0,
+            )),
+            more: BrowseMore::None,
+        };
+        let state = browse_page("Home", vec![mixed, tracks_section("Songs", 3)]);
+        let text = draw(&state, 80, 24);
+        assert_contains(
+            &text,
+            &[
+                "Track     ",
+                "Album     ",
+                "Playlist  ",
+                "Artist    ",
+                "Mix       ",
+                "Collide",
+                "Sleeping With Sirens",
+            ],
+        );
+        // A section of one kind has no kind column.
+        let mut other = state.clone();
+        press_keys(&mut other, &[Key::Char(']')]);
+        let plain = draw(&other, 80, 24);
+        assert!(!plain.contains("Track     "), "{plain}");
+        insta::assert_snapshot!("ac13_browse_mixed_80x24", text);
+    }
+
+    #[test]
+    fn ac13_browse_one_section_80x24() {
+        // One section: no tab strip, the page looks like a list.
+        let state = browse_page("Top", vec![tracks_section("Tracks", 4)]);
+        let text = draw(&state, 80, 24);
+        assert_row_has(&text, 0, &["Top"]);
+        assert!(!text.contains("[ ]"), "{text}");
+        assert_row_has(&text, 1, &["Tracks (4)"]);
+        insta::assert_snapshot!("ac13_browse_one_section_80x24", text);
+    }
+
+    #[test]
+    fn ac12_browse_failed_80x24() {
+        // A failed page shows its message in the page; *Home* alone.
+        let mut state = state_of(playing());
+        let id = ask(&mut state, &[Key::Char('g'), Key::Char('b')]);
+        fail(&mut state, id, "Home is not available: Tidal answered 400");
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &["Home is not available: Tidal answered 400"]);
+        insta::assert_snapshot!("ac12_browse_failed_80x24", text);
+
+        // A page with no sections says so.
+        let state = browse_page("Videos", Vec::new());
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &["Videos", "Nothing to show here"]);
+        insta::assert_snapshot!("ac12_browse_empty_80x24", text);
     }
 }

@@ -90,7 +90,7 @@ impl<K: Ord + Copy> Selection<K> {
     }
 
     /// Keeps the rows (and the anchor) `keep` accepts.
-    fn retain(&mut self, keep: impl Fn(&K) -> bool) {
+    pub(super) fn retain(&mut self, keep: impl Fn(&K) -> bool) {
         self.rows.retain(|row| keep(row));
         if self.anchor.as_ref().is_some_and(|a| !keep(a)) {
             self.anchor = None;
@@ -149,6 +149,12 @@ impl Marks {
 
 // --- reading a selection ---------------------------------------------------------
 
+/// Whether row `index` of `window` can be selected: every row but a link
+/// (spec 0024 AC10).
+fn selectable(window: &Window, index: usize) -> bool {
+    window.rows.get(index).is_some()
+}
+
 /// The motion range of `window`: the rows shown between the anchor and
 /// the cursor's row, both included (with a filter, the visible ones).
 fn window_range(window: &Window) -> Vec<usize> {
@@ -160,7 +166,7 @@ fn window_range(window: &Window) -> Vec<usize> {
     window
         .visible()
         .into_iter()
-        .filter(|i| (low..=high).contains(i))
+        .filter(|i| (low..=high).contains(i) && selectable(window, *i))
         .collect()
 }
 
@@ -447,6 +453,7 @@ fn toggle_current(state: &mut State, origin: Origin) {
             if let Some(window) = window_at_mut(state, origin)
                 && !window.selection.motion()
                 && let Some(row) = window.index(window.cursor)
+                && selectable(window, row)
             {
                 window.selection.toggle(row);
             }
@@ -500,7 +507,10 @@ fn select_rows(state: &mut State, origin: Origin, down: bool, count: usize) -> V
                 return Vec::new();
             }
             let (rows, end) = span(window.cursor.min(len - 1), len, down, count);
-            let picked: Vec<usize> = rows.filter_map(|p| window.index(p)).collect();
+            let picked: Vec<usize> = rows
+                .filter_map(|p| window.index(p))
+                .filter(|&i| selectable(window, i))
+                .collect();
             window.selection.rows.extend(picked);
             browse::move_window_cursor(state, |_, _| end)
         }
@@ -576,6 +586,7 @@ impl<'a> Picked<'a> {
             Row::Playlist(p) => p.title.clone(),
             Row::Artist(a) => a.name.clone(),
             Row::Mix(m) => m.title.clone(),
+            Row::Link(l) => l.title.clone(),
         }
     }
 }
@@ -642,7 +653,7 @@ fn favorite(row: Row<'_>, at: Option<(&Page, &Window)>) -> Option<(FavoriteKind,
             p.uuid.clone(),
             kind == Some(WindowKind::Playlists),
         ),
-        Row::Mix(_) => return None,
+        Row::Mix(_) | Row::Link(_) => return None,
     })
 }
 

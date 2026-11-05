@@ -55,6 +55,8 @@ pub struct AppConfig {
     pub page_size: Option<u32>,
     pub search_page_size: Option<u32>,
     pub hide_versions: Option<Vec<String>>,
+    /// Spec 0024 "Hiding pages".
+    pub hide_browse_pages: Option<Vec<String>>,
     pub layout: LibraryLayout,
     /// Spec 0009 "Turning it off".
     pub remember_playback: Option<bool>,
@@ -279,6 +281,7 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
                 config.search_page_size = Some(int_in(path, key, value, 1, 1000)? as u32);
             }
             "hide_versions" => config.hide_versions = Some(words(path, key, value)?),
+            "hide_browse_pages" => config.hide_browse_pages = Some(words(path, key, value)?),
             "layout" => config.layout = layout(path, value)?,
             "theme" => match value.as_str() {
                 Some(name) => config.theme = Some(name.to_owned()),
@@ -1775,5 +1778,83 @@ mod tests {
                 .as_deref(),
             Some("dracula")
         );
+    }
+
+    /// Spec 0024 AC16: `hide_browse_pages` defaults to `videos` and
+    /// `tidal_magazine`; `app.toml` and the environment set it (the
+    /// environment winning, an empty value hiding nothing), and a value
+    /// that is not an array of strings is refused as `hide_versions`'s is.
+    #[test]
+    fn ac16_hide_browse_pages() {
+        use crate::play::{HIDE_BROWSE_PAGES_VAR, resolve_player_config_with};
+        // (name, file, environment, want)
+        type Row = (
+            &'static str,
+            &'static str,
+            Option<&'static str>,
+            Result<Vec<&'static str>, &'static str>,
+        );
+        let rows: [Row; 8] = [
+            ("default", "", None, Ok(vec!["videos", "tidal_magazine"])),
+            ("file", "hide_browse_pages = [\"x\"]", None, Ok(vec!["x"])),
+            (
+                "file hides nothing",
+                "hide_browse_pages = []",
+                None,
+                Ok(vec![]),
+            ),
+            (
+                "env over file",
+                "hide_browse_pages = [\"x\"]",
+                Some("a, b"),
+                Ok(vec!["a", "b"]),
+            ),
+            (
+                "empty env hides nothing",
+                "hide_browse_pages = [\"x\"]",
+                Some(""),
+                Ok(vec![]),
+            ),
+            (
+                "env without a file",
+                "",
+                Some(" videos ,, genres "),
+                Ok(vec!["videos", "genres"]),
+            ),
+            (
+                "not an array",
+                "hide_browse_pages = \"videos\"",
+                None,
+                Err(
+                    "/c/app.toml: invalid hide_browse_pages: expected an array of strings, got \"videos\"",
+                ),
+            ),
+            (
+                "not strings",
+                "hide_browse_pages = [\"videos\", 1]",
+                None,
+                Err(
+                    "/c/app.toml: invalid hide_browse_pages: expected an array of strings, got an array containing 1",
+                ),
+            ),
+        ];
+        for (name, file, env, want) in rows {
+            let got = parse_app_toml(Path::new(PATH), file)
+                .map_err(|e| e.to_string())
+                .and_then(|file| {
+                    resolve_player_config_with(&file, |key| {
+                        (key == HIDE_BROWSE_PAGES_VAR)
+                            .then_some(env)
+                            .flatten()
+                            .map(Into::into)
+                    })
+                    .map_err(|e| e.to_string())
+                })
+                .map(|s| s.hide_browse_pages);
+            let want = want
+                .map(|names| names.into_iter().map(str::to_owned).collect::<Vec<_>>())
+                .map_err(str::to_owned);
+            assert_eq!(got, want, "{name}");
+        }
     }
 }

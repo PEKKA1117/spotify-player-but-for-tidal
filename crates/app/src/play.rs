@@ -413,6 +413,12 @@ pub const SEARCH_PAGE_SIZE_VAR: &str = "TIDAL_PLAYER_SEARCH_PAGE_SIZE";
 /// tracks* (spec 0006); empty hides nothing.
 pub const HIDE_VERSIONS_VAR: &str = "TIDAL_PLAYER_HIDE_VERSIONS";
 
+/// Comma-separated names of the browse pages whose links the TUI does not
+/// show (spec 0024); empty hides nothing.
+pub const HIDE_BROWSE_PAGES_VAR: &str = "TIDAL_PLAYER_HIDE_BROWSE_PAGES";
+/// The default of `hide_browse_pages`: the two pages with nothing to show.
+pub const DEFAULT_HIDE_BROWSE_PAGES: [&str; 2] = ["videos", "tidal_magazine"];
+
 /// The default of `key_hints_delay_ms` (spec 0013).
 pub const DEFAULT_KEY_HINTS_DELAY: Duration = Duration::from_millis(1000);
 
@@ -444,6 +450,9 @@ pub struct PlayerSettings {
     /// Whether the TUI asks before removing from favorites, a playlist or
     /// the queue (spec 0019); read by the TUI only.
     pub confirm_removals: bool,
+    /// The browse pages whose links the TUI does not show (spec 0024);
+    /// read by the TUI only.
+    pub hide_browse_pages: Vec<String>,
     /// Whether the TUI draws the album cover (spec 0016); read by the TUI
     /// only, as the two below.
     pub cover_img: bool,
@@ -468,6 +477,7 @@ impl Default for PlayerSettings {
             key_hints: true,
             key_hints_delay: DEFAULT_KEY_HINTS_DELAY,
             confirm_removals: true,
+            hide_browse_pages: Vec::new(),
             cover_img: true,
             cover_img_rows: 6,
             cover_img_protocol: crate::cover::ProtocolSetting::Auto,
@@ -564,6 +574,7 @@ fn resolve_with(
             .map(str::to_owned)
             .collect();
     }
+    // As `TIDAL_PLAYER_HIDE_VERSIONS`: an empty value hides nothing.
     if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
         settings.remember_playback = on;
     }
