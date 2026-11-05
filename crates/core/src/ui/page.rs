@@ -514,16 +514,7 @@ impl Window {
         if matches!(section.more, BrowseMore::ViewAll(_)) {
             window.view_all = ViewAll::Waiting;
         }
-        let asked = match &section.rows {
-            ListItems::Tracks(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Albums(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Playlists(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Artists(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Credits(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Mixes(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Links(p) => p.items.len() as u32 + p.hidden,
-            ListItems::Mixed(p) => p.items.len() as u32 + p.hidden,
-        };
+        let asked = items_len(&section.rows);
         window.append(section.rows.clone(), asked);
         window
     }
@@ -814,6 +805,15 @@ impl Window {
                 add(rows, &mut self.positions, page, mixed_key);
                 (page.offset, page.total, page.hidden)
             }
+            // An empty page of another kind (the API cannot tell an empty
+            // page's kind): the load ends, the rows stay, and the list is
+            // taken as complete so it is not asked again (spec 0024).
+            _ if items_len(&items) == 0 => {
+                self.load = Load::Idle;
+                self.whole = true;
+                self.total = Some(u32::try_from(self.rows.len()).unwrap_or(u32::MAX));
+                return;
+            }
             _ => return,
         };
         self.total = Some(total);
@@ -900,6 +900,21 @@ impl Window {
             self.cursor = self.cursor.min(self.len().saturating_sub(1));
         }
     }
+}
+
+/// The rows an answer holds, and the rows its page left out.
+fn items_len(items: &ListItems) -> u32 {
+    let (len, hidden) = match items {
+        ListItems::Tracks(p) => (p.items.len(), p.hidden),
+        ListItems::Albums(p) => (p.items.len(), p.hidden),
+        ListItems::Playlists(p) => (p.items.len(), p.hidden),
+        ListItems::Artists(p) => (p.items.len(), p.hidden),
+        ListItems::Credits(p) => (p.items.len(), p.hidden),
+        ListItems::Mixes(p) => (p.items.len(), p.hidden),
+        ListItems::Links(p) => (p.items.len(), p.hidden),
+        ListItems::Mixed(p) => (p.items.len(), p.hidden),
+    };
+    len as u32 + hidden
 }
 
 /// A mixed section's rows are told apart by kind as well as ID: a track
