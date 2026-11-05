@@ -1,0 +1,43 @@
+{
+  "limit": 50,
+  "offset": 100,
+  "totalNumberOfItems": 465,
+  "items": [
+    {
+      "id": 35738574,
+      "title": "The Blueprint",
+      "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+      "artists": [
+        {
+          "id": 7804,
+          "name": "JAY-Z",
+          "type": "MAIN"
+        }
+      ],
+      "numberOfTracks": 15,
+      "duration": 3801,
+      "releaseDate": "2001-09-11",
+      "audioModes": [
+        "STEREO"
+      ]
+    },
+    {
+      "id": 563860751,
+      "title": "BETTER OVER TIME",
+      "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+      "artists": [
+        {
+          "id": 7804,
+          "name": "JAY-Z",
+          "type": "MAIN"
+        }
+      ],
+      "numberOfTracks": 15,
+      "duration": 3801,
+      "releaseDate": "2001-09-11",
+      "audioModes": [
+        "STEREO"
+      ]
+    }
+  ]
+}

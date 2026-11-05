@@ -1,0 +1,137 @@
+{
+  "id": "p",
+  "title": "Explore",
+  "selfLink": null,
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "FEATURED_PROMOTIONS",
+          "title": "Featured",
+          "id": "f",
+          "items": [
+            {
+              "header": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS_CLOUD",
+          "title": "Genres",
+          "id": "m-PAGE_LINKS_CLOUD",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000c1",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 2,
+            "items": [
+              {
+                "title": "Hip-Hop",
+                "icon": "x",
+                "apiPath": "pages/genre_hip_hop",
+                "imageId": null
+              },
+              {
+                "title": "Pop",
+                "icon": "x",
+                "apiPath": "pages/genre_pop",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS_CLOUD",
+          "title": "Moods & Activities",
+          "id": "m-PAGE_LINKS_CLOUD",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000c2",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 4,
+            "items": [
+              {
+                "title": "Chill",
+                "icon": "x",
+                "apiPath": "pages/mood_chill",
+                "imageId": null
+              },
+              {
+                "title": "Party",
+                "icon": "x",
+                "apiPath": "pages/mood_party",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS_CLOUD",
+          "title": "Decades",
+          "id": "m-PAGE_LINKS_CLOUD",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-0000000000c3",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "title": "1950s",
+                "icon": "x",
+                "apiPath": "pages/m_1950s",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS",
+          "title": "",
+          "id": "m-PAGE_LINKS",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 3,
+            "items": [
+              {
+                "title": "New",
+                "icon": "x",
+                "apiPath": "pages/explore_new_music",
+                "imageId": null
+              },
+              {
+                "title": "Top",
+                "icon": "x",
+                "apiPath": "pages/explore_top_music",
+                "imageId": null
+              },
+              {
+                "title": "HiRes",
+                "icon": "x",
+                "apiPath": "pages/hires",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

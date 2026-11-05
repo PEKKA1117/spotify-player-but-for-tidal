@@ -1,0 +1,268 @@
+{
+  "header": {
+    "vibes": {
+      "items": [
+        {
+          "name": "For you",
+          "type": "STATIC"
+        }
+      ]
+    }
+  },
+  "uuid": "u",
+  "page": {
+    "cursor": "QkFTRURfT05fWU9VUl9JTlRFUkVTVFNfMg"
+  },
+  "items": [
+    {
+      "type": "SHORTCUT_LIST",
+      "moduleId": "SHORTCUT_LIST",
+      "title": "Shortcuts",
+      "viewAll": null,
+      "items": [
+        {
+          "type": "MIX",
+          "data": {
+            "type": "DAILY_MIX",
+            "id": "016214541b7a008d226272cf9d0964",
+            "titleTextInfo": {
+              "text": "My Daily Discovery",
+              "color": "#CBADFF"
+            },
+            "subtitleTextInfo": {
+              "text": "Songs by new and familiar artists",
+              "color": "#CBADFF"
+            }
+          }
+        },
+        {
+          "type": "PLAYLIST",
+          "data": {
+            "uuid": "51b42ddc-1789-4706-9570-c6b51c14b489",
+            "title": "Skillet Essentials",
+            "type": "EDITORIAL",
+            "duration": 9866,
+            "numberOfTracks": 25,
+            "numberOfVideos": 0,
+            "creators": [],
+            "description": "",
+            "creator": {
+              "id": 0,
+              "name": null,
+              "type": "TIDAL"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "DAILY_MIXES",
+      "title": "Custom mixes",
+      "viewAll": "home/pages/DAILY_MIXES/view-all",
+      "items": [
+        {
+          "type": "MIX",
+          "data": {
+            "type": "DAILY_MIX",
+            "id": "016214541b7a008d226272cf9d0964",
+            "titleTextInfo": {
+              "text": "My Mix 1",
+              "color": "#CBADFF"
+            },
+            "subtitleTextInfo": {
+              "text": "TK and more",
+              "color": "#CBADFF"
+            }
+          }
+        },
+        {
+          "type": "MIX",
+          "data": {
+            "type": "ARTIST_MIX",
+            "id": "000c9493c96d7c4ff25f1bf7da4852",
+            "titleTextInfo": {
+              "text": "Set It Off",
+              "color": "#CBADFF"
+            },
+            "subtitleTextInfo": {
+              "text": "Artist Radio",
+              "color": "#CBADFF"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "COMPACT_GRID_CARD",
+      "moduleId": "CONTINUE_LISTEN_TO",
+      "title": "Recently played",
+      "viewAll": "home/pages/CONTINUE_LISTEN_TO/view-all",
+      "items": [
+        {
+          "type": "MIX",
+          "data": {
+            "type": "DAILY_MIX",
+            "id": "016214541b7a008d226272cf9d0964",
+            "titleTextInfo": {
+              "text": "My Mix 1",
+              "color": "#CBADFF"
+            },
+            "subtitleTextInfo": {
+              "text": "x",
+              "color": "#CBADFF"
+            }
+          }
+        },
+        {
+          "type": "PLAYLIST",
+          "data": {
+            "uuid": "51b42ddc-1789-4706-9570-c6b51c14b489",
+            "title": "Skillet Essentials",
+            "type": "EDITORIAL",
+            "duration": 9866,
+            "numberOfTracks": 25,
+            "numberOfVideos": 0,
+            "creators": [],
+            "description": "",
+            "creator": {
+              "id": 0,
+              "name": null,
+              "type": "TIDAL"
+            }
+          }
+        },
+        {
+          "type": "TRACK",
+          "data": {
+            "id": 233573504,
+            "title": "Villain Vibes",
+            "duration": 123,
+            "version": null,
+            "artists": [
+              {
+                "id": 5519029,
+                "name": "Amalee",
+                "main": true
+              }
+            ],
+            "album": {
+              "id": 563860751,
+              "title": "BETTER OVER TIME",
+              "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+            },
+            "explicit": false,
+            "allowStreaming": true,
+            "streamReady": true,
+            "audioModes": [
+              "STEREO"
+            ]
+          }
+        },
+        {
+          "type": "TRACK",
+          "data": {
+            "id": 233573505,
+            "title": "Atmos only",
+            "duration": 123,
+            "version": null,
+            "artists": [
+              {
+                "id": 5519029,
+                "name": "Amalee",
+                "main": true
+              }
+            ],
+            "album": {
+              "id": 563860751,
+              "title": "BETTER OVER TIME",
+              "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+            },
+            "explicit": false,
+            "allowStreaming": true,
+            "streamReady": true,
+            "audioModes": [
+              "DOLBY_ATMOS"
+            ]
+          }
+        },
+        {
+          "type": "DEEP_LINK",
+          "data": {
+            "title": "Open the app"
+          }
+        }
+      ]
+    },
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "BASED_ON_YOUR_INTERESTS_1",
+      "title": "Heavy Alternative & more",
+      "viewAll": "home/pages/BASED_ON_YOUR_INTERESTS_1/view-all?itemId=heavy%20alternative&rankingToken=6320907525",
+      "items": [
+        {
+          "type": "ALBUM",
+          "data": {
+            "id": 35757649,
+            "title": "Slip",
+            "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+            "artists": [
+              {
+                "id": 7804,
+                "name": "JAY-Z",
+                "type": "MAIN"
+              }
+            ],
+            "numberOfTracks": 15,
+            "duration": 3801,
+            "releaseDate": "2001-09-11",
+            "audioModes": [
+              "STEREO"
+            ],
+            "type": "ALBUM"
+          }
+        },
+        {
+          "type": "ARTIST",
+          "data": {
+            "id": 5839856,
+            "name": "Superheaven",
+            "picture": null
+          }
+        },
+        {
+          "type": "PLAYLIST",
+          "data": {
+            "uuid": "51b42ddc-1789-4706-9570-c6b51c14b489",
+            "title": "Skillet Essentials",
+            "type": "EDITORIAL",
+            "duration": 9866,
+            "numberOfTracks": 25,
+            "numberOfVideos": 0,
+            "creators": [],
+            "description": "",
+            "creator": {
+              "id": 0,
+              "name": null,
+              "type": "TIDAL"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "ONLY_LINKS",
+      "title": "Only deep links",
+      "viewAll": null,
+      "items": [
+        {
+          "type": "DEEP_LINK",
+          "data": {
+            "title": "x"
+          }
+        }
+      ]
+    }
+  ]
+}

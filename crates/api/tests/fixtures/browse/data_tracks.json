@@ -1,0 +1,79 @@
+{
+  "limit": 5,
+  "offset": 5,
+  "totalNumberOfItems": 439,
+  "items": [
+    {
+      "id": 563860770,
+      "title": "I LIKE IT",
+      "duration": 123,
+      "version": null,
+      "artists": [
+        {
+          "id": 17042393,
+          "name": "BigXthaPlug",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 563860751,
+        "title": "BETTER OVER TIME",
+        "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+      },
+      "explicit": false,
+      "allowStreaming": true,
+      "streamReady": true,
+      "audioModes": [
+        "STEREO"
+      ]
+    },
+    {
+      "id": 563860771,
+      "title": "ATMOS ONLY",
+      "duration": 123,
+      "version": null,
+      "artists": [
+        {
+          "id": 17042393,
+          "name": "BigXthaPlug",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 563860751,
+        "title": "BETTER OVER TIME",
+        "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+      },
+      "explicit": false,
+      "allowStreaming": true,
+      "streamReady": true,
+      "audioModes": [
+        "DOLBY_ATMOS"
+      ]
+    },
+    {
+      "id": 563860772,
+      "title": "SECOND ONE",
+      "duration": 123,
+      "version": null,
+      "artists": [
+        {
+          "id": 17042393,
+          "name": "BigXthaPlug",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 563860751,
+        "title": "BETTER OVER TIME",
+        "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+      },
+      "explicit": false,
+      "allowStreaming": true,
+      "streamReady": true,
+      "audioModes": [
+        "STEREO"
+      ]
+    }
+  ]
+}

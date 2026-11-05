@@ -1,0 +1,178 @@
+{
+  "id": "p",
+  "title": "Names",
+  "selfLink": null,
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "TRACK_LIST",
+          "title": "",
+          "id": "m-TRACK_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 1,
+                "title": "T",
+                "duration": 123,
+                "version": null,
+                "artists": [
+                  {
+                    "id": 17042393,
+                    "name": "BigXthaPlug",
+                    "type": "MAIN"
+                  }
+                ],
+                "album": {
+                  "id": 563860751,
+                  "title": "BETTER OVER TIME",
+                  "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+                },
+                "explicit": false,
+                "allowStreaming": true,
+                "streamReady": true,
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ALBUM_LIST",
+          "title": "",
+          "id": "m-ALBUM_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 1,
+                "title": "A",
+                "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+                "artists": [
+                  {
+                    "id": 7804,
+                    "name": "JAY-Z",
+                    "type": "MAIN"
+                  }
+                ],
+                "numberOfTracks": 15,
+                "duration": 3801,
+                "releaseDate": "2001-09-11",
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PLAYLIST_LIST",
+          "title": null,
+          "id": "m-PLAYLIST_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "uuid": "34c543c9-bb74-4b79-91a8-feb6d815f43c",
+                "title": "P",
+                "type": "EDITORIAL",
+                "duration": 9866,
+                "numberOfTracks": 56,
+                "numberOfVideos": 0,
+                "creators": [],
+                "description": ""
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ARTIST_LIST",
+          "title": "",
+          "id": "m-ARTIST_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 1,
+                "name": "R",
+                "picture": "695e593e-451a-4dcc-ae3f-84e3023bbd1f"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "MIX_LIST",
+          "title": "",
+          "id": "m-MIX_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": "016214541b7a008d226272cf9d0964",
+                "title": "M",
+                "subTitle": null,
+                "mixType": "DAILY_MIX"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS",
+          "title": "",
+          "id": "m-PAGE_LINKS",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "title": "L",
+                "icon": "x",
+                "apiPath": "pages/l",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
