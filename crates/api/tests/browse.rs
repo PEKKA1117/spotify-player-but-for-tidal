@@ -1054,6 +1054,6 @@ async fn ac12_home_fails_alone() {
     s.get("/v1/pages/explore", 200, EXPLORE).await;
     assert!(s.browse(BrowseRef::Home).await.is_err());
     let (title, got) = sections(s.browse(page_link("pages/home")).await.unwrap());
-    assert_eq!((title.as_str(), got.is_empty()), ("Hip-Hop", false));
+    assert_eq!((title.as_str(), got.is_empty()), ("Staff picks", false));
     assert!(s.browse(BrowseRef::Root).await.is_ok());
 }

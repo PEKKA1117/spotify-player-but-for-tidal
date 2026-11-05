@@ -34,6 +34,10 @@ use super::{
 use crate::ApiResponse;
 use crate::metadata::{ArtistDto, REQUEST_TIMEOUT, TrackDto};
 
+/// The editorial page, and what it is called: its own title, *Home*, would
+/// clash with the personal home.
+const STAFF_PICKS_PAGE: &str = "pages/home";
+const STAFF_PICKS: &str = "Staff picks";
 /// The v2 feed, relative to the v1 base.
 const FEED_PATH: &str = "home/feed/static";
 /// Requests to the feed, the first included (spec 0024 "Requests").
@@ -92,10 +96,13 @@ impl LibraryClient {
                 let path = browse_path(path, Source::V1)?;
                 let page = self.v1_page(path).await?;
                 let sections = page.sections().map(|(_, section)| section).collect();
-                let title = page
-                    .title
-                    .filter(|t| !t.trim().is_empty())
-                    .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(path).to_owned());
+                let title = if path == STAFF_PICKS_PAGE {
+                    STAFF_PICKS.to_owned()
+                } else {
+                    page.title
+                        .filter(|t| !t.trim().is_empty())
+                        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(path).to_owned())
+                };
                 Ok(PageData::Browse { title, sections })
             }
         }
@@ -135,7 +142,7 @@ impl LibraryClient {
         let page = self.v1_page("pages/explore").await?;
         let mut links = vec![
             link("Home", BrowseRef::Home),
-            link("Staff picks", BrowseRef::Page("pages/home".into())),
+            link(STAFF_PICKS, BrowseRef::Page(STAFF_PICKS_PAGE.into())),
             link("For you", BrowseRef::Page("pages/for_you".into())),
         ];
         let mut tabs = Vec::new();

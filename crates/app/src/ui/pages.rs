@@ -825,7 +825,11 @@ fn window_lines(
                 Row::Album(album) => album_row(album, width),
                 // A search's playlists are not the user's: no heart.
                 Row::Playlist(playlist) => {
-                    playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
+                    let hearts = !matches!(
+                        window.kind,
+                        WindowKind::SearchPlaylists | WindowKind::BrowseSection
+                    );
+                    playlist_row(playlist, width, hearts)
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
                 Row::Link(link) => fit(&link.title, width),
@@ -948,7 +952,8 @@ fn album_row(album: &tidal_player_core::library::AlbumSummary, width: usize) -> 
 }
 
 /// `♥ title   42`: a favorite (followed) playlist has the heart, when
-/// `hearts` (not in search results, spec 0007 decision 5).
+/// `hearts` (not in search results, spec 0007 decision 5, nor on browse
+/// pages, spec 0024: neither answer says whether it is followed).
 fn playlist_row(
     playlist: &tidal_player_core::library::PlaylistSummary,
     width: usize,

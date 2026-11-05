@@ -4489,9 +4489,9 @@ fn ac16_hidden_links_on_later_pages() {
     let path = "pages/data/moods";
     let first = list(
         vec![
-            link("Sleep", "pages/mood_sleep"),
-            link("Videos", "pages/videos"),
-            link("Relax", "pages/mood_relax"),
+            link("Sleep", "mood_sleep"),
+            link("Videos", "videos"),
+            link("Relax", "mood_relax"),
         ],
         0,
         6,
@@ -4514,8 +4514,8 @@ fn ac16_hidden_links_on_later_pages() {
     assert_eq!(request, more(ListRef::BrowseData(path.into()), 3, 2));
     let second = list(
         vec![
-            link("Focus", "pages/mood_focus"),
-            link("Magazine", "pages/tidal_magazine"),
+            link("Focus", "mood_focus"),
+            link("Magazine", "tidal_magazine"),
         ],
         3,
         6,
@@ -4528,7 +4528,7 @@ fn ac16_hidden_links_on_later_pages() {
     assert_eq!(window(&state, 0).rows.len(), 3, "the magazine stays hidden");
 
     let (id, _) = one_request(&press(&mut state, &[Char('j')]));
-    let third = list(vec![link("Happy", "pages/m_happy")], 5, 6);
+    let third = list(vec![link("Happy", "m_happy")], 5, 6);
     reply(
         &mut state,
         id,

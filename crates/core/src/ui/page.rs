@@ -526,7 +526,7 @@ impl Window {
             .heading
             .clone()
             .unwrap_or_else(|| self.kind.name().to_owned());
-        if self.view_all == ViewAll::Waiting {
+        if self.view_all == ViewAll::Waiting && matches!(self.load, Load::Loading { .. }) {
             format!("{name}…")
         } else {
             name
@@ -823,6 +823,11 @@ impl Window {
             self.hidden += hidden;
         }
         self.next_offset = self.next_offset.max(offset.saturating_add(limit));
+        // A finished section counts what it shows: Tidal's total also
+        // counts the rows left out.
+        if self.kind == WindowKind::BrowseSection && self.complete() {
+            self.total = Some(self.rows.len() as u32);
+        }
         self.load = Load::Idle;
         self.refilter();
         self.cursor = self.cursor.min(self.len().saturating_sub(1));

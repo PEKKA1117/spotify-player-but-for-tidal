@@ -3,8 +3,8 @@
 //! playing and queueing from a page, the popups and the library writes.
 
 use crate::library::{
-    BrowseRef, BrowseSection, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListRef,
-    PageData, PlaylistSummary,
+    BrowseRef, BrowseSection, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListPage,
+    ListRef, PageData, PageLink, PlaylistSummary,
 };
 use crate::protocol::{Command, DeviceEntry, InsertAt};
 use crate::track::Track;
@@ -267,6 +267,23 @@ fn ask_view_all(state: &mut State, page: usize, window: usize, effects: &mut Vec
     }
 }
 
+/// Takes the links to `hidden` pages out of `page`, returning how many: they
+/// count as `hidden`, so the next `offset` follows Tidal's list.
+fn hide_in_page(page: &mut ListPage<PageLink>, hidden: &[String]) -> usize {
+    let before = page.items.len();
+    page.items.retain(|link| match &link.target {
+        BrowseRef::Page(path) => path
+            .strip_prefix("pages/")
+            .is_none_or(|name| !hidden.iter().any(|h| h == name)),
+        _ => true,
+    });
+    let removed = before - page.items.len();
+    // `total` stays Tidal's: a section is finished by it (the rows counted
+    // once it is).
+    page.hidden += removed as u32;
+    removed
+}
+
 /// Takes out of `sections` the links to the pages `hidden` names (the name
 /// after `pages/`, spec 0024 "Hiding pages"); a section all of whose links
 /// were hidden goes too.
@@ -278,16 +295,7 @@ pub(super) fn hide_links(sections: &mut Vec<BrowseSection>, hidden: &[String]) {
         let ListItems::Links(page) = &mut section.rows else {
             return true;
         };
-        let before = page.items.len();
-        page.items.retain(|link| match &link.target {
-            BrowseRef::Page(path) => path
-                .strip_prefix("pages/")
-                .is_none_or(|name| !hidden.iter().any(|h| h == name)),
-            _ => true,
-        });
-        let removed = before - page.items.len();
-        page.total = page.total.saturating_sub(removed as u32);
-        removed == 0 || !page.items.is_empty()
+        hide_in_page(page, hidden) == 0 || !page.items.is_empty()
     });
 }
 
@@ -1589,7 +1597,7 @@ fn page_error(kind: &PageKind, message: String) -> String {
 pub(super) fn reply(
     state: &mut State,
     id: u64,
-    result: Result<LibraryResponse, String>,
+    mut result: Result<LibraryResponse, String>,
 ) -> Vec<Effect> {
     let mut effects = Vec::new();
     let waiting = Load::Loading { id };
@@ -1631,6 +1639,9 @@ pub(super) fn reply(
             state.whole_list.as_ref().map(|w| &w.source),
             Some(WholeListSource::Window { page, window }) if (*page, *window) == (p, w)
         );
+        if let Ok(LibraryResponse::Items(ListItems::Links(page))) = &mut result {
+            hide_in_page(page, &state.hide_browse_pages);
+        }
         let window = &mut state.history[p].windows[w];
         // A section's `viewAll` replaces its preview, whatever the kinds
         // (spec 0024 AC7); failing, it leaves the preview and says so.
