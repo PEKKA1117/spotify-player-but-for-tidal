@@ -56,6 +56,7 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `search_page_size` | 整數 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | 播放器、TUI |
 | `hide_versions` | 字串陣列（`[]` 表示不隱藏任何東西） | [設定](playback.md#settings)中列出的十六個詞 | `TIDAL_PLAYER_HIDE_VERSIONS` | 播放器 |
 | `hide_browse_pages` | 字串陣列（`[]` 表示不隱藏任何東西） | `["videos", "tidal_magazine"]` | `TIDAL_PLAYER_HIDE_BROWSE_PAGES`（以逗號分隔；空值表示不隱藏任何東西） | TUI |
+| `player_event_hook_command` | 一個表格：`command`，以及選用的 `args`（見[下方](#running-a-command-on-player-events)） | 無 | | player |
 | `[layout] library = { playlist_percent, album_percent }` | 各為整數 1–98，總和最多 99；*Artists*（藝人）佔用其餘部分 | `40`、`40` | | TUI |
 
 各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`hide_browse_pages` 說明於[瀏覽](tui.md#browse)（名稱是頁面路徑中 `pages/` 之後的部分，須完全相符，且只隱藏連結）；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)；`theme` 指定 [`theme.toml`](#themetoml) 中的一個佈景主題（沒有檔案時為 `default`），TUI 執行期間可按 `T` 切換（見[佈景主題](tui.md#themes)）。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
@@ -73,6 +74,67 @@ library = { playlist_percent = 30, album_percent = 50 }
 ```
 
 **優先順序**，依每項設定分別判斷：旗標 > 環境變數 > `app.toml` > 預設值。當環境變數與檔案不一致時，環境變數優先，且不會有任何提示。`hide_versions` 的比對方式與該環境變數相同（轉為小寫，忽略空格、連字號、底線、句點和 `+`）。
+
+<a id="running-a-command-on-player-events"></a>
+### 在播放器事件時執行指令
+
+`player_event_hook_command` 會在每個播放器事件發生時執行一個指令：例如更新狀態列（waybar、i3blocks）、scrobble 或寫紀錄的腳本。
+
+```toml
+player_event_hook_command = { command = "/home/me/bin/on-player-event", args = ["--quiet"] }
+```
+
+`command` 是路徑，或可在 `PATH` 找到的名稱，會直接執行、不經過 shell，所以 `~` 不會展開。`args` 可省略。執行它的是播放器本身（standalone、常駐程式或 `play` 皆然），所以使用常駐程式時，不論連上多少個 TUI，一個事件只會執行一次。在常駐程式下，指令是在服務的環境中執行：`PATH` 和它需要的其他變數都要在那裡設定。
+
+指令在 `args` 之後會收到事件的名稱與參數，所以換曲時會執行 `on-player-event --quiet Changed 12345`：
+
+| 事件 | 參數 | 時機 |
+|---|---|---|
+| `Changed` | `TRACK_ID` | 曲目開始播放：也包含單曲重播、停止後再次播放，或還原的曲目從儲存的位置開始 |
+| `Playing` | `TRACK_ID POSITION_MS` | 開始或恢復播放 |
+| `Paused` | `TRACK_ID POSITION_MS` | 曲目暫停 |
+| `Stopped` | `TRACK_ID POSITION_MS` | 播放器停止：`Stop`、佇列播完或被清空、跳曲後沒有可播放的曲目，或播放器正在關閉。`TRACK_ID` 是最後開始播放的曲目 |
+| `EndOfTrack` | `TRACK_ID` | 曲目播到結尾，不論是否無縫。跳曲或停止不算結束 |
+| `Seeked` | `TRACK_ID POSITION_MS` | 手動改變位置：跳轉，或 `Previous` 回到曲目開頭 |
+| `VolumeChanged` | `PERCENT` | 實際聽到的音量改變：`0` 到 `100`，靜音時為 `0` |
+| `DeviceChanged` | `NAME` | 選擇的輸出裝置改變 |
+
+`POSITION_MS` 是事件發生後的位置。曲目只是在載入或緩衝時不會執行任何指令，所以快速跳過佇列時，只有真正開始播放的曲目才會觸發 `Changed`。啟動播放器不會執行指令，即使還原了上次的工作階段也一樣。曲目結束並接著下一首時，會依序收到 `EndOfTrack OLD`、`Changed NEW`、`Playing NEW 0`。
+
+與曲目有關的事件也會設定下列變數，所以腳本不需要 Tidal 工作階段就能顯示或 scrobble 正在播放的內容：
+
+| 變數 | 值 |
+|---|---|
+| `TIDAL_PLAYER_TRACK_TITLE` | 曲名，有版本時以括號附上（`Song (Live)`） |
+| `TIDAL_PLAYER_TRACK_ARTISTS` | 藝人，以 `, ` 連接 |
+| `TIDAL_PLAYER_TRACK_ALBUM` | 專輯名稱；曲目沒有專輯時不設定 |
+| `TIDAL_PLAYER_TRACK_DURATION_MS` | 長度；Tidal 沒有提供時不設定 |
+
+```sh
+#!/bin/sh
+# 把正在播放的內容寫到狀態列可以讀取的檔案。
+case "$1" in
+    Playing) echo "$TIDAL_PLAYER_TRACK_ARTISTS - $TIDAL_PLAYER_TRACK_TITLE" > "$XDG_RUNTIME_DIR/now-playing" ;;
+    Paused | Stopped) : > "$XDG_RUNTIME_DIR/now-playing" ;;
+esac
+```
+
+播放絕不會等待指令。指令一次只執行一個，依事件的順序：
+
+- 最多 64 個事件排隊；超過時丟棄最舊的。排在最後的 `Seeked` 或 `VolumeChanged` 會被同類型的新事件取代，所以按住按鍵只會執行一次，不會執行數百次
+- 執行超過 30 秒的指令會被終止，然後執行下一個
+- stdin 與 stdout 是 `/dev/null`。stderr 在常駐程式與 `play` 下是播放器的 stderr（在 systemd 下即 journal），在 standalone 下是 `/dev/null`，否則會畫到 TUI 上
+
+指令無法啟動、失敗或被終止都不影響播放。播放器會在每個用戶端的訊息列說明一次（和其他訊息一樣，留到下一首開始為止），在常駐程式與 `play` 下也會寫到 stderr；之後要等到有指令成功，才會再次提示：
+
+```
+Player event hook failed: on-player-event: No such file or directory (os error 2)
+Player event hook failed: on-player-event exited with status 3
+Player event hook failed: on-player-event was killed after 30 s
+Player event hook is too slow: events were dropped
+```
+
+播放器在播放或暫停中關閉時會送出 `Stopped`，並最多給指令 2 秒處理排隊中的事件。`app.toml` 只在啟動時讀取一次。
 
 <a id="themetoml"></a>
 ## `theme.toml`

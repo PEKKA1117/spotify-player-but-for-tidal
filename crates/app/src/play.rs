@@ -665,6 +665,7 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     if let Some(mpris) = file.mpris {
         settings.mpris = mpris;
     }
+    settings.hook.clone_from(&file.player_event_hook_command);
     if let Some(on) = file.key_hints {
         settings.key_hints = on;
     }

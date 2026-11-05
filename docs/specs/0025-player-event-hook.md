@@ -1,6 +1,6 @@
 # 0025 — Player event hook
 
-- **Status**: approved (2026-11-05)
+- **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#56](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/56)
 - **Depends on**: 0004 (implemented: the player's states and events), 0005 (implemented: the daemon), 0008 (implemented: `app.toml`), 0014 (implemented: the output device)
@@ -68,7 +68,7 @@ The commands of one player run one at a time, in the order of their events, on a
 
 ### Failures
 
-A command that cannot start, exits with a non-zero status or is killed for its time limit does not affect playback. The player says so once, as the player's message that every client shows, and on stderr under the daemon and `play`:
+A command that cannot start, exits with a non-zero status or is killed for its time limit does not affect playback. The player says so once, as the player's message that every client shows (kept, like any message, until the next track starts), and on stderr under the daemon and `play`:
 
 ```
 Player event hook failed: on-player-event: No such file or directory (os error 2)

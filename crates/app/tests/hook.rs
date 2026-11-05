@@ -1,17 +1,23 @@
 //! Spec 0025 AC16: a real process gets what the spec promises.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use tidal_player::hook::{Job, Outcome, ProcessRunner, Runner, Stderr};
 
-fn script(dir: &Path, body: &str) -> String {
+/// A job running `body` through `/bin/sh`: a script written here and
+/// executed directly can fail with `ETXTBSY` when another test forks.
+fn job(dir: &Path, body: &str, args: &[&str], env: Vec<(&'static str, String)>) -> Job {
     let path = dir.join("hook.sh");
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("the script is written");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("it is executable");
-    path.display().to_string()
+    fs::write(&path, body).expect("the script is written");
+    let mut all = vec![path.display().to_string()];
+    all.extend(args.iter().map(|arg| (*arg).to_owned()));
+    Job {
+        command: "/bin/sh".into(),
+        args: all,
+        env,
+    }
 }
 
 fn runner(limit: Duration) -> ProcessRunner {
@@ -27,19 +33,18 @@ const LONG: Duration = Duration::from_secs(20);
 fn ac16_real_process() {
     let dir = tempfile::tempdir().expect("a directory");
     let out = dir.path().join("out");
-    let job = Job {
-        command: script(
-            dir.path(),
-            r#"out="$1"; shift
+    let out_arg = out.display().to_string();
+    let job = job(
+        dir.path(),
+        r#"out="$1"; shift
 { printf 'arg=%s\n' "$@"
   printf 'title=%s\n' "$TIDAL_PLAYER_TRACK_TITLE"
   printf 'stdin=%s\n' "$(cat)"
 } > "$out"
 echo noise"#,
-        ),
-        args: vec![out.display().to_string(), "Changed".into(), "12 3".into()],
-        env: vec![("TIDAL_PLAYER_TRACK_TITLE", "Song (Live)".into())],
-    };
+        &[&out_arg, "Changed", "12 3"],
+        vec![("TIDAL_PLAYER_TRACK_TITLE", "Song (Live)".into())],
+    );
     assert_eq!(runner(LONG).run(&job), Outcome::Done);
     let got = fs::read_to_string(&out).expect("the script wrote its file");
     assert_eq!(got, "arg=Changed\narg=12 3\ntitle=Song (Live)\nstdin=\n");
@@ -48,11 +53,7 @@ echo noise"#,
 #[test]
 fn ac16_a_failing_script() {
     let dir = tempfile::tempdir().expect("a directory");
-    let job = Job {
-        command: script(dir.path(), "exit 3"),
-        args: Vec::new(),
-        env: Vec::new(),
-    };
+    let job = job(dir.path(), "exit 3", &[], Vec::new());
     assert_eq!(
         runner(LONG).run(&job),
         Outcome::Failed("exited with status 3".into())
@@ -75,11 +76,7 @@ fn ac16_a_missing_command() {
 #[test]
 fn ac16_killed_at_the_limit() {
     let dir = tempfile::tempdir().expect("a directory");
-    let job = Job {
-        command: script(dir.path(), "exec sleep 30"),
-        args: Vec::new(),
-        env: Vec::new(),
-    };
+    let job = job(dir.path(), "exec sleep 30", &[], Vec::new());
     let limit = Duration::from_millis(100);
     let start = Instant::now();
     assert_eq!(runner(limit).run(&job), Outcome::TimedOut(limit));

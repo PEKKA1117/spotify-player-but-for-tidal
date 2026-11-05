@@ -53,6 +53,7 @@ Flat keys, every one optional.
 | `search_page_size` | integer 1–1000 | `20` | `TIDAL_PLAYER_SEARCH_PAGE_SIZE` | player, TUI |
 | `hide_versions` | array of strings (`[]` hides nothing) | the sixteen words of [Settings](playback.md#settings) | `TIDAL_PLAYER_HIDE_VERSIONS` | player |
 | `hide_browse_pages` | array of strings (`[]` hides nothing) | `["videos", "tidal_magazine"]` | `TIDAL_PLAYER_HIDE_BROWSE_PAGES` (comma-separated; empty hides nothing) | TUI |
+| `player_event_hook_command` | a table: `command`, and optional `args` (see [below](#running-a-command-on-player-events)) | none | | player |
 | `[layout] library = { playlist_percent, album_percent }` | integers 1–98 each, sum at most 99; *Artists* takes the rest | `40`, `40` | | TUI |
 
 What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `hide_browse_pages` in [Browse](tui.md#browse) (the names are the part of a page's path after `pages/`, matched exactly, and only links are hidden); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md); `theme` names one of the themes in [`theme.toml`](#themetoml) (`default` when there is none), and `T` switches it while the TUI runs (see [Themes](tui.md#themes)). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
@@ -70,6 +71,66 @@ library = { playlist_percent = 30, album_percent = 50 }
 ```
 
 **Precedence**, per setting: flag > environment variable > `app.toml` > default. When the environment and the file disagree, the environment wins silently. `hide_versions` matches as the variable does (lower-cased, ignoring spaces, hyphens, underscores, dots and `+`).
+
+### Running a command on player events
+
+`player_event_hook_command` runs a command on each player event: a script that updates a status bar (waybar, i3blocks), scrobbles or keeps a log.
+
+```toml
+player_event_hook_command = { command = "/home/me/bin/on-player-event", args = ["--quiet"] }
+```
+
+`command` is a path or a name found on `PATH`, run directly and without a shell, so `~` is not expanded. `args` is optional. The player runs it, whichever kind it is (standalone, the daemon or `play`), so with a daemon an event runs it once however many TUIs are attached. Under the daemon the command runs in the service's environment: it needs `PATH` and whatever else it uses set there.
+
+After `args` the command gets the event's name and arguments, so a track change runs `on-player-event --quiet Changed 12345`:
+
+| Event | Arguments | When |
+|---|---|---|
+| `Changed` | `TRACK_ID` | A track starts: also a repeat of the same track, playing it again after a stop, or a restored track at its saved position |
+| `Playing` | `TRACK_ID POSITION_MS` | Playback starts or resumes |
+| `Paused` | `TRACK_ID POSITION_MS` | The track is paused |
+| `Stopped` | `TRACK_ID POSITION_MS` | The player stops: `Stop`, the queue ran out or was cleared, a skip found nothing to play, or the player is shutting down. `TRACK_ID` is the track that last started |
+| `EndOfTrack` | `TRACK_ID` | The track played to its end, gaplessly or not. A skip or a stop is not an end |
+| `Seeked` | `TRACK_ID POSITION_MS` | The position was changed by hand, by a seek or by `Previous` restarting the track |
+| `VolumeChanged` | `PERCENT` | The volume heard changed: `0` to `100`, and `0` while muted |
+| `DeviceChanged` | `NAME` | The selected output device changed |
+
+`POSITION_MS` is the position after the event. Nothing runs while a track only loads or buffers, so skipping quickly through a queue runs `Changed` only for the track that really starts. Starting the player runs nothing, even with a restored session. A track that ends and is followed by another gives `EndOfTrack OLD`, `Changed NEW`, `Playing NEW 0`.
+
+Events about a track also set these variables, so a script needs no Tidal session to show or scrobble what plays:
+
+| Variable | Value |
+|---|---|
+| `TIDAL_PLAYER_TRACK_TITLE` | The title, with its version in parentheses when it has one (`Song (Live)`) |
+| `TIDAL_PLAYER_TRACK_ARTISTS` | The artists, joined with `, ` |
+| `TIDAL_PLAYER_TRACK_ALBUM` | The album's title; not set when the track has no album |
+| `TIDAL_PLAYER_TRACK_DURATION_MS` | The duration; not set when Tidal gives none |
+
+```sh
+#!/bin/sh
+# Keeps what plays in a file a status bar can read.
+case "$1" in
+    Playing) echo "$TIDAL_PLAYER_TRACK_ARTISTS - $TIDAL_PLAYER_TRACK_TITLE" > "$XDG_RUNTIME_DIR/now-playing" ;;
+    Paused | Stopped) : > "$XDG_RUNTIME_DIR/now-playing" ;;
+esac
+```
+
+Playback never waits for the command. Commands run one at a time, in the order of their events:
+
+- At most 64 events wait; past that the oldest is dropped. A `Seeked` or `VolumeChanged` last in line is replaced by a newer one of its kind, so holding a key runs the command once, not hundreds of times
+- A command still running after 30 s is killed, and the next one runs
+- stdin and stdout are `/dev/null`. stderr is the player's under the daemon and `play` (the journal under systemd), and `/dev/null` in standalone, where it would draw over the TUI
+
+A command that cannot start, fails or is killed does not affect playback. The player says so once, in the message row of every client (where it stays until the next track starts, like any message), and on stderr under the daemon and `play`; it says nothing more until a command succeeds:
+
+```
+Player event hook failed: on-player-event: No such file or directory (os error 2)
+Player event hook failed: on-player-event exited with status 3
+Player event hook failed: on-player-event was killed after 30 s
+Player event hook is too slow: events were dropped
+```
+
+When the player shuts down with a track playing or paused it sends `Stopped`, and gives the command up to 2 s to finish what is waiting. `app.toml` is read once, at start.
 
 ## `theme.toml`
 

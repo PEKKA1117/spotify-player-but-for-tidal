@@ -30,7 +30,7 @@ use tidal_player_api::auth::BoxFuture;
 use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
-use tidal_player_core::hook::HookTracker;
+use tidal_player_core::hook::{HookTracker, Transition};
 use tidal_player_core::item::parse_item;
 use tidal_player_core::library::{
     DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageData, PageRequest,
@@ -686,7 +686,11 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
 
     /// Hands the player's events to `hook` from now on (spec 0025).
     #[must_use]
-    pub fn with_hook(self, _hook: Option<Box<dyn HookSink>>) -> Self {
+    pub fn with_hook(mut self, hook: Option<Box<dyn HookSink>>) -> Self {
+        self.hook = hook.map(|sink| PlayerHook {
+            sink,
+            tracker: HookTracker::default(),
+        });
         self
     }
 
@@ -728,23 +732,54 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     /// subscribers; the returned events are the same, for an in-process
     /// client (spec 0005 "Sync").
     pub fn handle(&mut self, input: RuntimeInput) -> Handled {
-        let before = self.persistence.is_some().then(|| self.snapshot());
+        let wanted = self.persistence.is_some() || self.hook.is_some();
+        let before = wanted.then(|| self.snapshot());
+        let command = match &input {
+            RuntimeInput::Command(command)
+            | RuntimeInput::Client(ClientInput::Request { command, .. }) => Some(command),
+            _ => None,
+        };
         let seek = matches!(
-            &input,
-            RuntimeInput::Command(
-                Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. }
-            ) | RuntimeInput::Client(ClientInput::Request {
-                command: Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. },
-                ..
-            })
+            command,
+            Some(Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. })
         );
+        // `Previous` can restart the track, a seek to the hook's eyes.
+        let moved_by_hand = seek || matches!(command, Some(Command::Previous));
         let mut handled = self.handle_input(input);
         if handled.shutdown {
             self.save_at_exit();
+            self.hook_shutdown();
         } else if let Some(before) = before {
             self.track_change(&before, seek, &mut handled);
+            self.hook_input(&before, moved_by_hand, &handled);
         }
         handled
+    }
+
+    /// Hands the hook what an input did (spec 0025).
+    fn hook_input(&mut self, before: &PlayerSnapshot, seek: bool, handled: &Handled) {
+        let after = self.state.snapshot();
+        let Some(hook) = self.hook.as_mut() else {
+            return;
+        };
+        hook.sink.send(hook.tracker.update(Transition {
+            before,
+            after: &after,
+            started: handled.started.is_some(),
+            ended: handled.ended,
+            seek,
+        }));
+    }
+
+    /// The last event, then the hook's time to finish (spec 0025 "Shutting
+    /// down"). The clients were told already.
+    fn hook_shutdown(&mut self) {
+        let snapshot = self.state.snapshot();
+        if let Some(hook) = self.hook.as_mut() {
+            hook.sink
+                .send(hook.tracker.shutdown(&snapshot).into_iter().collect());
+            hook.sink.finish();
+        }
     }
 
     fn handle_input(&mut self, input: RuntimeInput) -> Handled {
@@ -794,7 +829,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 handled.shutdown = true;
                 return handled;
             }
-            RuntimeInput::HookFailed(_) => return handled,
+            RuntimeInput::HookFailed(message) => PlayerInput::Notice(message),
             RuntimeInput::Command(command) => PlayerInput::Command(command),
             RuntimeInput::Engine(event) => {
                 let (input, n) = self.engine_input(event, &mut handled);

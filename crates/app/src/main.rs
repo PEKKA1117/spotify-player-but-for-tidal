@@ -23,6 +23,7 @@ use tidal_player::{
     config::{self, AppConfig},
     cover::{self, Cover, Loader},
     daemon::{forward_signals, notify_ready},
+    hook,
     input::event_to_action,
     ipc::{
         self, ClaimError,
@@ -400,7 +401,12 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         Persister::new(plan.state_dir.clone(), player_settings.remember_playback),
         engine,
         jobs,
-    );
+    )
+    .with_hook(hook::start(
+        player_settings.hook.as_ref(),
+        results.clone(),
+        hook::Stderr::Inherit,
+    ));
     let (listener, socket) = match bind_player(&lock) {
         Ok(bound) => bound,
         Err(code) => return Ok(code),
@@ -700,7 +706,12 @@ fn standalone(
         Persister::new(state_dir, player_settings.remember_playback),
         engine,
         jobs,
-    );
+    )
+    .with_hook(hook::start(
+        player_settings.hook.as_ref(),
+        results.clone(),
+        hook::Stderr::Drop,
+    ));
     let (listener, socket) = match bind_player(&lock) {
         Ok(bound) => bound,
         Err(code) => return Ok(code),
@@ -902,6 +913,7 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
             settings,
             release_paused: player.release_paused,
             mpris: mpris_settings,
+            hook: player.hook,
             options: PlayOptions {
                 shuffle: args.shuffle,
                 repeat: args.repeat.into(),

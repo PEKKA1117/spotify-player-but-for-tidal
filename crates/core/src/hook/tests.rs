@@ -542,6 +542,8 @@ fn ac7_silence() {
     ]);
 }
 
+type Variables = &'static [(&'static str, &'static str)];
+
 /// AC8: the command's arguments and environment for each event.
 #[test]
 fn ac8_arguments_and_environment() {
@@ -561,17 +563,17 @@ fn ac8_arguments_and_environment() {
         track.duration = None;
         track
     };
-    let full_env: &[(&str, &str)] = &[
+    let full_env: Variables = &[
         ("TIDAL_PLAYER_TRACK_TITLE", "Title 7 (Live)"),
         ("TIDAL_PLAYER_TRACK_ARTISTS", "Artist, Other"),
         ("TIDAL_PLAYER_TRACK_ALBUM", "Album"),
         ("TIDAL_PLAYER_TRACK_DURATION_MS", "200000"),
     ];
-    let bare_env: &[(&str, &str)] = &[
+    let bare_env: Variables = &[
         ("TIDAL_PLAYER_TRACK_TITLE", "Title 8"),
         ("TIDAL_PLAYER_TRACK_ARTISTS", "Artist"),
     ];
-    let rows: Vec<(HookEvent, &[&str], &[(&str, &str)])> = vec![
+    let rows: Vec<(HookEvent, &[&str], Variables)> = vec![
         (
             HookEvent::Changed(full.clone()),
             &["Changed", "7"],

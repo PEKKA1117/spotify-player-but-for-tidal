@@ -110,6 +110,11 @@ hide_versions = [
 # (TIDAL_PLAYER_HIDE_BROWSE_PAGES, comma-separated)
 hide_browse_pages = ["videos", "tidal_magazine"]
 
+# A command run on each player event, for status bars or scrobbling: its
+# args, then the event's name and arguments. Not set by default. See
+# docs/config.md, "Running a command on player events".
+# player_event_hook_command = { command = "/home/me/bin/on-player-event", args = ["--quiet"] }
+
 [layout]
 # Library page widths in %, each 1 to 98, together at most 99; Artists takes
 # the rest.

@@ -293,6 +293,9 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             "hide_versions" => config.hide_versions = Some(words(path, key, value)?),
             "hide_browse_pages" => config.hide_browse_pages = Some(words(path, key, value)?),
             "layout" => config.layout = layout(path, value)?,
+            "player_event_hook_command" => {
+                config.player_event_hook_command = Some(hook_command(path, key, value)?);
+            }
             "theme" => match value.as_str() {
                 Some(name) => config.theme = Some(name.to_owned()),
                 None => {
@@ -428,6 +431,44 @@ fn int_in(
                 ),
             )
         })
+}
+
+/// `player_event_hook_command` (spec 0025 AC1).
+fn hook_command(path: &Path, key: &str, value: &toml::Value) -> Result<HookCommand, ConfigError> {
+    let Some(table) = value.as_table() else {
+        return Err(ConfigError::at(
+            path,
+            format!(
+                "invalid {key}: expected a table with command and args, got {}",
+                describe(value)
+            ),
+        ));
+    };
+    if let Some(field) = table
+        .keys()
+        .find(|k| !matches!(k.as_str(), "command" | "args"))
+    {
+        return Err(unknown(path, &format!("{key}.{field}")));
+    }
+    let command = table.get("command");
+    let Some(name) = command
+        .and_then(toml::Value::as_str)
+        .filter(|s| !s.is_empty())
+    else {
+        let got = command.map_or_else(|| "nothing".to_owned(), describe);
+        return Err(ConfigError::at(
+            path,
+            format!("invalid {key}.command: expected a non-empty string, got {got}"),
+        ));
+    };
+    let args = match table.get("args") {
+        Some(args) => words(path, &format!("{key}.args"), args)?,
+        None => Vec::new(),
+    };
+    Ok(HookCommand {
+        command: name.to_owned(),
+        args,
+    })
 }
 
 fn words(path: &Path, key: &str, value: &toml::Value) -> Result<Vec<String>, ConfigError> {
