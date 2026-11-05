@@ -324,8 +324,8 @@ pub struct Window {
     pub list: ListRef,
     /// The loaded rows.
     pub rows: Rows,
-    /// Each loaded row's position in Tidal's list (`offset` + index in its
-    /// page): a playlist removal is addressed by it.
+    /// Each loaded row's position in Tidal's list, dropped videos counted
+    /// ([`ListPage::position`]): a playlist removal is addressed by it.
     pub positions: Vec<u32>,
     /// Tidal's total, known from the first page; `None` before it.
     pub total: Option<u32>,
@@ -612,7 +612,7 @@ impl Window {
             page: &ListPage<T>,
         ) {
             for (i, item) in page.items.iter().enumerate() {
-                let position = page.offset + i as u32;
+                let position = page.position(i);
                 if !positions.contains(&position) {
                     rows.push(item.clone());
                     positions.push(position);
@@ -1216,6 +1216,7 @@ mod tests {
             offset,
             total: 3,
             hidden: 0,
+            positions: Vec::new(),
         })
     }
 
@@ -1244,5 +1245,27 @@ mod tests {
         favorites.append(page(0, &[7, 7]), 2);
         favorites.append(page(2, &[7]), 2);
         assert_eq!(ids(&favorites), vec![7]);
+    }
+
+    /// Spec 0006 AC21: a page that names its positions (a video was
+    /// dropped) keeps them, and a repeated page is still skipped by them.
+    #[test]
+    fn ac21_positions_count_dropped_videos() {
+        let mut window = Window::new(
+            WindowKind::PlaylistTracks,
+            ListRef::PlaylistTracks("p".into()),
+        );
+        let with_video = || {
+            let ListItems::Tracks(mut tracks) = page(0, &[7, 8]) else {
+                panic!("not tracks");
+            };
+            tracks.total = 3;
+            tracks.positions = vec![0, 2];
+            ListItems::Tracks(tracks)
+        };
+        window.append(with_video(), 3);
+        window.append(with_video(), 3); // the same page again
+        assert_eq!(ids(&window), vec![7, 8]);
+        assert_eq!(window.positions, vec![0, 2]);
     }
 }

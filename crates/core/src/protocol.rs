@@ -327,6 +327,7 @@ mod tests {
             offset,
             total,
             hidden: 0,
+            positions: Vec::new(),
         }
     }
 
@@ -576,6 +577,7 @@ mod tests {
                 ListItems::Artists(list(vec![], 1000, 196)),
                 ListItems::Credits(ListPage {
                     hidden: 37,
+                    positions: Vec::new(),
                     ..list(vec![credited], 50, 548)
                 }),
             ]

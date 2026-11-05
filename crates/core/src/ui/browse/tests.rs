@@ -87,6 +87,7 @@ fn list<T>(items: Vec<T>, offset: u32, total: u32) -> ListPage<T> {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     }
 }
 
@@ -682,6 +683,7 @@ fn ac10_scroll_loads() {
         offset: 0,
         total: 548,
         hidden: 37,
+        positions: Vec::new(),
     };
     reply(
         &mut state,
@@ -2606,6 +2608,35 @@ fn ac1_confirm_remove_favorite() {
             }
         }
     }
+}
+
+/// Spec 0006 AC21: a row after a dropped video is removed by its position
+/// on Tidal, not its row number.
+#[test]
+fn ac21_remove_after_a_video_sends_its_position() {
+    let mut state = library();
+    let data = PageData::Playlist {
+        playlist: playlist("p1", "Mine", true),
+        etag: Some("e1".into()),
+        tracks: ListPage {
+            positions: vec![0, 2],
+            ..list(tracks([4, 6]), 0, 3)
+        },
+    };
+    open(&mut state, &[Key::Enter], data);
+    run_action(
+        &mut state,
+        &[Key::Char('j'), Key::Ctrl(' ')],
+        "Remove from this playlist",
+    );
+    assert_eq!(
+        outs(&press(&mut state, &[Key::Char('y')])),
+        vec![Out::Library(LibraryRequest::RemoveFromPlaylist {
+            uuid: "p1".into(),
+            indices: vec![2],
+            etag: "e1".into(),
+        })]
+    );
 }
 
 /// AC2: *Remove from this playlist* asks first; `y` sends the position and

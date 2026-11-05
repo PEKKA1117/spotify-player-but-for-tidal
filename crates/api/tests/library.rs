@@ -261,6 +261,7 @@ fn track_page(items: &[u64], offset: u32, total: u32) -> ListItems {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     })
 }
 
@@ -295,6 +296,7 @@ fn album_page(items: Vec<AlbumSummary>, offset: u32, total: u32) -> ListItems {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     })
 }
 
@@ -328,6 +330,7 @@ fn playlist_page(offset: u32, total: u32) -> ListPage<PlaylistSummary> {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     }
 }
 
@@ -337,6 +340,7 @@ fn artist_page(offset: u32, total: u32) -> ListPage<ArtistRef> {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     }
 }
 
@@ -470,6 +474,7 @@ async fn ac4_lists() {
                 offset: 0,
                 total: 14,
                 hidden: 0,
+                positions: Vec::new(),
             }),
         },
         Row {
@@ -509,11 +514,13 @@ async fn ac4_lists() {
                 PLAYLIST_ITEMS,
                 paged("100", "100", &[]),
             )],
+            // AC21: the video held position 101.
             want: ListItems::Tracks(ListPage {
                 items: playlist_fixture_tracks(),
                 offset: 100,
                 total: 3,
                 hidden: 0,
+                positions: vec![100, 102],
             }),
         },
         Row {
@@ -554,6 +561,7 @@ async fn ac4_lists() {
                 offset: 0,
                 total: 30,
                 hidden: 0,
+                positions: Vec::new(),
             }),
         },
         // The artist's albums are the plain list, then EPs and singles. Both
@@ -835,7 +843,8 @@ async fn ac5_pages() {
                 items: vec![named(1001), named(1002)],
                 offset: 0,
                 total: 12,
-                hidden: 0
+                hidden: 0,
+                positions: Vec::new(),
             },
         })
     );
@@ -867,7 +876,8 @@ async fn ac5_pages() {
                 items: playlist_fixture_tracks(),
                 offset: 0,
                 total: 3,
-                hidden: 0
+                hidden: 0,
+                positions: vec![0, 2],
             },
         })
     );
@@ -1089,6 +1099,7 @@ async fn ac6_credits() {
             total: 548,
             // The Atmos-only copy and the instrumental.
             hidden: 2,
+            positions: Vec::new(),
         }))
     );
     assert_eq!(
@@ -1159,6 +1170,7 @@ async fn ac6_credits_data_pages() {
         total: 548,
         // TV Size.
         hidden: 1,
+        positions: Vec::new(),
     }));
 
     // A fresh client at offset 50: the contributor page for the path first.
@@ -1232,7 +1244,8 @@ async fn ac6_credits_data_pages() {
                 items: vec![],
                 offset,
                 total: 0,
-                hidden: 0
+                hidden: 0,
+                positions: Vec::new(),
             })),
             "offset {offset}"
         );

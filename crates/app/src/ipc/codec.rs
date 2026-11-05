@@ -414,6 +414,7 @@ mod tests {
                     offset: 100,
                     total: 362,
                     hidden: 0,
+                    positions: Vec::new(),
                 }))),
             },
             ServerMessage::LibraryReply {
@@ -434,6 +435,7 @@ mod tests {
                         offset: 0,
                         total: 0,
                         hidden: 0,
+                        positions: Vec::new(),
                     },
                 })),
             },
