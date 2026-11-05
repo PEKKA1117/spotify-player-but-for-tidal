@@ -1,6 +1,6 @@
 # 0023 — Playlist commands
 
-- **Status**: approved (2026-11-05)
+- **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#88](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/88)
 - **Depends on**: 0005 (implemented: the socket, one-shot commands, exit codes), 0006 (implemented: the library requests), 0022 (implemented: the create, edit and public requests)
@@ -138,6 +138,8 @@ Facts, from the code and 0022's probe:
 Assumed:
 
 - Tidal has no native fork worth using: not looked for, since building it from existing requests needs no new endpoint and no probe. It costs the videos
+
+Checked in the hands-on run (2026-11-05, against an isolated daemon): `own` told a followed playlist from an own one; `fork` of 111 tracks took two batches and 4 s; `import` of a playlist holding 2 videos added its 39 tracks and said so, and added nothing when run again; `delete` refused without a terminal and asked on one. The library's playlists afterwards matched the list taken before.
 
 ## Decisions
 
