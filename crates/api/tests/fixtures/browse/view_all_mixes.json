@@ -1,0 +1,39 @@
+{
+  "title": "Custom mixes",
+  "subtitle": null,
+  "description": null,
+  "filters": [],
+  "itemLayout": "GRID",
+  "items": [
+    {
+      "type": "MIX",
+      "data": {
+        "type": "DAILY_MIX",
+        "id": "016214541b7a008d226272cf9d0964",
+        "titleTextInfo": {
+          "text": "My Mix 1",
+          "color": "#CBADFF"
+        },
+        "subtitleTextInfo": {
+          "text": "TK and more",
+          "color": "#CBADFF"
+        }
+      }
+    },
+    {
+      "type": "MIX",
+      "data": {
+        "type": "ARTIST_MIX",
+        "id": "000c9493c96d7c4ff25f1bf7da4852",
+        "titleTextInfo": {
+          "text": "Set It Off",
+          "color": "#CBADFF"
+        },
+        "subtitleTextInfo": {
+          "text": "Artist Radio",
+          "color": "#CBADFF"
+        }
+      }
+    }
+  ]
+}

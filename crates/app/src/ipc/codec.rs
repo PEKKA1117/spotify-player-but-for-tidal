@@ -187,8 +187,8 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tidal_player_core::library::{
-        LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, PageData,
-        PageRequest,
+        BrowseRef, LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary,
+        PageData, PageRequest,
     };
 
     use tidal_player_core::lyrics::{LyricLine, Lyrics};
@@ -386,6 +386,19 @@ mod tests {
                         request: LibraryRequest::Page(PageRequest::Mix(
                             "016214541b7a008d226272cf9d0964".into(),
                         )),
+                    })],
+                ),
+                (
+                    "a browse request (0024 AC1)",
+                    vec![
+                        b"{\"Library\":{\"id\":8,\"request\":{\"Page\":{\"Browse\":{\"Page\":\"pages/genre_pop\"}}}}}\n"
+                            .to_vec(),
+                    ],
+                    vec![Want::Message(ClientMessage::Library {
+                        id: 8,
+                        request: LibraryRequest::Page(PageRequest::Browse(BrowseRef::Page(
+                            "pages/genre_pop".into(),
+                        ))),
                     })],
                 ),
                 (

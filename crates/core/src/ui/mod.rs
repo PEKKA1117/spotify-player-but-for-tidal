@@ -69,7 +69,7 @@ pub use keymap::{BaseKey, Keymap};
 pub use lyrics::{LyricsContent, LyricsView};
 pub use page::{
     DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
-    Row, Rows, Window, WindowKind, clock, group, largest_page,
+    Row, Rows, ViewAll, Window, WindowKind, clock, group, largest_page,
 };
 pub use popup::{
     Confirmed, DEVICE_NOT_FOUND, DeviceList, DeviceRow, LOADING_DEVICES, MenuAction, NEW_PLAYLIST,
@@ -224,6 +224,10 @@ pub struct State {
     /// Whether removing from favorites, a playlist or the queue asks
     /// first (spec 0019, `confirm_removals`).
     pub confirm_removals: bool,
+    /// The browse pages whose links are not shown, by the name after
+    /// `pages/` (spec 0024, `hide_browse_pages`); applied when a page
+    /// arrives.
+    pub hide_browse_pages: Vec<String>,
     /// The page history, bottom first: the queue page at the bottom, the
     /// page shown on top (spec 0006 "Pages").
     pub history: Vec<Page>,
@@ -285,6 +289,7 @@ impl Default for State {
             pending_g: false,
             key_hints: true,
             confirm_removals: true,
+            hide_browse_pages: Vec::new(),
             history: vec![Page::new(PageKind::Queue)],
             popup: None,
             help: None,

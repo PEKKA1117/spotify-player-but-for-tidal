@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use crate::item::Item;
 use crate::library::{
-    AlbumSummary, CreditedTrack, ListItems, ListPage, ListRef, MixSummary, PageData, PageRequest,
-    PlaylistSummary, RadioSeed, RoleCategory, TopHit,
+    AlbumSummary, BrowseMore, BrowseRef, BrowseSection, CreditedTrack, ListItems, ListPage,
+    ListRef, MixSummary, MixedRow, PageData, PageLink, PageRequest, PlaylistSummary, RadioSeed,
+    RoleCategory, TopHit,
 };
 use crate::track::{ArtistRef, EntryId, Track};
 
@@ -56,6 +57,8 @@ pub enum PageKind {
     /// the page shows is in [`Page::lyrics`], so the kind alone names the
     /// page.
     Lyrics,
+    /// A browse page (spec 0024): its sections are the tabs of one pane.
+    Browse(BrowseRef),
 }
 
 impl PageKind {
@@ -77,6 +80,7 @@ impl PageKind {
             Self::Mix(id) => PageRequest::Mix(id.clone()),
             Self::TrackRadio(id) => PageRequest::TrackRadio(*id),
             Self::ArtistRadio(id) => PageRequest::ArtistRadio(*id),
+            Self::Browse(target) => PageRequest::Browse(target.clone()),
         })
     }
 }
@@ -106,6 +110,8 @@ pub enum Header {
     Artist(ArtistRef),
     Mix(MixSummary),
     Radio(RadioSeed),
+    /// A browse page's own title (spec 0024).
+    Browse(String),
 }
 
 /// Which list a window shows.
@@ -139,6 +145,9 @@ pub enum WindowKind {
     RadioTracks,
     /// An artist radio page's tracks.
     ArtistRadioTracks,
+    /// One section of a browse page (spec 0024); the window's own name is
+    /// the section's title ([`Window::heading`]).
+    BrowseSection,
 }
 
 impl WindowKind {
@@ -159,6 +168,7 @@ impl WindowKind {
             Self::TopTracks => "Top tracks",
             Self::AppearsOn => "Appears on",
             Self::AllTracks => "All tracks",
+            Self::BrowseSection => "Section",
         }
     }
 
@@ -182,6 +192,7 @@ impl WindowKind {
             Self::MixTracks => "This mix has no tracks",
             Self::RadioTracks => "No radio for this track",
             Self::ArtistRadioTracks => "No radio for this artist",
+            Self::BrowseSection => "Nothing to show here",
         }
     }
 }
@@ -195,6 +206,10 @@ pub enum Rows {
     Artists(Vec<ArtistRef>),
     Credits(Vec<CreditedTrack>),
     Mixes(Vec<MixSummary>),
+    /// A browse section of links (spec 0024).
+    Links(Vec<PageLink>),
+    /// A browse section of several kinds (spec 0024).
+    Mixed(Vec<MixedRow>),
 }
 
 impl Rows {
@@ -207,6 +222,8 @@ impl Rows {
             Self::Artists(v) => v.len(),
             Self::Credits(v) => v.len(),
             Self::Mixes(v) => v.len(),
+            Self::Links(v) => v.len(),
+            Self::Mixed(v) => v.len(),
         }
     }
 
@@ -223,7 +240,50 @@ impl Rows {
             Self::Artists(v) => Row::Artist(v.get(index)?),
             Self::Credits(v) => Row::Credit(v.get(index)?),
             Self::Mixes(v) => Row::Mix(v.get(index)?),
+            Self::Links(v) => Row::Link(v.get(index)?),
+            Self::Mixed(v) => match v.get(index)? {
+                MixedRow::Track(t) => Row::Track(t),
+                MixedRow::Album(a) => Row::Album(a),
+                MixedRow::Playlist(p) => Row::Playlist(p),
+                MixedRow::Artist(a) => Row::Artist(a),
+                MixedRow::Mix(m) => Row::Mix(m),
+            },
         })
+    }
+
+    /// No rows, of the kind `items` holds.
+    fn empty_like(items: &ListItems) -> Self {
+        match items {
+            ListItems::Tracks(_) => Self::Tracks(Vec::new()),
+            ListItems::Albums(_) => Self::Albums(Vec::new()),
+            ListItems::Playlists(_) => Self::Playlists(Vec::new()),
+            ListItems::Artists(_) => Self::Artists(Vec::new()),
+            ListItems::Credits(_) => Self::Credits(Vec::new()),
+            ListItems::Mixes(_) => Self::Mixes(Vec::new()),
+            ListItems::Links(_) => Self::Links(Vec::new()),
+            ListItems::Mixed(_) => Self::Mixed(Vec::new()),
+        }
+    }
+
+    /// Whether the rows are of several kinds (a mixed browse section).
+    pub fn is_mixed(&self) -> bool {
+        matches!(self, Self::Mixed(_))
+    }
+
+    /// The kind of row `index` of a mixed section, as the section shows
+    /// it (`Album`, `Artist`, `Mix`, `Playlist`, `Track`); `None` for
+    /// other rows.
+    pub fn kind_label(&self, index: usize) -> Option<&'static str> {
+        match self {
+            Self::Mixed(v) => Some(match v.get(index)? {
+                MixedRow::Track(_) => "Track",
+                MixedRow::Album(_) => "Album",
+                MixedRow::Playlist(_) => "Playlist",
+                MixedRow::Artist(_) => "Artist",
+                MixedRow::Mix(_) => "Mix",
+            }),
+            _ => None,
+        }
     }
 
     /// An empty list of the same row type.
@@ -235,6 +295,8 @@ impl Rows {
             Self::Artists(_) => Self::Artists(Vec::new()),
             Self::Credits(_) => Self::Credits(Vec::new()),
             Self::Mixes(_) => Self::Mixes(Vec::new()),
+            Self::Links(_) => Self::Links(Vec::new()),
+            Self::Mixed(_) => Self::Mixed(Vec::new()),
         }
     }
 }
@@ -248,6 +310,8 @@ pub enum Row<'a> {
     Playlist(&'a PlaylistSummary),
     Artist(&'a ArtistRef),
     Mix(&'a MixSummary),
+    /// A row that opens a browse page (spec 0024).
+    Link(&'a PageLink),
 }
 
 impl<'a> Row<'a> {
@@ -279,7 +343,7 @@ impl<'a> Row<'a> {
             Self::Credit(c) => Some(Item::Track(c.track.id)),
             Self::Album(a) => Some(Item::Album(a.id)),
             Self::Playlist(p) => Some(Item::Playlist(p.uuid.clone())),
-            Self::Artist(_) | Self::Mix(_) => None,
+            Self::Artist(_) | Self::Mix(_) | Self::Link(_) => None,
         }
     }
 
@@ -291,6 +355,7 @@ impl<'a> Row<'a> {
             Self::Playlist(p) => Some(PageKind::Playlist(p.uuid.clone())),
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
             Self::Mix(m) => Some(PageKind::Mix(m.id.clone())),
+            Self::Link(l) => Some(PageKind::Browse(l.target.clone())),
         }
     }
 
@@ -304,6 +369,7 @@ impl<'a> Row<'a> {
             Self::Artist(a) => RowKey::Id(a.id),
             Self::Playlist(p) => RowKey::Uuid(p.uuid.clone()),
             Self::Mix(m) => RowKey::Uuid(m.id.clone()),
+            Self::Link(l) => RowKey::Uuid(format!("{:?}", l.target)),
         }
     }
 }
@@ -316,10 +382,26 @@ pub enum RowKey {
     Uuid(String),
 }
 
+/// Whether a browse section still waits for its whole list (spec 0024
+/// "Lists"): the v2 feed's sections hold a preview and a `viewAll` path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ViewAll {
+    /// No `viewAll`, or it was answered (or failed): never asked again.
+    #[default]
+    Done,
+    /// The preview is all there is yet: asked when the tab is first shown.
+    Waiting,
+}
+
 /// One focusable list of a page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub kind: WindowKind,
+    /// The window's own name, where its kind has none (a browse section's
+    /// title); `None`: the kind's.
+    pub heading: Option<String>,
+    /// A browse section's `viewAll` (spec 0024).
+    pub view_all: ViewAll,
     /// The list `More` asks for.
     pub list: ListRef,
     /// The loaded rows.
@@ -381,9 +463,12 @@ impl Window {
             | WindowKind::RadioTracks
             | WindowKind::ArtistRadioTracks => Rows::Tracks(Vec::new()),
             WindowKind::Mixes => Rows::Mixes(Vec::new()),
+            WindowKind::BrowseSection => Rows::Mixes(Vec::new()),
         };
         Self {
             kind,
+            heading: None,
+            view_all: ViewAll::Done,
             list,
             rows,
             positions: Vec::new(),
@@ -408,6 +493,43 @@ impl Window {
         Self {
             whole: true,
             ..Self::new(kind, ListRef::FavoriteTracks)
+        }
+    }
+
+    /// A browse section's window (spec 0024), holding the rows the page
+    /// came with. A section that is whole is never asked for more; a
+    /// paged one (`dataApiPath`) is asked for the rest by `More`, from
+    /// the offset after what the page held, rows left out included; one
+    /// with a `viewAll` waits to be replaced by it.
+    pub(super) fn section(section: &BrowseSection) -> Self {
+        let list = match &section.more {
+            BrowseMore::None => ListRef::FavoriteTracks,
+            BrowseMore::Data(path) => ListRef::BrowseData(path.clone()),
+            BrowseMore::ViewAll(path) => ListRef::BrowseViewAll(path.clone()),
+        };
+        let mut window = Self::new(WindowKind::BrowseSection, list);
+        window.heading = Some(section.title.clone());
+        window.rows = Rows::empty_like(&section.rows);
+        window.whole = !matches!(section.more, BrowseMore::Data(_));
+        if matches!(section.more, BrowseMore::ViewAll(_)) {
+            window.view_all = ViewAll::Waiting;
+        }
+        let asked = items_len(&section.rows);
+        window.append(section.rows.clone(), asked);
+        window
+    }
+
+    /// The window's name: a browse section's title (ending in `…` while
+    /// its whole list is on its way), else its kind's.
+    pub fn tab_name(&self) -> String {
+        let name = self
+            .heading
+            .clone()
+            .unwrap_or_else(|| self.kind.name().to_owned());
+        if self.view_all == ViewAll::Waiting && matches!(self.load, Load::Loading { .. }) {
+            format!("{name}…")
+        } else {
+            name
         }
     }
 
@@ -524,6 +646,18 @@ impl Window {
             .collect()
     }
 
+    /// The place among [`Window::tracks`] of the row shown at `cursor`
+    /// (the cursor itself where every row is a track; a mixed section's
+    /// other rows are not queued, spec 0024 AC10).
+    pub fn track_position(&self, cursor: usize) -> usize {
+        if !self.rows.is_mixed() {
+            return cursor;
+        }
+        (0..cursor.min(self.len()))
+            .filter(|&i| self.row(i).is_some_and(|row| row.track().is_some()))
+            .count()
+    }
+
     /// Whether every page of the list has been asked for and answered.
     pub fn complete(&self) -> bool {
         self.total
@@ -535,7 +669,7 @@ impl Window {
     /// Songwriter · 37 hidden)`), and the text filter with its match count
     /// (`Favorite tracks (548 · /love · 12 matches)`, spec 0012).
     pub fn title(&self) -> String {
-        let name = self.kind.name();
+        let name = &self.tab_name();
         let filter = self.filter.title_parts(self.len());
         let Some(total) = self.total else {
             if filter.is_empty() {
@@ -659,15 +793,61 @@ impl Window {
                 add(rows, &mut self.positions, page, |c| Row::Credit(c).key());
                 (page.offset, page.total, page.hidden)
             }
+            (Rows::Mixes(rows), ListItems::Mixes(page)) => {
+                add(rows, &mut self.positions, page, |m| Row::Mix(m).key());
+                (page.offset, page.total, page.hidden)
+            }
+            (Rows::Links(rows), ListItems::Links(page)) => {
+                add(rows, &mut self.positions, page, |l| Row::Link(l).key());
+                (page.offset, page.total, page.hidden)
+            }
+            (Rows::Mixed(rows), ListItems::Mixed(page)) => {
+                add(rows, &mut self.positions, page, mixed_key);
+                (page.offset, page.total, page.hidden)
+            }
+            // An empty page of another kind (the API cannot tell an empty
+            // page's kind): the load ends, the rows stay, and the list is
+            // taken as complete so it is not asked again (spec 0024).
+            _ if items_len(&items) == 0 => {
+                self.load = Load::Idle;
+                self.whole = true;
+                self.total = Some(u32::try_from(self.rows.len()).unwrap_or(u32::MAX));
+                return;
+            }
             _ => return,
         };
         self.total = Some(total);
-        self.hidden += hidden;
+        // A browse section does not report the rows Tidal's page lacks
+        // (spec 0024): they only move the next `offset`.
+        if self.kind != WindowKind::BrowseSection {
+            self.hidden += hidden;
+        }
         self.next_offset = self.next_offset.max(offset.saturating_add(limit));
+        // A finished section counts what it shows: Tidal's total also
+        // counts the rows left out.
+        if self.kind == WindowKind::BrowseSection && self.complete() {
+            self.total = Some(self.rows.len() as u32);
+        }
         self.load = Load::Idle;
         self.refilter();
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
         self.take_reselect(loaded);
+    }
+
+    /// Replaces the rows with `items`, whatever their kind (spec 0024
+    /// "Lists": a `viewAll` answer is the whole list, of which the
+    /// preview is the start): the cursor and the selection stay where they
+    /// are, the list is whole and never asked for more.
+    pub(super) fn replace(&mut self, items: ListItems) {
+        self.rows = Rows::empty_like(&items);
+        self.positions.clear();
+        self.whole = true;
+        self.view_all = ViewAll::Done;
+        self.load = Load::Idle;
+        self.append(items, 0);
+        self.total = Some(u32::try_from(self.rows.len()).unwrap_or(u32::MAX));
+        let len = self.rows.len();
+        self.selection.retain(|&row| row < len);
     }
 
     /// Selects the rows of `keys` again (spec 0020 "Failed rows and
@@ -727,12 +907,42 @@ impl Window {
     }
 }
 
+/// The rows an answer holds, and the rows its page left out.
+fn items_len(items: &ListItems) -> u32 {
+    let (len, hidden) = match items {
+        ListItems::Tracks(p) => (p.items.len(), p.hidden),
+        ListItems::Albums(p) => (p.items.len(), p.hidden),
+        ListItems::Playlists(p) => (p.items.len(), p.hidden),
+        ListItems::Artists(p) => (p.items.len(), p.hidden),
+        ListItems::Credits(p) => (p.items.len(), p.hidden),
+        ListItems::Mixes(p) => (p.items.len(), p.hidden),
+        ListItems::Links(p) => (p.items.len(), p.hidden),
+        ListItems::Mixed(p) => (p.items.len(), p.hidden),
+    };
+    len as u32 + hidden
+}
+
+/// A mixed section's rows are told apart by kind as well as ID: a track
+/// and an album may share a number.
+fn mixed_key(row: &MixedRow) -> RowKey {
+    let (kind, key) = match row {
+        MixedRow::Track(t) => ("track", Row::Track(t).key()),
+        MixedRow::Album(a) => ("album", Row::Album(a).key()),
+        MixedRow::Playlist(p) => ("playlist", Row::Playlist(p).key()),
+        MixedRow::Artist(a) => ("artist", Row::Artist(a).key()),
+        MixedRow::Mix(m) => ("mix", Row::Mix(m).key()),
+    };
+    RowKey::Uuid(format!("{kind}:{key:?}"))
+}
+
 /// The largest page each list's endpoint accepts (spec 0006 "What the
 /// player fetches"): a request asks `min(page size, this)`.
 pub fn largest_page(list: &ListRef) -> u32 {
     match list {
         ListRef::Playlists | ListRef::Credits(_) => 50,
         ListRef::PlaylistTracks(_) => 100,
+        // `pages/data/…` (spec 0024 "Requests").
+        ListRef::BrowseData(_) => 50,
         _ => 1000,
     }
 }
@@ -831,7 +1041,7 @@ impl Page {
             PageKind::Mix(_) => vec![Window::whole(WindowKind::MixTracks)],
             PageKind::TrackRadio(_) => vec![Window::whole(WindowKind::RadioTracks)],
             PageKind::ArtistRadio(_) => vec![Window::whole(WindowKind::ArtistRadioTracks)],
-            PageKind::Lyrics => vec![],
+            PageKind::Lyrics | PageKind::Browse(_) => vec![],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -1046,6 +1256,9 @@ impl Page {
                 });
                 std::iter::once("Mixes".into()).chain(mixes).collect()
             }
+            (_, Some(Header::Browse(title))) => vec![title.clone()],
+            (PageKind::Browse(BrowseRef::Home), None) => vec!["Home".into()],
+            (PageKind::Browse(_), None) => vec!["Browse".into()],
             (PageKind::Mix(_), None) => vec!["Mix".into()],
             (PageKind::TrackRadio(_) | PageKind::ArtistRadio(_), None) => vec!["Radio".into()],
             (PageKind::Album(_), None) => vec!["Album".into()],
@@ -1145,6 +1358,19 @@ impl Page {
             ) => {
                 self.header = Some(Header::Radio(seed));
                 vec![ListItems::Tracks(tracks)]
+            }
+            (PageKind::Browse(_), PageData::Browse { title, sections }) => {
+                self.header = Some(Header::Browse(title));
+                self.windows = sections.iter().map(Window::section).collect();
+                self.panes = if self.windows.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(0..self.windows.len()).collect()]
+                };
+                self.tabs = vec![0; self.panes.len()];
+                self.focus = 0;
+                self.load = Load::Idle;
+                return;
             }
             (PageKind::Lyrics, PageData::Lyrics { track, lyrics }) => {
                 // An answer for another track than the page's is dropped.

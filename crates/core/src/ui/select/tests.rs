@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use crate::item::Item;
 use crate::library::{
-    AlbumKind, AlbumSummary, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListPage,
-    ListRef, MixSummary, PageData, PlaylistSummary,
+    AlbumKind, AlbumSummary, BrowseMore, BrowseRef, BrowseSection, FavoriteKind, LibraryRequest,
+    LibraryResponse, ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData, PageLink,
+    PlaylistSummary,
 };
 use crate::protocol::{
     self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode,
@@ -1223,4 +1224,57 @@ fn ac9_cursor_keys_ignore_selection() {
             assert_eq!(selection(&with, queue), selected, "{context}: kept");
         }
     }
+}
+
+/// Spec 0024 AC10: a link cannot be selected: `s c` on it, a count of rows
+/// and a motion range skip the links, and the rows between stay selected.
+#[test]
+fn ac10_links_not_selected() {
+    let link = |n: u64| PageLink {
+        title: format!("L{n}"),
+        target: BrowseRef::Page(format!("pages/l{n}")),
+    };
+    let mixed = ListItems::Mixed(list(
+        vec![
+            MixedRow::Album(album(10)),
+            MixedRow::Track(track(1)),
+            MixedRow::Album(album(11)),
+        ],
+        0,
+        3,
+    ));
+    let data = |rows: ListItems| PageData::Browse {
+        title: "Browse".into(),
+        sections: vec![BrowseSection {
+            title: "S".into(),
+            rows,
+            more: BrowseMore::None,
+        }],
+    };
+    let links = || ListItems::Links(list(vec![link(1), link(2), link(3)], 0, 3));
+    let marked = |state: &State| -> Vec<usize> {
+        window_rows(&state.page().windows[0]).into_iter().collect()
+    };
+    let gb = [Key::Char('g'), Key::Char('b')];
+
+    // Only links: nothing is selected, however it is asked.
+    for (name, typed) in [
+        ("s c", keys("sc")),
+        ("s 3 j", keys("s3j")),
+        ("motion", keys("smjjsm")),
+    ] {
+        let mut state = State::default();
+        open(&mut state, &gb, data(links()));
+        press(&mut state, &typed);
+        assert_eq!(marked(&state), Vec::<usize>::new(), "{name}");
+        assert_eq!(press(&mut state, &keys("sa")), vec![], "{name}: sa");
+        assert_eq!(state.popup, None, "{name}: sa");
+    }
+
+    // Links among rows (a mixed section cannot hold links, so a row of
+    // each kind): rows that can be selected are, links never.
+    let mut state = State::default();
+    open(&mut state, &gb, data(mixed));
+    press(&mut state, &keys("s3j"));
+    assert_eq!(marked(&state), vec![0, 1, 2]);
 }

@@ -255,8 +255,9 @@ pub struct NowPlaying {
 mod tests {
     use super::*;
     use crate::library::{
-        AlbumKind, AlbumSummary, CreditedTrack, FavoriteKind, ListItems, ListPage, ListRef,
-        MixSummary, PageData, PageRequest, PlaylistSummary, RadioSeed, RoleCategory, TopHit,
+        AlbumKind, AlbumSummary, BrowseMore, BrowseRef, BrowseSection, CreditedTrack, FavoriteKind,
+        ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData, PageLink, PageRequest,
+        PlaylistSummary, RadioSeed, RoleCategory, TopHit,
     };
     use crate::lyrics::{LyricLine, Lyrics};
     use crate::track::{AlbumRef, ArtistRef, TrackId};
@@ -350,6 +351,9 @@ mod tests {
             ListRef::SearchAlbums("AC/DC".into()),
             ListRef::SearchArtists("Sigur Rós".into()),
             ListRef::SearchPlaylists("米津玄師".into()),
+            // 0024 AC1.
+            ListRef::BrowseData("pages/data/cdde61b6?albumId=10581228".into()),
+            ListRef::BrowseViewAll("home/pages/DAILY_MIXES/view-all".into()),
         ]
     }
 
@@ -370,6 +374,10 @@ mod tests {
             PageRequest::ArtistRadio(35361),
             // 0021 AC1.
             PageRequest::Lyrics(62300893),
+            // 0024 AC1.
+            PageRequest::Browse(BrowseRef::Root),
+            PageRequest::Browse(BrowseRef::Home),
+            PageRequest::Browse(BrowseRef::Page("pages/genre_hip_hop".into())),
         ]
         .into_iter()
         .map(LibraryRequest::Page)
@@ -518,6 +526,56 @@ mod tests {
                 ))))),
                 search(Some(Box::new(TopHit::Playlist(playlist(false))))),
                 search(None),
+                // 0024 AC1: a browse page, with every kind of section.
+                PageData::Browse {
+                    title: "Hip-Hop".into(),
+                    sections: vec![
+                        BrowseSection {
+                            title: "New Tracks".into(),
+                            rows: ListItems::Tracks(list(vec![track(8)], 0, 240)),
+                            more: BrowseMore::Data("pages/data/6eebf48e".into()),
+                        },
+                        BrowseSection {
+                            title: "Genres".into(),
+                            rows: ListItems::Links(list(
+                                vec![
+                                    PageLink {
+                                        title: "Home".into(),
+                                        target: BrowseRef::Home,
+                                    },
+                                    PageLink {
+                                        title: "Pop".into(),
+                                        target: BrowseRef::Page("pages/genre_pop".into()),
+                                    },
+                                ],
+                                0,
+                                2,
+                            )),
+                            more: BrowseMore::None,
+                        },
+                        BrowseSection {
+                            title: "Recently played".into(),
+                            rows: ListItems::Mixed(list(
+                                vec![
+                                    MixedRow::Track(track(8)),
+                                    MixedRow::Album(album(6, AlbumKind::Album)),
+                                    MixedRow::Playlist(playlist(false)),
+                                    MixedRow::Artist(artist(11, "Pierce The Veil")),
+                                    MixedRow::Mix(MixSummary {
+                                        id: "016214541b7a008d226272cf9d0964".into(),
+                                        title: "My Daily Discovery".into(),
+                                        subtitle: None,
+                                    }),
+                                ],
+                                0,
+                                5,
+                            )),
+                            more: BrowseMore::ViewAll(
+                                "home/pages/CONTINUE_LISTEN_TO/view-all".into(),
+                            ),
+                        },
+                    ],
+                },
                 // 0011 AC1: the mixes, a mix and both radios.
                 PageData::Mixes {
                     mixes: list(
@@ -598,6 +656,10 @@ mod tests {
                     positions: Vec::new(),
                     ..list(vec![credited], 50, 548)
                 }),
+                // 0024 AC1.
+                ListItems::Mixes(list(vec![], 0, 0)),
+                ListItems::Links(list(vec![], 0, 0)),
+                ListItems::Mixed(list(vec![MixedRow::Track(track(6))], 50, 240)),
             ]
             .into_iter()
             .map(LibraryResponse::Items),

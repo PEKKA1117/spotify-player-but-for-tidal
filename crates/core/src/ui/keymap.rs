@@ -306,6 +306,8 @@ pub enum UiCommand {
     LikedTrackPage,
     SearchPage,
     MixesPage,
+    /// The browse page (spec 0024).
+    BrowsePage,
     /// The lyrics page (spec 0021).
     LyricsPage,
     Search,
@@ -318,7 +320,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 54] = [
+pub const COMMANDS: [UiCommand; 55] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -366,6 +368,7 @@ pub const COMMANDS: [UiCommand; 54] = [
     UiCommand::LikedTrackPage,
     UiCommand::SearchPage,
     UiCommand::MixesPage,
+    UiCommand::BrowsePage,
     UiCommand::LyricsPage,
     UiCommand::Search,
     UiCommand::PreviousPage,
@@ -426,6 +429,7 @@ impl UiCommand {
             Self::LikedTrackPage => "LikedTrackPage",
             Self::SearchPage => "SearchPage",
             Self::MixesPage => "MixesPage",
+            Self::BrowsePage => "BrowsePage",
             Self::LyricsPage => "LyricsPage",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
@@ -631,7 +635,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 23] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 22] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -644,7 +648,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 23] = [
     "CurrentlyPlayingContextPage",
     "TopTrackPage",
     "RecentlyPlayedTrackPage",
-    "BrowsePage",
     "OpenSpotifyLinkFromClipboard",
     "SortTrackByTitle",
     "SortTrackByArtists",
@@ -1077,6 +1080,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('y')], C::LikedTrackPage),
         (vec![g('s')], C::SearchPage),
         (vec![g('m')], C::MixesPage),
+        (vec![g('b')], C::BrowsePage),
         (vec![one(Char('l')), g('L')], C::LyricsPage),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),

@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use crate::item::Item;
 use crate::library::{
-    AlbumKind, AlbumSummary, CreditedTrack, LibraryRequest, LibraryResponse, ListItems, ListPage,
-    ListRef, MixSummary, PageData, PageRequest, PlaylistSummary, RoleCategory, TopHit,
+    AlbumKind, AlbumSummary, BrowseMore, BrowseRef, BrowseSection, CreditedTrack, LibraryRequest,
+    LibraryResponse, ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData, PageLink,
+    PageRequest, PlaylistSummary, RoleCategory, TopHit,
 };
 use crate::protocol::{
     self, Command, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode,
@@ -1382,4 +1383,109 @@ fn ac6_selection_through_filter() {
     );
     press(&mut state, &[Char('/'), Esc]);
     assert_eq!(queue_entries(&state), vec![EntryId(1), EntryId(3)]);
+}
+
+/// Spec 0024 AC11: `/` filters the shown tab of a browse page over each
+/// row's fields (a link by its title, a mixed section's rows by theirs); a
+/// filter belongs to its tab; a section that pages loads more until enough
+/// rows match.
+#[test]
+fn ac11_browse_filter() {
+    let gb = [Key::Char('g'), Key::Char('b')];
+    let link = |title: &str, path: &str| PageLink {
+        title: title.into(),
+        target: BrowseRef::Page(format!("pages/{path}")),
+    };
+    let section = |title: &str, rows: ListItems, more: BrowseMore| BrowseSection {
+        title: title.into(),
+        rows,
+        more,
+    };
+    let [love, hell, lovely, _] = <[Track; 4]>::try_from(four()).unwrap();
+    let data = PageData::Browse {
+        title: "Browse".into(),
+        sections: vec![
+            section(
+                "Links",
+                ListItems::Links(list(
+                    vec![
+                        link("Hip-Hop", "genre_hiphop"),
+                        link("Pop", "genre_pop"),
+                        link("Hip Pop", "genre_hippop"),
+                    ],
+                    0,
+                    3,
+                )),
+                BrowseMore::None,
+            ),
+            section(
+                "Mixed",
+                ListItems::Mixed(list(
+                    vec![
+                        MixedRow::Track(love),
+                        MixedRow::Album(album(10, "Collide", "Pierce The Veil", 2010)),
+                        MixedRow::Playlist(playlist("p1", "Love Mix", false)),
+                        MixedRow::Track(hell),
+                    ],
+                    0,
+                    4,
+                )),
+                BrowseMore::None,
+            ),
+            section(
+                "Paged",
+                ListItems::Tracks(list(vec![lovely], 0, 6)),
+                BrowseMore::Data("pages/data/x".into()),
+            ),
+        ],
+    };
+    let mut state = State::default();
+    open(&mut state, &gb, data);
+    let shown = |state: &State| -> Vec<String> {
+        let w = window(state);
+        (0..w.len())
+            .filter_map(|i| match w.row(i)? {
+                Row::Link(l) => Some(l.title.clone()),
+                Row::Track(t) => Some(t.title.clone()),
+                Row::Album(a) => Some(a.title.clone()),
+                Row::Playlist(p) => Some(p.title.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // A link by its title, ignoring case.
+    press(&mut state, &slash("hip"));
+    assert_eq!(shown(&state), vec!["Hip-Hop", "Hip Pop"]);
+    press(&mut state, &[Key::Enter]);
+    assert_eq!(window(&state).title(), "Links (3 · /hip · 2 matches)");
+    // The filter belongs to its tab: the next tab has none.
+    press(&mut state, &[Key::Char(']')]);
+    assert_eq!(window(&state).filter.text, "");
+    assert_eq!(shown(&state).len(), 4);
+    // A mixed section: a track by its title, an album by its artist, a
+    // playlist by its title.
+    for (text, want) in [
+        ("love", vec!["Love Song", "Love Mix"]),
+        ("pierce", vec!["Collide", "Hell Above"]),
+        ("zzz", vec![]),
+    ] {
+        press(&mut state, &slash(text));
+        assert_eq!(shown(&state), want, "{text}");
+        press(&mut state, &[Key::Esc, Key::Esc]);
+    }
+    // Back on the first tab, its filter is still kept.
+    press(&mut state, &[Key::Char('[')]);
+    assert_eq!(window(&state).filter.text, "hip");
+
+    // A section that pages loads more while too few rows match.
+    press(&mut state, &[Key::Char('[')]);
+    let effects = press(&mut state, &slash("zzz"));
+    let asked = requests(&effects);
+    assert_eq!(asked.len(), 1, "{effects:?}");
+    assert!(
+        matches!(&asked[0].1, LibraryRequest::More { list: ListRef::BrowseData(p), .. } if p == "pages/data/x"),
+        "{:?}",
+        asked[0].1
+    );
 }

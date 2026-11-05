@@ -105,6 +105,12 @@ pub enum ListItems {
     Playlists(ListPage<PlaylistSummary>),
     Artists(ListPage<ArtistRef>),
     Credits(ListPage<CreditedTrack>),
+    /// A browse section's mixes (spec 0024).
+    Mixes(ListPage<MixSummary>),
+    /// A browse section's links.
+    Links(ListPage<PageLink>),
+    /// A browse section that holds rows of several kinds.
+    Mixed(ListPage<MixedRow>),
 }
 
 /// Names one list (spec 0006 "Talking to the player").
@@ -129,6 +135,10 @@ pub enum ListRef {
     SearchAlbums(String),
     SearchArtists(String),
     SearchPlaylists(String),
+    /// A browse section's next page, by its `dataApiPath` (spec 0024).
+    BrowseData(String),
+    /// A browse section's whole list, by its `viewAll` path (spec 0024).
+    BrowseViewAll(String),
 }
 
 /// A page to open.
@@ -151,6 +161,58 @@ pub enum PageRequest {
     ArtistRadio(u64),
     /// A track's lyrics, by track ID (spec 0021).
     Lyrics(u64),
+    /// A browse page (spec 0024).
+    Browse(BrowseRef),
+}
+
+/// What a browse page shows (spec 0024 "Talking to the player").
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BrowseRef {
+    /// The root page, from `pages/explore`.
+    Root,
+    /// The personal home, from the v2 feed.
+    Home,
+    /// A Tidal page, by its `pages/…` path.
+    Page(String),
+}
+
+/// A row that opens a browse page (spec 0024).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageLink {
+    pub title: String,
+    pub target: BrowseRef,
+}
+
+/// One row of a browse section of several kinds (spec 0024): the owned
+/// form of the UI's `Row`. Not [`crate::Item`], which names a track, album
+/// or playlist by ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MixedRow {
+    Track(Track),
+    Album(AlbumSummary),
+    Playlist(PlaylistSummary),
+    Artist(ArtistRef),
+    Mix(MixSummary),
+}
+
+/// How a browse section gets the rest of its rows (spec 0024).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowseMore {
+    /// It is whole.
+    None,
+    /// Paged, from this `dataApiPath` ([`ListRef::BrowseData`]).
+    Data(String),
+    /// One fetch, from this `viewAll` path ([`ListRef::BrowseViewAll`]),
+    /// the first time its tab is shown.
+    ViewAll(String),
+}
+
+/// One section of a browse page: a tab of its pane (spec 0024).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowseSection {
+    pub title: String,
+    pub rows: ListItems,
+    pub more: BrowseMore,
 }
 
 /// A mix row and the mix page's header (spec 0011).
@@ -231,6 +293,11 @@ pub enum PageData {
     Radio {
         seed: RadioSeed,
         tracks: ListPage<Track>,
+    },
+    /// A browse page and its sections, in Tidal's order (spec 0024).
+    Browse {
+        title: String,
+        sections: Vec<BrowseSection>,
     },
     /// A track's lyrics (spec 0021); `lyrics` is `None` when Tidal has
     /// none.

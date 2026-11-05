@@ -74,6 +74,9 @@ enum Hint {
     /// the active one): `A (n) │ B  [ ]`, and `‹Tab›` when `tab` (only the
     /// focused pane is on screen, other panes exist).
     Tabs { tabs: Vec<usize>, tab: bool },
+    /// A browse page's sections (spec 0024 "Browse pages"): a strip that
+    /// scrolls with the active tab, `…` on a side with more.
+    Strip { tabs: Vec<usize> },
 }
 
 struct Slot {
@@ -149,6 +152,18 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
             .map(|l| Line::styled(l, of(look, Component::Error)))
             .collect();
         frame.render_widget(Paragraph::new(lines), body);
+        return;
+    }
+    // A browse page has no window until it arrives (spec 0024 AC12).
+    if matches!(page.kind, PageKind::Browse(_)) && page.windows.is_empty() {
+        let (text, style) = match page.load {
+            Load::Loading { .. } => ("Loading…", Style::new().add_modifier(Modifier::DIM)),
+            _ => (
+                "Nothing to show here",
+                Style::new().add_modifier(Modifier::DIM),
+            ),
+        };
+        frame.render_widget(Paragraph::new(Line::styled(text, style)), body);
         return;
     }
     let fill = if matches!(page.load, Load::Loading { .. }) {
@@ -349,6 +364,15 @@ fn slots(page: &Page, layout: LibraryLayout, body: Rect) -> Vec<Slot> {
         return Vec::new();
     }
     let focus = page.focus.min(page.windows.len() - 1);
+    if matches!(page.kind, PageKind::Browse(_)) && page.windows.len() > 1 {
+        return vec![Slot {
+            rect: body,
+            window: focus,
+            hint: Hint::Strip {
+                tabs: page.panes.first().cloned().unwrap_or_default(),
+            },
+        }];
+    }
     if page.windows.len() == 1 {
         return vec![Slot {
             rect: body,
@@ -491,6 +515,15 @@ fn render_window(
     let title = match hint {
         Hint::None => Line::styled(fit(&window_title(window), room), base),
         Hint::Tab => Line::styled(fit(&format!("{} {TAB}", window_title(window)), room), base),
+        Hint::Strip { tabs } => strip(
+            look,
+            base,
+            windows,
+            tabs,
+            active,
+            room,
+            area.width < SIDE_BY_SIDE,
+        ),
         Hint::Tabs { tabs, tab } => {
             let suffix = if *tab {
                 format!("  [ ] {TAB}")
@@ -559,6 +592,103 @@ fn render_window(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// The widest a tab's name is drawn in a strip, the active one aside.
+const TAB_NAME_MAX: usize = 24;
+/// Between two tabs of a strip, and the marks of a side with more.
+const TAB_SEPARATOR: &str = " │ ";
+const MORE_LEFT: &str = "… │ ";
+const MORE_RIGHT: &str = " │ …";
+
+/// A browse page's tab strip in `room` columns (spec 0024 "Browse
+/// pages"): as many tabs as fit around the active one, `…` on a side with
+/// more, and `[ ]` after them. Narrow (under 60 columns): the active tab's
+/// name and `[ ]`, as the artist page's.
+fn strip(
+    look: &Theme,
+    base: Style,
+    windows: &[Window],
+    tabs: &[usize],
+    active: usize,
+    room: usize,
+    narrow: bool,
+) -> Line<'static> {
+    const SUFFIX: &str = "  [ ]";
+    let current = windows.get(active).map(window_title).unwrap_or_default();
+    let selected = base.patch(of(look, Component::Selection));
+    let Some(at) = tabs.iter().position(|&t| t == active) else {
+        return Line::styled(fit(&current, room), base);
+    };
+    let names: Vec<String> = tabs
+        .iter()
+        .map(|&t| {
+            if t == active {
+                current.clone()
+            } else {
+                windows
+                    .get(t)
+                    .map_or(String::new(), |w| fit(&w.tab_name(), TAB_NAME_MAX))
+            }
+        })
+        .collect();
+    let suffix = text_width(SUFFIX);
+    if narrow {
+        let name = fit(&current, room.saturating_sub(suffix));
+        return Line::from(vec![
+            Span::styled(name, selected),
+            Span::styled(SUFFIX, base),
+        ]);
+    }
+    // Grows around the active tab, one side then the other, while it fits.
+    let last = names.len() - 1;
+    let total = |lo: usize, hi: usize| {
+        let inner: usize = names[lo..=hi].iter().map(|n| text_width(n)).sum();
+        inner
+            + text_width(TAB_SEPARATOR) * (hi - lo)
+            + if lo > 0 { text_width(MORE_LEFT) } else { 0 }
+            + if hi < last { text_width(MORE_RIGHT) } else { 0 }
+            + suffix
+    };
+    let (mut lo, mut hi) = (at, at);
+    loop {
+        let mut grew = false;
+        if hi < last && total(lo, hi + 1) <= room {
+            hi += 1;
+            grew = true;
+        }
+        if lo > 0 && total(lo - 1, hi) <= room {
+            lo -= 1;
+            grew = true;
+        }
+        if !grew {
+            break;
+        }
+    }
+    // The active tab alone may not fit: its name gives way.
+    let mut spans = Vec::new();
+    if lo > 0 {
+        spans.push(Span::styled(MORE_LEFT, base));
+    }
+    for (n, name) in names.iter().enumerate().take(hi + 1).skip(lo) {
+        if n > lo {
+            spans.push(Span::styled(TAB_SEPARATOR, base));
+        }
+        if n == at {
+            let fixed = total(lo, hi) - text_width(name);
+            spans.push(Span::styled(
+                fit(name, room.saturating_sub(fixed)),
+                selected,
+            ));
+        } else {
+            spans.push(Span::styled(name.clone(), base));
+        }
+    }
+    if hi < last {
+        spans.push(Span::styled(MORE_RIGHT, base));
+    }
+    spans.push(Span::styled(SUFFIX, base));
+    Line::from(spans)
+}
+
 /// `window`'s title with the selection's parts after the filter's: `Albums
 /// (14 · /pierce · 3 matches · 2 selected, 1 hidden · motion)` (spec 0020
 /// "How it looks").
@@ -570,7 +700,7 @@ fn window_title(window: &Window) -> String {
 
 /// Whether `window`'s title already has a parenthesis of parts.
 fn title_has_parts(window: &Window) -> bool {
-    window.title() != window.kind.name()
+    window.title() != window.tab_name()
 }
 
 /// `title` with `parts` joined by ` · ` inside its parenthesis, or in a new
@@ -636,6 +766,15 @@ fn window_lines(
     let marked = select::window_rows(window);
     let marker = !marked.is_empty() && width >= MARKER_MIN_WIDTH;
     let width = if marker { width - MARKER_WIDTH } else { width };
+    // A section of several kinds puts the kind first on each row (spec
+    // 0024 "Browse pages").
+    let kinds = window.rows.is_mixed();
+    let full = width;
+    let width = if kinds {
+        width.saturating_sub(KIND_COLUMN + 2)
+    } else {
+        width
+    };
     let count = window.len();
     let number = window.total.map_or(count, |t| t as usize).max(count);
     let columns = Columns::new(width, number);
@@ -686,14 +825,34 @@ fn window_lines(
                 Row::Album(album) => album_row(album, width),
                 // A search's playlists are not the user's: no heart.
                 Row::Playlist(playlist) => {
-                    playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
+                    let hearts = !matches!(
+                        window.kind,
+                        WindowKind::SearchPlaylists | WindowKind::BrowseSection
+                    );
+                    // A mixed section's kind column stands where the
+                    // heart's room would: a row of `width` without it.
+                    if kinds {
+                        let row = playlist_row(playlist, width + 2, hearts);
+                        row.strip_prefix("  ").map(str::to_owned).unwrap_or(row)
+                    } else {
+                        playlist_row(playlist, width, hearts)
+                    }
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
+                Row::Link(link) => fit(&link.title, width),
                 // `title  subtitle` (spec 0011 "Rendering").
                 Row::Mix(mix) => match &mix.subtitle {
                     Some(subtitle) => fit(&format!("{}  {subtitle}", mix.title), width),
                     None => fit(&mix.title, width),
                 },
+            };
+            let text = match window
+                .index(i)
+                .and_then(|r| window.rows.kind_label(r))
+                .filter(|_| kinds && full > KIND_COLUMN + 2)
+            {
+                Some(kind) => format!("{}  {text}", pad(kind, KIND_COLUMN)),
+                None => text,
             };
             let lead = match (marker, is_marked) {
                 (false, _) => None,
@@ -728,6 +887,9 @@ fn window_lines(
     let offset = scroll(window.cursor, height, rows.len());
     rows.into_iter().skip(offset).take(height).collect()
 }
+
+/// The kind column of a mixed browse section: `Playlist` is the widest.
+const KIND_COLUMN: usize = 8;
 
 /// The marker before a selected row, and the blanks before the others.
 const MARKER: &str = "+ ";
@@ -797,7 +959,8 @@ fn album_row(album: &tidal_player_core::library::AlbumSummary, width: usize) -> 
 }
 
 /// `♥ title   42`: a favorite (followed) playlist has the heart, when
-/// `hearts` (not in search results, spec 0007 decision 5).
+/// `hearts` (not in search results, spec 0007 decision 5, nor on browse
+/// pages, spec 0024: neither answer says whether it is followed).
 fn playlist_row(
     playlist: &tidal_player_core::library::PlaylistSummary,
     width: usize,

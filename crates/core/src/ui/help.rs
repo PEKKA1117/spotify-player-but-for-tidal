@@ -364,6 +364,7 @@ fn in_pages(page: &Page, command: UiCommand) -> bool {
         | C::LikedTrackPage
         | C::SearchPage
         | C::MixesPage
+        | C::BrowsePage
         | C::LyricsPage
         | C::PreviousPage => true,
         C::FocusNextWindow | C::FocusPreviousWindow => {
@@ -500,6 +501,7 @@ fn window_title(at: Where) -> String {
             WindowKind::Mixes => "Mixes".into(),
             WindowKind::MixTracks => "Mix".into(),
             WindowKind::RadioTracks | WindowKind::ArtistRadioTracks => "Radio".into(),
+            WindowKind::BrowseSection => "Browse".into(),
         },
         Where::Typing(kind) => window_title(kind.map_or(Where::Queue, Where::Window)),
         Where::Lyrics => "Lyrics".into(),
@@ -694,6 +696,7 @@ fn text(at: Where, command: UiCommand) -> String {
                 | WindowKind::SearchAlbums => "open the album",
                 WindowKind::Artists | WindowKind::SearchArtists => "open the artist",
                 WindowKind::Mixes => "open the mix",
+                WindowKind::BrowseSection => "open the row, or play the track with its list",
                 _ => "play the track with its list",
             },
         }),
@@ -750,6 +753,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::LikedTrackPage => owned("favorite tracks"),
         C::SearchPage => owned("the search page (on one: its input)"),
         C::MixesPage => owned("your mixes"),
+        C::BrowsePage => owned("browse what Tidal picks"),
         C::PreviousPage => owned("back"),
         C::ClosePopup if at == Where::Lyrics => owned("follow the current line again"),
         C::ClosePopup => owned("close / cancel"),

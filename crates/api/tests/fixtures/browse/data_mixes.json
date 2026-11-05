@@ -1,0 +1,19 @@
+{
+  "limit": 6,
+  "offset": 0,
+  "totalNumberOfItems": 8,
+  "items": [
+    {
+      "id": "016214541b7a008d226272cf9d0964",
+      "title": "My Daily Discovery",
+      "subTitle": null,
+      "mixType": "DISCOVERY_MIX"
+    },
+    {
+      "id": "00209e91224287130d9eb3ea64016b",
+      "title": "Video Mix",
+      "subTitle": null,
+      "mixType": "VIDEO_DAILY_MIX"
+    }
+  ]
+}

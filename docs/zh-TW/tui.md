@@ -115,6 +115,7 @@
 | `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
 | `g s` | `SearchPage` | 開啟[搜尋](#search)頁面（在搜尋頁面上：回到輸入框） |
 | `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
+| `g b` | `BrowsePage` | 開啟[瀏覽](#browse)頁面：Tidal 精選的內容（首頁、曲風、心情、年代） |
 | `l`、`g L` | `LyricsPage` | 開啟正在播放曲目的[歌詞](#lyrics) |
 | `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
 | `/` | `Search` | [篩選](#filtering-a-list)焦點視窗或佇列的列 |
@@ -130,7 +131,7 @@
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
-`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m`、`g L` 與 `g a` 是先按 `g` 再按第二個鍵；`s` 以同樣的方式開頭[選取](#selecting-rows)的按鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
+`g g` 是按兩次 `g`；`g l`、`g y`、`g s`、`g m`、`g b`、`g L` 與 `g a` 是先按 `g` 再按第二個鍵；`s` 以同樣的方式開頭[選取](#selecting-rows)的按鍵。`g` 之後若接其他按鍵，就執行那個按鍵原本的作用。按下 `g` 後稍候，會有[提示](#key-hints)列出可接的第二個鍵。佇列為空時，在佇列上只有音量、靜音與模式按鍵（以及 `o`/`O`、`q`）有作用；此時設定的模式與音量會套用到之後加入的內容。
 
 彈出視窗開啟時，只有它自己的按鍵有作用（見[動作](#actions)）；`space`、`n`、`q` 等按鍵不會傳到播放器。文字輸入框（`o`/`O` 的輸入提示、搜尋輸入框、播放清單名稱、正在輸入的[篩選](#filtering-a-list)）會接收所有可列印的按鍵，不受按鍵對應影響。
 
@@ -189,6 +190,7 @@
 | 收藏的曲目 | `g y` | 曲目 |
 | 搜尋 | `g s` | 輸入框、最佳結果、Tracks、Albums、Artists、Playlists（見[搜尋](#search)） |
 | Mixes | `g m` | 你的 mix（見 [Mix 與電台](#mixes-and-radio)） |
+| 瀏覽 | `g b`；在連結上按 `Enter` | Tidal 精選的內容，以及它通往的頁面（見[瀏覽](#browse)） |
 | Lyrics | `l`、`g L` | 正在播放曲目的歌詞（見[歌詞](#lyrics)） |
 | Mix | 在 mix 上按 `Enter` | 該 mix 的曲目 |
 | 電台 | 在曲目或藝人上按 `r`；*Go to radio* | 電台的曲目 |
@@ -363,6 +365,38 @@
 在選取的曲目或藝人上按 `r`（任何頁面，包括佇列）會開啟它的**電台**：`<track> Radio · <artists>` 或 `<artist> Radio`，最多 100 首 Tidal 推薦的曲目。在你於曲目上按 `Enter`（播放它，並將電台其餘曲目排入佇列）或 `Z` 之前，不會播放任何東西，佇列也維持原樣。[動作](#actions)選單中的 *Go to radio* 作用相同，綁定在其他按鍵的 `[[actions]]` 項目亦同（見[設定](config.md#actions)）；專輯、播放清單與 mix 沒有電台。
 
 這些頁面一次完整送達，因此沒有隨捲動載入，且每次開啟都會重新抓取；`Backspace` 會回到保持離開時樣子的頁面。頁面中的訊息：`No mixes yet`、`This mix has no tracks`、`No radio for this track`、`No radio for this artist`（Tidal 沒有它的電台，並非失敗），失敗時為 `Could not load the mixes: <reason>`、`Mix <id> was not found`、`Track 1 was not found`、`Artist 1 was not found`。曲目列與其他頁面相同，無法串流的曲目以暗色顯示。
+
+<a id="browse"></a>
+## 瀏覽
+
+`g b` 開啟**瀏覽**頁面：Tidal 為你精選的內容，而不是你已經擁有的。它是一個窗格、四個分頁，以 `[` 與 `]` 切換：
+
+| 分頁 | 列 |
+|---|---|
+| *Discover* | *Home*、*Staff picks*、*For you*，接著是 *New*、*Top*、*HiRes* 與 *Clean Content* |
+| *Genres* | Hip-Hop、Pop、… |
+| *Moods & Activities* | Tidal 列出的心情與活動 |
+| *Decades* | 各個年代 |
+
+根頁面的每一列都是**連結**：按 `Enter` 開啟它指向的頁面，標題列顯示該頁面的標題。*Home* 是 Tidal 的個人首頁（你最近播放的內容與推薦）；*Staff picks* 是編輯精選首頁；*For you* 是 Tidal 自己的 `for_you` 頁面。*Discover* 以外的分頁名稱是 Tidal 的，因此會隨它的用字。
+
+連結開啟的頁面，**每個區段一個分頁**，依 Tidal 的順序排列，以區段的標題命名（`New Albums`、`Essentials`；沒有標題的區段以其內容命名：`Tracks`、`Albums`、`Playlists`、`Artists`、`Mixes`、`More`）。只有一個區段的頁面不顯示分頁列，看起來就像一份清單。分頁列會顯示放得下的所有分頁，並一定包含目前分頁（以反白顯示），某一側還有更多分頁時以 `…` 表示；寬度不到 60 欄時只顯示目前分頁的名稱與 `[ ]`，與藝人頁面相同。太長的區段標題在分頁列中會被截斷，在視窗標題中則完整顯示。
+
+```
+┌Discover (7) │ Genres │ Moods & Activities │ Decades  [ ]───────────────────┐
+│Home                                                                        │
+│Staff picks                                                                 │
+│For you                                                                     │
+```
+
+- 各列的繪製與其他頁面相同：曲目如播放清單中的樣子，專輯如收藏庫中的樣子，依此類推。**包含多種類型**的區段（只有 *Home* 有）會在每一列前面加上類型：`Track`、`Album`、`Playlist`、`Artist`、`Mix`
+- 在專輯、播放清單、藝人或 mix 上按 `Enter` 開啟該頁面；在曲目上按 `Enter` 會播放它，並把區段中它之後的曲目加入佇列（在包含多種類型的區段中，只有曲目會加入佇列）；`Z`、[動作](#actions)、[選取](#selecting-rows)、`/` 與 `g a` 在列上的作用與其他地方相同。連結沒有動作，也無法被選取
+- 區段會隨捲動載入，與任何清單相同。*Home* 的區段先顯示預覽，並在其分頁第一次顯示時抓取完整清單：完整清單送達前，分頁名稱以 `…` 結尾，游標維持在原位；若抓取失敗，預覽會保留，訊息列會說明原因
+- `Backspace` 回到你離開時的頁面，分頁與游標都維持原樣，不會重新抓取；從其他頁面按 `g b` 會重新抓取根頁面
+- 影片一律不顯示：影片清單、影片 mix 與只由影片組成的播放清單都會被略過，非立體聲的曲目也是。內容全被略過的頁面會顯示 `Nothing to show here`
+- *Home* 來自 Tidal 一個沒有公開文件的來源；若它失敗，頁面會顯示 `Home is not available: Tidal answered <status>`，瀏覽的其餘部分仍可使用。Tidal 不認得的頁面會顯示 `Page <path> was not found`
+
+[`app.toml`](config.md#apptoml) 的 `hide_browse_pages` 列出不顯示連結的頁面，以 `pages/` 之後的名稱表示；預設值 `["videos", "tidal_magazine"]` 會隱藏依上述規則後沒有內容可顯示的那兩個頁面。規格：[0024](../specs/0024-browse.md)。
 
 <a id="lyrics"></a>
 ## 歌詞
