@@ -1,6 +1,6 @@
 # 0022 — Editing your playlists
 
-- **Status**: approved (2026-11-05)
+- **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#66](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/66) (folders moved to [#87](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/87), the CLI to [#88](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/88))
 - **Depends on**: 0006 (implemented: pages, the actions popup, playlist writes and the ETag rules), 0008 (implemented: the keymap, the skip list), 0012 (implemented: filters), 0020 (implemented: the selection)
@@ -181,10 +181,11 @@ Probed against the live API on 2026-11-05 with a throwaway playlist of three tra
 - **Public**: `PUT /v2/playlists/{uuid}/set-public` and `set-private` answer `200` with an empty body and no ETag; the ETag is not checked either. The list shows the change at once
 - **List**: `playlistsAndFavoritePlaylists` rows carry `description` and `publicPlaylist`
 
-Not probed, assumed:
+Checked in the hands-on run (2026-11-05, a private playlist of a track, a video and 14 tracks, deleted after):
 
-- A move over a hidden video behaves as the positions rule above says: the probe's playlist held tracks only. (`DELETE /items/{index}` counting videos is checked: 0006 AC21.) The hands-on check covers it, and if it differs, this spec changes first
-- `C-j` reaches the player as `Ctrl+J` in raw mode. spotify-player relies on the same; the hands-on check covers it
+- A move over a hidden video follows the positions rule: up and down over it, the order on screen and after a reload were the same
+- Ten `C-j` at once ended where the screen showed, after a reload too
+- `C-j` and `C-k` reach the player inside tmux. Outside tmux is left to the maintainer: the run had no other terminal
 
 ## Decisions
 
