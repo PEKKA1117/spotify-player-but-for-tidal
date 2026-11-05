@@ -26,7 +26,7 @@ Two sources feed it, because each holds what the other lacks (see "Facts"):
 5. **Paging a list that does not page**: `view-all` honours `limit` and `offset` for some modules and ignores them for others ("Facts"), so paging it would repeat or lose rows → it is asked once, with neither, and kept whole (AC7)
 6. **Rows of several kinds in one list**: `Enter` on a track queues the rest of the list, which also holds albums and mixes → only the tracks are queued (AC10)
 7. **A path from a client reaching any endpoint**: paths travel from the page data back to the player through `Command`s → the player only follows paths of the two known forms (AC8)
-8. **A dropped row shifting the paging**: rows the player leaves out must not move the next `offset` → `next_offset` advances by the page size asked, as it already does (AC4)
+8. **A dropped row shifting the paging**: rows the player leaves out must not move the next `offset` → `next_offset` advances by the page size asked, as it already does, and a section's first page reports the rows it left out as `hidden` (AC4)
 
 ## Behaviour
 
@@ -136,7 +136,7 @@ v2 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`, `platform=WEB`, header 
 1. **AC1 Protocol**: `BrowseRef`, `MixedRow`, `BrowseSection`, `BrowseMore`, `PageLink`, the new `ListItems` variants, `PageRequest::Browse`, `PageData::Browse`, `ListRef::BrowseData` and `ListRef::BrowseViewAll` round-trip through serde and the socket's framing
 2. **AC2 v1 sections**: a page's modules become sections in Tidal's order per the table under "Which rows are kept"; `VIDEO_LIST`, both promotion modules and an unknown module type are skipped, and an item that cannot be read is dropped, without failing the page
 3. **AC3 Rows left out**: tracks without `STEREO`, video mixes, playlists with 0 tracks and links with an empty title are left out, in v1 and v2; a section with no rows left is dropped; an untitled module takes its kind's name
-4. **AC4 v1 paging**: a section with fewer rows than its total asks `dataApiPath` with `limit` (at most 50) and `offset` as you scroll, the path's own query kept; left-out rows do not change the next `offset`, and a section without a `dataApiPath` never asks
+4. **AC4 v1 paging**: a section with fewer rows than its total asks `dataApiPath` with `limit` (at most 50) and `offset` as you scroll, the path's own query kept; left-out rows do not change the next `offset` (a first page reports them as `hidden`, not shown in the title), an empty answer of any kind ends the section's load, and a section without a `dataApiPath` never asks
 5. **AC5 Root page**: `g b` requests `BrowseRef::Root` and shows the four tabs, *Discover* holding *Home*, *Staff picks*, *For you* and explore's untitled links; explore's promotions are not shown
 6. **AC6 v2 feed**: the feed is asked with its parameters and the `x-tidal-client-version` header, follows `cursor` until none, at most 5 requests; every module becomes a section, its `TRACK`, `ALBUM`, `PLAYLIST`, `ARTIST` and `MIX` items read from `data` (a mix's title and subtitle from `titleTextInfo.text` and `subtitleTextInfo.text`), anything else dropped
 7. **AC7 view-all**: the first time a v2 section's tab is shown, its `viewAll` is asked once, with neither `limit` nor `offset`; the list replaces the preview whatever its kinds (a one-kind preview may become `Mixed`), keeps the cursor and is never asked again; a failed fetch keeps the preview and puts the message on the message row
@@ -183,7 +183,7 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC5 | `crates/api/tests/browse.rs` :: `ac5_root` + `crates/core/src/ui/browse/tests.rs` :: `ac5_root_page` | the four tabs and *Discover*'s rows; `g b` sends the request | stub `g b` does nothing |
 | AC6 | `crates/api/tests/browse.rs` :: `ac6_feed` (table) | parameters, the header, `cursor`, the 5-request cap, kinds, mix fields | stub stops at the first page |
 | AC7 | `crates/api/tests/browse.rs` :: `ac7_view_all` + `crates/core/src/ui/browse/tests.rs` :: `ac7_view_all_tab` | no `limit`/`offset`; asked once on first show; replaced, cursor kept; failure keeps the preview | stub never asks |
-| AC8 | `crates/api/src/library.rs` :: `ac8_browse_paths` (table) | accepted and refused paths; no request sent | stub accepts every path |
+| AC8 | `crates/api/src/browse.rs` :: `ac8_browse_paths` (table) + `crates/api/tests/browse.rs` :: `ac8_refused_paths_send_nothing` | accepted and refused paths; no request sent | stub accepts every path |
 | AC9 | `crates/core/src/ui/browse/tests.rs` :: `ac9_navigation` (table) | push, tabs, wrap, opening rows, `Backspace`, fresh `g b` | stub `Enter` on a link does nothing |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_rows_and_actions` (table) + `crates/core/src/ui/select.rs` tests :: `ac10_links_not_selected` | queued tracks skip other kinds; a link does nothing | stub queues every row |
 | AC11 | `crates/core/src/ui/filter` tests :: `ac11_browse_filter` (table) | a mixed section's fields, a link's title, a filter per tab, more pages | stub matches no link |

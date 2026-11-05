@@ -359,6 +359,21 @@ fn paged<T>(items: Vec<T>, offset: u32, total: u32) -> ListPage<T> {
     }
 }
 
+/// Sets a page's `hidden`: the rows left out of it, which the next `offset`
+/// counts, as it follows Tidal's list and not the rows kept.
+fn set_hidden(items: &mut ListItems, hidden: u32) {
+    match items {
+        ListItems::Tracks(p) => p.hidden = hidden,
+        ListItems::Albums(p) => p.hidden = hidden,
+        ListItems::Playlists(p) => p.hidden = hidden,
+        ListItems::Artists(p) => p.hidden = hidden,
+        ListItems::Credits(p) => p.hidden = hidden,
+        ListItems::Mixes(p) => p.hidden = hidden,
+        ListItems::Links(p) => p.hidden = hidden,
+        ListItems::Mixed(p) => p.hidden = hidden,
+    }
+}
+
 /// `rows` as the list of their kind, or `Mixed` when they hold several (or
 /// none: the kind of an empty answer is not known). `total` is Tidal's, or
 /// the rows kept when the list is whole.
@@ -521,7 +536,11 @@ fn v1_section(module: &Value) -> Option<(bool, BrowseSection)> {
         .data_api_path
         .filter(|p| browse_path(p, Source::V1).is_ok())
         .filter(|_| list.total > list.items.len() as u64);
-    let rows = assemble(rows, 0, path.as_ref().map(|_| clamp_total(list.total)));
+    let left_out = clamp_total((list.items.len() - rows.len()) as u64);
+    let mut rows = assemble(rows, 0, path.as_ref().map(|_| clamp_total(list.total)));
+    if path.is_some() {
+        set_hidden(&mut rows, left_out);
+    }
     let title = module
         .get("title")
         .and_then(Value::as_str)
