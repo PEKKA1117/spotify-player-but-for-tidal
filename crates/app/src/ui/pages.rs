@@ -829,7 +829,14 @@ fn window_lines(
                         window.kind,
                         WindowKind::SearchPlaylists | WindowKind::BrowseSection
                     );
-                    playlist_row(playlist, width, hearts)
+                    // A mixed section's kind column stands where the
+                    // heart's room would: a row of `width` without it.
+                    if kinds {
+                        let row = playlist_row(playlist, width + 2, hearts);
+                        row.strip_prefix("  ").map(str::to_owned).unwrap_or(row)
+                    } else {
+                        playlist_row(playlist, width, hearts)
+                    }
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
                 Row::Link(link) => fit(&link.title, width),
