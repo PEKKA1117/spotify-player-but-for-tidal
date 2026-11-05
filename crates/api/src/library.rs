@@ -322,6 +322,8 @@ impl LibraryClient {
                 track: id,
                 lyrics: self.lyrics(id).await?,
             }),
+            // Stub until spec 0024's API slice.
+            PageRequest::Browse(_) => Err(LibraryError::Malformed("browse")),
         }
     }
 
@@ -562,6 +564,10 @@ impl LibraryClient {
                 let page: RawPage<PlaylistDto> =
                     self.search_list("playlists", query, offset, limit).await?;
                 ListItems::Playlists(page.map(|p| Some(p.into_summary(false)), offset))
+            }
+            // Stub until spec 0024's API slice.
+            ListRef::BrowseData(_) | ListRef::BrowseViewAll(_) => {
+                return Err(LibraryError::Malformed("browse"));
             }
         })
     }
