@@ -140,6 +140,36 @@ Queue: 2 of 12
 
 `tidal-player daemon stop` 會要求播放器關閉，並在它結束後返回（以 0 結束），最多 5 秒後。它對任何播放器都有效，包括獨立模式的 TUI。在 systemd 下，建議使用 `systemctl --user stop tidal-player`：`daemon stop` 會讓常駐程式以 0 結束，systemd 不會重新啟動它，但單元會維持停止狀態，直到下一次 `start`。
 
+<a id="playlists-from-a-shell"></a>
+## 從 shell 管理播放清單
+
+`tidal-player playlist <command>` 和 `playback` 一樣，透過執行中的播放器管理你的播放清單：
+
+| 指令 | 作用 | 輸出 |
+|---|---|---|
+| `list`、`list --json` | 列出你的播放清單和你追蹤的播放清單 | 每個一行，或一個 JSON 陣列 |
+| `new NAME [-d DESCRIPTION] [--public]` | 建立播放清單，沒有 `--public` 就是私人 | 它的 UUID |
+| `edit PLAYLIST [--name NAME] [--description TEXT] [--public \| --private]` | 只改你給的項目；`--description ""` 清除描述 | 無 |
+| `delete PLAYLIST [--yes]` | 刪除播放清單 | 無 |
+| `fork PLAYLIST [--name NAME]` | 把曲目和描述複製到新的私人播放清單，未指定名稱時為 `<title> (copy)` | 它的 UUID |
+| `import FROM TO [--duplicates]` | 把 `FROM` 的曲目加到 `TO` 的尾端，略過已有的曲目 | `Added 12 tracks to <title>, skipped 3` |
+
+`PLAYLIST`、`FROM` 和 `TO` 是播放清單的 UUID（`list` 印出的那個）或它的 Tidal 連結。`edit`、`delete` 和 `import` 的 `TO` 只能用在你自己的播放清單，其他的會以 `<title> is not your playlist` 停止。
+
+`list` 會印出 UUID、`own` 或 `followed`、曲目數和標題，以 tab 分隔：
+
+```
+$ tidal-player playlist list
+a5f9389f-ab20-4d4a-937a-a21ec2559abb	own	39	Late night
+edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
+```
+
+`delete` 會先詢問 `Delete <title>? (y/n)`。`--yes` 不會詢問；沒有終端機時（例如在腳本裡）一定要加 `--yes`。
+
+`fork` 和 `import` 只複製曲目：播放清單裡的影片不會帶過去，stderr 會顯示 `Skipped 2 videos`。同一個 `import` 跑第二次不會再加入任何曲目；`--duplicates` 會加入每一首。如果加入到一半停止，stderr 會說明進度（`Added 300 of 1 234 tracks to <title>: <reason>`），已加入的曲目會保留，`fork` 仍會印出新的 UUID。
+
+結束代碼和 [`playback`](#one-shot-commands) 相同：參數錯誤為 2，且什麼都不會送出；沒有播放器、播放器回報錯誤或沒有回應為 1。
+
 <a id="releasing-the-device-while-paused"></a>
 ## 暫停時釋放裝置
 
