@@ -56,10 +56,10 @@ Refused, with a message and nothing moved:
 
 | While | Message |
 |---|---|
-| The window has a filter (typing or kept) | `Clear the filter to move tracks` |
+| The window has a kept filter | `Clear the filter to move tracks` |
 | Motion mode is on | `Leave motion mode to move tracks` |
 
-Anywhere else, a favorite playlist's page included, the keys do nothing.
+While a filter is being typed, the keys belong to the filter (0012). Anywhere else, a favorite playlist's page included, the keys do nothing.
 
 #### Holding the key
 
@@ -79,7 +79,7 @@ The playlist page's title gains `public` for a public playlist, whoever owns it:
 Late night · 39 tracks · 2:41:07 · public
 ```
 
-A playlist with a description shows it on one row under the title, cut with `…` to the page's width, and the windows start one row lower. Line breaks in a description are shown as spaces. A playlist with no description has no such row.
+A playlist with a description shows it on one row under the title, cut with `…` to the page's width, and the windows start one row lower: the row and the rule of a mix's subtitle (0011), so a page too short for it leaves it out. Line breaks in a description are shown as spaces. A playlist with no description has no such row.
 
 ### Keymap
 
@@ -94,7 +94,7 @@ A playlist with a description shows it on one row under the title, cut with `…
 | Rename, description | `POST /playlists/{uuid}` form `title` and/or `description` (only what changes) | `200`, empty |
 | Public, private | `PUT https://api.tidal.com/v2/playlists/{uuid}/set-public`, `…/set-private`, `countryCode` as usual | `200`, empty |
 
-`toIndex` is the **final** position of the track, counted over Tidal's whole playlist. A row's position comes from `Window::positions`, not from its row number, because video items are dropped from the list (0006) and still hold their place on Tidal. Moving a track past its neighbour asks for the neighbour's position, whatever videos lie between.
+`toIndex` is the **final** position of the track, counted over Tidal's whole playlist. A row's position comes from `Window::positions`, not from its row number, because video items are dropped from the list and still hold their place on Tidal (0006 AC21). Moving a track past its neighbour asks for the neighbour's position, whatever videos lie between.
 
 After a move from `p` to `q`, the client updates positions as Tidal does: going down, the items in `(p, q]` each take one less; going up, the items in `[q, p)` each take one more; the track takes `q`.
 
@@ -122,7 +122,7 @@ Clients and the player are the same version (0005's greeting), so nothing has to
 - **AC8** — Moving: on an own playlist's track window `C-j`/`C-k` swap the row with its neighbour, the cursor stays on the track, and `MovePlaylistItem` carries the track's position and the neighbour's from `Window::positions` (videos between them included) and the page's ETag; `Window::positions` afterwards matches Tidal's order; first row up and last row down do nothing; the last loaded row with more to load loads the next page and does not move
 - **AC9** — Merging: with a move on its way, further presses on that track move the row only; the answer sends one request from Tidal's position to the screen's position with the answer's ETag, or none if they are equal; a press on another track does nothing; the moves continue after the page is left; a settled move shows no message, fetches nothing and leaves the page holding the last ETag
 - **AC10** — A failed move: the moves not yet sent are dropped, the error shows in the message row and an open page of the playlist is fetched again, for `412` and any other failure alike. A `Moved` with no ETag fetches the page again
-- **AC11** — Selection and refusals: a marked row keeps its mark through a move, whether it is the moved row or the neighbour; in a window with a filter, and in motion mode, the keys show their message and change nothing; on a favorite playlist's page and any other page they do nothing
+- **AC11** — Selection and refusals: a marked row keeps its mark through a move, whether it is the moved row or the neighbour; in a window with a kept filter, and in motion mode, the keys show their message and change nothing; on a favorite playlist's page and any other page they do nothing
 - **AC12** — Rendering: the playlist page's title ends in `· public` for a public playlist; a description takes one row, cut with `…`, line breaks as spaces; without one the layout is unchanged; the description prompt draws its label
 - **AC13** — Keymap and docs: `CreatePlaylist`, `MovePlaylistItemUp`, `MovePlaylistItemDown` are commands bound by default to `N`, `C-k`, `C-j`, off the skip list, in the keys help and `examples/keymap.toml`; `docs/tui.md`, `docs/config.md`, `README.md` and their zh-TW copies cover them
 
@@ -156,7 +156,7 @@ Clients and the player are the same version (0005's greeting), so nothing has to
 | AC8 | `crates/core/src/ui/browse/tests.rs` :: `ac8_move_swaps_and_keeps_the_cursor`, `ac8_move_over_videos_uses_positions`, `ac8_ends_of_the_list`, `ac8_last_loaded_row_loads_more`; `crates/core/src/ui/page.rs` tests :: `ac8_positions_after_a_move` (table) | Rows, cursor, request, positions | The keys do nothing |
 | AC9 | `crates/core/src/ui/browse/tests.rs` :: `ac9_presses_merge_into_one_request`, `ac9_back_to_where_it_was_sends_nothing`, `ac9_other_track_waits`, `ac9_moves_continue_after_leaving`, `ac9_settled_move_is_silent` | Requests sent per reply, ETag used, no refetch | A request per press |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_failed_move_reloads` (table: `412` message, other error), `ac10_no_etag_reloads` | Message, refetch, pending moves dropped | The failure leaves the optimistic order |
-| AC11 | `crates/core/src/ui/select/tests.rs` :: `ac11_marks_follow_a_move` (table: moved row, neighbour); `crates/core/src/ui/browse/tests.rs` :: `ac11_refused_with_a_filter_or_in_motion`, `ac11_not_an_own_playlist` | Marks, messages, nothing sent | Marks stay on the row numbers |
+| AC11 | `crates/core/src/ui/browse/tests.rs` :: `ac11_marks_follow_a_move` (table: moved row, neighbour), `ac11_refused_with_a_filter_or_in_motion`, `ac11_not_an_own_playlist` | Marks, messages, nothing sent | Marks stay on the row numbers |
 | AC12 | `crates/app/src/ui.rs` tests :: `ac12_playlist_title_public`, `ac12_description_row`, `ac12_description_cut_and_flattened`, `ac12_no_description_unchanged`, `ac12_description_prompt` (snapshots at 80 × 24 and 150 × 42) | The drawn page | New snapshots missing |
 | AC13 | `crates/core/src/ui/keymap/tests.rs` :: `ac13_playlist_commands_bound`, `ac13_off_the_skip_list`; `crates/core/src/ui/help/tests.rs` :: `ac13_keys_help_lists_them`; `examples/keymap.toml` by the existing `crates/app/tests/examples.rs` (0008 AC18) | Bindings, skip list, help | The commands are skipped with a warning |
 | AC13 (docs) | Read at acceptance: no test can judge prose. `cargo xtask wiki` builds | | |
@@ -166,7 +166,7 @@ Clients and the player are the same version (0005's greeting), so nothing has to
 ## Crate placement
 
 - `tidal-player-core`: `library` (the types), `ui` (keys, prompts, the move state, positions: all pure)
-- `tidal-player-api`: `library.rs` (the requests). The client has one base URL ending in `/v1`, so the v2 call needs a second base, injectable like the first so tests reach the mock server
+- `tidal-player-api`: `library.rs` (the requests). The client has one base URL ending in `/v1`: the v2 call uses the path `../v2/playlists/…`, which `Url` resolves, so tests reach the mock server with no second base
 - `tidal-player`: `ui.rs`, `ui/pages.rs` (the title and description row)
 
 ## Facts vs. assumptions
@@ -183,7 +183,7 @@ Probed against the live API on 2026-11-05 with a throwaway playlist of three tra
 
 Not probed, assumed:
 
-- A move over a hidden video behaves as the positions rule above says: the probe's playlist held tracks only. The hands-on check covers it, and if it differs, this spec changes first
+- A move over a hidden video behaves as the positions rule above says: the probe's playlist held tracks only. (`DELETE /items/{index}` counting videos is checked: 0006 AC21.) The hands-on check covers it, and if it differs, this spec changes first
 - `C-j` reaches the player as `Ctrl+J` in raw mode. spotify-player relies on the same; the hands-on check covers it
 
 ## Decisions
