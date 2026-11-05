@@ -17,6 +17,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **位元完美播放**：串流 Tidal 提供的最佳音質（最高 `HI_RES_LOSSLESS` FLAC），以曲目原本的取樣率播放到 ALSA `hw:` 裝置，播放期間向 PipeWire 取得音效卡。無縫播放（gapless），會預先載入下一首。[播放曲目](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback-zh-TW)
 - **你的收藏庫**：收藏的曲目、播放清單、專輯與藝人，以及專輯、播放清單與藝人頁面；可從動作選單編輯收藏；可建立、改名、描述並排序你的播放清單，移除任何內容前都會先詢問 `y/n`，也可以用 `tidal-player playlist` 從 shell 管理。[TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW)
 - **搜尋、mix 與電台**：搜尋曲目、專輯、藝人與播放清單（`g s`），開啟你的每日 mix（`g m`）或曲目、藝人的電台（`r`），並可在輸入時篩選任何清單（`/`）
+- **瀏覽**：`g b` 開啟 Tidal 精選的內容，以分頁呈現，用 `[` 與 `]` 切換：個人首頁、編輯精選、曲風、心情與年代，各自通往專輯、播放清單、藝人、mix 與曲目的頁面，開啟與播放方式和其他頁面相同。`hide_browse_pages` 可隱藏沒有內容可顯示的頁面。[瀏覽](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#browse)
 - **歌詞**：按 `l` 顯示正在播放曲目的歌詞；同步歌詞會隨演唱跟隨並高亮目前這一行，也可用清單按鍵手動捲動。[歌詞](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#lyrics)
 - **選取多列**：標記清單或佇列中的多列（`s c`、`s 5 j`，或按 `s m` 後移動游標），再一起播放、加入佇列、加入收藏或移除（`s a`、`d s`）。[選取多列](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#selecting-rows)
 - **完整的佇列**：隨機播放、重複播放，佇列播完時以 Tidal 的推薦自動播放，再次啟動時還原上次的工作階段（佇列、位置、模式與音量）
@@ -84,7 +85,7 @@ tidal-player login   # 開啟連結，輸入代碼
 tidal-player         # 開啟 TUI
 ```
 
-在 TUI 中，`g l` 開啟收藏庫、`g s` 開啟搜尋、`g m` 開啟你的 mix；`enter` 播放、`space` 暫停、`n`/`p` 切換曲目、`?` 列出所有按鍵、`q` 離開。詳見 [TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW)。
+在 TUI 中，`g l` 開啟收藏庫、`g s` 開啟搜尋、`g m` 開啟你的 mix、`g b` 開啟 Tidal 精選的內容；`enter` 播放、`space` 暫停、`n`/`p` 切換曲目、`?` 列出所有按鍵、`q` 離開。詳見 [TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW)。
 
 要位元完美輸出，先用 `tidal-player devices` 找出你的 DAC，再於 TUI 中按 `D` 選擇它，或在 `app.toml` 設定 `output_device`（見[找出 DAC 的裝置](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback-zh-TW#finding-your-dacs-device)）。
 
