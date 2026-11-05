@@ -424,6 +424,18 @@ async fn ac4_first_page_counts_rows_left_out() {
     assert_eq!((first.items.len(), first.hidden), (2, 1));
 }
 
+/// AC5: `pages/home` is *Staff picks*, whatever Tidal titles it: its own
+/// title would clash with the personal *Home*.
+#[tokio::test]
+async fn ac5_staff_picks_title() {
+    let s = Setup::new().await;
+    s.get("/v1/pages/home", 200, PAGE_MODULES).await;
+    let PageData::Browse { title, .. } = s.browse(page_link("pages/home")).await.unwrap() else {
+        panic!("not a browse page");
+    };
+    assert_eq!(title, "Staff picks");
+}
+
 // AC3 -------------------------------------------------------------------
 
 /// AC3: rows left out in v1 and v2, sections left empty dropped.

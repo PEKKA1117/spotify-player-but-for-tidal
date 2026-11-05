@@ -4372,7 +4372,8 @@ fn ac7_view_all_tab() {
         request,
         more(ListRef::BrowseViewAll("home/pages/recent".into()), 0, 2)
     );
-    assert_eq!(tab_names(&state), vec!["Recently…", "Picks…", "Whole"]);
+    // Only the tab being fetched says so: `…` also ends a cut title.
+    assert_eq!(tab_names(&state), vec!["Recently…", "Picks", "Whole"]);
     assert_eq!(window(&state, 0).title(), "Recently… (3)");
     // Nothing more while it is on its way; the cursor moves meanwhile.
     assert_eq!(press(&mut state, &[Char('j')]), vec![]);
@@ -4477,6 +4478,64 @@ fn ac10_rows_and_actions() {
     assert_eq!(state.popup, None);
     assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
     assert_eq!(state.popup, None);
+}
+
+/// AC16: a hidden page's link on a later page of a section is hidden too.
+/// The next `offset` counts it, and a finished section counts what it
+/// shows, not Tidal's total.
+#[test]
+fn ac16_hidden_links_on_later_pages() {
+    use Key::Char;
+    let path = "pages/data/moods";
+    let first = list(
+        vec![
+            link("Sleep", "pages/mood_sleep"),
+            link("Videos", "pages/videos"),
+            link("Relax", "pages/mood_relax"),
+        ],
+        0,
+        6,
+    );
+    let data = browse_data(
+        "Explore",
+        vec![section(
+            "Moods",
+            ListItems::Links(first),
+            BrowseMore::Data(path.into()),
+        )],
+    );
+    let mut state = small();
+    state.hide_browse_pages = vec!["videos".into(), "tidal_magazine".into()];
+    open(&mut state, &GB, data);
+    assert_eq!(window(&state, 0).rows.len(), 2);
+    assert_eq!(window(&state, 0).next_offset, 3);
+
+    let (id, request) = one_request(&press(&mut state, &[Char('j')]));
+    assert_eq!(request, more(ListRef::BrowseData(path.into()), 3, 2));
+    let second = list(
+        vec![
+            link("Focus", "pages/mood_focus"),
+            link("Magazine", "pages/tidal_magazine"),
+        ],
+        3,
+        6,
+    );
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Items(ListItems::Links(second)),
+    );
+    assert_eq!(window(&state, 0).rows.len(), 3, "the magazine stays hidden");
+
+    let (id, _) = one_request(&press(&mut state, &[Char('j')]));
+    let third = list(vec![link("Happy", "pages/m_happy")], 5, 6);
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Items(ListItems::Links(third)),
+    );
+    assert_eq!(window(&state, 0).rows.len(), 4);
+    assert_eq!(window(&state, 0).title(), "Moods (4)");
 }
 
 /// AC16: links to a hidden page are not shown, on the root and on any

@@ -41,7 +41,7 @@ Two sources feed it, because each holds what the other lacks (see "Facts"):
 | *Moods & Activities* | explore's module of that name |
 | *Decades* | explore's *Decades* module |
 
-*Home* is the v2 personal feed, *Staff picks* is `pages/home` (the name the v2 header gives the editorial content: Tidal's own title for that page, *Home*, would clash) and *For you* is `pages/for_you`. The tab titles other than *Discover* are Tidal's, so they follow its wording.
+*Home* is the v2 personal feed, *Staff picks* is `pages/home` (the name the v2 header gives the editorial content: Tidal's own title for that page, *Home*, would clash, so the page is titled *Staff picks* too) and *For you* is `pages/for_you`. The tab titles other than *Discover* are Tidal's, so they follow its wording.
 
 Every row of the root page is a **link**: `Enter` opens the page it names.
 
@@ -50,7 +50,7 @@ Every row of the root page is a **link**: `Enter` opens the page it names.
 A link opens a **browse page**: its title is the page's (`Hip-Hop`, `Top`, `Staff picks`), and each section is a tab of its single pane, in Tidal's order. `[` and `]` switch tabs; a page with one section shows no tab strip.
 
 - A section's tab is the module's title. An untitled module is called by what it holds: `Tracks`, `Albums`, `Playlists`, `Artists`, `Mixes`, or `More` for links
-- Rows are drawn as on any other page: a track as in a playlist, an album as in the library, and so on
+- Rows are drawn as on any other page: a track as in a playlist, an album as in the library, and so on. A playlist has no `♥`, as in search results: these answers do not say whether you follow it
 - A section with **rows of several kinds** (only the v2 feed has these) puts the kind first on each row: `Album`, `Artist`, `Mix`, `Playlist`, `Track`
 - The tab strip shows as many tabs as fit, always with the active one, and `…` on a side with more
 - Below 60 columns the strip follows 0006's rule for the artist page: the active tab's name, with `[ ]`
@@ -87,13 +87,14 @@ hide_browse_pages = ["videos", "tidal_magazine"]   # the default
 - The default holds the two pages known to have nothing to show: after the rules above `pages/videos` and `pages/tidal_magazine` are empty ("Facts")
 - `[]` hides nothing: those links come back, and open on `Nothing to show here`
 - A name matches a link's page exactly, case included; a name no link has does nothing. Only links are hidden: a page reached some other way still opens
+- It applies to every page of a section, not only the first, and a section that has loaded all its rows counts the rows it shows
 - The environment variable is `TIDAL_PLAYER_HIDE_BROWSE_PAGES`, in the form of `TIDAL_PLAYER_HIDE_VERSIONS`
 - The TUI reads it, as a choice of what to show: the player still answers every link, each client applies its own list, and a section all of whose links are hidden is dropped
 
 ### Lists
 
 - **v1 sections** hold their first rows in the page's response. A section with fewer rows than its total asks for more as you scroll, from its `dataApiPath`, exactly as 0006's lists. A section without a `dataApiPath` is whole
-- **v2 sections** hold a preview (up to 15 rows). A section with a `viewAll` fetches it the first time its tab is shown, and the whole list replaces the preview: the cursor stays where it is, as the preview is the start of the list. Until it arrives the tab's title ends in `…`. If it fails the preview stays and the message row says so
+- **v2 sections** hold a preview (up to 15 rows). A section with a `viewAll` fetches it the first time its tab is shown, and the whole list replaces the preview: the cursor stays where it is, as the preview is the start of the list. While it is on its way the tab's title ends in `…`, and only then: a tab not yet shown has no mark, as `…` also ends a cut title. If it fails the preview stays and the message row says so
 - A section of either kind is searched by `/` as any list; a v1 section fetches more pages until enough rows match (0012)
 
 ### Keys
@@ -148,7 +149,7 @@ v2 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`, `platform=WEB`, header 
 13. **AC13 Rendering**: at 150 × 42, 80 × 24 and 50 × 20: the title, the tab strip with `…` on a side with more and the active tab always in view, no strip for one section, the kind column only for a section of several kinds, a 117-character section title cut to fit
 14. **AC14 Keymap**: `BrowsePage` is a command on `g b`, listed in the keys help and key hints; it is no longer among the skipped spotify-player commands, so a `keymap.toml` binding it works
 15. **AC15 Docs**: `docs/tui.md`, `docs/config.md`, `README.md` and their zh-TW copies describe the page, its key, its sources and `hide_browse_pages`; `examples/app.toml` shows the setting; 0008's example of a skipped command no longer names `BrowsePage`
-16. **AC16 Hiding pages**: `hide_browse_pages` defaults to `["videos", "tidal_magazine"]`, and `app.toml` and `TIDAL_PLAYER_HIDE_BROWSE_PAGES` set it (the environment winning, a value that is not an array of strings refused as `hide_versions`'s is); links to a listed page are not shown, on the root and on every browse page, a section left with none is dropped, and `[]` shows them all
+16. **AC16 Hiding pages**: `hide_browse_pages` defaults to `["videos", "tidal_magazine"]`, and `app.toml` and `TIDAL_PLAYER_HIDE_BROWSE_PAGES` set it (the environment winning, a value that is not an array of strings refused as `hide_versions`'s is); links to a listed page are not shown, on the root, on every browse page and on every page of a section, a section left with none is dropped, and `[]` shows them all
 
 ## Edge cases & errors
 
