@@ -275,6 +275,7 @@ fn page<T>(items: Vec<T>, offset: u32, total: u32) -> ListPage<T> {
         offset,
         total,
         hidden: 0,
+        positions: Vec::new(),
     }
 }
 

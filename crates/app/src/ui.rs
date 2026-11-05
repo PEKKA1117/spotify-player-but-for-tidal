@@ -1774,6 +1774,7 @@ mod tests {
             offset: 0,
             total,
             hidden,
+            positions: Vec::new(),
         }
     }
 

@@ -733,6 +733,7 @@ impl LibraryClient {
             offset,
             total: clamp_total(plain_total + eps_total),
             hidden: 0,
+            positions: Vec::new(),
         })
     }
 
@@ -753,6 +754,7 @@ impl LibraryClient {
                     offset,
                     total: 0,
                     hidden: 0,
+                    positions: Vec::new(),
                 });
             };
             if offset == 0 {
@@ -773,6 +775,7 @@ impl LibraryClient {
                             offset,
                             total: 0,
                             hidden: 0,
+                            positions: Vec::new(),
                         });
                     };
                     self.credit_data(artist, &list.data_api_path, offset, limit)
@@ -787,6 +790,7 @@ impl LibraryClient {
             offset,
             total: clamp_total(raw.total),
             hidden,
+            positions: Vec::new(),
         })
     }
 
@@ -1257,6 +1261,7 @@ fn whole<T>(items: Vec<T>) -> ListPage<T> {
         offset: 0,
         total,
         hidden: 0,
+        positions: Vec::new(),
     }
 }
 
@@ -1323,6 +1328,7 @@ impl<T> RawPage<T> {
             offset,
             total: clamp_total(self.total),
             hidden: 0,
+            positions: Vec::new(),
         }
     }
 }

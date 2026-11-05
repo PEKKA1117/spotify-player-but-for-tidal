@@ -76,6 +76,10 @@ pub struct ListPage<T> {
     /// Rows of this page left out by the player's filters (*All tracks*:
     /// Atmos-only copies and alternate versions); `0` for every other list.
     pub hidden: u32,
+    /// Each item's position in Tidal's list, where items were dropped
+    /// from the page (a playlist's videos). Empty: `offset` + index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub positions: Vec<u32>,
 }
 
 /// One page of any list, tagged by its row type: the answer to
