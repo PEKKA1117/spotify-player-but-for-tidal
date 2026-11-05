@@ -115,6 +115,11 @@ enum Command {
         #[command(subcommand)]
         command: PlaybackCommand,
     },
+    /// Manage your playlists through the running player.
+    Playlist {
+        #[command(subcommand)]
+        command: tidal_player::playlist_cli::PlaylistCommand,
+    },
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
     Play(PlayArgs),
@@ -984,6 +989,7 @@ fn main() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Playback { command }) => Ok(tidal_player::oneshot::run(&command)),
+        Some(Command::Playlist { command }) => Ok(tidal_player::playlist_cli::run(&command)),
         Some(Command::Login) => {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))

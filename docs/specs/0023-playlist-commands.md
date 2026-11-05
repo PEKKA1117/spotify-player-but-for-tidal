@@ -106,16 +106,16 @@ A source with no tracks is fine: `fork` creates an empty playlist, and `import` 
 
 | AC | Test | Asserts | Expected red failure |
 |---|---|---|---|
-| AC1 | `crates/app/src/playlist_cli.rs` :: `ac1_parse` (table), `ac1_refused` (table) | Plans and usage errors | The stub `plan` refuses everything |
-| AC2 | `crates/app/src/playlist_cli.rs` :: `ac2_list_lines`, `ac2_list_pages`, `ac2_list_json` | Output and the `More` requests | Nothing is sent |
-| AC3 | `crates/app/src/playlist_cli.rs` :: `ac3_new`, `ac3_new_public_fails` | Requests, stdout, exit code | Nothing is sent |
-| AC4 | `crates/app/src/playlist_cli.rs` :: `ac4_edit` (table) | Requests | Nothing is sent |
-| AC5 | `crates/app/src/playlist_cli.rs` :: `ac5_not_your_playlist` (table: edit, delete, import) | The message, no write | Nothing is sent |
-| AC6 | `crates/app/src/playlist_cli.rs` :: `ac6_delete` (table: `--yes`, `y`, `n`, no terminal) | Requests, exit code | Nothing is sent |
-| AC7 | `crates/app/src/playlist_cli.rs` :: `ac7_fork`, `ac7_fork_batches`, `ac7_fork_empty` | Requests in order, stdout | Nothing is sent |
-| AC8 | `crates/app/src/playlist_cli.rs` :: `ac8_import`, `ac8_import_duplicates` | Tracks sent, order, the line | Nothing is sent |
-| AC9 | `crates/app/src/playlist_cli.rs` :: `ac9_skipped_videos`, `ac9_partial_failure` (table: fork, import) | stderr, stdout, exit code | Nothing is sent |
-| AC10 | `crates/app/tests/daemon.rs` :: `ac10_playlist_exit_codes` | The binary's exit codes and messages | The subcommand does not exist |
+| AC1 | `crates/app/src/playlist_cli/tests.rs` :: `ac1_parse` (table), `ac1_refused` (table) | Plans and usage errors | The stub `plan` refuses everything |
+| AC2 | `crates/app/src/playlist_cli/tests.rs` :: `ac2_list_lines`, `ac2_list_pages`, `ac2_list_json` | Output and the `More` requests | Nothing is sent |
+| AC3 | `crates/app/src/playlist_cli/tests.rs` :: `ac3_new`, `ac3_new_public_fails` | Requests, stdout, exit code | Nothing is sent |
+| AC4 | `crates/app/src/playlist_cli/tests.rs` :: `ac4_edit` (table) | Requests | Nothing is sent |
+| AC5 | `crates/app/src/playlist_cli/tests.rs` :: `ac5_not_your_playlist` (table: edit, delete, import) | The message, no write | Nothing is sent |
+| AC6 | `crates/app/src/playlist_cli/tests.rs` :: `ac6_delete` (table: `--yes`, `y`, `n`, no terminal) | Requests, exit code | Nothing is sent |
+| AC7 | `crates/app/src/playlist_cli/tests.rs` :: `ac7_fork`, `ac7_fork_batches`, `ac7_fork_empty` | Requests in order, stdout | Nothing is sent |
+| AC8 | `crates/app/src/playlist_cli/tests.rs` :: `ac8_import`, `ac8_import_duplicates` | Tracks sent, order, the line | Nothing is sent |
+| AC9 | `crates/app/src/playlist_cli/tests.rs` :: `ac9_skipped_videos`, `ac9_partial_failure` (table: fork, import) | stderr, stdout, exit code | Nothing is sent |
+| AC10 | `crates/app/tests/daemon.rs` :: `ac10_playlist_exit_codes`; `crates/app/src/playlist_cli/tests.rs` :: `ac10_no_answer_and_not_found` | The binary's exit codes and messages; a silent player | The stub exits 1 with no message |
 | AC11 | Read at acceptance: no test can judge prose. `cargo xtask wiki` builds | | |
 
 **Hands-on check** (live Tidal, against an isolated player with the existing session, throwaway playlists deleted after): `new` with a description and `--public`, `edit`, `list` and `list --json | jq`, `fork` of a playlist of over 100 tracks, `import` twice (the second adds nothing), `delete` with `--yes` and from a terminal. It prints to a shell, so the PR quotes the output rather than screenshots.

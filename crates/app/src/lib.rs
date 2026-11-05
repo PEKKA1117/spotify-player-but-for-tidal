@@ -18,6 +18,7 @@ pub mod persist;
 pub mod play;
 pub mod playback;
 pub mod player_runtime;
+pub mod playlist_cli;
 pub mod reserve;
 pub mod session_store;
 pub mod store_setup;

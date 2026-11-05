@@ -1492,3 +1492,17 @@ fn harness_isolates_the_cover_cache() {
     assert!(cache.starts_with(machine.state.path()), "{cache:?}");
     assert!(env("TIDAL_PLAYER_IMAGES_BASE").is_some());
 }
+
+/// Spec 0023 AC10: `playlist` exits as `playback`: a bad argument 2 before
+/// looking for a player, no player 1 with its message.
+#[test]
+fn ac10_playlist_exit_codes() {
+    let machine = Machine::new();
+    let (code, stdout, stderr) = machine.run_client(&["playlist", "delete", "x", "--yes"]);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert_eq!(stderr, "Not a playlist: x\n");
+    assert_eq!(
+        machine.run_client(&["playlist", "list"]),
+        (Some(1), String::new(), format!("{NO_PLAYER}\n"))
+    );
+}
