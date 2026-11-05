@@ -388,6 +388,42 @@ async fn ac2_section_totals() {
     );
 }
 
+/// AC4: rows left out of a paged section's first page count as `hidden`,
+/// so the next `offset` follows Tidal's list, not the rows kept.
+#[tokio::test]
+async fn ac4_first_page_counts_rows_left_out() {
+    let s = Setup::new().await;
+    // Three tracks, one of them Atmos only.
+    let tracks: serde_json::Value = serde_json::from_str(DATA_TRACKS).unwrap();
+    let page = serde_json::json!({
+        "title": "New",
+        "rows": [{"modules": [{
+            "type": "TRACK_LIST",
+            "title": "New Tracks",
+            "pagedList": {
+                "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000001",
+                "limit": 3,
+                "offset": 0,
+                "totalNumberOfItems": 10,
+                "items": tracks["items"],
+            },
+        }]}],
+    });
+    s.get("/v1/pages/explore_new_music", 200, &page.to_string())
+        .await;
+    let PageData::Browse { sections, .. } = s
+        .browse(page_link("pages/explore_new_music"))
+        .await
+        .unwrap()
+    else {
+        panic!("not a browse page");
+    };
+    let ListItems::Tracks(first) = &sections[0].rows else {
+        panic!("not tracks: {:?}", sections[0].rows);
+    };
+    assert_eq!((first.items.len(), first.hidden), (2, 1));
+}
+
 // AC3 -------------------------------------------------------------------
 
 /// AC3: rows left out in v1 and v2, sections left empty dropped.
