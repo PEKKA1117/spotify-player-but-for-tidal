@@ -2,15 +2,18 @@
 //! window focus and cursors, scrolling loads, the whole-list load,
 //! playing and queueing from a page, the popups and the library writes.
 
-use crate::library::{FavoriteKind, LibraryRequest, LibraryResponse, ListRef, PlaylistSummary};
+use crate::library::{
+    BrowseRef, BrowseSection, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListRef,
+    PageData, PlaylistSummary,
+};
 use crate::protocol::{Command, DeviceEntry, InsertAt};
 use crate::track::Track;
 
 use super::dispatch::step;
 use super::keymap::{ActionBinding, ActionKind, Target, UiCommand};
 use super::page::{
-    Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, Window, WindowKind,
-    group, is_search_list, largest_page,
+    Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, Row, Rows, ViewAll, Window,
+    WindowKind, group, is_search_list, largest_page,
 };
 use super::popup::{
     self, Confirmed, DeviceList, MenuAction, PlaylistField, Popup, Removal, RemoveFrom, Removed,
@@ -214,7 +217,7 @@ pub(super) fn cycle_focus(state: &mut State, forward: bool) -> Vec<Effect> {
         select::leave_window(state, left);
     }
     let mut effects = Vec::new();
-    first_credits(state, index, &mut effects);
+    first_shown(state, index, &mut effects);
     effects
 }
 
@@ -227,22 +230,65 @@ pub(super) fn cycle_tab(state: &mut State, forward: bool) -> Vec<Effect> {
         select::leave_window(state, left);
     }
     let mut effects = Vec::new();
-    first_credits(state, index, &mut effects);
+    first_shown(state, index, &mut effects);
     effects
 }
 
-/// *All tracks* asks for its first page when first focused.
-fn first_credits(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
+/// What a tab asks for when first shown: *All tracks* its first page
+/// (spec 0006), a browse section with a `viewAll` its whole list (spec
+/// 0024 "Lists").
+fn first_shown(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
     let page = &state.history[index];
     if page.load != Load::Idle {
         return;
     }
     let focus = page.focus;
-    if page.windows.get(focus).is_some_and(|w| {
-        w.kind == WindowKind::AllTracks && w.total.is_none() && w.load == Load::Idle
-    }) {
+    let Some(window) = page.windows.get(focus) else {
+        return;
+    };
+    if window.kind == WindowKind::AllTracks && window.total.is_none() && window.load == Load::Idle {
         ask_more(state, index, focus, effects);
+    } else if window.view_all == ViewAll::Waiting && window.load == Load::Idle {
+        ask_view_all(state, index, focus, effects);
     }
+}
+
+/// Asks for a browse section's whole list: once, with no paging of its own
+/// (the `limit` is not read).
+fn ask_view_all(state: &mut State, page: usize, window: usize, effects: &mut Vec<Effect>) {
+    let w = &state.history[page].windows[window];
+    let more = LibraryRequest::More {
+        list: w.list.clone(),
+        offset: 0,
+        limit: limit(state, &w.list),
+    };
+    if let Some(id) = request(state, more, effects) {
+        state.history[page].windows[window].load = Load::Loading { id };
+    }
+}
+
+/// Takes out of `sections` the links to the pages `hidden` names (the name
+/// after `pages/`, spec 0024 "Hiding pages"); a section all of whose links
+/// were hidden goes too.
+pub(super) fn hide_links(sections: &mut Vec<BrowseSection>, hidden: &[String]) {
+    if hidden.is_empty() {
+        return;
+    }
+    sections.retain_mut(|section| {
+        let ListItems::Links(page) = &mut section.rows else {
+            return true;
+        };
+        let before = page.items.len();
+        page.items.retain(|link| match &link.target {
+            BrowseRef::Page(path) => path
+                .strip_prefix("pages/")
+                .is_none_or(|name| !hidden.iter().any(|h| h == name)),
+            _ => true,
+        });
+        let removed = before - page.items.len();
+        page.total = page.total.saturating_sub(removed as u32);
+        removed == 0 || !page.items.is_empty()
+    });
 }
 
 /// Asks for the next page of window `window` of page `page`.
@@ -392,7 +438,7 @@ fn play_from(state: &mut State) -> Vec<Effect> {
     let page = top(state);
     let focus = state.history[page].focus;
     let window = &state.history[page].windows[focus];
-    let start = window.cursor;
+    let start = window.track_position(window.cursor);
     if window.complete() {
         return play(state, window.tracks(), start);
     }
@@ -574,31 +620,37 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
                 )
             })
     } else {
-        selected(state).map(|row| match row {
-            Row::Track(_) | Row::Credit(_) => {
-                let track = row.track().expect("a track row");
-                let own = page.own_playlist().and_then(|playlist| {
-                    let window = page.focused()?;
-                    if window.kind != WindowKind::PlaylistTracks {
-                        return None;
-                    }
-                    let position = *window.positions.get(window.index(window.cursor)?)?;
-                    Some((playlist, position, page.etag()))
-                });
-                (track.title.clone(), popup::track_actions(track, own))
-            }
-            Row::Album(album) => (album.title.clone(), popup::album_actions(album)),
-            // A search playlist is never the user's own (spec 0007).
-            Row::Playlist(playlist) if page.search.is_some() => {
-                let playlist = PlaylistSummary {
-                    own: false,
-                    ..playlist.clone()
-                };
-                (playlist.title.clone(), popup::playlist_actions(&playlist))
-            }
-            Row::Playlist(playlist) => (playlist.title.clone(), popup::playlist_actions(playlist)),
-            Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
-            Row::Mix(mix) => (mix.title.clone(), popup::mix_actions(mix)),
+        selected(state).and_then(|row| {
+            Some(match row {
+                Row::Track(_) | Row::Credit(_) => {
+                    let track = row.track().expect("a track row");
+                    let own = page.own_playlist().and_then(|playlist| {
+                        let window = page.focused()?;
+                        if window.kind != WindowKind::PlaylistTracks {
+                            return None;
+                        }
+                        let position = *window.positions.get(window.index(window.cursor)?)?;
+                        Some((playlist, position, page.etag()))
+                    });
+                    (track.title.clone(), popup::track_actions(track, own))
+                }
+                Row::Album(album) => (album.title.clone(), popup::album_actions(album)),
+                // A search playlist is never the user's own (spec 0007).
+                Row::Playlist(playlist) if page.search.is_some() => {
+                    let playlist = PlaylistSummary {
+                        own: false,
+                        ..playlist.clone()
+                    };
+                    (playlist.title.clone(), popup::playlist_actions(&playlist))
+                }
+                Row::Playlist(playlist) => {
+                    (playlist.title.clone(), popup::playlist_actions(playlist))
+                }
+                Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
+                Row::Mix(mix) => (mix.title.clone(), popup::mix_actions(mix)),
+                // A link has no actions (spec 0024 AC10).
+                Row::Link(_) => return None,
+            })
         })
     }
 }
@@ -1549,14 +1601,22 @@ pub(super) fn reply(
         } else {
             state.page_size
         };
-        let page = &mut state.history[index];
         match result {
-            Ok(LibraryResponse::Page(data)) => {
+            Ok(LibraryResponse::Page(mut data)) => {
+                if let PageData::Browse { sections, .. } = &mut data {
+                    hide_links(sections, &state.hide_browse_pages);
+                }
+                let page = &mut state.history[index];
                 page.apply(data, page_size);
-                first_credits(state, index, &mut effects);
+                first_shown(state, index, &mut effects);
             }
-            Ok(other) => page.load = Load::Failed(format!("Unexpected answer: {other:?}")),
-            Err(message) => page.load = Load::Failed(page_error(&page.kind, message)),
+            Ok(other) => {
+                state.history[index].load = Load::Failed(format!("Unexpected answer: {other:?}"));
+            }
+            Err(message) => {
+                let page = &mut state.history[index];
+                page.load = Load::Failed(page_error(&page.kind, message));
+            }
         }
         return effects;
     }
@@ -1572,6 +1632,20 @@ pub(super) fn reply(
             Some(WholeListSource::Window { page, window }) if (*page, *window) == (p, w)
         );
         let window = &mut state.history[p].windows[w];
+        // A section's `viewAll` replaces its preview, whatever the kinds
+        // (spec 0024 AC7); failing, it leaves the preview and says so.
+        if matches!(window.list, ListRef::BrowseViewAll(_)) && window.view_all == ViewAll::Waiting {
+            match result {
+                Ok(LibraryResponse::Items(items)) => window.replace(items),
+                Ok(_) | Err(_) => {
+                    window.load = Load::Idle;
+                    window.view_all = ViewAll::Done;
+                    state.message =
+                        Some(result.err().unwrap_or_else(|| "Unexpected answer".into()));
+                }
+            }
+            return effects;
+        }
         match result {
             Ok(LibraryResponse::Items(items)) => {
                 window.append(items, limit);

@@ -22,7 +22,7 @@ expression: text
 │┌g …─────────────────────────────────────────────────────────────────────────┐│
 ││a  actions on the selected row     s  the search page (on one: its…         ││
 ││g  move to the top                 m  your mixes                            ││
-││l  the library                     L  lyrics of the playing track           ││
-││y  favorite tracks                                                          ││
+││l  the library                     b  browse what Tidal picks               ││
+││y  favorite tracks                 L  lyrics of the playing track           ││
 │└────────────────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────────────┘

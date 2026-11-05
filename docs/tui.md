@@ -109,12 +109,13 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g y` | `LikedTrackPage` | open your favorite tracks |
 | `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
 | `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
+| `g b` | `BrowsePage` | open the [browse](#browse) page: what Tidal picks (home, genres, moods, decades) |
 | `l`, `g L` | `LyricsPage` | open the [lyrics](#lyrics) of the playing track |
 | `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
 | `/` | `Search` | [filter](#filtering-a-list) the rows of the focused window or the queue |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
 | `tab`, `backtab` | `FocusNextWindow`, `FocusPreviousWindow` | focus the next, previous pane of a page (on the artist page, the left or right half) |
-| `[`, `]` | `PreviousTab`, `NextTab` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*) |
+| `[`, `]` | `PreviousTab`, `NextTab` | show the previous, next tab of the focused pane (the artist page's *Top tracks* / *All tracks* and *Albums* / *Appears on*; a [browse](#browse) page's sections) |
 | `g a`, `C-space` | `ShowActionsOnSelectedItem` | the [actions](#actions) on the selected row |
 | `a` | `ShowActionsOnCurrentTrack` | the actions on the playing track |
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
@@ -180,6 +181,7 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Favorite tracks | `g y` | the tracks |
 | Search | `g s` | the input, the top hit, Tracks, Albums, Artists, Playlists (see [Search](#search)) |
 | Mixes | `g m` | your mixes (see [Mixes and radio](#mixes-and-radio)) |
+| Browse | `g b`; `Enter` on a link | what Tidal picks, and the pages it leads to (see [Browse](#browse)) |
 | Mix | `Enter` on a mix | the mix's tracks |
 | Lyrics | `l`, `g L` | the lyrics of the playing track (see [Lyrics](#lyrics)) |
 | Radio | `r` on a track or an artist; *Go to radio* | the radio's tracks |
@@ -345,6 +347,37 @@ Nothing matches: `No tracks found`, `No albums found`, `No artists found`, `No p
 `r` on a selected track or artist (on any page, the queue included) opens its **radio**: `<track> Radio · <artists>` or `<artist> Radio`, up to 100 tracks Tidal suggests. Nothing plays and the queue stays as it is until you press `Enter` on a track (it plays with the rest of the radio queued) or `Z`. *Go to radio* in the [actions](#actions) popup does the same, and so does an `[[actions]]` entry bound to another key (see [config](config.md#actions)); albums, playlists and mixes have no radio.
 
 The pages arrive whole, so they have no scroll loading, and each is fetched fresh when opened; `Backspace` goes back to a page as you left it. Messages in the page: `No mixes yet`, `This mix has no tracks`, `No radio for this track`, `No radio for this artist` (Tidal has none for it, not a failure), and for failures `Could not load the mixes: <reason>`, `Mix <id> was not found`, `Track 1 was not found`, `Artist 1 was not found`. Track rows are the usual ones, a track you cannot stream dimmed.
+
+## Browse
+
+`g b` opens the **browse** page: what Tidal picks for you, as opposed to what you already have. It is one pane of four tabs, switched with `[` and `]`:
+
+| Tab | Rows |
+|---|---|
+| *Discover* | *Home*, *Staff picks*, *For you*, then *New*, *Top*, *HiRes* and *Clean Content* |
+| *Genres* | Hip-Hop, Pop, … |
+| *Moods & Activities* | the moods and activities Tidal lists |
+| *Decades* | the decades |
+
+Every row of the root page is a **link**: `Enter` opens the page it names, with that page's title in the title row. *Home* is Tidal's personal home (your recently played, recommendations); *Staff picks* is the editorial home; *For you* is Tidal's own `for_you` page. The tab names other than *Discover* are Tidal's, so they follow its wording.
+
+A page a link opens has one **tab per section**, in Tidal's order, named by the section's title (`New Albums`, `Essentials`; an untitled one by what it holds: `Tracks`, `Albums`, `Playlists`, `Artists`, `Mixes`, `More`). A page with one section shows no tab strip and looks like a list. The strip shows as many tabs as fit, always with the active one highlighted, and `…` on a side with more; below 60 columns it is the active tab's name and `[ ]`, as on the artist page. A section title too long for the strip is cut there and whole in the window's title.
+
+```
+┌Discover (7) │ Genres │ Moods & Activities │ Decades  [ ]───────────────────┐
+│Home                                                                        │
+│Staff picks                                                                 │
+│For you                                                                     │
+```
+
+- Rows are drawn as on any other page: a track as in a playlist, an album as in the library, and so on. A section of **several kinds** (only *Home* has them) puts the kind first on each row: `Track`, `Album`, `Playlist`, `Artist`, `Mix`
+- `Enter` on an album, playlist, artist or mix opens that page; `Enter` on a track plays it with the tracks of the section after it (in a section of several kinds, only the tracks are queued); `Z`, the [actions](#actions), the [selection](#selecting-rows), `/` and `g a` work on a row as anywhere. A link has no actions and cannot be selected
+- A section loads as you scroll, like any list. A section of *Home* shows a preview first and fetches its whole list the first time its tab is shown: the tab's name ends in `…` until it arrives, the cursor stays where it is, and if the fetch fails the preview stays and the message row says so
+- `Backspace` goes back to the page as you left it, tab and cursor included, with nothing fetched; `g b` from another page fetches the root again
+- Videos are never shown: video lists, video mixes and playlists made of videos are left out, and so are tracks that are not stereo. A page left with nothing says `Nothing to show here`
+- *Home* comes from a Tidal feed that is not documented; if it fails, the page says `Home is not available: Tidal answered <status>` and the rest of browse keeps working. A page Tidal does not know says `Page <path> was not found`
+
+`hide_browse_pages` in [`app.toml`](config.md#apptoml) lists the pages whose links are not shown, by the name after `pages/`; the default, `["videos", "tidal_magazine"]`, hides the two pages that have nothing to show after the rules above. Spec: [0024](specs/0024-browse.md).
 
 ## Lyrics
 

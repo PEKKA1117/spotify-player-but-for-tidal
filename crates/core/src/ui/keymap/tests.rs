@@ -344,7 +344,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 53] = [
+const DEFAULTS: [(&[&str], &str); 54] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -394,6 +394,7 @@ const DEFAULTS: [(&[&str], &str); 53] = [
     (&["g y"], "LikedTrackPage"),
     (&["g s"], "SearchPage"),
     (&["g m"], "MixesPage"),
+    (&["g b"], "BrowsePage"),
     // Spec 0021.
     (&["l", "g L"], "LyricsPage"),
     (&["/"], "Search"),
@@ -666,7 +667,7 @@ fn ac2_build_keymap() {
             file(
                 vec![
                     entry("x", "PlayRandom"),
-                    entry("n", "BrowsePage"),
+                    entry("n", "OpenLogs"),
                     entry("y", "PlayRandom"),
                 ],
                 vec![action("w", "GoToShow", Target::SelectedItem)],
@@ -678,7 +679,7 @@ fn ac2_build_keymap() {
                     ("w", None),
                     ("n", cmd(C::NextTrack)),
                 ],
-                vec!["PlayRandom", "BrowsePage", "GoToShow"],
+                vec!["PlayRandom", "OpenLogs", "GoToShow"],
             ),
         ),
         (
@@ -1299,7 +1300,7 @@ fn ac12_unsupported_notice() {
             vec![
                 entry("x", "PlayRandom"),
                 entry("g n", "NextTrack"),
-                entry("y", "BrowsePage"),
+                entry("y", "OpenLogs"),
                 entry("w", "PlayRandom"),
                 // Spec 0017: `SwitchTheme` is a command now; another
                 // skipped name takes its place.
@@ -1307,7 +1308,7 @@ fn ac12_unsupported_notice() {
             ],
             vec![],
             Some(
-                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, BrowsePage, SortTrackByTitle",
+                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, OpenLogs, SortTrackByTitle",
             ),
         ),
         (
@@ -1407,6 +1408,11 @@ fn ac9_mixes_and_radio_keys() {
     assert_eq!(
         text_of("MixesPage"),
         Some(("g m".into(), "your mixes".into()))
+    );
+    // Spec 0024 AC14.
+    assert_eq!(
+        text_of("BrowsePage"),
+        Some(("g b".into(), "browse what Tidal picks".into()))
     );
     assert_eq!(
         text_of("GoToRadio"),
@@ -1650,7 +1656,7 @@ fn ac9_file_beats_conflicting_defaults() {
             file(vec![entry("g", "LibraryPage")], vec![]),
             vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
             Some(
-                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g L" (LyricsPage)"#,
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage)"#,
             ),
         ),
         (
@@ -1911,4 +1917,21 @@ fn ac13_off_the_skip_list() {
         bound(&built, "M-k"),
         Some(Binding::Command(UiCommand::MovePlaylistItemUp))
     );
+}
+
+/// Spec 0024 AC14: `BrowsePage` is a command on `g b`, no longer one of
+/// the skipped spotify-player names, so a `keymap.toml` binding it works.
+#[test]
+fn ac14_browse_page_command() {
+    let built = keymap(vec![entry("M-b", "BrowsePage")], vec![]);
+    assert!(built.unsupported().is_empty(), "{:?}", built.unsupported());
+    assert_eq!(
+        bound(&built, "M-b"),
+        Some(Binding::Command(UiCommand::BrowsePage))
+    );
+    assert_eq!(
+        bound(&Keymap::default(), "g b"),
+        Some(Binding::Command(UiCommand::BrowsePage))
+    );
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"BrowsePage"));
 }

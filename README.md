@@ -15,6 +15,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 - **Bit-perfect playback**: streams the best quality Tidal offers (up to `HI_RES_LOSSLESS` FLAC) and plays it on an ALSA `hw:` device at the track's own rate, taking the card from PipeWire while it plays. Gapless, with the next track preloaded. [Playback](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback)
 - **Your library**: favorite tracks, playlists, albums and artists, with album, playlist and artist pages; edit favorites from the actions popup; create, rename, describe and reorder your playlists, with a `y/n` question before anything is removed, or manage them from a shell with `tidal-player playlist`. [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI)
 - **Search, mixes and radio**: search tracks, albums, artists and playlists (`g s`), open your daily mixes (`g m`) or the radio of a track or artist (`r`), and filter any list as you type (`/`)
+- **Browse**: `g b` opens what Tidal picks, as tabs you page through with `[` and `]`: the personal home, staff picks, genres, moods and decades, each leading to pages of albums, playlists, artists, mixes and tracks that open and play like any other. `hide_browse_pages` hides the pages with nothing to show. [Browse](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#browse)
 - **Lyrics**: `l` shows the playing track's lyrics; synced lyrics follow the singing with the current line highlighted, and scroll by hand with the list keys. [Lyrics](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#lyrics)
 - **Selecting rows**: mark several rows of a list or the queue (`s c`, `s 5 j`, or `s m` and move), then play, queue, favorite or remove them together (`s a`, `d s`). [Selecting rows](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#selecting-rows)
 - **A real queue**: shuffle, repeat, autoplay with Tidal's suggestions when the queue runs out, and the last session (queue, position, modes, volume) restored when you start again
@@ -78,7 +79,7 @@ tidal-player login   # open the link, enter the code
 tidal-player         # the TUI
 ```
 
-In the TUI, `g l` opens your library, `g s` search and `g m` your mixes; `enter` plays, `space` pauses, `n`/`p` skip, `?` lists every key and `q` quits. More in [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI).
+In the TUI, `g l` opens your library, `g s` search, `g m` your mixes and `g b` what Tidal picks; `enter` plays, `space` pauses, `n`/`p` skip, `?` lists every key and `q` quits. More in [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI).
 
 For a bit-perfect output, find your DAC with `tidal-player devices` and pick it with `D` in the TUI, or set `output_device` in `app.toml` (see [Finding your DAC's device](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback#finding-your-dacs-device)).
 

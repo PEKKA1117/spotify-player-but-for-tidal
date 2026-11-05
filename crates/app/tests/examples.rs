@@ -48,6 +48,8 @@ fn ac18_example_app_toml_is_the_defaults() {
         ("key_hints_delay_ms", file.key_hints_delay_ms.is_none()),
         // Spec 0019.
         ("confirm_removals", file.confirm_removals.is_none()),
+        // Spec 0024 AC16.
+        ("hide_browse_pages", file.hide_browse_pages.is_none()),
         // Spec 0016 AC9.
         ("cover_img", file.cover_img.is_none()),
         ("cover_img_rows", file.cover_img_rows.is_none()),
