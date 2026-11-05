@@ -161,7 +161,7 @@ v2 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`, `platform=WEB`, header 
 | `hide_browse_pages` edited while the TUI runs | Read at start, as every setting: it takes effect on the next run |
 | `v2` answers `400` | *Home* says `Home is not available: Tidal answered 400`; *Staff picks*, *For you* and the rest work |
 | A `viewAll` with a `rankingToken` that has expired on a page kept in the history | The fetch fails, the preview stays, the message row says so; `g b` gets a fresh page |
-| A section title of 117 characters | Cut to fit the strip, whole in the window's title when focused |
+| A section title of 117 characters | The strip is the window's title: a tab not shown is cut to 24 columns, the active tab shows whole if it fits and is cut if not |
 | Two sections with the same title (*Custom mixes* on *For you*) | Both kept: they are different lists |
 | A row repeated in a section across pages | Kept once (0011's rule for mixes, by the row's key) |
 | A mix that will not open (a `HISTORY_*` mix, "Facts") | 0011's page failure; the browse page is untouched |
