@@ -166,7 +166,7 @@ pub enum PageRequest {
 }
 
 /// What a browse page shows (spec 0024 "Talking to the player").
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BrowseRef {
     /// The root page, from `pages/explore`.
     Root,
@@ -174,13 +174,6 @@ pub enum BrowseRef {
     Home,
     /// A Tidal page, by its `pages/…` path.
     Page(String),
-}
-
-// Stub for the red step of spec 0024 AC1.
-impl Serialize for BrowseRef {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
-    }
 }
 
 /// A row that opens a browse page (spec 0024).

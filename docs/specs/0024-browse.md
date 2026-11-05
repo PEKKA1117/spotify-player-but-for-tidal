@@ -129,7 +129,7 @@ UI model: `PageKind::Browse(BrowseRef)`, `WindowKind::BrowseSection`, `Rows::Lin
 
 v1, as 0011 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`): `GET /v1/pages/explore`, `/v1/pages/<name>`; `GET /v1/<dataApiPath>` with `limit` and `offset`, where `limit` is the page size capped at 50.
 
-v2 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`, `platform=WEB`, header `x-tidal-client-version: <this binary's version>`): `GET /v2/home/feed/static`, then with `cursor` while the answer has one, at most 5 requests; `GET /v2/<viewAll>` with no `limit` or `offset`. A `viewAll` path may carry its own query (`?itemId=…&rankingToken=…`), kept as it is.
+v2 (`countryCode`, `deviceType=BROWSER`, `locale=en_US`, `platform=WEB`, header `x-tidal-client-version: <the version of tidal-player-api>`): `GET /v2/home/feed/static`, then with `cursor` while the answer has one, at most 5 requests; `GET /v2/<viewAll>` with no `limit` or `offset`. A `viewAll` path may carry its own query (`?itemId=…&rankingToken=…`), kept as it is.
 
 ## Acceptance criteria
 
@@ -214,7 +214,7 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 - 32 playlists have `numberOfTracks` 0, all video playlists; `pages/videos` holds nothing else after the rules, `pages/tidal_magazine` only `MULTIPLE_TOP_PROMOTIONS`
 - `mixType` values in v1: `ARTIST_MIX`, `DAILY_MIX`, `DISCOVERY_MIX`, `NEW_RELEASE_MIX`, `VIDEO_DAILY_MIX`
 - Unknown page: `404`, `{"status":404,"subStatus":2001,"userMessage":"Not found"}`
-- v2 `home/feed/static` answers `400` (`subStatus` 1002) without `x-tidal-client-version`, and `200` with any value tried, `abc` and `0` included: only its presence counts, so the binary sends its own version. It also needs both `locale` and `deviceType` + `platform`
+- v2 `home/feed/static` answers `400` (`subStatus` 1002) without `x-tidal-client-version`, and `200` with any value tried, `abc` and `0` included: only its presence counts, so the player sends its own version. It also needs both `locale` and `deviceType` + `platform`
 - The feed is two pages (`page.cursor`, then none), 17 modules of `{type, moduleId, title, viewAll, items}`, in `SHORTCUT_LIST`, `HORIZONTAL_LIST`, `HORIZONTAL_LIST_WITH_CONTEXT`, `COMPACT_GRID_CARD`; items are `{type, data}`, with `TRACK`, `ALBUM`, `PLAYLIST`, `ARTIST`, `MIX`. Sections mix kinds (*Recently played*: `MIX`, `PLAYLIST`, `TRACK`, `ALBUM`, `DEEP_LINK` in its `view-all`)
 - `view-all` answers `{title, subtitle, description, filters, itemLayout, items}`, no total or cursor, 10 to 200 rows. `limit` and `offset` are honoured by some modules (`RECOMMENDED_USERS_PLAYLISTS`), ignored by others (`DAILY_MIXES` gave 10 with `limit=5`), and `SUGGESTED_RADIOS_MIXES` gave no rows at `offset=5`. In the 5 modules compared the feed's preview is the start of the `view-all`
 - v2 mixes: `type` is the mix type (`ARTIST_MIX`, `TRACK_MIX`, `DAILY_MIX`, `DISCOVERY_MIX`, `NEW_RELEASE_MIX`, `HISTORY_MONTHLY_MIX`, `HISTORY_YEARLY_MIX`, `HISTORY_ALLTIME_MIX`), 30-digit IDs, title in `titleTextInfo.text`, subtitle in `subtitleTextInfo.text`
@@ -233,7 +233,7 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 
 1. **Sections are the tabs of one pane** (user, 2026-11-05), over a list of sections or two columns: one key shows a section's rows, and it reuses the artist page's tabs with their paging, filter and selection
 2. **v1 and v2 both** (user, 2026-11-05): v2 for the personal home, v1 for everything editorial
-3. **The header carries the binary's version**: Tidal only checks that it is there, so nothing is imitated
+3. **The header carries our own version** (of `tidal-player-api`, which sends it): Tidal only checks that it is there, so nothing is imitated
 4. **The root's *Discover* tab** (user, 2026-11-05): *Home*, *Staff picks* and *For you* added above explore's untitled links, with *Staff picks* as the name of `pages/home`
 5. **Pages known to be empty are hidden by a setting** (user, 2026-11-05): `hide_browse_pages`, defaulting to `videos` and `tidal_magazine`, rather than names fixed in the code; any other empty page says `Nothing to show here`
 6. **A section of one kind uses that kind's `Rows`** (user's review, 2026-11-05): a track is already a row, so wrapping every row in a browse-only enum would have duplicated `Row` and `ListItems` and given every match on `Rows::Tracks` a second case. Only a section that holds several kinds needs `Rows::Mixed`
