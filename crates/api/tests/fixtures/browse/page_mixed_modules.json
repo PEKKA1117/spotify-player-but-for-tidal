@@ -1,0 +1,462 @@
+{
+  "id": "p",
+  "title": "Hip-Hop",
+  "selfLink": null,
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "PLAYLIST_LIST",
+          "title": "Playlists",
+          "id": "m-PLAYLIST_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000001",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 27,
+            "items": [
+              {
+                "uuid": "34c543c9-bb74-4b79-91a8-feb6d815f43c",
+                "title": "Thoro Hip-Hop: Best New Tracks",
+                "type": "EDITORIAL",
+                "duration": 9866,
+                "numberOfTracks": 56,
+                "numberOfVideos": 0,
+                "creators": [],
+                "description": ""
+              },
+              {
+                "uuid": "285d6293-8f77-4dc1-8dab-a262f3d0cb43",
+                "title": "JAY-Z Essentials",
+                "type": "EDITORIAL",
+                "duration": 9866,
+                "numberOfTracks": 55,
+                "numberOfVideos": 0,
+                "creators": [],
+                "description": ""
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "TRACK_LIST",
+          "title": "New Tracks",
+          "id": "m-TRACK_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000002",
+            "limit": 5,
+            "offset": 0,
+            "totalNumberOfItems": 439,
+            "items": [
+              {
+                "id": 563860770,
+                "title": "I LIKE IT",
+                "duration": 123,
+                "version": null,
+                "artists": [
+                  {
+                    "id": 17042393,
+                    "name": "BigXthaPlug",
+                    "type": "MAIN"
+                  }
+                ],
+                "album": {
+                  "id": 563860751,
+                  "title": "BETTER OVER TIME",
+                  "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+                },
+                "explicit": false,
+                "trackNumber": 11,
+                "volumeNumber": 1,
+                "allowStreaming": true,
+                "streamReady": true,
+                "audioModes": [
+                  "STEREO"
+                ]
+              },
+              {
+                "id": 563860771,
+                "title": "ATMOS ONLY",
+                "duration": 123,
+                "version": null,
+                "artists": [
+                  {
+                    "id": 17042393,
+                    "name": "BigXthaPlug",
+                    "type": "MAIN"
+                  }
+                ],
+                "album": {
+                  "id": 563860751,
+                  "title": "BETTER OVER TIME",
+                  "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+                },
+                "explicit": false,
+                "trackNumber": 11,
+                "volumeNumber": 1,
+                "allowStreaming": true,
+                "streamReady": true,
+                "audioModes": [
+                  "DOLBY_ATMOS"
+                ]
+              },
+              {
+                "id": 563860772,
+                "title": "SECOND ONE",
+                "duration": 123,
+                "version": null,
+                "artists": [
+                  {
+                    "id": 17042393,
+                    "name": "BigXthaPlug",
+                    "type": "MAIN"
+                  }
+                ],
+                "album": {
+                  "id": 563860751,
+                  "title": "BETTER OVER TIME",
+                  "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+                },
+                "explicit": false,
+                "trackNumber": 11,
+                "volumeNumber": 1,
+                "allowStreaming": true,
+                "streamReady": true,
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "VIDEO_LIST",
+          "title": "New Music Videos",
+          "id": "m-VIDEO_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000003",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 96,
+            "items": [
+              {
+                "id": 1,
+                "title": "A video",
+                "type": "Music Video"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "MULTIPLE_TOP_PROMOTIONS",
+          "title": "Featured",
+          "id": "mt",
+          "items": [
+            {
+              "header": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ALBUM_LIST",
+          "title": "",
+          "id": "m-ALBUM_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 3,
+            "items": [
+              {
+                "id": 563860751,
+                "title": "BETTER OVER TIME",
+                "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+                "artists": [
+                  {
+                    "id": 7804,
+                    "name": "JAY-Z",
+                    "type": "MAIN"
+                  }
+                ],
+                "numberOfTracks": 15,
+                "duration": 3801,
+                "releaseDate": "2001-09-11",
+                "audioModes": [
+                  "STEREO"
+                ]
+              },
+              {
+                "title": "an album without an id"
+              },
+              {
+                "id": 35738574,
+                "title": "The Blueprint",
+                "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+                "artists": [
+                  {
+                    "id": 7804,
+                    "name": "JAY-Z",
+                    "type": "MAIN"
+                  }
+                ],
+                "numberOfTracks": 15,
+                "duration": 3801,
+                "releaseDate": "2001-09-11",
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "NEW_FANCY_LIST",
+          "title": "Something Tidal adds tomorrow",
+          "id": "m-NEW_FANCY_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "foo": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PLAYLIST_LIST",
+          "title": "New Video Playlists",
+          "id": "m-PLAYLIST_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000004",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "uuid": "a0000000-0000-4000-8000-000000000001",
+                "title": "Video playlist",
+                "type": "EDITORIAL",
+                "duration": 9866,
+                "numberOfTracks": 0,
+                "numberOfVideos": 59,
+                "creators": [],
+                "description": ""
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ARTIST_LIST",
+          "title": "Top Artists",
+          "id": "m-ARTIST_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000005",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 122,
+            "items": [
+              {
+                "id": 17275,
+                "name": "Eminem",
+                "picture": "695e593e-451a-4dcc-ae3f-84e3023bbd1f"
+              },
+              {
+                "id": 7804,
+                "name": "JAY-Z",
+                "picture": "695e593e-451a-4dcc-ae3f-84e3023bbd1f"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "MIX_LIST",
+          "title": "Mixes",
+          "id": "m-MIX_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 2,
+            "items": [
+              {
+                "id": "016214541b7a008d226272cf9d0964",
+                "title": "My Daily Discovery",
+                "subTitle": "Songs inspired by you",
+                "mixType": "DISCOVERY_MIX"
+              },
+              {
+                "id": "00209e91224287130d9eb3ea64016b",
+                "title": "Video Mix",
+                "subTitle": "x",
+                "mixType": "VIDEO_DAILY_MIX"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS",
+          "title": "More to explore",
+          "id": "m-PAGE_LINKS",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 3,
+            "items": [
+              {
+                "title": "Social",
+                "icon": "x",
+                "apiPath": "pages/social_justice",
+                "imageId": null
+              },
+              {
+                "title": "",
+                "icon": "x",
+                "apiPath": "pages/empty_title",
+                "imageId": null
+              },
+              {
+                "title": "Classics",
+                "icon": "x",
+                "apiPath": "pages/classics",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "PAGE_LINKS",
+          "title": "Only empty",
+          "id": "m-PAGE_LINKS",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "title": "",
+                "icon": "x",
+                "apiPath": "pages/nothing",
+                "imageId": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ALBUM_LIST",
+          "title": "Same title",
+          "id": "m-ALBUM_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 1,
+                "title": "One",
+                "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+                "artists": [
+                  {
+                    "id": 7804,
+                    "name": "JAY-Z",
+                    "type": "MAIN"
+                  }
+                ],
+                "numberOfTracks": 15,
+                "duration": 3801,
+                "releaseDate": "2001-09-11",
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "ALBUM_LIST",
+          "title": "Same title",
+          "id": "m-ALBUM_LIST",
+          "pagedList": {
+            "dataApiPath": null,
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 2,
+                "title": "Two",
+                "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+                "artists": [
+                  {
+                    "id": 7804,
+                    "name": "JAY-Z",
+                    "type": "MAIN"
+                  }
+                ],
+                "numberOfTracks": 15,
+                "duration": 3801,
+                "releaseDate": "2001-09-11",
+                "audioModes": [
+                  "STEREO"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

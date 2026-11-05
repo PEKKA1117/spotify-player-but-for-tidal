@@ -44,6 +44,9 @@ use crate::ApiResponse;
 use crate::auth::{AuthError, Authenticator};
 use crate::metadata::{ArtistDto, REQUEST_TIMEOUT, TrackDto};
 
+#[path = "browse.rs"]
+mod browse;
+
 /// Tidal's `subStatus` for an unknown item (on a `404`).
 const SUB_STATUS_NOT_FOUND: u64 = 2001;
 
@@ -106,6 +109,15 @@ pub enum LibraryError {
     /// `400` on a search, with Tidal's `userMessage` (spec 0007).
     #[error("Tidal refused the search: {0}")]
     SearchRefused(String),
+    /// A browse path of neither known form (spec 0024 AC8); nothing was sent.
+    #[error("Not a Tidal page: {0}")]
+    NotAPage(String),
+    /// `404` on a browse page or list (spec 0024 AC12).
+    #[error("Page {0} was not found")]
+    PageNotFound(String),
+    /// The v2 home feed answered with this status (spec 0024 AC12).
+    #[error("Home is not available: Tidal answered {0}")]
+    HomeUnavailable(u16),
     /// From the [`Authenticator`], unchanged: `LoginRequired`, transport
     /// errors, unexpected statuses (`5xx`, `429`, ...).
     #[error("{}", auth_message(.0))]
@@ -322,8 +334,7 @@ impl LibraryClient {
                 track: id,
                 lyrics: self.lyrics(id).await?,
             }),
-            // Stub until spec 0024's API slice.
-            PageRequest::Browse(_) => Err(LibraryError::Malformed("browse")),
+            PageRequest::Browse(target) => self.browse_page(&target).await,
         }
     }
 
@@ -565,10 +576,8 @@ impl LibraryClient {
                     self.search_list("playlists", query, offset, limit).await?;
                 ListItems::Playlists(page.map(|p| Some(p.into_summary(false)), offset))
             }
-            // Stub until spec 0024's API slice.
-            ListRef::BrowseData(_) | ListRef::BrowseViewAll(_) => {
-                return Err(LibraryError::Malformed("browse"));
-            }
+            ListRef::BrowseData(data) => self.browse_data(data, offset, limit).await?,
+            ListRef::BrowseViewAll(view_all) => self.browse_view_all(view_all).await?,
         })
     }
 

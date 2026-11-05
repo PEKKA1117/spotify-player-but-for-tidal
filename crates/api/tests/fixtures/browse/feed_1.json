@@ -1,0 +1,117 @@
+{
+  "header": {},
+  "uuid": "u",
+  "page": {
+    "cursor": null
+  },
+  "items": [
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "VIDEO_MIXES",
+      "title": "Video mixes and empty",
+      "viewAll": null,
+      "items": [
+        {
+          "type": "MIX",
+          "data": {
+            "type": "VIDEO_DAILY_MIX",
+            "id": "00209e91224287130d9eb3ea64016b",
+            "titleTextInfo": {
+              "text": "Video Mix",
+              "color": "#CBADFF"
+            },
+            "subtitleTextInfo": {
+              "text": "x",
+              "color": "#CBADFF"
+            }
+          }
+        },
+        {
+          "type": "PLAYLIST",
+          "data": {
+            "uuid": "a0000000-0000-4000-8000-000000000001",
+            "title": "Video playlist",
+            "type": "EDITORIAL",
+            "duration": 9866,
+            "numberOfTracks": 0,
+            "numberOfVideos": 59,
+            "creators": [],
+            "description": "",
+            "creator": {
+              "id": 0,
+              "name": null,
+              "type": "TIDAL"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "NEW_ALBUM_SUGGESTIONS",
+      "title": "Suggested new albums for you",
+      "viewAll": "home/pages/NEW_ALBUM_SUGGESTIONS/view-all",
+      "items": [
+        {
+          "type": "ALBUM",
+          "data": {
+            "id": 35738574,
+            "title": "The Blueprint",
+            "cover": "bb1d3395-48ae-436c-8545-9eaab8768a4e",
+            "artists": [
+              {
+                "id": 7804,
+                "name": "JAY-Z",
+                "type": "MAIN"
+              }
+            ],
+            "numberOfTracks": 15,
+            "duration": 3801,
+            "releaseDate": "2001-09-11",
+            "audioModes": [
+              "STEREO"
+            ],
+            "type": "ALBUM"
+          }
+        }
+      ]
+    },
+    {
+      "type": "COMPACT_GRID_CARD",
+      "moduleId": "NEW_TRACK_SUGGESTIONS",
+      "title": "",
+      "viewAll": null,
+      "items": [
+        {
+          "type": "TRACK",
+          "data": {
+            "id": 233573504,
+            "title": "Villain Vibes",
+            "duration": 123,
+            "version": null,
+            "artists": [
+              {
+                "id": 5519029,
+                "name": "Amalee",
+                "main": true
+              }
+            ],
+            "album": {
+              "id": 563860751,
+              "title": "BETTER OVER TIME",
+              "cover": "6d19202f-9642-4a3b-b77a-bf0538d8451c"
+            },
+            "explicit": false,
+            "trackNumber": 11,
+            "volumeNumber": 1,
+            "allowStreaming": true,
+            "streamReady": true,
+            "audioModes": [
+              "STEREO"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

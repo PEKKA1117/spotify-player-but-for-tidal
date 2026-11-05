@@ -1,0 +1,12 @@
+{
+  "limit": 15,
+  "offset": 15,
+  "totalNumberOfItems": 122,
+  "items": [
+    {
+      "id": 17275,
+      "name": "Eminem",
+      "picture": "695e593e-451a-4dcc-ae3f-84e3023bbd1f"
+    }
+  ]
+}

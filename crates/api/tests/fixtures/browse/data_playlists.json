@@ -1,0 +1,27 @@
+{
+  "limit": 15,
+  "offset": 15,
+  "totalNumberOfItems": 27,
+  "items": [
+    {
+      "uuid": "34c543c9-bb74-4b79-91a8-feb6d815f43c",
+      "title": "Thoro",
+      "type": "EDITORIAL",
+      "duration": 9866,
+      "numberOfTracks": 56,
+      "numberOfVideos": 0,
+      "creators": [],
+      "description": ""
+    },
+    {
+      "uuid": "a0000000-0000-4000-8000-000000000001",
+      "title": "Video",
+      "type": "EDITORIAL",
+      "duration": 9866,
+      "numberOfTracks": 0,
+      "numberOfVideos": 59,
+      "creators": [],
+      "description": ""
+    }
+  ]
+}

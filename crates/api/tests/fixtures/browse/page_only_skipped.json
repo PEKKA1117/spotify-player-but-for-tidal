@@ -1,0 +1,42 @@
+{
+  "id": "p",
+  "title": "Videos",
+  "selfLink": null,
+  "rows": [
+    {
+      "modules": [
+        {
+          "type": "MULTIPLE_TOP_PROMOTIONS",
+          "title": "Featured",
+          "id": "mt",
+          "items": [
+            {
+              "header": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "modules": [
+        {
+          "type": "VIDEO_LIST",
+          "title": "New Music Videos",
+          "id": "m-VIDEO_LIST",
+          "pagedList": {
+            "dataApiPath": "pages/data/00000000-0000-4000-8000-000000000003",
+            "limit": 15,
+            "offset": 0,
+            "totalNumberOfItems": 1,
+            "items": [
+              {
+                "id": 1,
+                "title": "A video"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
