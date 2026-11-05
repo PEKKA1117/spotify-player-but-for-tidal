@@ -155,7 +155,7 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
         return;
     }
     // A browse page has no window until it arrives (spec 0024 AC12).
-    if false && matches!(page.kind, PageKind::Browse(_)) && page.windows.is_empty() {
+    if matches!(page.kind, PageKind::Browse(_)) && page.windows.is_empty() {
         let (text, style) = match page.load {
             Load::Loading { .. } => ("Loading…", Style::new().add_modifier(Modifier::DIM)),
             _ => (
@@ -364,7 +364,7 @@ fn slots(page: &Page, layout: LibraryLayout, body: Rect) -> Vec<Slot> {
         return Vec::new();
     }
     let focus = page.focus.min(page.windows.len() - 1);
-    if false && matches!(page.kind, PageKind::Browse(_)) && page.windows.len() > 1 {
+    if matches!(page.kind, PageKind::Browse(_)) && page.windows.len() > 1 {
         return vec![Slot {
             rect: body,
             window: focus,
@@ -768,7 +768,7 @@ fn window_lines(
     let width = if marker { width - MARKER_WIDTH } else { width };
     // A section of several kinds puts the kind first on each row (spec
     // 0024 "Browse pages").
-    let kinds = false && window.rows.is_mixed();
+    let kinds = window.rows.is_mixed();
     let full = width;
     let width = if kinds {
         width.saturating_sub(KIND_COLUMN + 2)
@@ -828,7 +828,7 @@ fn window_lines(
                     playlist_row(playlist, width, window.kind != WindowKind::SearchPlaylists)
                 }
                 Row::Artist(artist) => fit(&artist.name, width),
-                Row::Link(_) => String::new(),
+                Row::Link(link) => fit(&link.title, width),
                 // `title  subtitle` (spec 0011 "Rendering").
                 Row::Mix(mix) => match &mix.subtitle {
                     Some(subtitle) => fit(&format!("{}  {subtitle}", mix.title), width),

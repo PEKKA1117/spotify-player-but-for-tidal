@@ -248,6 +248,8 @@ fn first_shown(state: &mut State, index: usize, effects: &mut Vec<Effect>) {
     };
     if window.kind == WindowKind::AllTracks && window.total.is_none() && window.load == Load::Idle {
         ask_more(state, index, focus, effects);
+    } else if window.view_all == ViewAll::Waiting && window.load == Load::Idle {
+        ask_view_all(state, index, focus, effects);
     }
 }
 
@@ -269,11 +271,9 @@ fn ask_view_all(state: &mut State, page: usize, window: usize, effects: &mut Vec
 /// after `pages/`, spec 0024 "Hiding pages"); a section all of whose links
 /// were hidden goes too.
 pub(super) fn hide_links(sections: &mut Vec<BrowseSection>, hidden: &[String]) {
-    if hidden.is_empty() || sections.is_empty() {
+    if hidden.is_empty() {
         return;
     }
-    sections.retain_mut(|_| true);
-    #[cfg(any())]
     sections.retain_mut(|section| {
         let ListItems::Links(page) = &mut section.rows else {
             return true;

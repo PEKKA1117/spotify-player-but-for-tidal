@@ -355,7 +355,7 @@ impl<'a> Row<'a> {
             Self::Playlist(p) => Some(PageKind::Playlist(p.uuid.clone())),
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
             Self::Mix(m) => Some(PageKind::Mix(m.id.clone())),
-            Self::Link(_) => None,
+            Self::Link(l) => Some(PageKind::Browse(l.target.clone())),
         }
     }
 
@@ -659,7 +659,12 @@ impl Window {
     /// (the cursor itself where every row is a track; a mixed section's
     /// other rows are not queued, spec 0024 AC10).
     pub fn track_position(&self, cursor: usize) -> usize {
-        cursor
+        if !self.rows.is_mixed() {
+            return cursor;
+        }
+        (0..cursor.min(self.len()))
+            .filter(|&i| self.row(i).is_some_and(|row| row.track().is_some()))
+            .count()
     }
 
     /// Whether every page of the list has been asked for and answered.
@@ -1334,7 +1339,19 @@ impl Page {
                 self.header = Some(Header::Radio(seed));
                 vec![ListItems::Tracks(tracks)]
             }
-            (PageKind::Browse(_), PageData::Browse { .. }) => return,
+            (PageKind::Browse(_), PageData::Browse { title, sections }) => {
+                self.header = Some(Header::Browse(title));
+                self.windows = sections.iter().map(Window::section).collect();
+                self.panes = if self.windows.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(0..self.windows.len()).collect()]
+                };
+                self.tabs = vec![0; self.panes.len()];
+                self.focus = 0;
+                self.load = Load::Idle;
+                return;
+            }
             (PageKind::Lyrics, PageData::Lyrics { track, lyrics }) => {
                 // An answer for another track than the page's is dropped.
                 if let Some(view) = self.lyrics.as_mut()

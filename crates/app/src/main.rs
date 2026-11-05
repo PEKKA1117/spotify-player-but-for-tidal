@@ -551,6 +551,7 @@ fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
     state.library_layout = player_settings.layout;
     state.key_hints = player_settings.key_hints;
     state.confirm_removals = player_settings.confirm_removals;
+    state.hide_browse_pages = player_settings.hide_browse_pages.clone();
     tui_model::start_on_library(&mut state);
     state
 }

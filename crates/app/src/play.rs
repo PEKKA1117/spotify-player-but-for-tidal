@@ -477,7 +477,10 @@ impl Default for PlayerSettings {
             key_hints: true,
             key_hints_delay: DEFAULT_KEY_HINTS_DELAY,
             confirm_removals: true,
-            hide_browse_pages: Vec::new(),
+            hide_browse_pages: DEFAULT_HIDE_BROWSE_PAGES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
             cover_img: true,
             cover_img_rows: 6,
             cover_img_protocol: crate::cover::ProtocolSetting::Auto,
@@ -575,6 +578,14 @@ fn resolve_with(
             .collect();
     }
     // As `TIDAL_PLAYER_HIDE_VERSIONS`: an empty value hides nothing.
+    if let Some(value) = env(HIDE_BROWSE_PAGES_VAR) {
+        settings.hide_browse_pages = value
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect();
+    }
     if let Some(on) = on_off(get(REMEMBER_PLAYBACK_VAR), REMEMBER_PLAYBACK_VAR)? {
         settings.remember_playback = on;
     }
@@ -683,6 +694,9 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(words) = &file.hide_versions {
         settings.library.hidden_words = words.clone();
+    }
+    if let Some(names) = &file.hide_browse_pages {
+        settings.hide_browse_pages = names.clone();
     }
     settings.layout = file.layout;
 }

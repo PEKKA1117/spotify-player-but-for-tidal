@@ -100,7 +100,7 @@ pub fn matches(row: Row<'_>, filter: &str) -> bool {
         Row::Artist(artist) => has(&artist.name),
         Row::Mix(mix) => has(&mix.title) || mix.subtitle.as_deref().is_some_and(has),
         // A link by its title (spec 0024 AC11).
-        Row::Link(_) => false,
+        Row::Link(link) => has(&link.title),
     }
 }
 

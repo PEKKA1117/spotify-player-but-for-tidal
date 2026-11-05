@@ -635,7 +635,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 23] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 22] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -648,7 +648,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 23] = [
     "CurrentlyPlayingContextPage",
     "TopTrackPage",
     "RecentlyPlayedTrackPage",
-    "BrowsePage",
     "OpenSpotifyLinkFromClipboard",
     "SortTrackByTitle",
     "SortTrackByArtists",

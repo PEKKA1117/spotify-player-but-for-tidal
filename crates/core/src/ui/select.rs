@@ -152,7 +152,7 @@ impl Marks {
 /// Whether row `index` of `window` can be selected: every row but a link
 /// (spec 0024 AC10).
 fn selectable(window: &Window, index: usize) -> bool {
-    window.rows.get(index).is_some()
+    !matches!(window.rows.get(index), Some(Row::Link(_)))
 }
 
 /// The motion range of `window`: the rows shown between the anchor and

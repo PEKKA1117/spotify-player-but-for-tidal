@@ -272,6 +272,11 @@ key_sequence = "g s"
 command = "MixesPage"
 key_sequence = "g m"
 
+# BrowsePage: browse what Tidal picks (everywhere)
+[[keymaps]]
+command = "BrowsePage"
+key_sequence = "g b"
+
 # LyricsPage: lyrics of the playing track (everywhere)
 [[keymaps]]
 command = "LyricsPage"

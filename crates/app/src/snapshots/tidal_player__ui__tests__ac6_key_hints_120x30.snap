@@ -27,8 +27,8 @@ expression: text
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 │┌g …─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     y  favorite tracks                 L  lyrics of the playing track                ││
-││g  move to the top                 s  the search page (on one: its…                                                 ││
+││a  actions on the selected row     y  favorite tracks                 b  browse what Tidal picks                    ││
+││g  move to the top                 s  the search page (on one: its…   L  lyrics of the playing track                ││
 ││l  the library                     m  your mixes                                                                    ││
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
