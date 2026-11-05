@@ -210,14 +210,17 @@ impl LibraryClient {
                 self.remove_from_playlist(&uuid, &indices, &etag).await?;
                 Ok(LibraryResponse::Done)
             }
-            LibraryRequest::CreatePlaylist { title } => self
-                .create_playlist(&title)
+            LibraryRequest::CreatePlaylist { title, description } => self
+                .create_playlist(&title, &description)
                 .await
                 .map(LibraryResponse::Created),
             LibraryRequest::DeletePlaylist { uuid } => {
                 self.delete_playlist(&uuid).await?;
                 Ok(LibraryResponse::Done)
             }
+            LibraryRequest::MovePlaylistItem { .. }
+            | LibraryRequest::EditPlaylist { .. }
+            | LibraryRequest::SetPlaylistPublic { .. } => Err(LibraryError::Malformed("todo")),
         }
     }
 
@@ -1002,7 +1005,7 @@ impl LibraryClient {
 
     // Playlists -------------------------------------------------------
 
-    async fn create_playlist(&self, title: &str) -> Result<PlaylistSummary> {
+    async fn create_playlist(&self, title: &str, _description: &str) -> Result<PlaylistSummary> {
         let (user, _) = self.auth.account().await;
         let response = self
             .write(
@@ -1403,6 +1406,8 @@ impl PlaylistDto {
             tracks: self.tracks,
             duration: self.duration.map(Duration::from_secs),
             own,
+            description: None,
+            public: false,
         }
     }
 }

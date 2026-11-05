@@ -867,6 +867,7 @@ mod tests {
     use tidal_player_core::protocol::{
         Event, InsertAt, NowPlaying, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode,
     };
+    use tidal_player_core::ui::popup::{PlaylistField, Popup};
     use tidal_player_core::ui::{Action, Prompt, update};
     use tidal_player_core::{AlbumRef, ArtistRef, AudioQuality, EntryId, Track, TrackId};
 
@@ -1785,6 +1786,8 @@ mod tests {
             tracks: Some(tracks),
             duration: Some(Duration::from_secs(u64::from(tracks) * 200)),
             own,
+            description: None,
+            public: false,
         }
     }
 
@@ -5193,5 +5196,93 @@ mod tests {
                 draw(state, width, height);
             }
         }
+    }
+
+    /// A playlist page holding `description`, public or not (spec 0022).
+    fn described_page(description: Option<&str>, public: bool) -> State {
+        let mut state = library();
+        let id = ask(&mut state, &[Key::Enter]);
+        answer(
+            &mut state,
+            id,
+            LibraryResponse::Page(PageData::Playlist {
+                playlist: PlaylistSummary {
+                    description: description.map(Into::into),
+                    public,
+                    ..playlist("p1", "Running", 2, true)
+                },
+                etag: Some("\"1\"".into()),
+                tracks: list(browse_tracks(2), 2, 0),
+            }),
+        );
+        state
+    }
+
+    fn page_text(state: &State, width: u16, height: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(state, frame, true)).unwrap();
+        buffer_text(&terminal)
+    }
+
+    /// Spec 0022 AC12: the title says a playlist is public.
+    #[test]
+    fn ac12_playlist_title_public() {
+        let public = page_text(&described_page(None, true), 80, 24);
+        assert!(public.contains("· public"), "{public}");
+        let private = page_text(&described_page(None, false), 80, 24);
+        assert!(!private.contains("public"), "{private}");
+    }
+
+    /// Spec 0022 AC12: a description takes the row under the title.
+    #[test]
+    fn ac12_description_row() {
+        let text = page_text(&described_page(Some("For the road"), false), 150, 42);
+        assert!(text.contains("For the road"), "{text}");
+        insta::assert_snapshot!(text);
+    }
+
+    /// Spec 0022 AC12: one row, cut, line breaks as spaces.
+    #[test]
+    fn ac12_description_cut_and_flattened() {
+        let long = format!("One\ntwo {}", "x".repeat(200));
+        let text = page_text(&described_page(Some(&long), false), 80, 24);
+        assert!(text.contains("One two xxx"), "{text}");
+        assert!(text.contains('…'), "{text}");
+    }
+
+    /// Spec 0022 AC12: no description, no row, and a short page has none.
+    #[test]
+    fn ac12_no_description_unchanged() {
+        let without = page_text(&described_page(None, false), 80, 24);
+        assert_eq!(
+            without.lines().position(|l| l.contains("Tracks")),
+            page_text(&playlist_page(browse_tracks(2)), 80, 24)
+                .lines()
+                .position(|l| l.contains("Tracks")),
+        );
+        let short = page_text(&described_page(Some("For the road"), false), 80, 11);
+        assert!(!short.contains("For the road"), "{short}");
+    }
+
+    /// Spec 0022 AC12: the prompts draw their labels.
+    #[test]
+    fn ac12_description_prompt() {
+        let mut state = library();
+        state.popup = Some(Popup::NewPlaylist {
+            tracks: None,
+            name: "Road".into(),
+            description: Some("Words".into()),
+        });
+        let text = page_text(&state, 80, 24);
+        assert!(text.contains("Description (optional): Words"), "{text}");
+        state.popup = Some(Popup::EditPlaylist {
+            uuid: "p1".into(),
+            title: "Mine".into(),
+            field: PlaylistField::Description,
+            original: String::new(),
+            text: "Words".into(),
+        });
+        let text = page_text(&state, 80, 24);
+        assert!(text.contains("Description: Words"), "{text}");
     }
 }

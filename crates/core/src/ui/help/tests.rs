@@ -98,6 +98,8 @@ fn playlist_page(own: bool) -> State {
                 tracks: Some(2),
                 duration: None,
                 own,
+                description: None,
+                public: false,
             },
             etag: None,
         });
@@ -594,8 +596,9 @@ fn ac8_help_text_inputs() {
     assert_eq!(search.page().search.as_ref().unwrap().input, "?");
 
     let mut name = with_popup(Popup::NewPlaylist {
-        tracks: TrackSource::Tracks(vec![]),
+        tracks: Some(TrackSource::Tracks(vec![])),
         name: String::new(),
+        description: None,
     });
     press(&mut name, &[Key::Char('?')]);
     assert!(name.help.is_none());
@@ -1034,6 +1037,8 @@ fn library_with_row() -> State {
             tracks: Some(2),
             duration: None,
             own: true,
+            description: None,
+            public: false,
         }]);
         p.windows[0].total = Some(1);
     })
@@ -1576,4 +1581,19 @@ fn ac13_select_keys_listed() {
             entry("a", "actions on the selection", true),
         ]
     );
+}
+
+/// Spec 0022 AC13: the keys help lists the playlist commands where they
+/// act, and only there.
+#[test]
+fn ac13_keys_help_lists_them() {
+    let listed = |state: &State, command: &str| row(&help(state), command).is_some();
+    let library = on_page(PageKind::Library, |_| {});
+    assert!(listed(&library, "CreatePlaylist"));
+    assert!(!listed(&playlist_page(true), "CreatePlaylist"));
+    for command in ["MovePlaylistItemUp", "MovePlaylistItemDown"] {
+        assert!(listed(&playlist_page(true), command), "{command}");
+        assert!(!listed(&playlist_page(false), command), "{command}");
+        assert!(!listed(&library, command), "{command}");
+    }
 }

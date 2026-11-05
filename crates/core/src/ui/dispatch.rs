@@ -209,6 +209,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
             });
             return Vec::new();
         }
+        C::CreatePlaylist | C::MovePlaylistItemUp | C::MovePlaylistItemDown => return Vec::new(),
         C::Shuffle => Command::ToggleShuffle,
         C::Repeat => Command::CycleRepeat,
         C::ToggleAutoplay => Command::ToggleAutoplay,

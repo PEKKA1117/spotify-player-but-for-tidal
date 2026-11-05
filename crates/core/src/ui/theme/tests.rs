@@ -747,8 +747,9 @@ fn ac5_switch_theme_key() {
 
     let mut name = themed(1);
     name.popup = Some(Popup::NewPlaylist {
-        tracks: super::super::TrackSource::Album(1),
+        tracks: Some(super::super::TrackSource::Album(1)),
         name: String::new(),
+        description: None,
     });
     press(&mut name, &[Char('T')]);
     assert!(

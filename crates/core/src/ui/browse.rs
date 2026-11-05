@@ -63,7 +63,7 @@ pub enum Write {
     /// Then adds `tracks` to the created playlist.
     Create {
         title: String,
-        tracks: TrackSource,
+        tracks: Option<TrackSource>,
     },
     AddToPlaylist {
         uuid: String,
@@ -703,7 +703,12 @@ pub(super) fn popup_fixed_key(state: &mut State, key: Key) -> Option<Vec<Effect>
 /// A key in the new-playlist name prompt: it edits the name; `Enter`
 /// creates the playlist (closing the prompt), `Esc` closes it.
 fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
-    let Some(Popup::NewPlaylist { tracks, mut name }) = state.popup.take() else {
+    let Some(Popup::NewPlaylist {
+        tracks,
+        mut name,
+        description,
+    }) = state.popup.take()
+    else {
         return Vec::new();
     };
     match key {
@@ -715,6 +720,7 @@ fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
                     state,
                     LibraryRequest::CreatePlaylist {
                         title: title.clone(),
+                        description: String::new(),
                     },
                     Write::Create { title, tracks },
                 );
@@ -728,7 +734,11 @@ fn name_key(state: &mut State, key: Key) -> Vec<Effect> {
                 }
                 _ => {}
             }
-            state.popup = Some(Popup::NewPlaylist { tracks, name });
+            state.popup = Some(Popup::NewPlaylist {
+                tracks,
+                name,
+                description,
+            });
         }
     }
     Vec::new()
@@ -825,8 +835,9 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
                 .collect();
             if choose && cursor == 0 {
                 state.popup = Some(Popup::NewPlaylist {
-                    tracks,
+                    tracks: Some(tracks),
                     name: String::new(),
+                    description: None,
                 });
             } else if choose {
                 if let Some((uuid, title)) = own.get(cursor - 1).cloned() {
@@ -871,7 +882,7 @@ pub(super) fn popup_command(state: &mut State, command: UiCommand) -> Vec<Effect
         }
         // Their keys are fixed: only `ClosePopup` acts on them; the Themes
         // popup's commands are its own (above).
-        popup @ (Popup::NewPlaylist { .. } | Popup::Themes { .. }) => {
+        popup @ (Popup::NewPlaylist { .. } | Popup::EditPlaylist { .. } | Popup::Themes { .. }) => {
             state.popup = Some(popup);
         }
     }
@@ -998,6 +1009,9 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
                 }],
             },
         ),
+        MenuAction::RenamePlaylist { .. }
+        | MenuAction::EditDescription { .. }
+        | MenuAction::SetPublic { .. } => Vec::new(),
         MenuAction::DeletePlaylist { uuid, title } => {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),
@@ -1419,13 +1433,15 @@ fn written(
             };
             state.message = Some(format!("Created {}", playlist.title));
             refetch(state, |k| *k == PageKind::Library, effects);
-            effects.extend(add_source(
-                state,
-                tracks,
-                playlist.uuid,
-                playlist.title,
-                false,
-            ));
+            if let Some(tracks) = tracks {
+                effects.extend(add_source(
+                    state,
+                    tracks,
+                    playlist.uuid,
+                    playlist.title,
+                    false,
+                ));
+            }
         }
         Write::AddToPlaylist { uuid, title, count } => {
             state.message = Some(match count {

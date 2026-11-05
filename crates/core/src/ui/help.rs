@@ -436,7 +436,7 @@ fn popup_acts(popup: &Popup, command: UiCommand) -> bool {
             matches!(command, UiCommand::ChooseSelected | UiCommand::ClosePopup)
         }
         Popup::Confirm { .. } => command == UiCommand::ClosePopup,
-        Popup::NewPlaylist { .. } => false,
+        Popup::NewPlaylist { .. } | Popup::EditPlaylist { .. } => false,
     }
 }
 
@@ -454,7 +454,10 @@ fn popup_has_list(popup: &Popup) -> bool {
 
 /// Whether `?` opens the help over `popup` (the name prompt types it).
 fn popup_has_help(popup: &Popup) -> bool {
-    !matches!(popup, Popup::NewPlaylist { .. })
+    !matches!(
+        popup,
+        Popup::NewPlaylist { .. } | Popup::EditPlaylist { .. }
+    )
 }
 
 fn popup_title(popup: &Popup) -> &'static str {
@@ -462,6 +465,7 @@ fn popup_title(popup: &Popup) -> &'static str {
         Popup::Actions { .. } => "Popup · Actions",
         Popup::AddToPlaylist { .. } => "Popup · Add to playlist",
         Popup::NewPlaylist { .. } => "Popup · New playlist",
+        Popup::EditPlaylist { .. } => "Popup · Edit playlist",
         Popup::Confirm { .. } => "Popup · Confirm",
         Popup::Roles { .. } => "Popup · Role filter",
         Popup::Devices { .. } => "Popup · Devices",
@@ -549,6 +553,7 @@ fn popup_fixed_rows(popup: &Popup) -> Vec<HelpRow> {
         Popup::Roles { .. } => &[("space", "check / uncheck")],
         Popup::Confirm { .. } => &[("y", "yes"), ("n", "no")],
         Popup::NewPlaylist { .. } => &[("enter", "create the playlist"), ("esc", "cancel")],
+        Popup::EditPlaylist { .. } => &[("enter", "save"), ("esc", "cancel")],
         Popup::Devices { .. } => &[("r", "read the list again"), ("q", "close")],
         Popup::Themes { .. } => &[("q", "back to the theme in use")],
         _ => &[],
@@ -694,6 +699,9 @@ fn text(at: Where, command: UiCommand) -> String {
         C::RemoveFromQueue => owned("remove from the queue"),
         C::RemoveSelectedItem => owned("remove from the list"),
         C::RoleFilter => owned("the role filter"),
+        C::CreatePlaylist => owned("new playlist"),
+        C::MovePlaylistItemUp => owned("move the track up"),
+        C::MovePlaylistItemDown => owned("move the track down"),
         C::Search => owned("filter the rows"),
         C::ResumePause => owned("play / pause"),
         C::NextTrack => owned("next track"),

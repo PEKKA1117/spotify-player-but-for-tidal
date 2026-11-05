@@ -296,6 +296,11 @@ pub enum UiCommand {
     NextTab,
     PreviousTab,
     RoleFilter,
+    /// Spec 0022: a new playlist, from the library.
+    CreatePlaylist,
+    /// Spec 0022: moves the track under the cursor in an own playlist.
+    MovePlaylistItemUp,
+    MovePlaylistItemDown,
     Queue,
     LibraryPage,
     LikedTrackPage,
@@ -410,6 +415,9 @@ impl UiCommand {
             Self::NextTab => "NextTab",
             Self::PreviousTab => "PreviousTab",
             Self::RoleFilter => "RoleFilter",
+            Self::CreatePlaylist => "CreatePlaylist",
+            Self::MovePlaylistItemUp => "MovePlaylistItemUp",
+            Self::MovePlaylistItemDown => "MovePlaylistItemDown",
             Self::Queue => "Queue",
             Self::LibraryPage => "LibraryPage",
             Self::LikedTrackPage => "LikedTrackPage",

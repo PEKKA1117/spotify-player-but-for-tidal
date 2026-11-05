@@ -72,6 +72,8 @@ fn playlist(uuid: &str, title: &str, own: bool) -> PlaylistSummary {
         tracks: Some(2),
         duration: None,
         own,
+        description: None,
+        public: false,
     }
 }
 
@@ -1441,11 +1443,13 @@ fn ac14_playlist_editing() {
             assert!(matches!(state.popup, Some(Popup::NewPlaylist { .. })));
             press(&mut state, &typed("Roadd"));
             press(&mut state, &[Backspace]);
+            press(&mut state, &[Enter]);
             let effects = press(&mut state, &[Enter]);
             assert_eq!(
                 outs(&effects),
                 vec![Out::Library(LibraryRequest::CreatePlaylist {
-                    title: "Road".into()
+                    title: "Road".into(),
+                    description: String::new(),
                 })]
             );
             assert_eq!(state.popup, None);
@@ -3417,4 +3421,531 @@ fn ac11_remove_selected_playlists() {
     press(&mut state, &typed("ds"));
     assert_eq!(asked(&state).as_deref(), Some("Delete 2 playlists? (y/n)"));
     assert_eq!(targets(&state), vec!["Mine", "Other"]);
+}
+
+// --- spec 0022: editing playlists --------------------------------------------
+
+use super::super::Rows;
+use super::super::popup::{self, PlaylistField};
+
+const CJ: Key = Key::Ctrl('j');
+const CK: Key = Key::Ctrl('k');
+const ACTIONS: Key = Key::Ctrl(' ');
+
+fn moved(from: u32, to: u32, etag: &str) -> Out {
+    Out::Library(LibraryRequest::MovePlaylistItem {
+        uuid: "p1".into(),
+        from,
+        to,
+        etag: etag.into(),
+    })
+}
+
+fn moved_reply(etag: &str) -> LibraryResponse {
+    LibraryResponse::Moved {
+        etag: Some(etag.into()),
+    }
+}
+
+fn row_ids(state: &State) -> Vec<u64> {
+    match &state.page().focused().expect("a window").rows {
+        Rows::Tracks(rows) => rows.iter().map(|t| t.id.0).collect(),
+        other => panic!("not tracks: {other:?}"),
+    }
+}
+
+fn positions(state: &State) -> Vec<u32> {
+    state.page().focused().expect("a window").positions.clone()
+}
+
+fn cursor(state: &State) -> usize {
+    state.page().focused().expect("a window").cursor
+}
+
+/// An own playlist of `ids` at `at` on Tidal, of `total` items in all.
+fn own_playlist_at(ids: &[u64], at: Vec<u32>, total: u32) -> State {
+    let mut state = library();
+    let data = PageData::Playlist {
+        playlist: playlist("p1", "Mine", true),
+        etag: Some("e1".into()),
+        tracks: ListPage {
+            positions: at,
+            ..list(tracks(ids.iter().copied()), 0, total)
+        },
+    };
+    open(&mut state, &[Key::Enter], data);
+    state
+}
+
+/// The library, its first playlist being `first`.
+fn library_with(first: PlaylistSummary) -> State {
+    let mut state = State::default();
+    let data = PageData::Library {
+        playlists: list(vec![first], 0, 1),
+        albums: list(vec![album(10)], 0, 1),
+        artists: list(vec![artist(20)], 0, 1),
+    };
+    open(&mut state, &GL, data);
+    state
+}
+
+/// AC5: `N` asks the name, then the description, then creates once.
+#[test]
+fn ac5_create_from_the_library() {
+    for tabs in 0..3 {
+        let mut state = library();
+        press(&mut state, &vec![Key::Tab; tabs]);
+        assert_eq!(press(&mut state, &[Key::Char('N')]), vec![], "tab {tabs}");
+        assert!(matches!(
+            state.popup,
+            Some(Popup::NewPlaylist {
+                description: None,
+                ..
+            })
+        ));
+        press(&mut state, &typed("  Road "));
+        assert_eq!(press(&mut state, &[Key::Enter]), vec![], "name: no write");
+        assert!(matches!(
+            state.popup,
+            Some(Popup::NewPlaylist {
+                description: Some(_),
+                ..
+            })
+        ));
+        press(&mut state, &typed("Words"));
+        let effects = press(&mut state, &[Key::Enter]);
+        assert_eq!(
+            outs(&effects),
+            vec![Out::Library(LibraryRequest::CreatePlaylist {
+                title: "Road".into(),
+                description: "Words".into(),
+            })]
+        );
+        assert_eq!(state.popup, None);
+        let created = LibraryResponse::Created(playlist("p9", "Road", true));
+        let effects = answer(&mut state, &effects, created);
+        assert_eq!(state.message(), Some("Created Road"));
+        assert_eq!(outs(&effects), vec![page(PageRequest::Library)], "no add");
+    }
+}
+
+/// AC5: `Esc` at either prompt, or a blank name, sends nothing.
+#[test]
+fn ac5_create_cancelled_or_blank() {
+    let rows: [(&str, Vec<Key>); 3] = [
+        ("esc at the name", vec![Key::Esc]),
+        (
+            "esc at the description",
+            vec![Key::Char('R'), Key::Enter, Key::Esc],
+        ),
+        ("a blank name", vec![Key::Char(' '), Key::Enter]),
+    ];
+    for (name, keys) in rows {
+        let mut state = library();
+        press(&mut state, &[Key::Char('N')]);
+        assert!(state.popup.is_some(), "{name}: the prompt opened");
+        assert_eq!(press(&mut state, &keys), vec![], "{name}");
+        assert_eq!(state.popup, None, "{name}");
+    }
+}
+
+/// AC5: *New playlist…* takes the same steps and adds its tracks after.
+#[test]
+fn ac5_new_playlist_asks_the_description() {
+    let mut state = editing();
+    add_to_playlist(&mut state, &GA);
+    assert_eq!(press(&mut state, &[Key::Enter]), vec![]);
+    press(&mut state, &typed("Road"));
+    assert_eq!(press(&mut state, &[Key::Enter]), vec![]);
+    press(&mut state, &typed("Words"));
+    let effects = press(&mut state, &[Key::Enter]);
+    assert_eq!(
+        outs(&effects),
+        vec![Out::Library(LibraryRequest::CreatePlaylist {
+            title: "Road".into(),
+            description: "Words".into(),
+        })]
+    );
+    let created = LibraryResponse::Created(playlist("p9", "Road", true));
+    let effects = answer(&mut state, &effects, created);
+    assert!(outs(&effects).contains(&add("p9", &[1], false)));
+}
+
+/// AC5: `N` works on the library only.
+#[test]
+fn ac5_n_elsewhere_does_nothing() {
+    let mut state = playlist_page(true);
+    assert_eq!(press(&mut state, &[Key::Char('N')]), vec![]);
+    assert_eq!(state.popup, None);
+}
+
+/// AC6: the actions of a playlist row, by kind.
+#[test]
+fn ac6_actions_of_a_playlist() {
+    let own = |public| PlaylistSummary {
+        public,
+        ..playlist("p1", "Mine", true)
+    };
+    let labels = |p: &PlaylistSummary| -> Vec<String> {
+        popup::playlist_actions(p)
+            .iter()
+            .map(MenuAction::label)
+            .collect()
+    };
+    let edit = |public: &'static str| {
+        vec![
+            "Open",
+            "Add to queue",
+            "Play next",
+            "Rename…",
+            "Edit description…",
+            public,
+            "Delete playlist",
+        ]
+    };
+    assert_eq!(labels(&own(false)), edit("Make public"));
+    assert_eq!(labels(&own(true)), edit("Make private"));
+    assert_eq!(
+        labels(&playlist("p2", "Theirs", false)),
+        vec!["Open", "Add to queue", "Play next", "Add to favorites"]
+    );
+}
+
+/// AC7: the prompts hold the current text; `Enter` sends the changed
+/// field; a blank name or unchanged text sends nothing.
+#[test]
+fn ac7_edit_prompts() {
+    use Key::{Backspace, Enter, Esc};
+    let back = |n| vec![Backspace; n];
+    let keys = |text: &str, last: Key| [typed(text), vec![last]].concat();
+    let edit = |title: Option<&str>, description: Option<&str>| {
+        vec![Out::Library(LibraryRequest::EditPlaylist {
+            uuid: "p1".into(),
+            title: title.map(Into::into),
+            description: description.map(Into::into),
+        })]
+    };
+    let rename = "Rename…";
+    let describe = "Edit description…";
+    // (name, action, the text it opens with, keys, what is sent)
+    let rows: Vec<(&str, &str, &str, Vec<Key>, Vec<Out>)> = vec![
+        (
+            "a name",
+            rename,
+            "Mine",
+            keys("2", Enter),
+            edit(Some("Mine2"), None),
+        ),
+        ("trimmed", rename, "Mine", keys(" ", Enter), vec![]),
+        ("unchanged", rename, "Mine", vec![Enter], vec![]),
+        (
+            "blank",
+            rename,
+            "Mine",
+            [back(4), vec![Enter]].concat(),
+            vec![],
+        ),
+        ("cancelled", rename, "Mine", keys("2", Esc), vec![]),
+        (
+            "a description",
+            describe,
+            "Old",
+            keys("er", Enter),
+            edit(None, Some("Older")),
+        ),
+        (
+            "cleared",
+            describe,
+            "Old",
+            [back(3), vec![Enter]].concat(),
+            edit(None, Some("")),
+        ),
+        ("same description", describe, "Old", vec![Enter], vec![]),
+        ("cancelled text", describe, "Old", keys("er", Esc), vec![]),
+    ];
+    for (name, action, text, keys, sent) in rows {
+        let mut state = library_with(PlaylistSummary {
+            description: Some("Old".into()),
+            ..playlist("p1", "Mine", true)
+        });
+        assert_eq!(run_action(&mut state, &[ACTIONS], action), vec![], "{name}");
+        let Some(Popup::EditPlaylist {
+            text: held, field, ..
+        }) = &state.popup
+        else {
+            panic!("{name}: no prompt: {:?}", state.popup);
+        };
+        assert_eq!(held, text, "{name}");
+        let want = if action == rename {
+            PlaylistField::Title
+        } else {
+            PlaylistField::Description
+        };
+        assert_eq!(*field, want, "{name}");
+        assert_eq!(outs(&press(&mut state, &keys)), sent, "{name}");
+        assert_eq!(state.popup, None, "{name}");
+    }
+}
+
+/// AC7: public and private change at once, with no question.
+#[test]
+fn ac7_public_at_once() {
+    for (public, label, message) in [
+        (false, "Make public", "Mine is now public"),
+        (true, "Make private", "Mine is now private"),
+    ] {
+        let mut state = library_with(PlaylistSummary {
+            public,
+            ..playlist("p1", "Mine", true)
+        });
+        let effects = run_action(&mut state, &[ACTIONS], label);
+        assert_eq!(
+            outs(&effects),
+            vec![Out::Library(LibraryRequest::SetPlaylistPublic {
+                uuid: "p1".into(),
+                public: !public,
+            })],
+            "{label}"
+        );
+        assert_eq!(state.popup, None, "{label}");
+        let effects = answer(&mut state, &effects, LibraryResponse::Done);
+        assert_eq!(state.message(), Some(message));
+        assert_eq!(outs(&effects), vec![page(PageRequest::Library)], "{label}");
+    }
+}
+
+/// AC7: each success has its message, and the library and an open page of
+/// the playlist are fetched again.
+#[test]
+fn ac7_success_messages_and_refetch() {
+    let rows = [
+        ("Rename…", typed("2"), "Renamed Mine2"),
+        (
+            "Edit description…",
+            typed("Words"),
+            "Saved the description of Mine",
+        ),
+    ];
+    for (label, keys, message) in rows {
+        let mut state = playlist_page(true);
+        open(&mut state, &GL, library_data());
+        run_action(&mut state, &[ACTIONS], label);
+        press(&mut state, &keys);
+        let effects = press(&mut state, &[Key::Enter]);
+        let effects = answer(&mut state, &effects, LibraryResponse::Done);
+        assert_eq!(state.message(), Some(message));
+        let sent = outs(&effects);
+        assert!(sent.contains(&page(PageRequest::Library)), "{label}");
+        assert!(
+            sent.contains(&page(PageRequest::Playlist("p1".into()))),
+            "{label}"
+        );
+    }
+}
+
+/// AC8: the row swaps with its neighbour and the cursor stays on it.
+#[test]
+fn ac8_move_swaps_and_keeps_the_cursor() {
+    let mut state = own_playlist_of_four();
+    let effects = press(&mut state, &[CJ]);
+    assert_eq!(outs(&effects), vec![moved(0, 1, "e1")]);
+    assert_eq!(row_ids(&state), vec![6, 4, 8, 9]);
+    assert_eq!(cursor(&state), 1);
+    assert_eq!(positions(&state), vec![0, 1, 2, 3]);
+
+    answer(&mut state, &effects, moved_reply("e2"));
+    let effects = press(&mut state, &[CK]);
+    assert_eq!(outs(&effects), vec![moved(1, 0, "e2")]);
+    assert_eq!(row_ids(&state), vec![4, 6, 8, 9]);
+    assert_eq!(cursor(&state), 0);
+}
+
+/// AC8: a hidden video keeps its place on Tidal, so the request names the
+/// neighbour's position, and the positions follow Tidal's order.
+#[test]
+fn ac8_move_over_videos_uses_positions() {
+    // Rows at 0, 2, 3: a video at 1.
+    let mut down = own_playlist_at(&[4, 6, 8], vec![0, 2, 3], 4);
+    assert_eq!(outs(&press(&mut down, &[CJ])), vec![moved(0, 2, "e1")]);
+    assert_eq!(row_ids(&down), vec![6, 4, 8]);
+    assert_eq!(positions(&down), vec![1, 2, 3]);
+
+    let mut up = own_playlist_at(&[4, 6, 8], vec![0, 2, 3], 4);
+    press(&mut up, &[Key::Char('j')]);
+    assert_eq!(outs(&press(&mut up, &[CK])), vec![moved(2, 0, "e1")]);
+    assert_eq!(row_ids(&up), vec![6, 4, 8]);
+    assert_eq!(positions(&up), vec![0, 1, 3]);
+}
+
+/// AC8: nothing to swap with at either end of the list.
+#[test]
+fn ac8_ends_of_the_list() {
+    let mut state = own_playlist_of_four();
+    assert_eq!(press(&mut state, &[CK]), vec![], "first row up");
+    press(&mut state, &[Key::Char('G')]);
+    assert_eq!(press(&mut state, &[CJ]), vec![], "last row down");
+    assert_eq!(row_ids(&state), vec![4, 6, 8, 9]);
+
+    let mut single = own_playlist_at(&[4], vec![], 1);
+    assert_eq!(press(&mut single, &[CJ, CK]), vec![]);
+}
+
+/// AC8: the last loaded row of a longer list loads more, and stays.
+#[test]
+fn ac8_last_loaded_row_loads_more() {
+    let mut state = own_playlist_at(&[4, 6], vec![], 200);
+    let top = state.history.len() - 1;
+    state.history[top].windows[0].cursor = 1;
+    let effects = press(&mut state, &[CJ]);
+    assert!(
+        matches!(
+            outs(&effects).as_slice(),
+            [Out::Library(LibraryRequest::More { .. })]
+        ),
+        "{effects:?}"
+    );
+    assert_eq!(row_ids(&state), vec![4, 6]);
+}
+
+/// AC9: presses during a move only move the row; the answer sends the
+/// rest in one request, with the answer's ETag.
+#[test]
+fn ac9_presses_merge_into_one_request() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    assert_eq!(outs(&first), vec![moved(0, 1, "e1")]);
+    assert_eq!(press(&mut state, &[CJ, CJ]), vec![], "no request yet");
+    assert_eq!(row_ids(&state), vec![6, 8, 9, 4]);
+    assert_eq!(cursor(&state), 3);
+    let second = answer(&mut state, &first, moved_reply("e2"));
+    assert_eq!(outs(&second), vec![moved(1, 3, "e2")]);
+}
+
+/// AC9: presses that end where Tidal has the track send nothing more.
+#[test]
+fn ac9_back_to_where_it_was_sends_nothing() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    press(&mut state, &[CJ, CK]);
+    assert_eq!(answer(&mut state, &first, moved_reply("e2")), vec![]);
+    assert_eq!(row_ids(&state), vec![6, 4, 8, 9]);
+}
+
+/// AC9: while a move is on its way another track does not move.
+#[test]
+fn ac9_other_track_waits() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    press(&mut state, &[Key::Char('j')]);
+    assert_eq!(press(&mut state, &[CJ]), vec![]);
+    assert_eq!(row_ids(&state), vec![6, 4, 8, 9]);
+    assert_eq!(state.message(), None);
+    answer(&mut state, &first, moved_reply("e2"));
+    assert_eq!(outs(&press(&mut state, &[CJ])), vec![moved(2, 3, "e2")]);
+}
+
+/// AC9: leaving the page does not stop what was pressed.
+#[test]
+fn ac9_moves_continue_after_leaving() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    press(&mut state, &[CJ]);
+    press(&mut state, &[Key::Backspace]);
+    assert_eq!(state.page().kind, PageKind::Library);
+    let second = answer(&mut state, &first, moved_reply("e2"));
+    assert_eq!(outs(&second), vec![moved(1, 2, "e2")]);
+}
+
+/// AC9: a settled move shows nothing, fetches nothing and keeps the ETag.
+#[test]
+fn ac9_settled_move_is_silent() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    assert_eq!(answer(&mut state, &first, moved_reply("e2")), vec![]);
+    assert_eq!(state.message(), None);
+    assert_eq!(state.page().etag(), Some("e2"));
+}
+
+/// AC10: a failed move drops what was pressed, says why and reloads.
+#[test]
+fn ac10_failed_move_reloads() {
+    for message in [PLAYLIST_CHANGED, "Could not reach Tidal: timeout"] {
+        let mut state = own_playlist_of_four();
+        let first = press(&mut state, &[CJ]);
+        press(&mut state, &[CJ]);
+        let (id, _) = one_request(&first);
+        let effects = fail(&mut state, id, message);
+        assert_eq!(state.message(), Some(message));
+        assert_eq!(
+            outs(&effects),
+            vec![page(PageRequest::Playlist("p1".into()))],
+            "{message}"
+        );
+    }
+}
+
+/// AC10: without an ETag the next move could not be sent: reload.
+#[test]
+fn ac10_no_etag_reloads() {
+    let mut state = own_playlist_of_four();
+    let first = press(&mut state, &[CJ]);
+    let effects = answer(&mut state, &first, LibraryResponse::Moved { etag: None });
+    assert_eq!(
+        outs(&effects),
+        vec![page(PageRequest::Playlist("p1".into()))]
+    );
+}
+
+/// AC11: marks stay on their tracks.
+#[test]
+fn ac11_marks_follow_a_move() {
+    use Key::Char;
+    // (name, keys marking a row and placing the cursor, marks after `C-j`)
+    let rows: [(&str, Vec<Key>, Vec<usize>); 2] = [
+        ("the moved row", vec![Char('s'), Char('c')], vec![1]),
+        (
+            "the neighbour",
+            vec![Char('j'), Char('s'), Char('c'), Char('k')],
+            vec![0],
+        ),
+    ];
+    for (name, keys, want) in rows {
+        let mut state = own_playlist_of_four();
+        press(&mut state, &keys);
+        press(&mut state, &[CJ]);
+        assert_eq!(selected_rows(&state), want, "{name}");
+    }
+}
+
+/// AC11: refused under a kept filter and in motion mode.
+#[test]
+fn ac11_refused_with_a_filter_or_in_motion() {
+    use Key::{Char, Enter};
+    let rows: [(Vec<Key>, &str); 2] = [
+        (
+            vec![Char('/'), Char('T'), Enter],
+            "Clear the filter to move tracks",
+        ),
+        (
+            vec![Char('s'), Char('m')],
+            "Leave motion mode to move tracks",
+        ),
+    ];
+    for (keys, message) in rows {
+        let mut state = own_playlist_of_four();
+        press(&mut state, &keys);
+        assert_eq!(press(&mut state, &[CJ]), vec![], "{message}");
+        assert_eq!(state.message(), Some(message));
+        assert_eq!(row_ids(&state), vec![4, 6, 8, 9], "{message}");
+    }
+}
+
+/// AC11: only an own playlist's tracks move.
+#[test]
+fn ac11_not_an_own_playlist() {
+    let mut followed = playlist_page(false);
+    assert_eq!(press(&mut followed, &[CJ]), vec![]);
+    assert_eq!(followed.message(), None);
+    let mut other = library();
+    assert_eq!(press(&mut other, &[CJ]), vec![]);
 }

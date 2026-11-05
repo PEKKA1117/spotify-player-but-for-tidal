@@ -586,6 +586,10 @@ impl Window {
         self.refilter();
     }
 
+    /// Moves loaded row `row` to its neighbour's place `to`, as Tidal moves
+    /// the item: see spec 0022 "What the player fetches and sends".
+    pub(super) fn move_row(&mut self, _row: usize, _to: usize) {}
+
     /// Appends one list page asked with `limit`: rows already loaded are
     /// skipped (by ID; for a playlist's tracks by position, as a playlist
     /// can hold a track twice: spec 0006 "Bugs"); `next_offset` advances by
@@ -1245,6 +1249,31 @@ mod tests {
         favorites.append(page(0, &[7, 7]), 2);
         favorites.append(page(2, &[7]), 2);
         assert_eq!(ids(&favorites), vec![7]);
+    }
+
+    /// Spec 0022 AC8: positions after a move, a hidden video at the gaps.
+    #[test]
+    fn ac8_positions_after_a_move() {
+        // (positions, row, neighbour, positions after)
+        let rows: [(Vec<u32>, usize, usize, Vec<u32>); 4] = [
+            (vec![0, 1, 2], 0, 1, vec![0, 1, 2]),
+            (vec![0, 2, 3], 0, 1, vec![1, 2, 3]),
+            (vec![0, 2, 3], 1, 0, vec![0, 1, 3]),
+            (vec![5, 6, 9], 2, 1, vec![5, 6, 7]),
+        ];
+        for (at, row, to, want) in rows {
+            let mut window = Window::new(
+                WindowKind::PlaylistTracks,
+                ListRef::PlaylistTracks("p".into()),
+            );
+            window.append(page(0, &[7, 8, 9]), 3);
+            window.positions = at.clone();
+            window.move_row(row, to);
+            assert_eq!(window.positions, want, "{at:?} {row} to {to}");
+            let mut ids_want = vec![7, 8, 9];
+            ids_want.swap(row, to);
+            assert_eq!(ids(&window), ids_want, "{at:?} {row} to {to}");
+        }
     }
 
     /// Spec 0006 AC21: a page that names its positions (a video was
