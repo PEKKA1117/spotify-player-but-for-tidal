@@ -4272,6 +4272,30 @@ fn ac4_section_scroll() {
     assert_eq!(window(&state, 0).rows.len(), 5);
     assert_eq!(window(&state, 0).next_offset, 6);
 
+    // An empty answer of another kind (the API cannot tell the kind of
+    // an empty page) ends the load, keeps the rows and is not asked again.
+    let mut state = small();
+    open(
+        &mut state,
+        &GB,
+        browse_data(
+            "New",
+            vec![section(
+                "Songs",
+                ListItems::Tracks(list(tracks(1..4), 0, 12)),
+                BrowseMore::Data(path.into()),
+            )],
+        ),
+    );
+    let (id, _) = one_request(&press(&mut state, &[Char('j')]));
+    let empty = ListItems::Mixed(list(Vec::new(), 3, 12));
+    reply(&mut state, id, LibraryResponse::Items(empty));
+    assert_eq!(window(&state, 0).load, Load::Idle);
+    assert_eq!(window(&state, 0).rows.len(), 3);
+    for key in [Char('j'), Char('j'), Char('G')] {
+        assert_eq!(press(&mut state, &[key]), vec![], "after the empty answer");
+    }
+
     // A section without a path never asks; nor does one that is complete.
     let whole = |more: BrowseMore, total: u32| {
         let mut state = small();
