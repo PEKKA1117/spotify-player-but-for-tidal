@@ -133,6 +133,35 @@ The daemon is also an MPRIS media player on your session bus: GNOME's and KDE's 
 
 `tidal-player daemon stop` asks the player to shut down and returns once it is gone (exit 0), at most 5 s later. It works for any player, a standalone TUI included. Under systemd, prefer `systemctl --user stop tidal-player`: `daemon stop` makes the daemon exit 0, which systemd does not restart, but leaves the unit stopped until the next `start`.
 
+## Playlists from a shell
+
+`tidal-player playlist <command>` manages your playlists through the running player, as `playback` does:
+
+| Command | Does | Prints |
+|---|---|---|
+| `list`, `list --json` | list your playlists and the ones you follow | one line each, or a JSON array |
+| `new NAME [-d DESCRIPTION] [--public]` | create a playlist, private unless `--public` | its UUID |
+| `edit PLAYLIST [--name NAME] [--description TEXT] [--public \| --private]` | change what you give; `--description ""` clears the description | nothing |
+| `delete PLAYLIST [--yes]` | delete a playlist | nothing |
+| `fork PLAYLIST [--name NAME]` | copy the tracks and description into a new private playlist, named `<title> (copy)` unless you say | its UUID |
+| `import FROM TO [--duplicates]` | add `FROM`'s tracks at the end of `TO`, skipping those it has | `Added 12 tracks to <title>, skipped 3` |
+
+`PLAYLIST`, `FROM` and `TO` are a playlist's UUID, as `list` prints it, or its Tidal link. `edit`, `delete` and the `TO` of `import` work on your own playlists only: anything else stops with `<title> is not your playlist`.
+
+`list` prints the UUID, `own` or `followed`, the number of tracks and the title, separated by tabs:
+
+```
+$ tidal-player playlist list
+a5f9389f-ab20-4d4a-937a-a21ec2559abb	own	39	Late night
+edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
+```
+
+`delete` asks `Delete <title>? (y/n)` first. `--yes` does not ask, and without a terminal, as in a script, `--yes` is required.
+
+`fork` and `import` copy tracks only: a playlist's videos stay behind, and stderr says `Skipped 2 videos`. Running `import` twice adds nothing the second time; `--duplicates` adds every track. If adding stops halfway, stderr says how far it got (`Added 300 of 1 234 tracks to <title>: <reason>`), what was added stays, and `fork` still prints the new UUID.
+
+The exit codes are those of [`playback`](#one-shot-commands): 2 for a bad argument, with nothing sent; 1 for no player, the player's error or no answer.
+
 ## Releasing the device while paused
 
 While paused, the player lets go of the audio device so other applications can use your DAC:

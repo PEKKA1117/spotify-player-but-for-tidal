@@ -79,7 +79,7 @@ struct Player {
 }
 
 impl Player {
-    fn with(mut self, summary: PlaylistSummary, ids: &[u64]) -> Self {
+    fn with(self, summary: PlaylistSummary, ids: &[u64]) -> Self {
         let total = ids.len() as u32;
         self.with_total(summary, ids, total)
     }
@@ -491,7 +491,8 @@ fn ac5_not_your_playlist() {
 fn ac6_delete() {
     let delete = vec![LibraryRequest::DeletePlaylist { uuid: MINE.into() }];
     // (flags, the terminal, exit code, deleted, what stderr holds)
-    let rows: Vec<(Vec<&str>, Option<&str>, u8, bool, &str)> = vec![
+    type Row<'a> = (Vec<&'a str>, Option<&'a str>, u8, bool, &'a str);
+    let rows: Vec<Row> = vec![
         (vec!["--yes"], None, 0, true, ""),
         (vec![], Some("y\n"), 0, true, "Delete Mine? (y/n) "),
         (vec![], Some("n\n"), 0, false, "Delete Mine? (y/n) "),
@@ -534,7 +535,11 @@ fn ac7_fork() {
         title: "Theirs (copy)".into(),
         description: "Words".into(),
     }];
-    want.extend(adds(NEW, &[1..3]));
+    want.push(LibraryRequest::AddToPlaylist {
+        uuid: NEW.into(),
+        tracks: vec![TrackId(1), TrackId(2)],
+        allow_duplicates: true,
+    });
     assert_eq!(player.writes_sent(), want);
 
     let mut named = Player::default().with(summary(THEIRS, "Theirs", false), &[]);
