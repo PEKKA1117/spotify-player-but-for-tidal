@@ -1,6 +1,6 @@
 # 0024 — Browse
 
-- **Status**: approved (2026-11-05)
+- **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#69](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/69)
 - **Depends on**: 0006 (implemented: pages, the history, lists that load as you scroll, the actions popup, tabs of a pane), 0008 (implemented: the keymap, the keys help), 0011 (implemented: mix pages, whole lists), 0012 (implemented: the filter), 0020 (implemented: the selection)
@@ -204,7 +204,7 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 
 ## Facts vs. assumptions
 
-**Facts** (live probes, 2026-11-05, country `NG`, `scripts/tidal-browse-probe.sh` and `tidal-browse-probe2.sh`; 26 v1 pages and the v2 feed walked):
+**Facts** (live probes, 2026-11-05, country `NG`, two scripts since removed, in this spec's first commit; 26 v1 pages and the v2 feed walked):
 
 - All of `pages/home`, `explore`, `for_you`, `genre_page`, `moods_page`, `hires`, `explore_new_music`, `explore_top_music`, `genre_*`, `mood_*`, `m_*` and `single-module-page/…` answer `200`; every row holds one module
 - Module types seen: `PLAYLIST_LIST` (42), `ALBUM_LIST` (20), `TRACK_LIST` (10), `VIDEO_LIST` (6), `PAGE_LINKS` (6), `MULTIPLE_TOP_PROMOTIONS` (4), `MIX_LIST` (4), `ARTIST_LIST` (4), `PAGE_LINKS_CLOUD` (3), `FEATURED_PROMOTIONS` (1)
@@ -222,10 +222,10 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 - v2 unknown module: `400`, `{"error":"BAD_REQUEST","httpStatus":400,"subStatus":1002}`, not a `404`
 - In the code: `Window::next_offset` advances by the page size asked, `Window::whole` marks lists never asked for more, `Window::hidden` counts rows left out, panes hold any number of tabs, and `g b` is free among the defaults
 
-**Not verified** (checked at acceptance, or the spec is corrected):
+**Checked in the hands-on run** (2026-11-05, live Tidal): `limit=50` on `pages/data/…` (a list past its first page); `TRACK_MIX` and `HISTORY_*` mixes open through 0011's endpoints; the v2 base as `../v2/…` against the v1 base; `Enter` on a track of a section plays it, and in a mixed section queues only its tracks (16 of 41 rows).
 
-- `limit=50` on `pages/data/…`: only `limit=5` was sent there, though `single-module-page` answers with `limit: 50` and 50 items
-- `HISTORY_*` and `TRACK_MIX` mixes opening through 0011's `pages/mix` and `mixes/{id}/items`
+**Not verified**:
+
 - Video mixes in v2: none appeared, so `VIDEO` in `type` is carried over from v1's `mixType`
 - Whether the content of `pages/artist_experiences`, `pages/credits`, `pages/clean_content` and `pages/genre_kids` fits (not walked); the rules skip what does not
 - Other countries: every probe ran on one account
