@@ -56,7 +56,7 @@ The command inherits the player's environment. Events about a track (all but `Vo
 | `TIDAL_PLAYER_TRACK_ALBUM` | The album's title; not set when the track has no album |
 | `TIDAL_PLAYER_TRACK_DURATION_MS` | The duration; not set when the metadata has none |
 
-So a script needs no Tidal session to show or scrobble what plays.
+So a script needs no Tidal session to show or scrobble what plays. `play` of one track ID normally skips the metadata request (0004); with a hook set it makes it, so these variables hold the track there too.
 
 ### How it runs
 
@@ -81,7 +81,7 @@ Further failures say nothing until a command succeeds, so a broken hook does not
 
 ### Shutting down
 
-When the player shuts down with a track playing or paused, it sends `Stopped`, so a status bar does not keep showing the track. The hook gets up to 2 s to finish what is waiting; what is left is dropped, and a command still running is left to finish.
+When the player shuts down with a track playing or paused, it sends `Stopped`, so a status bar does not keep showing the track. The hook gets up to 2 s to finish what is waiting; what is left is dropped, and a command still running is left to finish. `play` gives it the same time when its queue runs out, or the last events would die with the process.
 
 ## Acceptance criteria
 
@@ -97,7 +97,7 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 10. **AC10 Real sequences**: driven through `PlayerRuntime` with a fake engine, a gapless transition, a non-gapless end, the end of the queue and a skip give the sequences "Events" says, and a skip gives no `EndOfTrack`
 11. **AC11 Failures**: a command that cannot start, a non-zero exit and a timeout each give their message once as the player's message; a later failure says nothing until a success; a success re-arms it; playback is unchanged throughout
 12. **AC12 Never blocks**: `PlayerRuntime::handle` returns while a hook command is still running
-13. **AC13 Every player**: standalone, the daemon and `play` run the hook, and an attached TUI does not
+13. **AC13 Every player**: standalone, the daemon and `play` run the hook, and an attached TUI does not. `play` whose queue ran out waits for the hook as a shutdown does, and `play` of one track ID with a hook set asks for the track's metadata
 14. **AC14 Shutting down**: shutting down with a track playing or paused sends `Stopped`, the hook gets up to 2 s for what is waiting, and the player exits within that time with a command stuck
 15. **AC15 Docs**: `docs/config.md`, `README.md` and their zh-TW copies describe the setting, the events, the variables and the failures; `examples/app.toml` shows the setting, commented out
 16. **AC16 A real process**: a real script receives the arguments and the environment, reads nothing from stdin, and a script that runs past the limit is killed
@@ -135,12 +135,12 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 | AC10 | `crates/app/src/player_runtime.rs` :: `ac10_real_sequences` (table) | recorded events for the four sequences | nothing recorded |
 | AC11 | `crates/app/src/hook.rs` :: `ac11_failures` (table, fake runner) | messages and their re-arming | no message reported |
 | AC12 | `crates/app/src/hook.rs` :: `ac12_never_blocks` | a runner held on a barrier; `send` returns at once | the send waits |
-| AC13 | `crates/app/src/config.rs` :: `ac13_hook_reaches_the_settings` + hands-on check | `app.toml`'s command is in the settings all three players start from; the check above runs it with a TUI attached, since `main` starts the players and has no seam | settings carry no hook |
+| AC13 | `crates/app/src/config.rs` :: `ac13_hook_reaches_the_settings` + `crates/app/src/player_runtime.rs` :: `ac13_play_waits_for_the_hook` + `crates/app/src/play.rs` :: `ac13_play_asks_for_the_hooks_metadata` + hands-on check | `app.toml`'s command is in the settings all three players start from; `play` running out of queue finishes the hook; one track ID is fetched only with a hook; the check above runs it with a TUI attached, since `main` starts the players and has no seam | settings carry no hook; the hook is never finished; the track stays nameless |
 | AC14 | `crates/app/src/hook.rs` :: `ac14_shutting_down` + `crates/app/src/player_runtime.rs` :: `ac14_shutdown_sends_stopped` | the 2 s limit with a stuck runner; `Stopped` for playing and paused, none when stopped | no drain; nothing recorded |
 | AC15 | `crates/app/tests/examples.rs` (the example parses) + reviewed at acceptance | docs read by hand: prose has no automated check | the commented example is not found |
 | AC16 | `crates/app/tests/hook.rs` :: `ac16_real_process` | a `/bin/sh` script writes what it got to a file; a sleeping one is killed at a short limit | no process runs |
 
-Checked by hand at acceptance, against the live API: the release build as a daemon on its own runtime and state directories, with a script appending to a file. Play, pause, seek, skip, change the volume and the device, let a track end gaplessly, stop the daemon; the file holds the expected lines, once each, with a TUI attached. Then a command that does not exist: the TUI's message row shows the failure once. The message row is the only thing the TUI gains, so the PR's hands-on section is this one scenario.
+Checked by hand at acceptance, against the live API: the release build as a daemon on its own runtime and state directories, with a script appending to a file. Play, pause, seek, skip, change the volume and the device, let a track end gaplessly, stop the daemon; the file holds the expected lines, once each, with a TUI attached. A standalone TUI changing the volume, and `play` of one track ID to its end, add theirs: `play`'s lines name the track and end with `Stopped`. Then a command that does not exist: the TUI's message row shows the failure once. The message row is the only thing the TUI gains, so the PR's hands-on section is this one scenario.
 
 ## Crate placement
 
