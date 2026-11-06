@@ -773,16 +773,18 @@ impl PlayOptions {
 }
 
 /// The queue `play` loads: the items expanded in order. One track ID with
-/// no new flag is queued as 0003 played it, without a metadata request
-/// (its errors are 0003's, from the stream resolution).
+/// no new flag and no hook is queued as 0003 played it, without a metadata
+/// request (its errors are 0003's, from the stream resolution); a hook needs
+/// the track's title (spec 0025).
 pub async fn play_tracks(
     meta: &dyn Metadata,
     items: &[Item],
     options: &PlayOptions,
-    _hooked: bool,
+    hooked: bool,
 ) -> Result<Vec<Track>, ExpandError> {
     if let [Item::Track(id)] = items
         && !options.has_new_flag()
+        && !hooked
     {
         return Ok(vec![Track {
             id: *id,
@@ -841,6 +843,7 @@ pub fn play_queue<E: EngineControl, J: Jobs>(
         let snapshot = runtime.snapshot();
         if snapshot.state == PlaybackState::Stopped && !runtime.suggestions_pending() {
             reporter.finish(output);
+            runtime.hook_shutdown();
             return reporter.exit_code(&snapshot);
         }
         let input = loop {

@@ -772,8 +772,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     }
 
     /// The last event, then the hook's time to finish (spec 0025 "Shutting
-    /// down"). The clients were told already.
-    fn hook_shutdown(&mut self) {
+    /// down"). The clients were told already. `play` calls it itself when
+    /// its queue runs out, which is no `Shutdown`.
+    pub fn hook_shutdown(&mut self) {
         let snapshot = self.state.snapshot();
         if let Some(hook) = self.hook.as_mut() {
             hook.sink
