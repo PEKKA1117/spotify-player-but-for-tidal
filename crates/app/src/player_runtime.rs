@@ -30,6 +30,7 @@ use tidal_player_api::auth::BoxFuture;
 use tidal_player_api::library::LibraryClient;
 use tidal_player_api::metadata::{MetadataClient, MetadataError};
 use tidal_player_audio::{self as audio, OutputInfo, SourceFormat, TrackSource};
+use tidal_player_core::hook::{HookTracker, Transition};
 use tidal_player_core::item::parse_item;
 use tidal_player_core::library::{
     DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageData, PageRequest,
@@ -44,6 +45,7 @@ use tidal_player_core::protocol::{
 };
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
+use crate::hook::HookSink;
 use crate::ipc::server::{ClientId, ClientInput, Hub};
 use crate::persist::{Loaded, Persister, SaveResult, SaveSchedule};
 use crate::play::{
@@ -439,6 +441,8 @@ pub enum RuntimeInput {
         id: u64,
         result: Result<LibraryResponse, String>,
     },
+    /// The hook's failure to say (spec 0025 "Failures").
+    HookFailed(String),
 }
 
 /// A track the player accepted as started (engine `Started`, or a gapless
@@ -507,6 +511,14 @@ pub struct PlayerRuntime<E, J> {
     persistence: Option<Persistence>,
     /// Answers `Devices` (spec 0014 AC7).
     devices: Box<dyn DeviceLister>,
+    /// The player event hook (spec 0025), when `app.toml` sets one.
+    hook: Option<PlayerHook>,
+}
+
+/// The hook and what it remembers between inputs.
+struct PlayerHook {
+    sink: Box<dyn HookSink>,
+    tracker: HookTracker,
 }
 
 /// The playback file and when to write it (spec 0009 "Saving").
@@ -668,7 +680,18 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             library: HashMap::new(),
             persistence: None,
             devices: Box::new(AsoundDevices::from_env()),
+            hook: None,
         }
+    }
+
+    /// Hands the player's events to `hook` from now on (spec 0025).
+    #[must_use]
+    pub fn with_hook(mut self, hook: Option<Box<dyn HookSink>>) -> Self {
+        self.hook = hook.map(|sink| PlayerHook {
+            sink,
+            tracker: HookTracker::default(),
+        });
+        self
     }
 
     /// Answers `Devices` with `devices` instead of `/proc/asound`.
@@ -709,23 +732,55 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     /// subscribers; the returned events are the same, for an in-process
     /// client (spec 0005 "Sync").
     pub fn handle(&mut self, input: RuntimeInput) -> Handled {
-        let before = self.persistence.is_some().then(|| self.snapshot());
+        let wanted = self.persistence.is_some() || self.hook.is_some();
+        let before = wanted.then(|| self.snapshot());
+        let command = match &input {
+            RuntimeInput::Command(command)
+            | RuntimeInput::Client(ClientInput::Request { command, .. }) => Some(command),
+            _ => None,
+        };
         let seek = matches!(
-            &input,
-            RuntimeInput::Command(
-                Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. }
-            ) | RuntimeInput::Client(ClientInput::Request {
-                command: Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. },
-                ..
-            })
+            command,
+            Some(Command::SeekBy(_) | Command::SeekTo(_) | Command::SetPosition { .. })
         );
+        // `Previous` can restart the track, a seek to the hook's eyes.
+        let moved_by_hand = seek || matches!(command, Some(Command::Previous));
         let mut handled = self.handle_input(input);
         if handled.shutdown {
             self.save_at_exit();
+            self.hook_shutdown();
         } else if let Some(before) = before {
             self.track_change(&before, seek, &mut handled);
+            self.hook_input(&before, moved_by_hand, &handled);
         }
         handled
+    }
+
+    /// Hands the hook what an input did (spec 0025).
+    fn hook_input(&mut self, before: &PlayerSnapshot, seek: bool, handled: &Handled) {
+        let after = self.state.snapshot();
+        let Some(hook) = self.hook.as_mut() else {
+            return;
+        };
+        hook.sink.send(hook.tracker.update(Transition {
+            before,
+            after: &after,
+            started: handled.started.is_some(),
+            ended: handled.ended,
+            seek,
+        }));
+    }
+
+    /// The last event, then the hook's time to finish (spec 0025 "Shutting
+    /// down"). The clients were told already. `play` calls it itself when
+    /// its queue runs out, which is no `Shutdown`.
+    pub fn hook_shutdown(&mut self) {
+        let snapshot = self.state.snapshot();
+        if let Some(hook) = self.hook.as_mut() {
+            hook.sink
+                .send(hook.tracker.shutdown(&snapshot).into_iter().collect());
+            hook.sink.finish();
+        }
     }
 
     fn handle_input(&mut self, input: RuntimeInput) -> Handled {
@@ -775,6 +830,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 handled.shutdown = true;
                 return handled;
             }
+            RuntimeInput::HookFailed(message) => PlayerInput::Notice(message),
             RuntimeInput::Command(command) => PlayerInput::Command(command),
             RuntimeInput::Engine(event) => {
                 let (input, n) = self.engine_input(event, &mut handled);
@@ -1803,6 +1859,7 @@ pub(crate) mod fakes {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::fakes::*;
@@ -3476,5 +3533,239 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Records what the runtime hands its hook (spec 0025).
+    #[derive(Clone, Default)]
+    struct Recorder {
+        lines: Arc<Mutex<Vec<String>>>,
+        finished: Arc<AtomicUsize>,
+    }
+
+    impl HookSink for Recorder {
+        fn send(&mut self, events: Vec<tidal_player_core::hook::HookEvent>) {
+            let mut lines = self.lines.lock().unwrap();
+            lines.extend(events.iter().map(|e| e.arguments().join(" ")));
+        }
+
+        fn finish(&mut self) {
+            self.finished.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Hooked {
+        rt: PlayerRuntime<FakeEngine, FakeJobs>,
+        log: Log,
+        rx: Receiver<RuntimeInput>,
+        recorder: Recorder,
+    }
+
+    impl Hooked {
+        fn new(default: Script) -> Self {
+            let (rt, log, rx) = runtime(default, true);
+            let recorder = Recorder::default();
+            let rt = rt.with_hook(Some(Box::new(recorder.clone())));
+            Self {
+                rt,
+                log,
+                rx,
+                recorder,
+            }
+        }
+
+        fn input(&mut self, input: RuntimeInput) {
+            self.rt.handle(input);
+            while let Some(input) = self.rt.next_input(&self.rx, Duration::ZERO) {
+                self.rt.handle(input);
+            }
+        }
+
+        fn command(&mut self, command: Command) {
+            self.input(RuntimeInput::Command(command));
+        }
+
+        fn position(&mut self, secs: u64) {
+            let position = Duration::from_secs(secs);
+            self.input(RuntimeInput::Engine(audio::Event::Position(position)));
+        }
+
+        fn lines(&self) -> Vec<String> {
+            self.recorder.lines.lock().unwrap().clone()
+        }
+    }
+
+    /// Spec 0025 AC13: `play` ends without a `Shutdown` when its queue runs
+    /// out, and the hook still gets its time, or `Stopped` dies with it.
+    #[test]
+    fn ac13_play_waits_for_the_hook() {
+        let mut h = Hooked::new(Script::Ends);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut polls = 0;
+        let code = crate::play::play_queue(
+            &mut h.rt,
+            vec![track(1, Some(200))],
+            &crate::play::PlayOptions::default(),
+            &h.rx,
+            Duration::ZERO,
+            &mut || {
+                polls += 1;
+                polls > 10_000
+            },
+            &mut crate::play::PlayOutput {
+                out: &mut out,
+                err: &mut err,
+                tty: false,
+            },
+        );
+        assert_eq!(code, 0, "the queue ran out");
+        assert_eq!(
+            h.lines(),
+            ["Changed 1", "Playing 1 0", "EndOfTrack 1", "Stopped 1 0"]
+        );
+        assert_eq!(h.recorder.finished.load(Ordering::SeqCst), 1);
+    }
+
+    /// Spec 0025 AC10: the sequences of a real player, gapless included.
+    #[test]
+    fn ac10_real_sequences() {
+        let mut ending = Hooked::new(Script::Ends);
+        ending.input(load(&[1]));
+        assert_eq!(
+            ending.lines(),
+            ["Changed 1", "Playing 1 0", "EndOfTrack 1", "Stopped 1 0"],
+            "the end of the queue"
+        );
+
+        let mut skip = Hooked::new(Script::Plays);
+        skip.input(load(&[1, 2]));
+        skip.command(Command::Next);
+        assert_eq!(
+            skip.lines(),
+            ["Changed 1", "Playing 1 0", "Changed 2", "Playing 2 0"],
+            "a skip is not an end"
+        );
+
+        // Gapless: the preload armed near the end, then the transition.
+        let mut gapless = Hooked::new(Script::Plays);
+        gapless.input(load(&[1, 2]));
+        gapless.position(190);
+        let tag = take(&gapless.log)
+            .iter()
+            .find_map(|call| match call {
+                Call::Preload { tag, track: 2 } => Some(*tag),
+                _ => None,
+            })
+            .expect("the next track was preloaded");
+        gapless.input(RuntimeInput::Engine(audio::Event::Transitioned {
+            tag,
+            source: SOURCE,
+            output: output(),
+        }));
+        assert_eq!(
+            gapless.lines(),
+            [
+                "Changed 1",
+                "Playing 1 0",
+                "EndOfTrack 1",
+                "Changed 2",
+                "Playing 2 0"
+            ],
+            "gapless"
+        );
+
+        // An end that is not gapless: track 1 ends, track 2 goes on.
+        let log: Log = Arc::default();
+        let (tx, rx) = mpsc::channel();
+        let engine = FakeEngine::new(&log, Script::Plays).script(1, vec![Script::Ends]);
+        let jobs = FakeJobs::new(&log, &tx, true);
+        let recorder = Recorder::default();
+        let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs)
+            .with_hook(Some(Box::new(recorder.clone())));
+        let mut plain = Hooked {
+            rt,
+            log,
+            rx,
+            recorder,
+        };
+        plain.input(load(&[1, 2]));
+        assert_eq!(
+            plain.lines(),
+            [
+                "Changed 1",
+                "Playing 1 0",
+                "EndOfTrack 1",
+                "Changed 2",
+                "Playing 2 0"
+            ],
+            "an end that is not gapless"
+        );
+    }
+
+    /// Spec 0025 AC4: seeks and `Previous` as the runtime sees them.
+    #[test]
+    fn ac4_seeks_through_the_runtime() {
+        let mut h = Hooked::new(Script::Plays);
+        h.input(load(&[1, 2]));
+        h.position(10);
+        h.command(Command::SeekTo(Duration::from_secs(20)));
+        h.command(Command::SeekBy(5000));
+        h.command(Command::Previous);
+        assert_eq!(
+            h.lines()[2..],
+            ["Seeked 1 20000", "Seeked 1 25000", "Seeked 1 0"]
+        );
+    }
+
+    /// Spec 0025 AC6: moving a playing track says so, and nothing else.
+    #[test]
+    fn ac6_device_move_runs_only_device_changed() {
+        let mut h = Hooked::new(Script::Plays);
+        h.input(load(&[1]));
+        h.command(Command::SetDevice("hw:9".into()));
+        h.input(RuntimeInput::Engine(audio::Event::OutputChanged(output())));
+        assert_eq!(
+            h.lines(),
+            ["Changed 1", "Playing 1 0", "DeviceChanged hw:9"]
+        );
+    }
+
+    /// Spec 0025 AC11: a failure is the player's message, playback goes on.
+    #[test]
+    fn ac11_failure_is_the_players_message() {
+        let mut h = Hooked::new(Script::Plays);
+        h.input(load(&[1]));
+        let handled = h.rt.handle(RuntimeInput::HookFailed(
+            "Player event hook failed: x".into(),
+        ));
+        let snapshot = last_snapshot(&handled);
+        assert_eq!(
+            snapshot.message.as_deref(),
+            Some("Player event hook failed: x")
+        );
+        assert_eq!(snapshot.state, PlaybackState::Playing);
+    }
+
+    /// Spec 0025 AC14: a shutdown stops what plays, then gives the hook its
+    /// time.
+    #[test]
+    fn ac14_shutdown_sends_stopped() {
+        let shutdown = |h: &mut Hooked| {
+            h.rt.handle(RuntimeInput::Command(Command::Shutdown));
+            assert_eq!(h.recorder.finished.load(Ordering::SeqCst), 1);
+            h.lines().last().cloned()
+        };
+        let mut h = Hooked::new(Script::Plays);
+        h.input(load(&[1]));
+        h.position(5);
+        assert_eq!(shutdown(&mut h).as_deref(), Some("Stopped 1 5000"));
+
+        let mut h = Hooked::new(Script::Plays);
+        h.input(load(&[1]));
+        h.position(5);
+        h.command(Command::Pause);
+        assert_eq!(shutdown(&mut h).as_deref(), Some("Stopped 1 5000"));
+
+        let mut h = Hooked::new(Script::Plays);
+        assert_eq!(shutdown(&mut h), None);
     }
 }

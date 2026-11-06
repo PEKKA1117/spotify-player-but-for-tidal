@@ -36,6 +36,8 @@ pub struct PlayRequest {
     pub release_paused: Option<Duration>,
     /// Publishing on the session bus (spec 0010).
     pub mpris: crate::mpris::Settings,
+    /// The command run on each player event (spec 0025).
+    pub hook: Option<crate::config::HookCommand>,
     pub options: PlayOptions,
 }
 
@@ -254,7 +256,13 @@ mod alsa_play {
             let mut interrupted = interrupt.clone();
             let prepare = async {
                 let (_, country) = auth.account().await;
-                let tracks = play_tracks(metadata.as_ref(), &request.items, &request.options).await;
+                let tracks = play_tracks(
+                    metadata.as_ref(),
+                    &request.items,
+                    &request.options,
+                    request.hook.is_some(),
+                )
+                .await;
                 (country, tracks)
             };
             tokio::select! {
@@ -290,12 +298,17 @@ mod alsa_play {
             crate::mpris::tracing_log(),
         );
         let server = server::serve(listener, path, results.clone());
+        let hook = crate::hook::start(
+            request.hook.as_ref(),
+            results.clone(),
+            crate::hook::Stderr::Inherit,
+        );
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);
         // `request.player.device` is `request.settings.device` (spec 0014).
         let engine = spawn_output(&config.device, request.release_paused);
-        let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs);
+        let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs).with_hook(hook);
         let stdout = io::stdout();
         let tty = stdout.is_terminal();
         let (mut out, mut err) = (stdout.lock(), io::stderr());
