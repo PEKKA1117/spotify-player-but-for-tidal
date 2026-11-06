@@ -779,6 +779,7 @@ pub async fn play_tracks(
     meta: &dyn Metadata,
     items: &[Item],
     options: &PlayOptions,
+    _hooked: bool,
 ) -> Result<Vec<Track>, ExpandError> {
     if let [Item::Track(id)] = items
         && !options.has_new_flag()
@@ -1498,7 +1499,7 @@ mod tests {
             .unwrap();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let tracks = parse_items(&args)
-            .and_then(|items| tokio.block_on(play_tracks(&meta, &items, &row.options)));
+            .and_then(|items| tokio.block_on(play_tracks(&meta, &items, &row.options, false)));
         let code = match tracks {
             Err(e) => {
                 writeln!(err, "{e}").unwrap();
@@ -1537,6 +1538,27 @@ mod tests {
             String::from_utf8(err).unwrap(),
             requests,
         )
+    }
+
+    /// Spec 0025 AC13: one track ID skips the metadata request unless a hook
+    /// needs the track's title.
+    #[test]
+    fn ac13_play_asks_for_the_hooks_metadata() {
+        let tokio = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        for (hooked, title, requests) in [
+            (false, "", &[][..]),
+            (true, "Title 1", &["track 1".to_owned()][..]),
+        ] {
+            let meta = FakeMeta::default();
+            let items = [Item::Track(TrackId(1))];
+            let tracks = tokio
+                .block_on(play_tracks(&meta, &items, &PlayOptions::default(), hooked))
+                .unwrap();
+            assert_eq!(tracks[0].title, title, "hooked: {hooked}");
+            assert_eq!(*meta.requests.lock().unwrap(), requests, "hooked: {hooked}");
+        }
     }
 
     /// AC18: several items expand in order into one queue played through

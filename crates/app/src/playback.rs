@@ -256,7 +256,13 @@ mod alsa_play {
             let mut interrupted = interrupt.clone();
             let prepare = async {
                 let (_, country) = auth.account().await;
-                let tracks = play_tracks(metadata.as_ref(), &request.items, &request.options).await;
+                let tracks = play_tracks(
+                    metadata.as_ref(),
+                    &request.items,
+                    &request.options,
+                    request.hook.is_some(),
+                )
+                .await;
                 (country, tracks)
             };
             tokio::select! {

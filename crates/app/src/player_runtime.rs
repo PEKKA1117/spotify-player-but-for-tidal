@@ -3593,6 +3593,37 @@ mod tests {
         }
     }
 
+    /// Spec 0025 AC13: `play` ends without a `Shutdown` when its queue runs
+    /// out, and the hook still gets its time, or `Stopped` dies with it.
+    #[test]
+    fn ac13_play_waits_for_the_hook() {
+        let mut h = Hooked::new(Script::Ends);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut polls = 0;
+        let code = crate::play::play_queue(
+            &mut h.rt,
+            vec![track(1, Some(200))],
+            &crate::play::PlayOptions::default(),
+            &h.rx,
+            Duration::ZERO,
+            &mut || {
+                polls += 1;
+                polls > 10_000
+            },
+            &mut crate::play::PlayOutput {
+                out: &mut out,
+                err: &mut err,
+                tty: false,
+            },
+        );
+        assert_eq!(code, 0, "the queue ran out");
+        assert_eq!(
+            h.lines(),
+            ["Changed 1", "Playing 1 0", "EndOfTrack 1", "Stopped 1 0"]
+        );
+        assert_eq!(h.recorder.finished.load(Ordering::SeqCst), 1);
+    }
+
     /// Spec 0025 AC10: the sequences of a real player, gapless included.
     #[test]
     fn ac10_real_sequences() {
