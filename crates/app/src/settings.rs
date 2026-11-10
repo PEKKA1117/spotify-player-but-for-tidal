@@ -141,6 +141,9 @@ pub const COVER_IMG_VAR: &str = "TIDAL_PLAYER_COVER_IMG";
 pub const COVER_IMG_ROWS_VAR: &str = "TIDAL_PLAYER_COVER_IMG_ROWS";
 /// The cover's graphics protocol (spec 0016).
 pub const COVER_IMG_PROTOCOL_VAR: &str = "TIDAL_PLAYER_COVER_IMG_PROTOCOL";
+/// The lowest level the log keeps, over `log_level` in `app.toml` (spec
+/// 0027).
+pub const LOG_LEVEL_VAR: &str = "TIDAL_PLAYER_LOG_LEVEL";
 
 /// What a client sends with its volume and seek keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +220,8 @@ pub struct PlayerSettings {
     pub cover_img_protocol: crate::tui::cover::ProtocolSetting,
     /// The command run on each player event (spec 0025).
     pub hook: Option<crate::config::HookCommand>,
+    /// The lowest level the log keeps (spec 0027).
+    pub log_level: tidal_player_core::log::LogSetting,
 }
 
 impl Default for PlayerSettings {
@@ -242,6 +247,7 @@ impl Default for PlayerSettings {
             cover_img_rows: 6,
             cover_img_protocol: crate::tui::cover::ProtocolSetting::Auto,
             hook: None,
+            log_level: tidal_player_core::log::LogSetting::default(),
         }
     }
 }

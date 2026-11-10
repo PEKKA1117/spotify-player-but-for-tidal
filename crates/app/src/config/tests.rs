@@ -218,6 +218,24 @@ fn ac10_app_toml() {
             "Some(false)",
         ),
         (
+            "log_level default",
+            "log_level = \"info\"",
+            |c| format!("{:?}", c.log_level),
+            "Some(Info)",
+        ),
+        (
+            "log_level any case",
+            "log_level = \"DeBuG\"",
+            |c| format!("{:?}", c.log_level),
+            "Some(Debug)",
+        ),
+        (
+            "log_level off",
+            "log_level = \"off\"",
+            |c| format!("{:?}", c.log_level),
+            "Some(Off)",
+        ),
+        (
             "key_hints_delay_ms 0",
             "key_hints_delay_ms = 0",
             |c| format!("{:?}", c.key_hints_delay_ms),
@@ -446,6 +464,16 @@ fn ac10_app_toml() {
             "key_hints number",
             "key_hints = 0",
             "/c/app.toml: invalid key_hints: expected true or false, got 0",
+        ),
+        (
+            "log_level unknown",
+            "log_level = \"loud\"",
+            "/c/app.toml: invalid log_level: expected off, error, warn, info, debug or trace, got \"loud\"",
+        ),
+        (
+            "log_level number",
+            "log_level = 3",
+            "/c/app.toml: invalid log_level: expected off, error, warn, info, debug or trace, got 3",
         ),
         (
             "confirm_removals type",
