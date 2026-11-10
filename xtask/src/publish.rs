@@ -28,6 +28,9 @@ pub struct Crate {
 pub struct IndexVersion {
     pub vers: String,
     pub yanked: bool,
+    /// What this version needs to build: `(crate, requirement)` of its
+    /// normal and build dependencies.
+    pub needs: Vec<(String, String)>,
 }
 
 /// What [`plan`] decided, both lists in dependency order.
@@ -66,21 +69,35 @@ pub fn plan(crates: &[Crate], published: &BTreeMap<String, Vec<IndexVersion>>) -
     plan
 }
 
-/// The skipped crates that depend on a crate the plan publishes (spec 0018
-/// AC10): with exact pins (AC6) the published dependent needs the old
-/// version, so the release cannot resolve. One line per such crate.
-pub fn stale_dependents(plan: &Plan) -> Vec<String> {
+/// Published crates that cannot go into this release (spec 0018 AC10): a
+/// skipped crate whose version on crates.io needs exactly (`=x.y.z`, AC6)
+/// another version of a workspace crate than the workspace has. One line
+/// per such requirement.
+pub fn stale_dependents(
+    plan: &Plan,
+    crates: &[Crate],
+    published: &BTreeMap<String, Vec<IndexVersion>>,
+) -> Vec<String> {
     let mut lines = Vec::new();
     for dependent in &plan.skipped {
-        for dep in plan
-            .publish
-            .iter()
-            .filter(|p| dependent.deps.contains(&p.name))
-        {
-            lines.push(format!(
-                "{} {} is on crates.io and needs the {} it was released with, but {} {} is new: bump {}",
-                dependent.name, dependent.version, dep.name, dep.name, dep.version, dependent.name
-            ));
+        let needs = published
+            .get(&dependent.name)
+            .and_then(|vs| vs.iter().find(|v| v.vers == dependent.version))
+            .map(|v| v.needs.as_slice())
+            .unwrap_or_default();
+        for (name, req) in needs {
+            let Some(exact) = req.strip_prefix('=') else {
+                continue;
+            };
+            let Some(ours) = crates.iter().find(|c| c.name == *name) else {
+                continue;
+            };
+            if exact.trim() != ours.version {
+                lines.push(format!(
+                    "{} {} on crates.io needs {name} {req}, but this release has {name} {}: bump {}",
+                    dependent.name, dependent.version, ours.version, dependent.name
+                ));
+            }
         }
     }
     lines
@@ -137,9 +154,24 @@ pub fn parse_index(name: &str, text: &str) -> Result<Vec<IndexVersion>> {
             .get("yanked")
             .and_then(|y| y.as_bool())
             .unwrap_or(false);
+        let needs = json
+            .get("deps")
+            .and_then(|d| d.as_array())
+            .map(|deps| {
+                deps.iter()
+                    .filter(|d| d.get("kind").and_then(|k| k.as_str()) != Some("dev"))
+                    .filter_map(|d| {
+                        let name = d.get("name")?.as_str()?;
+                        let req = d.get("req")?.as_str()?;
+                        Some((name.to_string(), req.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         versions.push(IndexVersion {
             vers: vers.to_string(),
             yanked,
+            needs,
         });
     }
     Ok(versions)
@@ -168,16 +200,16 @@ pub fn run(
     for c in &plan.skipped {
         writeln!(out, "{} {}: already on crates.io", c.name, c.version)?;
     }
-    if plan.publish.is_empty() {
-        writeln!(out, "nothing to publish")?;
-        return Ok(());
-    }
-    let stale = stale_dependents(&plan);
+    let stale = stale_dependents(&plan, crates, &published);
     if !stale.is_empty() {
         for c in &plan.publish {
             writeln!(out, "would publish {} {}", c.name, c.version)?;
         }
         bail!("{}", stale.join("\n"));
+    }
+    if plan.publish.is_empty() {
+        writeln!(out, "nothing to publish")?;
+        return Ok(());
     }
     for c in &plan.publish {
         if dry_run {

@@ -34,6 +34,7 @@ fn v(vers: &str, yanked: bool) -> IndexVersion {
     IndexVersion {
         vers: vers.into(),
         yanked,
+        needs: Vec::new(),
     }
 }
 
