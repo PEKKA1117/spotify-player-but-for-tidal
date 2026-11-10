@@ -513,6 +513,9 @@ pub struct PlayerRuntime<E, J> {
     devices: Box<dyn DeviceLister>,
     /// The player event hook (spec 0025), when `app.toml` sets one.
     hook: Option<PlayerHook>,
+    /// The log buffer `Logs` is answered from (spec 0027); `None`: the
+    /// process keeps no log.
+    logs: Option<LogHandle>,
 }
 
 /// The hook and what it remembers between inputs.
@@ -681,6 +684,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             persistence: None,
             devices: Box::new(AsoundDevices::from_env()),
             hook: None,
+            logs: None,
         }
     }
 
@@ -696,8 +700,8 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
 
     /// Answers `Logs` from `logs` (spec 0027): the process's log buffer.
     #[must_use]
-    pub fn with_logs(self, logs: LogHandle) -> Self {
-        let _ = logs;
+    pub fn with_logs(mut self, logs: LogHandle) -> Self {
+        self.logs = Some(logs);
         self
     }
 
@@ -1111,10 +1115,14 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 let result = self.devices.list();
                 self.hub.reply_devices(client, id, result);
             }
-            // Stub (spec 0027, slice S2 serves it): no log is kept yet.
-            ClientInput::Logs { client, id, .. } => {
-                self.hub
-                    .reply_logs(client, id, Err("not implemented".to_owned()));
+            // Spec 0027: from the buffer, to the asker only. Nothing here
+            // logs, so serving adds no line.
+            ClientInput::Logs { client, id, after } => {
+                let batch = self.logs.as_ref().map_or_else(
+                    || LogHandle::detached(true).batch(after),
+                    |l| l.batch(after),
+                );
+                self.hub.reply_logs(client, id, Ok(batch));
             }
             ClientInput::Request {
                 client,
