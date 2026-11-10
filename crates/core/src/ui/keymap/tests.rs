@@ -344,7 +344,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 55] = [
+const DEFAULTS: [(&[&str], &str); 56] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -398,6 +398,7 @@ const DEFAULTS: [(&[&str], &str); 55] = [
     // Spec 0021.
     (&["l", "g L"], "LyricsPage"),
     (&["g o"], "OpenLogs"),
+    (&["e"], "ExportLogs"),
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
@@ -1993,4 +1994,49 @@ fn ac7_logs_keys() {
     let mut state = with_keymap(queue(), built);
     assert_eq!(press(&mut state, &typed("go")), vec![]);
     assert_eq!(state.page().kind, PageKind::Queue);
+}
+
+// --- spec 0027 AC14 -----------------------------------------------------------
+
+/// Spec 0027 AC14: `e` is `ExportLogs` in the defaults and, on the logs
+/// page, in the keys help; it is not a spotify-player name; it can be
+/// rebound or unbound; elsewhere the help does not list it.
+#[test]
+fn ac14_export_key() {
+    use UiCommand as C;
+    let export = Some(Binding::Command(C::ExportLogs));
+    let defaults = Keymap::default();
+    assert_eq!(bound(&defaults, "e"), export);
+    assert!(super::super::keymap::COMMANDS.contains(&C::ExportLogs));
+    assert_eq!(C::ExportLogs.name(), "ExportLogs");
+    assert!(defaults.unsupported().is_empty());
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"ExportLogs"));
+
+    // On the logs page the help lists it, elsewhere not.
+    let found = |state: &State| {
+        help(state)
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.command == "ExportLogs")
+            .map(|r| (r.keys.clone(), r.text.clone()))
+    };
+    assert_eq!(found(&queue()), None);
+    let mut state = queue();
+    press(&mut state, &typed("go"));
+    assert_eq!(state.page().kind, PageKind::Logs);
+    assert_eq!(
+        found(&state),
+        Some(("e".into(), "export the shown log lines to a file".into()))
+    );
+
+    // Rebound: the new key exports, `e` does not.
+    let built = keymap(vec![entry("e", "None"), entry("M-e", "ExportLogs")], vec![]);
+    assert_eq!(built.unsupported(), Vec::<String>::new());
+    assert_eq!(bound(&built, "e"), None);
+    assert_eq!(bound(&built, "M-e"), export);
+    let mut state = with_keymap(queue(), built);
+    press(&mut state, &typed("go"));
+    assert_eq!(press(&mut state, &typed("e")), vec![]);
+    let sent = press(&mut state, &[Key::Alt(BaseKey::Char('e'))]);
+    assert!(matches!(sent.as_slice(), [Effect::ExportLogs { .. }]));
 }

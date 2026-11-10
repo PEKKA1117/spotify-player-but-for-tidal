@@ -417,6 +417,9 @@ pub enum Action {
     /// Lines of the TUI's own log, new since the last ones given (spec
     /// 0027): merged into the logs page by time.
     OwnLogs(Vec<LogLine>),
+    /// The result of [`Effect::ExportLogs`] (spec 0027): how many lines
+    /// were written and to which path, or why not.
+    LogsExported(Result<(usize, String), String>),
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -435,6 +438,10 @@ pub enum Effect {
     /// Ask the player for its log lines after `after` (spec 0027); its
     /// answer comes back as [`Action::LogsReply`] with the same `id`.
     Logs { id: u64, after: Option<u64> },
+    /// Write `lines` (the logs page's, filtered, in page order) to a new
+    /// file (spec 0027); the result comes back as
+    /// [`Action::LogsExported`]. Runs whatever the connection.
+    ExportLogs { lines: Vec<LogLine> },
     /// Spec 0017 addendum 67055c40c1e2.
     Envy(theme::Envy),
 }
@@ -555,6 +562,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
         }
         Action::LogsReply { id, result } => {
             logs::reply(state, id, result);
+            Vec::new()
+        }
+        Action::LogsExported(result) => {
+            logs::exported(state, result);
             Vec::new()
         }
         Action::Clock(now) => logs::clock(state, now),

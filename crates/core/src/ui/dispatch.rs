@@ -185,6 +185,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::BrowsePage => return browse::open(state, PageKind::Browse(BrowseRef::Root)),
         C::LyricsPage => return browse::open(state, PageKind::Lyrics),
         C::OpenLogs => return logs::open(state),
+        C::ExportLogs => return logs::export(state),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),

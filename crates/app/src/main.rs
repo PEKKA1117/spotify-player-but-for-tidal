@@ -249,6 +249,8 @@ fn run<C: Connector>(
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
                     Effect::Logs { id, after } => session.send_logs(id, after),
+                    // Stub (spec 0027 AC15, slice S2): the file is not written.
+                    Effect::ExportLogs { .. } => {}
                     Effect::Envy(envy) => return Ok(Some(envy)),
                 }
             }

@@ -312,6 +312,8 @@ pub enum UiCommand {
     LyricsPage,
     /// The logs page (spec 0027).
     OpenLogs,
+    /// Writes the logs page's lines to a file (spec 0027); ours.
+    ExportLogs,
     Search,
     PreviousPage,
     ClosePopup,
@@ -322,7 +324,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 56] = [
+pub const COMMANDS: [UiCommand; 57] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -373,6 +375,7 @@ pub const COMMANDS: [UiCommand; 56] = [
     UiCommand::BrowsePage,
     UiCommand::LyricsPage,
     UiCommand::OpenLogs,
+    UiCommand::ExportLogs,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -435,6 +438,7 @@ impl UiCommand {
             Self::BrowsePage => "BrowsePage",
             Self::LyricsPage => "LyricsPage",
             Self::OpenLogs => "OpenLogs",
+            Self::ExportLogs => "ExportLogs",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
@@ -1086,6 +1090,7 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('b')], C::BrowsePage),
         (vec![one(Char('l')), g('L')], C::LyricsPage),
         (vec![g('o')], C::OpenLogs),
+        (vec![one(Char('e'))], C::ExportLogs),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),

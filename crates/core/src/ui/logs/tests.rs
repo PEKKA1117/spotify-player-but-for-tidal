@@ -783,3 +783,107 @@ fn ac10_filter_esc_order() {
     press(&mut state, &[Key::Enter]);
     assert_eq!(title(&state), "Logs · scrolled");
 }
+
+// --- AC14 --------------------------------------------------------------------
+
+const E: [Key; 1] = [Key::Char('e')];
+
+fn exported(effects: &[Effect]) -> Option<Vec<u64>> {
+    match effects {
+        [Effect::ExportLogs { lines }] => Some(lines.iter().map(|l| l.seq).collect()),
+        [] => None,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// AC14: `e` on the logs page exports the lines held, filtered, in the
+/// page's order, wherever the view is and whether connected or not; with
+/// none it says so; elsewhere it does nothing; the result sets the
+/// message row.
+#[test]
+fn ac14_export() {
+    const NO_LINES: &str = "No log lines to export";
+    // All of them, not the rows in view; scrolled or not.
+    let mut state = with_lines(2, lines(1, 6));
+    assert_eq!(
+        exported(&press(&mut state, &E)),
+        Some(vec![1, 2, 3, 4, 5, 6])
+    );
+    press(&mut state, &GG);
+    assert_eq!(offset(&state), 0);
+    assert_eq!(
+        exported(&press(&mut state, &E)),
+        Some(vec![1, 2, 3, 4, 5, 6])
+    );
+    assert_eq!(state.message, None);
+
+    // The player's and the TUI's own, in the page's order.
+    own(
+        &mut state,
+        vec![line(1, LogLevel::Warn, 2500, "tidal_player::tui", "mine")],
+    );
+    let sent = match press(&mut state, &E).as_slice() {
+        [Effect::ExportLogs { lines }] => lines.iter().map(|l| l.text.clone()).collect::<Vec<_>>(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(sent, ["L1", "L2", "mine", "L3", "L4", "L5", "L6"]);
+
+    // Disconnected: the lines already shown are still exported.
+    update(&mut state, Action::Disconnected { shut_down: false });
+    assert_eq!(exported(&press(&mut state, &E)).map(|v| v.len()), Some(7));
+
+    // A kept filter narrows the export to the matches.
+    let mut state = with_lines(10, filter_lines());
+    press(&mut state, &[Key::Char('/')]);
+    type_text(&mut state, "reserve");
+    press(&mut state, &[Key::Enter]);
+    assert_eq!(exported(&press(&mut state, &E)), Some(vec![1, 3, 5]));
+    // Typing: `e` is a letter of the filter, exporting nothing.
+    press(&mut state, &[Key::Char('/')]);
+    assert_eq!(press(&mut state, &E), vec![]);
+    assert!(title(&state).contains("reservee"), "{}", title(&state));
+    press(&mut state, &[Key::Esc]);
+
+    // Nothing matches, or nothing is held: no effect, the message says so.
+    let mut state = with_lines(10, filter_lines());
+    press(&mut state, &[Key::Char('/')]);
+    type_text(&mut state, "zzz");
+    press(&mut state, &[Key::Enter]);
+    assert_eq!(press(&mut state, &E), vec![]);
+    assert_eq!(state.message.as_deref(), Some(NO_LINES));
+    let (mut state, _) = opened(5);
+    assert_eq!(press(&mut state, &E), vec![]);
+    assert_eq!(state.message.as_deref(), Some(NO_LINES));
+
+    // Elsewhere: nothing at all.
+    let mut state = State::default();
+    let before = state.clone();
+    assert_eq!(press(&mut state, &E), vec![]);
+    assert_eq!(state, before);
+    let mut state = with_lines(5, lines(1, 3));
+    press(&mut state, &[Key::Char('z')]);
+    let before = state.clone();
+    assert_eq!(press(&mut state, &E), vec![]);
+    assert_eq!(state, before);
+
+    // The result sets the message row.
+    let cases = [
+        (
+            Ok((42, "/c/a.log".to_owned())),
+            "Exported 42 log lines to /c/a.log",
+        ),
+        (
+            Ok((1, "/c/b.log".to_owned())),
+            "Exported 1 log line to /c/b.log",
+        ),
+        (
+            Err("disk full".to_owned()),
+            "Could not export the log: disk full",
+        ),
+    ];
+    for (result, want) in cases {
+        let mut state = with_lines(5, lines(1, 3));
+        assert_eq!(update(&mut state, Action::LogsExported(result)), vec![]);
+        assert_eq!(state.message.as_deref(), Some(want));
+    }
+}

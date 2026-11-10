@@ -418,6 +418,15 @@ pub(super) fn command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     Vec::new()
 }
 
+/// `ExportLogs` (`e`). Stub (red).
+pub(super) fn export(state: &mut State) -> Vec<Effect> {
+    let lines = state.logs.entries.iter().map(|e| e.line.clone()).collect();
+    vec![Effect::ExportLogs { lines }]
+}
+
+/// The result of an export. Stub (red).
+pub(super) fn exported(_state: &mut State, _result: Result<(usize, String), String>) {}
+
 /// `Esc` on the logs page: a kept filter is cleared first; with none, the
 /// view follows again.
 pub(super) fn escape(state: &mut State) -> Vec<Effect> {

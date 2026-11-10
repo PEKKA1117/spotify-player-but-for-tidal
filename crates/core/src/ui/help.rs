@@ -404,7 +404,7 @@ fn in_window(state: &State, at: Where, command: UiCommand) -> bool {
         Where::Lyrics => command == C::ClosePopup,
         // Spec 0027: `/` filters the lines, `Esc` clears the filter or
         // follows the newest line again.
-        Where::Logs => matches!(command, C::ClosePopup | C::Search),
+        Where::Logs => matches!(command, C::ClosePopup | C::Search | C::ExportLogs),
         Where::Window(kind) => match command {
             C::ChooseSelected
             | C::AddSelectedItemToQueue
@@ -775,6 +775,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::ClosePopup => owned("close / cancel"),
         C::LyricsPage => owned("lyrics of the playing track"),
         C::OpenLogs => owned("open the logs page"),
+        C::ExportLogs => owned("export the shown log lines to a file"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
         C::SwitchDevice => owned("choose the output device"),
