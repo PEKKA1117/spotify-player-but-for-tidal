@@ -327,7 +327,7 @@ fn ac16_no_secrets() {
         .map(|(_, t)| t.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(got.len(), 4, "{all}");
+    assert_eq!(got.len(), 5, "{all}");
     for secret in [
         TOKEN,
         "SECRETQUERY",

@@ -2030,7 +2030,7 @@ fn ac17_err_answers_are_logged() {
     use tidal_player_core::log::LogSetting;
 
     const ME: ClientId = ClientId(700);
-    let (mut rt, _log, rx) = runtime(Script::Plays, true);
+    let (rt, _log, rx) = runtime(Script::Plays, true);
     let mut rt = rt
         .with_devices(Box::new(BrokenDevices))
         .with_logs(crate::logging::LogHandle::detached(false));
@@ -2057,9 +2057,9 @@ fn ac17_err_answers_are_logged() {
             id: 2,
             request: secret_delete.clone(),
         }));
-        while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
-            rt.handle(input);
-        }
+        // The fake library answers from a thread.
+        let done = rx.recv_timeout(Duration::from_secs(5)).expect("the answer");
+        rt.handle(done);
         // DevicesReply.
         rt.handle(RuntimeInput::Client(ClientInput::Devices {
             client: ME,

@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::SystemTime;
 
 use tidal_player_core::log::{
@@ -32,6 +32,11 @@ pub const OLD_FILE: &str = "tidal-player.log.old";
 pub const FILE_LIMIT: u64 = 1 << 20;
 /// The target of the log's own line (`cannot write …`).
 const OWN_TARGET: &str = "tidal_player::logging";
+/// The target of a panic's line.
+const PANIC_TARGET: &str = "tidal_player::panic";
+/// The log this process installed, for the panic hook (which cannot be
+/// handed it: it is set before and shared by every thread).
+static ACTIVE: OnceLock<Arc<Logger>> = OnceLock::new();
 
 /// Which kind of process is logging (spec 0027 "Who keeps what").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +62,17 @@ pub struct Roles {
 }
 
 impl Mode {
+    /// The mode as `starting` says it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Standalone => "standalone",
+            Self::Daemon => "daemon",
+            Self::Play => "play",
+            Self::Attached => "client",
+            Self::Other => "other",
+        }
+    }
+
     /// The sinks this mode installs.
     pub fn roles(self) -> Roles {
         let (buffer, file, stderr) = match self {
@@ -302,7 +318,24 @@ impl Logger {
     /// (the panic happened while the log was writing) the line is skipped
     /// and this says so (`false`). Never goes through `tracing`.
     pub fn record_panic(&self, at: SystemTime, text: &str) -> bool {
-        let _ = (at, text);
+        if !is_kept(self.setting, LogLevel::Error, PANIC_TARGET) {
+            return false;
+        }
+        // Both locks or none: a half-kept line is worse than a skipped one.
+        let Ok(mut buffer) = self.buffer.try_lock() else {
+            return false;
+        };
+        let mut file = match self.file.try_lock() {
+            Ok(file) => file,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
+        buffer.push(at, LogLevel::Error, PANIC_TARGET, text.to_owned());
+        if let FileState::Active(log) = &mut *file {
+            let offset = self.zone.offset_at(at);
+            // A file that fails now is left for the next line to give up.
+            let _ = log.append(&file_line(at, offset, LogLevel::Error, PANIC_TARGET, text));
+        }
         true
     }
 
@@ -363,21 +396,31 @@ impl LogHandle {
 /// The text of a panic's line: `panic location=<file:line:column>
 /// message=<message>`.
 pub fn panic_text(location: &str, message: &str) -> String {
-    let _ = (location, message);
-    String::new()
+    build_text("panic", &[("location", location), ("message", message)])
 }
 
 /// The message of a panic's payload: a `&str` or a `String`, else a fixed
 /// text.
 pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    let _ = payload;
-    String::new()
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "<non-string panic>".to_owned())
 }
 
 /// What the panic hook calls first: the panic's line to the installed
 /// log's file and buffer. Does nothing without a log.
 pub fn log_panic(info: &std::panic::PanicHookInfo<'_>) {
-    let _ = info;
+    let Some(logger) = ACTIVE.get() else {
+        return;
+    };
+    let location = info.location().map_or_else(
+        || "unknown".to_owned(),
+        |l| format!("{}:{}:{}", l.file(), l.line(), l.column()),
+    );
+    let text = panic_text(&location, &panic_message(info.payload()));
+    logger.record_panic(SystemTime::now(), &text);
 }
 
 /// The `tracing` layer that hands each kept event to a [`Logger`].
@@ -484,6 +527,7 @@ pub fn install(mode: Mode, setting: LogSetting, state_dir: &Path) -> Option<LogH
     ));
     let handle = logger.handle();
     if setting != LogSetting::Off {
+        let _ = ACTIVE.set(Arc::clone(&logger));
         // Set once per process: a second call (a test binary) keeps the
         // first subscriber.
         let _ = tracing::subscriber::set_global_default(
