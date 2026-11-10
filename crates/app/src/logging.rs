@@ -103,6 +103,15 @@ pub fn local_offset_secs() -> i32 {
     Zone::system().offset_at(SystemTime::now())
 }
 
+/// `at` in the zone `offset_secs` from UTC (UTC when the offset is out of
+/// range).
+pub(crate) fn zoned(at: SystemTime, offset_secs: i32) -> jiff::Zoned {
+    let offset = jiff::tz::Offset::from_seconds(offset_secs).unwrap_or(jiff::tz::Offset::UTC);
+    jiff::Timestamp::try_from(at)
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+        .to_zoned(jiff::tz::TimeZone::fixed(offset))
+}
+
 /// A line of the log file: `2026-11-10T21:04:05.123+08:00  WARN target: text`,
 /// the time in the zone `offset_secs` from UTC, the level right-aligned to
 /// 5 columns. No line break at the end.
@@ -113,11 +122,8 @@ pub fn file_line(
     target: &str,
     text: &str,
 ) -> String {
-    let utc = jiff::tz::Offset::UTC;
-    let offset = jiff::tz::Offset::from_seconds(offset_secs).unwrap_or(utc);
-    let zoned = jiff::Timestamp::try_from(at)
-        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
-        .to_zoned(jiff::tz::TimeZone::fixed(offset));
+    let zoned = zoned(at, offset_secs);
+    let offset = zoned.offset();
     let sign = if offset.seconds() < 0 { '-' } else { '+' };
     let minutes = offset.seconds().unsigned_abs() / 60;
     format!(
