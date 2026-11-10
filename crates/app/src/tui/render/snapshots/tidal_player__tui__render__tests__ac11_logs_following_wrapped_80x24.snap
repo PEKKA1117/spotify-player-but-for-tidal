@@ -1,0 +1,28 @@
+---
+source: crates/app/src/tui/render/tests.rs
+expression: text
+---
+┌tidal-player──────────────────────────────────────────────────────────────────┐
+│▶ Hell Above · Pierce The Veil                     shuffle  repeat: queue  80%│
+│  Collide With The Sky                                                        │
+│  LOSSLESS FLAC 16-bit 44.1 kHz → hw:1,0 · not bit-perfect: volume below 100% │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
+│Logs                                                                          │
+│┌Logs────────────────────────────────────────────────────────────────────────┐│
+││past the window and then some more words end23                              ││
+││13:04:29 INFO  tidal_player::x: long line 24 that is wide enough to wrap    ││
+││past the window and then some more words end24                              ││
+││13:04:30 INFO  tidal_player::x: long line 25 that is wide enough to wrap    ││
+││past the window and then some more words end25                              ││
+││13:04:31 INFO  tidal_player::x: long line 26 that is wide enough to wrap    ││
+││past the window and then some more words end26                              ││
+││13:04:32 INFO  tidal_player::x: long line 27 that is wide enough to wrap    ││
+││past the window and then some more words end27                              ││
+││13:04:33 INFO  tidal_player::x: long line 28 that is wide enough to wrap    ││
+││past the window and then some more words end28                              ││
+││13:04:34 INFO  tidal_player::x: long line 29 that is wide enough to wrap    ││
+││past the window and then some more words end29                              ││
+││13:04:35 INFO  tidal_player::x: long line 30 that is wide enough to wrap    ││
+││past the window and then some more words end30                              ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────┘

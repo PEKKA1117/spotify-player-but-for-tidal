@@ -543,6 +543,10 @@ pub const DEFAULT_THEME: &str = "default";
 pub struct Theme {
     pub name: String,
     pub screen: Style,
+    /// The palette the styles were resolved with, for what names a palette
+    /// colour without being a component (the logs page's `WARN` lines,
+    /// spec 0027).
+    palette: Palette,
     styles: [Style; 21],
     envy: Option<(u8, u8, u8)>,
 }
@@ -582,9 +586,15 @@ impl Theme {
         Self {
             name,
             screen,
+            palette: *palette,
             styles,
             envy,
         }
+    }
+
+    /// This theme's colour for `color`.
+    pub fn palette_color(&self, color: PaletteColor) -> Color {
+        self.palette.color(color)
     }
 
     /// The style `component` is drawn in.

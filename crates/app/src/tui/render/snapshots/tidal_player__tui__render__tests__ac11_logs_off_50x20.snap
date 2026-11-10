@@ -1,0 +1,24 @@
+---
+source: crates/app/src/tui/render/tests.rs
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│Logs                                            │
+│┌Logs──────────────────────────────────────────┐│
+││Logging is off: set log_level in app.toml     ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+││                                              ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

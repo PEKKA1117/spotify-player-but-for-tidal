@@ -4855,10 +4855,31 @@ fn logs_cases(width: u16, height: u16) -> Vec<(&'static str, State, Vec<&'static
     );
     press(&mut filtered, &[Key::Enter]);
     let mut no_match = logs_ok(log_levels(), width, height);
-    press(&mut no_match, &[Key::Char('/'), Key::Char('z'), Key::Enter]);
+    press(
+        &mut no_match,
+        &[Key::Char('/'), Key::Char('q'), Key::Char('q'), Key::Enter],
+    );
     let mut disconnected = logs_page(None, width, height);
     update(&mut disconnected, Action::Disconnected { shut_down: false });
+    // Following, every line wrapping to two rows or more: the newest line
+    // is still on the last rows.
+    let long: Vec<LogLine> = (1..=30)
+        .map(|i| {
+            log_line(
+                i,
+                i,
+                LogLevel::Info,
+                "tidal_player::x",
+                &format!("long line {i} that is wide enough to wrap past the window and then some more words end{i}"),
+            )
+        })
+        .collect();
     vec![
+        (
+            "following_wrapped",
+            logs_ok(long, width, height),
+            vec!["end30"],
+        ),
         (
             "levels",
             logs_ok(log_levels(), width, height),
@@ -4874,7 +4895,7 @@ fn logs_cases(width: u16, height: u16) -> Vec<(&'static str, State, Vec<&'static
         (
             "wrapped",
             logs_ok(log_wrapped(), width, height),
-            vec!["13:04:05 INFO", "zzend", "播放佇列已還原"],
+            vec!["13:04:05 INFO", "zzend", "播 放 佇 列 已 還 原"],
         ),
         (
             "scrolled",
@@ -4886,7 +4907,7 @@ fn logs_cases(width: u16, height: u16) -> Vec<(&'static str, State, Vec<&'static
             filtered,
             vec!["Logs · /reserve · 1 match", "cannot reserve card 1: busy"],
         ),
-        ("no_match", no_match, vec!["No rows match \"z\""]),
+        ("no_match", no_match, vec!["No rows match \"qq\""]),
         ("loading", logs_page(None, width, height), vec!["Loading…"]),
         (
             "none",
@@ -4931,7 +4952,7 @@ fn ac11_logs_80x24() {
 fn ac11_logs_narrow_50x20() {
     for (name, state, _) in logs_cases(50, 20) {
         let parts: &[&str] = match name {
-            "levels" => &["Logs", "13:04:05 INFO", "13:04:11 ERROR"],
+            "levels" => &["Logs", "13:04:14 INFO", "13:04:11 ERROR"],
             "wrapped" => &["13:04:05 INFO", "zzend"],
             "filter" => &["Logs · /reserve · 1 match"],
             "off" => &["Logging is off: set log_level in app.toml"],

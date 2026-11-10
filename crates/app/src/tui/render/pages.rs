@@ -13,16 +13,18 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
+use tidal_player_core::log::LogLevel;
 use tidal_player_core::ui::{
     Header, HelpSection, Hints, LibraryLayout, Load, LyricsContent, LyricsView, NEW_PLAYLIST,
     PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme,
     Window, WindowKind, device_rows,
+    logs::{self, LogsContent},
     popup::{self, DESCRIPTION, NEW_DESCRIPTION, PlaylistField},
     select,
-    theme::Component,
+    theme::{Component, PaletteColor},
 };
 
-use super::theme::of;
+use super::theme::{color, of};
 use super::{Columns, clear, draw_prompt, fit, no_match_row, pad, tail, text_width};
 
 /// From this many columns inside the frame a page draws its windows side
@@ -144,6 +146,10 @@ pub(super) fn render_page(state: &State, frame: &mut Frame, area: Rect) {
     }
     if page.lyrics.is_some() {
         render_lyrics(state, frame, page, body);
+        return;
+    }
+    if page.logs.is_some() {
+        render_logs(state, frame, page, body);
         return;
     }
     if let Load::Failed(message) = &page.load {
@@ -288,6 +294,108 @@ fn lyrics_lines(
             Line::styled(row, style).alignment(alignment)
         })
         .collect()
+}
+
+/// Draws the logs page (spec 0027 "The page"): one bordered window with
+/// the lines, wrapped by display width, the last one on the last row while
+/// following; or the message that replaces them. An `ERROR` line is in the
+/// `error` component's style, a `WARN` line in the palette's yellow.
+fn render_logs(state: &State, frame: &mut Frame, page: &Page, area: Rect) {
+    let Some(view) = &page.logs else {
+        return;
+    };
+    let look = state.theme();
+    let title = of(look, Component::BlockTitle).add_modifier(Modifier::BOLD);
+    let room = usize::from(area.width).saturating_sub(2);
+    let block = Block::bordered()
+        .border_style(of(look, Component::Border))
+        .title(Line::styled(fit(&logs::title(state), room), title));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let (width, height) = (usize::from(inner.width), usize::from(inner.height));
+    let content = logs::content(state);
+    if let Some(message) = content.message() {
+        let style = match content {
+            LogsContent::Failed(_) => of(look, Component::Error),
+            _ => Style::new().add_modifier(Modifier::DIM),
+        };
+        frame.render_widget(Paragraph::new(message_lines(&message, width, style)), inner);
+        return;
+    }
+    let warn = Style::new().fg(color(look.palette_color(PaletteColor::Yellow)));
+    // The wrapped rows of each line, with the line each belongs to.
+    let mut rows: Vec<(usize, Line<'static>)> = Vec::new();
+    let mut first_rows = Vec::new();
+    for (n, drawn) in logs::shown(state).into_iter().enumerate() {
+        first_rows.push(rows.len());
+        let style = match drawn.level {
+            LogLevel::Error => of(look, Component::Error),
+            LogLevel::Warn => warn,
+            _ => Style::new(),
+        };
+        let wrapped = wrap_keeping_spaces(&drawn.text, width);
+        if wrapped.is_empty() {
+            rows.push((n, Line::styled(String::new(), style)));
+        }
+        rows.extend(wrapped.into_iter().map(|row| (n, Line::styled(row, style))));
+    }
+    let start = if view.following {
+        rows.len().saturating_sub(height)
+    } else {
+        first_rows.get(logs::offset(state)).copied().unwrap_or(0)
+    };
+    let lines: Vec<Line<'static>> = rows
+        .into_iter()
+        .skip(start)
+        .take(height)
+        .map(|(_, line)| line)
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `text` cut into rows of at most `width` columns, at a space when there
+/// is one in reach, else anywhere; spaces inside a row stay as they are (the
+/// level column's padding), the ones at a cut go.
+fn wrap_keeping_spaces(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    for token in text.split_inclusive(' ') {
+        let mut token = token.to_owned();
+        loop {
+            if text_width(&row) + text_width(token.trim_end_matches(' ')) <= width {
+                row.push_str(&token);
+                break;
+            }
+            if !row.is_empty() {
+                rows.push(std::mem::take(&mut row).trim_end().to_owned());
+                continue;
+            }
+            // A word wider than a row: cut it.
+            let mut head = String::new();
+            for c in token.chars() {
+                if text_width(&head) + text_width(c.encode_utf8(&mut [0; 4])) > width {
+                    break;
+                }
+                head.push(c);
+            }
+            if head.is_empty() {
+                // A character wider than the window: nothing can show it.
+                return rows;
+            }
+            token = token[head.len()..].to_owned();
+            rows.push(head);
+        }
+    }
+    if !row.trim().is_empty() {
+        rows.push(row.trim_end().to_owned());
+    }
+    rows
 }
 
 /// Draws a search page's input row and, when there is one, its top-hit
