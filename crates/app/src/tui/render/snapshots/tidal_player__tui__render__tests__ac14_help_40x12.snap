@@ -1,0 +1,16 @@
+---
+source: crates/app/src/tui/render/tests.rs
+expression: text
+---
+┌tidal-player──────────────────────────┐
+│▶ Hell Above · Pierce The Veil     80%│
+┌Keys──────────────────────────────────┐
+│ Library · Playlists                  │
+│   enter           open the playlist  │
+│   Z  C-z          add to the end of… │
+│   d d             remove from the li…│
+│   g a  C-space    actions on the sel…│
+│   N               new playlist       │
+│   /               filter the rows    │
+│ / filter · enter run · esc close     │
+└──────────────────────────────────────┘

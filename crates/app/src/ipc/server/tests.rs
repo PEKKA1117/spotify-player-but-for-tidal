@@ -19,10 +19,10 @@ use tidal_player_core::{EntryId, Track, ui};
 
 use super::*;
 use crate::ipc::client::{Connection, RecvError};
-use crate::player_runtime::fakes::{
+use crate::player::runtime::fakes::{
     Call, FakeEngine, FakeJobs, FakeLibrary, Log, Script, delete, track,
 };
-use crate::player_runtime::{AsoundDevices, PlayerRuntime, RuntimeHandle, spawn_runtime};
+use crate::player::runtime::{AsoundDevices, PlayerRuntime, RuntimeHandle, spawn_runtime};
 
 /// The longest any one message may take to arrive.
 const WAIT: Duration = Duration::from_secs(5);
@@ -972,7 +972,7 @@ fn ac8_reply_to_sender() {
     let got = a.request(NOOP);
     assert_eq!(library_replies(&got).len(), 0, "{got:?}");
 
-    let settings = crate::player_runtime::LibrarySettings::default();
+    let settings = crate::player::runtime::LibrarySettings::default();
     let want = |label: &str| {
         (
             delete(label),
@@ -1030,7 +1030,7 @@ fn ac4_search_reply_to_sender() {
     let got = a.request(NOOP);
     assert_eq!(library_replies(&got).len(), 0, "{got:?}");
 
-    let settings = crate::player_runtime::LibrarySettings::default();
+    let settings = crate::player::runtime::LibrarySettings::default();
     assert_ne!(settings.page_size, settings.search_page_size);
     let want: Vec<_> = requests
         .iter()
@@ -1083,7 +1083,7 @@ fn ac8_reply_to_sender_mixes_and_radio() {
     let got = a.request(NOOP);
     assert_eq!(library_replies(&got).len(), 0, "{got:?}");
 
-    let settings = crate::player_runtime::LibrarySettings::default();
+    let settings = crate::player::runtime::LibrarySettings::default();
     let want: Vec<_> = requests
         .iter()
         .map(|request| {
@@ -1123,7 +1123,7 @@ fn ac8_reply_to_sender_lyrics() {
     let got = a.request(NOOP);
     assert_eq!(library_replies(&got).len(), 0, "{got:?}");
 
-    let settings = crate::player_runtime::LibrarySettings::default();
+    let settings = crate::player::runtime::LibrarySettings::default();
     assert_eq!(
         library.seen(),
         vec![(request, settings.page_size, settings.hidden_words)]

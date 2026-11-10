@@ -358,11 +358,11 @@ fn ac6_pointers_to_wiki() {
         ),
         (
             "unit".to_string(),
-            tidal_player::daemon::unit(Path::new("/usr/bin/tidal-player")),
+            tidal_player::cli::daemon::unit(Path::new("/usr/bin/tidal-player")),
         ),
         (
             "passphrase error".to_string(),
-            tidal_player::passphrase::PassphraseError::Unavailable.to_string(),
+            tidal_player::session::passphrase::PassphraseError::Unavailable.to_string(),
         ),
     ];
     for readme in ["README.md", "README.zh-TW.md"] {

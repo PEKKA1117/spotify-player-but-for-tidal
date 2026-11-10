@@ -17,9 +17,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime};
 
 use tidal_player::ipc::client::Connection;
-use tidal_player::mpris::model::{self, Value};
-use tidal_player::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
-use tidal_player::session_store::EncryptedFileStore;
+use tidal_player::player::mpris::model::{self, Value};
+use tidal_player::session::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
+use tidal_player::session::store::EncryptedFileStore;
 use tidal_player_api::auth::{Session, SessionStore};
 use tidal_player_core::protocol::{
     ClientMessage, Command as PlayerCommand, Event, PlayerSnapshot, ServerMessage,

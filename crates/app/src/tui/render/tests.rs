@@ -1,0 +1,4651 @@
+use std::time::Duration;
+
+use super::*;
+use ratatui::{Terminal, backend::TestBackend};
+use tidal_player_core::protocol::{
+    Event, InsertAt, NowPlaying, PlaybackState, PlayerSnapshot, QueueEntry, RepeatMode,
+};
+use tidal_player_core::ui::popup::{PlaylistField, Popup};
+use tidal_player_core::ui::{Action, Prompt, update};
+use tidal_player_core::{AlbumRef, ArtistRef, AudioQuality, EntryId, Track, TrackId};
+
+fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
+    let buffer = terminal.backend().buffer();
+    buffer
+        .content()
+        .chunks(usize::from(buffer.area.width).max(1))
+        .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn draw(state: &State, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render(state, frame, true)).unwrap();
+    buffer_text(&terminal)
+}
+
+fn row(text: &str, n: usize) -> &str {
+    text.split('\n').nth(n).unwrap_or("")
+}
+
+#[test]
+fn ac6_empty_state_80x24() {
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| render(&State::default(), frame, true))
+        .unwrap();
+    let text = buffer_text(&terminal);
+    assert!(text.contains("tidal-player"), "app name missing:\n{text}");
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn ac14_login_required_80x24() {
+    let state = State {
+        login_required: true,
+        ..State::default()
+    };
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|frame| render(&state, frame, true)).unwrap();
+    let text = buffer_text(&terminal);
+    assert!(
+        text.contains("tidal-player login"),
+        "status text missing:\n{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// AC17: the status line never panics on a tiny terminal and is only
+/// drawn when there is an inner row for it.
+#[test]
+fn ac17_login_status_tiny_terminals() {
+    let state = State {
+        login_required: true,
+        ..State::default()
+    };
+    for (width, height) in [(80, 0), (80, 1), (80, 2), (80, 3), (1, 24)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(&state, frame, true)).unwrap();
+        let text = buffer_text(&terminal);
+        let rows: Vec<&str> = text.split('\n').collect();
+        if height < 3 {
+            assert!(
+                !text.contains("Session expired"),
+                "{width}x{height}: status drawn without an inner row:\n{text}"
+            );
+        }
+        if (width, height) == (80, 3) {
+            assert!(
+                rows[1].contains("Session expired"),
+                "{width}x{height}: status not on the inner row:\n{text}"
+            );
+        }
+    }
+}
+
+// --- spec 0004 AC23 -----------------------------------------------------------
+
+fn track(id: u64, title: &str, artist: &str, album: &str, secs: Option<u64>) -> Track {
+    Track {
+        id: TrackId(id),
+        title: title.into(),
+        version: None,
+        artists: vec![ArtistRef {
+            id: id + 1000,
+            name: artist.into(),
+        }],
+        album: Some(AlbumRef {
+            id: id + 2000,
+            title: album.into(),
+            cover: None,
+        }),
+        duration: secs.map(Duration::from_secs),
+        streamable: true,
+    }
+}
+
+/// An album queue with three autoplay suggestions at its end.
+fn album_queue() -> Vec<QueueEntry> {
+    let ptv = "Pierce The Veil";
+    let album = "Collide With The Sky";
+    let tracks = [
+        ("May These Noises Startle You In Your Sleep Tonight", 241),
+        ("Hell Above", 212),
+        ("A Match Into Water", 262),
+        ("King For A Day", 232),
+        ("Bulls In The Bronx", 290),
+        ("Props & Mayhem", 213),
+        ("Tangled In The Great Escape", 304),
+        ("Stained Glass Eyes And Colorful Tears", 233),
+        ("I'm Low On Gas And You Need A Jacket", 223),
+    ];
+    let mut queue: Vec<QueueEntry> = tracks
+        .iter()
+        .enumerate()
+        .map(|(i, (title, secs))| QueueEntry {
+            id: EntryId(i as u64 + 1),
+            track: track(1000 + i as u64, title, ptv, album, Some(*secs)),
+            suggested: false,
+        })
+        .collect();
+    let suggested = [
+        (
+            "If I'm James Dean, You're Audrey Hepburn",
+            "Sleeping With Sirens",
+            "With Ears To See And Eyes To Hear",
+            219,
+        ),
+        (
+            "Can You Feel My Heart",
+            "Bring Me The Horizon",
+            "Sempiternal",
+            228,
+        ),
+        (
+            "All I Want",
+            "A Day To Remember",
+            "What Separates Me From You",
+            201,
+        ),
+    ];
+    queue.extend(
+        suggested
+            .iter()
+            .enumerate()
+            .map(|(i, (title, artist, album, secs))| QueueEntry {
+                id: EntryId(20 + i as u64),
+                track: track(2000 + i as u64, title, artist, album, Some(*secs)),
+                suggested: true,
+            }),
+    );
+    queue
+}
+
+fn now_playing(reason: Option<&str>) -> NowPlaying {
+    NowPlaying {
+        quality: AudioQuality::Lossless,
+        source: "FLAC 16-bit 44.1 kHz stereo".into(),
+        output: "hw:1,0 (exclusive) S32_LE 44.1 kHz 2 ch".into(),
+        bit_perfect: reason.is_none(),
+        bit_perfect_reason: reason.map(Into::into),
+        released: false,
+    }
+}
+
+/// Playing "Hell Above" at 1:23 with shuffle, repeat `queue` and 80 %.
+fn playing() -> PlayerSnapshot {
+    PlayerSnapshot {
+        queue: album_queue(),
+        current: Some(EntryId(2)),
+        state: PlaybackState::Playing,
+        position: Duration::from_secs(83),
+        shuffle: true,
+        repeat: RepeatMode::Queue,
+        autoplay: false,
+        volume: 80,
+        muted: false,
+        now_playing: Some(now_playing(Some("volume below 100%"))),
+        message: None,
+        device: "default".into(),
+    }
+}
+
+fn state_of(snapshot: PlayerSnapshot) -> State {
+    let mut state = State::default();
+    update(&mut state, Action::Player(Event::Player(snapshot)));
+    state
+}
+
+fn press_keys(state: &mut State, keys: &[tidal_player_core::ui::Key]) {
+    for key in keys {
+        update(state, Action::Key(*key));
+    }
+}
+
+fn assert_contains(text: &str, parts: &[&str]) {
+    for part in parts {
+        assert!(text.contains(part), "{part:?} missing:\n{text}");
+    }
+}
+
+#[test]
+fn ac23_playback_window_nothing_playing() {
+    let snapshot = PlayerSnapshot {
+        queue: vec![],
+        current: None,
+        state: PlaybackState::Stopped,
+        position: Duration::ZERO,
+        now_playing: None,
+        shuffle: false,
+        repeat: RepeatMode::Off,
+        volume: 100,
+        ..playing()
+    };
+    let text = draw(&state_of(snapshot), 80, 24);
+    assert_contains(row(&text, 1), &["Nothing playing", "100%"]);
+    assert_contains(&text, &["Queue (0)"]);
+    assert!(!text.contains('━'), "a bar with nothing playing:\n{text}");
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn ac23_playback_window_playing() {
+    let text = draw(&state_of(playing()), 80, 24);
+    assert_contains(
+        row(&text, 1),
+        &[
+            "▶ Hell Above · Pierce The Veil",
+            "shuffle",
+            "repeat: queue",
+            "80%",
+        ],
+    );
+    assert!(!row(&text, 1).contains("autoplay"), "{text}");
+    assert_contains(row(&text, 2), &["Collide With The Sky"]);
+    assert_contains(
+        row(&text, 3),
+        &[
+            "LOSSLESS FLAC 16-bit 44.1 kHz",
+            "hw:1,0",
+            "not bit-perfect: volume below 100%",
+        ],
+    );
+    assert_contains(row(&text, 4), &["━", "─", "1:23 / 3:32"]);
+    assert_contains(&text, &["Queue (12)", "▶ 2", "Suggested", "All I Want"]);
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn ac23_playback_window_paused() {
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Paused,
+        shuffle: false,
+        repeat: RepeatMode::Track,
+        autoplay: true,
+        muted: true,
+        now_playing: Some(now_playing(Some("muted"))),
+        ..playing()
+    };
+    let text = draw(&state_of(snapshot), 80, 24);
+    assert_contains(
+        row(&text, 1),
+        &["⏸ Hell Above", "repeat: track", "autoplay", "muted"],
+    );
+    assert!(!row(&text, 1).contains("shuffle"), "{text}");
+    assert!(!row(&text, 1).contains("80%"), "volume shown when muted");
+    assert_contains(row(&text, 3), &["not bit-perfect: muted"]);
+    insta::assert_snapshot!(text);
+}
+
+/// 0005 AC22: paused with the device released, the third row ends
+/// with ` · device released`.
+#[test]
+fn ac22_released_row() {
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Paused,
+        volume: 100,
+        now_playing: Some(NowPlaying {
+            released: true,
+            ..now_playing(None)
+        }),
+        ..playing()
+    };
+    let text = draw(&state_of(snapshot.clone()), 80, 24);
+    let third = row(&text, 3).trim_end_matches('│').trim_end();
+    assert!(
+        third.ends_with("· bit-perfect · device released"),
+        "third row: {third:?}\n{text}"
+    );
+    insta::assert_snapshot!(text);
+
+    // Not released: no note.
+    let snapshot = PlayerSnapshot {
+        now_playing: Some(now_playing(None)),
+        ..snapshot
+    };
+    let text = draw(&state_of(snapshot), 80, 24);
+    assert!(!row(&text, 3).contains("released"), "{text}");
+}
+
+#[test]
+fn ac23_playback_window_loading() {
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Loading,
+        position: Duration::ZERO,
+        now_playing: None,
+        repeat: RepeatMode::Off,
+        shuffle: false,
+        volume: 100,
+        ..playing()
+    };
+    let text = draw(&state_of(snapshot), 80, 24);
+    assert_contains(row(&text, 1), &["… Hell Above", "100%"]);
+    assert_contains(row(&text, 4), &["0:00 / 3:32"]);
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn ac23_playback_window_failure() {
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Stopped,
+        message: Some("Output hw:1,0 was lost".into()),
+        ..playing()
+    };
+    let text = draw(&state_of(snapshot), 80, 24);
+    assert_contains(row(&text, 1), &["■ Hell Above"]);
+    assert_contains(row(&text, 3), &["Output hw:1,0 was lost"]);
+    assert!(
+        !row(&text, 3).contains("FLAC"),
+        "details beside the message"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// Tidalt bug 6: an unknown duration draws no bar, not a full one.
+#[test]
+fn ac23_playback_window_unknown_duration() {
+    let mut snapshot = playing();
+    snapshot.queue[1].track.duration = None;
+    let text = draw(&state_of(snapshot), 80, 24);
+    let progress = row(&text, 4);
+    assert_contains(progress, &["1:23 / ?:??"]);
+    assert!(
+        !progress.contains('━') && !progress.contains('─'),
+        "a bar for an unknown duration:\n{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// A queue longer than the window keeps the current entry in view.
+#[test]
+fn ac23_queue_scrolls() {
+    let queue: Vec<QueueEntry> = (1..=40)
+        .map(|i| QueueEntry {
+            id: EntryId(i),
+            track: track(i, &format!("Track {i}"), "Artist", "Album", Some(180 + i)),
+            suggested: false,
+        })
+        .collect();
+    let mut state = state_of(PlayerSnapshot {
+        queue: queue.clone(),
+        current: Some(EntryId(1)),
+        ..playing()
+    });
+    update(
+        &mut state,
+        Action::Player(Event::Player(PlayerSnapshot {
+            queue,
+            current: Some(EntryId(30)),
+            ..playing()
+        })),
+    );
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["Queue (40)", "▶ 30  Track 30"]);
+    assert!(
+        !text.contains("Track 1 "),
+        "the top stayed in view:\n{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// 40×12: the album column goes first, then the artist; truncated
+/// with `…`.
+#[test]
+fn ac23_truncation_40x12() {
+    let text = draw(&state_of(playing()), 40, 12);
+    assert_contains(&text, &["▶ Hell Above", "…", "Pierce"]);
+    // The queue rows: no album column.
+    let rows: Vec<&str> = text.split('\n').skip(6).collect();
+    assert!(
+        rows.iter().all(|r| !r.contains("Collide")),
+        "album column in the queue:\n{text}"
+    );
+    assert!(
+        rows.iter().any(|r| r.contains("Pierce")),
+        "artist column dropped too early:\n{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// No panic at any size, 0×0 included, in every state; the playback
+/// window's first row shows the state symbol whenever it has room.
+#[test]
+fn ac23_no_panic_any_size() {
+    let mut prompt = state_of(playing());
+    prompt.prompt = Some(Prompt {
+        at: InsertAt::End,
+        text: "https://tidal.com/browse/album/10".into(),
+    });
+    let mut login = state_of(playing());
+    login.login_required = true;
+    // Spec 0012 AC9: the queue filtered, kept and while typing.
+    let mut filtered = state_of(playing());
+    press_keys(&mut filtered, &[Key::Char('/')]);
+    press_keys(
+        &mut filtered,
+        &"you".chars().map(Key::Char).collect::<Vec<_>>(),
+    );
+    let mut none = filtered.clone();
+    press_keys(&mut none, &"xyz".chars().map(Key::Char).collect::<Vec<_>>());
+    press_keys(&mut filtered, &[Key::Enter]);
+    let states = [
+        State::default(),
+        state_of(playing()),
+        prompt,
+        login,
+        filtered,
+        none,
+        state_of(PlayerSnapshot {
+            message: Some("Output hw:1,0 was lost".into()),
+            ..playing()
+        }),
+    ];
+    let sizes = (0..=120)
+        .step_by(7)
+        .flat_map(|w| (0..=40).step_by(3).map(move |h| (w, h)))
+        .chain([
+            (0, 0),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (40, 12),
+            (80, 24),
+            (120, 40),
+        ]);
+    for (width, height) in sizes {
+        for (i, state) in states.iter().enumerate() {
+            let text = draw(state, width, height);
+            if i == 1 && width >= 20 && height >= 3 {
+                assert!(
+                    row(&text, 1).contains('▶'),
+                    "{width}x{height}: no state symbol:\n{text}"
+                );
+            }
+        }
+    }
+}
+
+// --- spec 0016: the album cover ------------------------------------------------
+
+const GEOMETRY: CoverGeometry = CoverGeometry {
+    rows: 6,
+    cell: Some((10, 20)),
+};
+
+fn rect(x: u16, y: u16, width: u16, height: u16) -> Rect {
+    Rect::new(x, y, width, height)
+}
+
+/// AC1: the rects per inner size, `cover_img_rows` and cell size; under
+/// the size limits, or not active, today's 4-row layout.
+#[test]
+fn ac1_cover_layout() {
+    let geometry = |rows, cell| Some(CoverGeometry { rows, cell });
+    let today = |inner: Rect| CoverLayout {
+        playback: Rect {
+            height: inner.height.min(4),
+            ..inner
+        },
+        cover: None,
+        text: Rect {
+            height: inner.height.min(4),
+            ..inner
+        },
+        page: (inner.height >= 6).then(|| Rect {
+            y: inner.y + 4,
+            height: inner.height - 4,
+            ..inner
+        }),
+    };
+    // (name, inner, geometry, expected)
+    let rows: Vec<(&str, Rect, Option<CoverGeometry>, CoverLayout)> = vec![
+        (
+            "80x24 terminal (78x22 inner), 6 rows, 10x20 px",
+            rect(1, 1, 78, 22),
+            geometry(6, Some((10, 20))),
+            CoverLayout {
+                playback: rect(1, 1, 78, 6),
+                cover: Some(rect(1, 1, 12, 6)),
+                text: rect(14, 1, 65, 6),
+                page: Some(rect(1, 7, 78, 16)),
+            },
+        ),
+        (
+            "80x22 inner",
+            rect(0, 0, 80, 22),
+            geometry(6, Some((10, 20))),
+            CoverLayout {
+                playback: rect(0, 0, 80, 6),
+                cover: Some(rect(0, 0, 12, 6)),
+                text: rect(13, 0, 67, 6),
+                page: Some(rect(0, 6, 80, 16)),
+            },
+        ),
+        (
+            "8x18 px: round(6 x 18 / 8) = 14 columns",
+            rect(0, 0, 78, 22),
+            geometry(6, Some((8, 18))),
+            CoverLayout {
+                playback: rect(0, 0, 78, 6),
+                cover: Some(rect(0, 0, 14, 6)),
+                text: rect(15, 0, 63, 6),
+                page: Some(rect(0, 6, 78, 16)),
+            },
+        ),
+        (
+            "no cell size: 2 columns per row",
+            rect(0, 0, 78, 22),
+            geometry(6, None),
+            CoverLayout {
+                playback: rect(0, 0, 78, 6),
+                cover: Some(rect(0, 0, 12, 6)),
+                text: rect(13, 0, 65, 6),
+                page: Some(rect(0, 6, 78, 16)),
+            },
+        ),
+        (
+            "a zero cell width counts as unknown",
+            rect(0, 0, 78, 22),
+            geometry(6, Some((0, 20))),
+            CoverLayout {
+                playback: rect(0, 0, 78, 6),
+                cover: Some(rect(0, 0, 12, 6)),
+                text: rect(13, 0, 65, 6),
+                page: Some(rect(0, 6, 78, 16)),
+            },
+        ),
+        (
+            "4 rows: 8 columns",
+            rect(0, 0, 78, 22),
+            geometry(4, Some((10, 20))),
+            CoverLayout {
+                playback: rect(0, 0, 78, 4),
+                cover: Some(rect(0, 0, 8, 4)),
+                text: rect(9, 0, 69, 4),
+                page: Some(rect(0, 4, 78, 18)),
+            },
+        ),
+        (
+            "8 rows at 118x28",
+            rect(1, 1, 118, 28),
+            geometry(8, Some((10, 20))),
+            CoverLayout {
+                playback: rect(1, 1, 118, 8),
+                cover: Some(rect(1, 1, 16, 8)),
+                text: rect(18, 1, 101, 8),
+                page: Some(rect(1, 9, 118, 20)),
+            },
+        ),
+        (
+            "rows + 2 rows: active, the page keeps 2",
+            rect(0, 0, 78, 8),
+            geometry(6, Some((10, 20))),
+            CoverLayout {
+                playback: rect(0, 0, 78, 6),
+                cover: Some(rect(0, 0, 12, 6)),
+                text: rect(13, 0, 65, 6),
+                page: Some(rect(0, 6, 78, 2)),
+            },
+        ),
+        (
+            "cols + 21 columns: active, 20 for the text",
+            rect(0, 0, 33, 22),
+            geometry(6, Some((10, 20))),
+            CoverLayout {
+                playback: rect(0, 0, 33, 6),
+                cover: Some(rect(0, 0, 12, 6)),
+                text: rect(13, 0, 20, 6),
+                page: Some(rect(0, 6, 33, 16)),
+            },
+        ),
+    ];
+    for (name, inner, geometry, want) in &rows {
+        assert_eq!(cover_layout(*inner, *geometry), *want, "{name}");
+    }
+    // Not active, or too small: today's layout.
+    let today_rows: &[(&str, Rect, Option<CoverGeometry>)] = &[
+        ("not active", rect(1, 1, 78, 22), None),
+        (
+            "under rows + 2 rows",
+            rect(0, 0, 78, 7),
+            geometry(6, Some((10, 20))),
+        ),
+        (
+            "under cols + 21 columns",
+            rect(0, 0, 32, 22),
+            geometry(6, Some((10, 20))),
+        ),
+        (
+            "14 columns need 35",
+            rect(0, 0, 34, 22),
+            geometry(6, Some((8, 18))),
+        ),
+        ("20 rows in 21", rect(0, 0, 78, 21), geometry(20, None)),
+        ("tiny", rect(1, 1, 3, 2), geometry(6, None)),
+        ("empty", rect(0, 0, 0, 0), geometry(6, None)),
+    ];
+    for (name, inner, geometry) in today_rows {
+        assert_eq!(cover_layout(*inner, *geometry), today(*inner), "{name}");
+    }
+}
+
+/// AC2: with the cover active a list shows `cover_img_rows - 4` rows
+/// fewer; under the limits, as today.
+#[test]
+fn ac2_list_height_with_cover() {
+    let geometry = |rows| {
+        Some(CoverGeometry {
+            rows,
+            cell: Some((10, 20)),
+        })
+    };
+    // (terminal, login line, geometry, rows fewer than without)
+    type Row = ((u16, u16), bool, Option<CoverGeometry>, usize);
+    let rows: &[Row] = &[
+        ((80, 24), false, geometry(6), 2),
+        ((80, 24), true, geometry(6), 2),
+        ((120, 30), false, geometry(8), 4),
+        ((80, 24), false, geometry(4), 0),
+        ((80, 40), false, geometry(20), 16),
+        ((80, 24), false, None, 0),
+        // Too narrow (32 inner < 33) or too short (7 inner < 8).
+        ((34, 24), false, geometry(6), 0),
+        ((80, 9), false, geometry(6), 0),
+    ];
+    for ((w, h), login, geometry, fewer) in rows {
+        let terminal = rect(0, 0, *w, *h);
+        let without = list_height(terminal, *login, None);
+        let with = list_height(terminal, *login, *geometry);
+        assert_eq!(without - with, *fewer, "{w}x{h} {login} {geometry:?}");
+    }
+    assert_eq!(list_height(rect(0, 0, 80, 24), false, geometry(6)), 13);
+}
+
+/// Records the rect it is drawn in.
+struct FakeCover {
+    drawn: std::cell::RefCell<Vec<Rect>>,
+}
+
+impl FakeCover {
+    fn new() -> Self {
+        Self {
+            drawn: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl CoverImage for FakeCover {
+    fn draw(&self, area: Rect, _buf: &mut Buffer) {
+        self.drawn.borrow_mut().push(area);
+    }
+}
+
+fn draw_cover(
+    state: &State,
+    width: u16,
+    height: u16,
+    geometry: CoverGeometry,
+    image: Option<(Size, &dyn CoverImage)>,
+) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    let cover = CoverFrame { geometry, image };
+    terminal
+        .draw(|frame| render_with_cover(state, frame, true, Some(&cover)))
+        .unwrap();
+    buffer_text(&terminal)
+}
+
+/// The cells of `rows` rows from the top inside the frame, `cols`
+/// columns from its left (the cover area, and the blank column).
+fn blank_area(text: &str, rows: usize, cols: usize) {
+    for r in 1..=rows {
+        let line: String = row(text, r).chars().skip(1).take(cols).collect();
+        assert!(
+            line.chars().all(|c| c == ' '),
+            "row {r}: cover area not blank: {line:?}\n{text}"
+        );
+    }
+}
+
+/// AC5: the taller window: the text after the cover and a blank
+/// column, the header, album and details on the first three rows, the
+/// progress bar on the last; the reserved area blank.
+#[test]
+fn ac5_cover_window() {
+    // Playing, 80x24, 6 rows.
+    let text = draw_cover(&state_of(playing()), 80, 24, GEOMETRY, None);
+    blank_area(&text, 6, 13);
+    let text_col = |r: usize| row(&text, r).chars().skip(14).collect::<String>();
+    assert!(
+        text_col(1).starts_with("▶ Hell Above · Pierce The Veil"),
+        "{text}"
+    );
+    assert_contains(&text_col(1), &["80%"]);
+    assert!(text_col(2).starts_with("  Collide With The Sky"), "{text}");
+    assert_contains(&text_col(3), &["LOSSLESS", "not bit-perfect"]);
+    assert!(
+        text_col(4).trim_end_matches('│').trim().is_empty(),
+        "{text}"
+    );
+    assert!(
+        text_col(5).trim_end_matches('│').trim().is_empty(),
+        "{text}"
+    );
+    assert_contains(&text_col(6), &["━", "1:23 / 3:32"]);
+    assert_contains(row(&text, 7), &["Queue (12)"]);
+    insta::assert_snapshot!("ac5_cover_playing_80x24", text);
+
+    // Paused, 120x30, 8 rows.
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Paused,
+        ..playing()
+    };
+    let geometry = CoverGeometry {
+        rows: 8,
+        ..GEOMETRY
+    };
+    let text = draw_cover(&state_of(snapshot), 120, 30, geometry, None);
+    blank_area(&text, 8, 17);
+    assert!(
+        row(&text, 1)
+            .chars()
+            .skip(18)
+            .collect::<String>()
+            .starts_with("⏸ Hell Above"),
+        "{text}"
+    );
+    assert_contains(row(&text, 8), &["1:23 / 3:32"]);
+    assert_contains(row(&text, 9), &["Queue (12)"]);
+    insta::assert_snapshot!("ac5_cover_paused_120x30", text);
+
+    // Nothing playing: blank, the window still tall.
+    let snapshot = PlayerSnapshot {
+        queue: vec![],
+        current: None,
+        state: PlaybackState::Stopped,
+        position: Duration::ZERO,
+        now_playing: None,
+        ..playing()
+    };
+    let text = draw_cover(&state_of(snapshot), 80, 24, GEOMETRY, None);
+    blank_area(&text, 6, 13);
+    assert_contains(row(&text, 1), &["Nothing playing"]);
+    assert_contains(row(&text, 7), &["Queue (0)"]);
+    insta::assert_snapshot!("ac5_cover_nothing_80x24", text);
+
+    // A message on the third row.
+    let snapshot = PlayerSnapshot {
+        state: PlaybackState::Stopped,
+        message: Some("Output hw:1,0 was lost".into()),
+        ..playing()
+    };
+    let text = draw_cover(&state_of(snapshot), 80, 24, GEOMETRY, None);
+    blank_area(&text, 6, 13);
+    assert_contains(row(&text, 3), &["Output hw:1,0 was lost"]);
+    assert_contains(row(&text, 6), &["1:23 / 3:32"]);
+    insta::assert_snapshot!("ac5_cover_message_80x24", text);
+
+    // 40x12 is wide enough by the limits (38 >= 12 + 1 + 20): the
+    // text side narrows to 25 and is cut by 0004's rules.
+    let text = draw_cover(&state_of(playing()), 40, 12, GEOMETRY, None);
+    blank_area(&text, 6, 13);
+    assert_contains(row(&text, 1), &["▶ Hell Above", "…"]);
+    assert_contains(row(&text, 6), &["1:23 / 3:32"]);
+    insta::assert_snapshot!("ac5_cover_narrow_40x12", text);
+
+    // 34x12 is too narrow (32 < 33): today's window, the same text
+    // as without the cover.
+    let text = draw_cover(&state_of(playing()), 34, 12, GEOMETRY, None);
+    assert_eq!(text, draw(&state_of(playing()), 34, 12));
+    assert_contains(row(&text, 4), &["1:23 / 3:32"]);
+    // Too short (7 inner < 8): today's window.
+    let text = draw_cover(&state_of(playing()), 80, 9, GEOMETRY, None);
+    assert_eq!(text, draw(&state_of(playing()), 80, 9));
+}
+
+/// AC7: the ready image is drawn exactly in the cover rect, and not
+/// when its size is not the rect's, when there is none, when the cover
+/// is not active or when the keys help covers it.
+#[test]
+fn ac7_cover_drawn_in_rect() {
+    let state = state_of(playing());
+    let fake = FakeCover::new();
+    draw_cover(&state, 80, 24, GEOMETRY, Some((Size::new(12, 6), &fake)));
+    assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 12, 6)]);
+
+    let fake = FakeCover::new();
+    let geometry = CoverGeometry {
+        rows: 8,
+        cell: Some((8, 18)),
+    };
+    draw_cover(&state, 120, 30, geometry, Some((Size::new(18, 8), &fake)));
+    assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 18, 8)]);
+
+    // Encoded for another size (after a resize): not drawn.
+    let fake = FakeCover::new();
+    draw_cover(&state, 80, 24, GEOMETRY, Some((Size::new(16, 8), &fake)));
+    assert!(fake.drawn.borrow().is_empty());
+    // Too small for the cover: not drawn.
+    let fake = FakeCover::new();
+    draw_cover(&state, 34, 12, GEOMETRY, Some((Size::new(12, 6), &fake)));
+    assert!(fake.drawn.borrow().is_empty());
+    // The keys help over the cover (a short page): not drawn; over the
+    // page only: drawn.
+    let help = with_help(state_of(playing()), &[]);
+    let fake = FakeCover::new();
+    draw_cover(&help, 80, 12, GEOMETRY, Some((Size::new(12, 6), &fake)));
+    assert!(fake.drawn.borrow().is_empty());
+    let fake = FakeCover::new();
+    draw_cover(&help, 80, 40, GEOMETRY, Some((Size::new(12, 6), &fake)));
+    assert_eq!(*fake.drawn.borrow(), vec![rect(1, 1, 12, 6)]);
+    // No image: nothing, and the area is blank.
+    let text = draw_cover(&state, 80, 24, GEOMETRY, None);
+    blank_area(&text, 6, 13);
+}
+
+/// AC28: the open prompt is drawn over the queue's top row.
+#[test]
+fn ac28_prompt_rendered() {
+    let mut state = state_of(playing());
+    state.prompt = Some(Prompt {
+        at: InsertAt::Next,
+        text: "https://tidal.com/browse/album/10".into(),
+    });
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        row(&text, 5),
+        &["Play next: https://tidal.com/browse/album/10"],
+    );
+    insta::assert_snapshot!(text);
+}
+
+// --- spec 0006 AC17: pages ----------------------------------------------------
+
+use ratatui::style::Modifier as Mod;
+use tidal_player_core::library::{
+    AlbumKind, AlbumSummary, CreditedTrack, LibraryResponse, ListItems, ListPage, PageData,
+    PlaylistSummary, RoleCategory,
+};
+use tidal_player_core::ui::{Effect, Key};
+
+fn press(state: &mut State, keys: &[Key]) -> Vec<Effect> {
+    keys.iter()
+        .flat_map(|key| update(state, Action::Key(*key)))
+        .collect()
+}
+
+/// The ID of the one library request the keys made.
+fn ask(state: &mut State, keys: &[Key]) -> u64 {
+    let effects = press(state, keys);
+    effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Library { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no library request from {keys:?}: {effects:?}"))
+}
+
+fn answer(state: &mut State, id: u64, response: LibraryResponse) {
+    update(
+        state,
+        Action::LibraryReply {
+            id,
+            result: Ok(response),
+        },
+    );
+}
+
+fn fail(state: &mut State, id: u64, message: &str) {
+    update(
+        state,
+        Action::LibraryReply {
+            id,
+            result: Err(message.into()),
+        },
+    );
+}
+
+fn list<T>(items: Vec<T>, total: u32, hidden: u32) -> ListPage<T> {
+    ListPage {
+        items,
+        offset: 0,
+        total,
+        hidden,
+        positions: Vec::new(),
+    }
+}
+
+fn playlist(uuid: &str, title: &str, tracks: u32, own: bool) -> PlaylistSummary {
+    PlaylistSummary {
+        uuid: uuid.into(),
+        title: title.into(),
+        tracks: Some(tracks),
+        duration: Some(Duration::from_secs(u64::from(tracks) * 200)),
+        own,
+        description: None,
+        public: false,
+    }
+}
+
+fn album(id: u64, title: &str, artist: &str, year: u16, kind: AlbumKind) -> AlbumSummary {
+    AlbumSummary {
+        id,
+        title: title.into(),
+        artists: vec![ArtistRef {
+            id: 7,
+            name: artist.into(),
+        }],
+        year: Some(year),
+        kind,
+        tracks: Some(9),
+        duration: Some(Duration::from_secs(2400)),
+    }
+}
+
+fn artist_ref(id: u64, name: &str) -> ArtistRef {
+    ArtistRef {
+        id,
+        name: name.into(),
+    }
+}
+
+fn library_data() -> PageData {
+    PageData::Library {
+        playlists: list(
+            vec![
+                playlist("p1", "Running", 42, true),
+                playlist("p2", "Late night", 17, false),
+                playlist("p3", "Gym mix", 8, true),
+            ],
+            22,
+            0,
+        ),
+        albums: list(
+            vec![
+                album(
+                    1,
+                    "Collide With The Sky",
+                    "Pierce The Veil",
+                    2012,
+                    AlbumKind::Album,
+                ),
+                album(
+                    2,
+                    "Misadventures",
+                    "Pierce The Veil",
+                    2016,
+                    AlbumKind::Album,
+                ),
+                album(
+                    3,
+                    "Hold On Till May",
+                    "Pierce The Veil",
+                    2010,
+                    AlbumKind::Ep,
+                ),
+            ],
+            14,
+            0,
+        ),
+        artists: list(
+            vec![
+                artist_ref(7, "Pierce The Veil"),
+                artist_ref(8, "Sleeping With Sirens"),
+                artist_ref(9, "Bring Me The Horizon"),
+            ],
+            196,
+            0,
+        ),
+    }
+}
+
+fn empty_library() -> PageData {
+    PageData::Library {
+        playlists: list(vec![], 0, 0),
+        albums: list(vec![], 0, 0),
+        artists: list(vec![], 0, 0),
+    }
+}
+
+/// The library page, loaded.
+fn library() -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    answer(&mut state, id, LibraryResponse::Page(library_data()));
+    state
+}
+
+fn browse_tracks(n: u64) -> Vec<Track> {
+    (1..=n)
+        .map(|i| {
+            track(
+                100 + i,
+                &format!("Song {i}"),
+                "Pierce The Veil",
+                "Album",
+                Some(180 + i),
+            )
+        })
+        .collect()
+}
+
+fn favorites() -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('y')]);
+    let mut tracks = browse_tracks(2);
+    tracks.push(Track {
+        streamable: false,
+        ..track(
+            500,
+            "Not Streamable Here",
+            "Pierce The Veil",
+            "Misadventures",
+            Some(201),
+        )
+    });
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::FavoriteTracks {
+            tracks: list(tracks, 362, 0),
+        }),
+    );
+    state
+}
+
+/// An album page, opened from the library's Albums window.
+fn album_page(tracks: Vec<Track>) -> State {
+    let mut state = library();
+    let n = tracks.len() as u32;
+    let id = ask(&mut state, &[Key::Tab, Key::Enter]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Album {
+            album: album(
+                1,
+                "Collide With The Sky",
+                "Pierce The Veil",
+                2012,
+                AlbumKind::Album,
+            ),
+            tracks: list(tracks, n, 0),
+        }),
+    );
+    state
+}
+
+fn playlist_page(tracks: Vec<Track>) -> State {
+    let mut state = library();
+    let n = tracks.len() as u32;
+    let id = ask(&mut state, &[Key::Enter]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Playlist {
+            playlist: playlist("p1", "Running", n, true),
+            etag: Some("\"1\"".into()),
+            tracks: list(tracks, n, 0),
+        }),
+    );
+    state
+}
+
+/// An artist page, opened from the library's Artists window.
+fn artist_page(full: bool) -> State {
+    let mut state = library();
+    let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Enter]);
+    let data = if full {
+        PageData::Artist {
+            artist: artist_ref(7, "Pierce The Veil"),
+            top_tracks: list(browse_tracks(4), 91, 0),
+            albums: list(
+                vec![
+                    album(
+                        1,
+                        "Collide With The Sky",
+                        "Pierce The Veil",
+                        2012,
+                        AlbumKind::Album,
+                    ),
+                    album(
+                        3,
+                        "Hold On Till May",
+                        "Pierce The Veil",
+                        2010,
+                        AlbumKind::Ep,
+                    ),
+                    album(
+                        4,
+                        "Pierce The Veil",
+                        "Pierce The Veil",
+                        2008,
+                        AlbumKind::Single,
+                    ),
+                ],
+                78,
+                0,
+            ),
+            appears_on: list(
+                vec![album(
+                    9,
+                    "Warped Tour 2013",
+                    "Various Artists",
+                    2013,
+                    AlbumKind::Album,
+                )],
+                30,
+                0,
+            ),
+        }
+    } else {
+        PageData::Artist {
+            artist: artist_ref(7, "Pierce The Veil"),
+            top_tracks: list(vec![], 0, 0),
+            albums: list(vec![], 0, 0),
+            appears_on: list(vec![], 0, 0),
+        }
+    };
+    answer(&mut state, id, LibraryResponse::Page(data));
+    state
+}
+
+/// The artist page with *All tracks* focused and its first page in.
+fn all_tracks(empty: bool) -> State {
+    let mut state = artist_page(!empty);
+    let id = ask(&mut state, &[Key::Char(']')]);
+    let page = if empty {
+        list(vec![], 0, 37)
+    } else {
+        list(
+            vec![
+                CreditedTrack {
+                    track: track(300, "Hell Above", "Pierce The Veil", "Collide", Some(212)),
+                    roles: vec![RoleCategory::Performer, RoleCategory::Songwriter],
+                },
+                CreditedTrack {
+                    track: track(
+                        301,
+                        "Caraphernelia",
+                        "Pierce The Veil",
+                        "Selfish",
+                        Some(241),
+                    ),
+                    roles: vec![RoleCategory::Producer],
+                },
+            ],
+            548,
+            37,
+        )
+    };
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Items(ListItems::Credits(page)),
+    );
+    state
+}
+
+fn own_playlists_page() -> LibraryResponse {
+    LibraryResponse::Items(ListItems::Playlists(list(
+        vec![
+            playlist("p1", "Running", 42, true),
+            playlist("p3", "Gym mix", 8, true),
+        ],
+        2,
+        0,
+    )))
+}
+
+/// The actions popup over the library's Albums window.
+fn actions_popup() -> State {
+    let mut state = library();
+    press(&mut state, &[Key::Tab, Key::Ctrl(' ')]);
+    state
+}
+
+/// *Add to playlist…* from an album's actions, its playlists in.
+fn add_to_playlist_popup() -> State {
+    let mut state = actions_popup();
+    // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
+    // Remove from favorites, Add to playlist…
+    let keys = [Key::Char('j'); 6];
+    press(&mut state, &keys);
+    let id = ask(&mut state, &[Key::Enter]);
+    answer(&mut state, id, own_playlists_page());
+    state
+}
+
+fn confirm_popup() -> State {
+    let mut state = library();
+    // Open, Add to queue, Play next, Rename…, Edit description…, Make
+    // public, Delete playlist.
+    let mut keys = vec![Key::Ctrl(' ')];
+    keys.extend([Key::Char('j'); 6]);
+    press(&mut state, &keys);
+    press(&mut state, &[Key::Enter]);
+    state
+}
+
+/// *Remove from favorites* on an album, asking (spec 0019).
+fn remove_favorite_popup() -> State {
+    let mut state = actions_popup();
+    // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
+    // Remove from favorites.
+    press(&mut state, &[Key::Char('j'); 5]);
+    press(&mut state, &[Key::Enter]);
+    state
+}
+
+fn name_popup() -> State {
+    let mut state = add_to_playlist_popup();
+    press(&mut state, &[Key::Enter]);
+    for c in "Road trip".chars() {
+        press(&mut state, &[Key::Char(c)]);
+    }
+    state
+}
+
+fn roles_popup() -> State {
+    let mut state = all_tracks(false);
+    press(&mut state, &[Key::Char('f')]);
+    state
+}
+
+fn draw_terminal(state: &State, width: u16, height: u16) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render(state, frame, true)).unwrap();
+    terminal
+}
+
+#[test]
+fn ac17_pages_80x24() {
+    // Library loaded: three windows with counts, focus, `♥`.
+    let text = draw(&library(), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Library",
+            "Playlists (22)",
+            "Albums (14)",
+            "Artists (196)",
+            "Running",
+            "♥ Late night",
+            "Collide With The Sky",
+            "Pierce The Veil",
+        ],
+    );
+    assert!(
+        !text.contains("Queue (12)"),
+        "the queue under the library:\n{text}"
+    );
+    insta::assert_snapshot!("ac17_library_loaded", text);
+
+    // Library loading.
+    let mut state = state_of(playing());
+    press(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["Library", "Loading…"]);
+    assert!(!text.contains("Queue (12)"), "{text}");
+    insta::assert_snapshot!("ac17_library_loading", text);
+
+    // Favorite tracks: a non-streamable row dimmed, `Loading more…` last.
+    let mut state = favorites();
+    press(&mut state, &[Key::Char('j')]);
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Favorite tracks · 362 tracks",
+            "Song 1",
+            "Not Streamable Here",
+            "Loading more…",
+        ],
+    );
+    let y = text
+        .split('\n')
+        .position(|r| r.contains("Not Streamable Here"))
+        .unwrap();
+    let line = text.split('\n').nth(y).unwrap();
+    let x = line[..line.find("Not Streamable Here").unwrap()]
+        .chars()
+        .count();
+    let terminal = draw_terminal(&state, 80, 24);
+    let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+    assert!(cell.modifier.contains(Mod::DIM), "not dimmed: {cell:?}");
+    let song = text.split('\n').position(|r| r.contains("Song 1")).unwrap();
+    let cell = &terminal.backend().buffer()[(x as u16, song as u16)];
+    assert!(!cell.modifier.contains(Mod::DIM), "streamable row dimmed");
+    let last = text
+        .split('\n')
+        .rev()
+        .find(|r| r.contains("Song") || r.contains("Loading more…"))
+        .unwrap();
+    assert!(last.contains("Loading more…"), "last row: {last:?}\n{text}");
+    insta::assert_snapshot!("ac17_favorite_tracks", text);
+
+    // An album page: the title row.
+    let text = draw(&album_page(browse_tracks(9)), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Collide With The Sky · Pierce The Veil · 2012 · 9 tracks · 40:00",
+            "Song 1",
+        ],
+    );
+    insta::assert_snapshot!("ac17_album_page", text);
+
+    // A playlist page.
+    let text = draw(&playlist_page(browse_tracks(3)), 80, 24);
+    assert_contains(&text, &["Running · 3 tracks · 10:00", "Song 3"]);
+    insta::assert_snapshot!("ac17_playlist_page", text);
+
+    // The artist page: both halves, `‹Tab›` titles.
+    let text = draw(&artist_page(true), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Pierce The Veil",
+            "Top tracks (91) │ All tracks  [ ]",
+            "Albums (78) │ Appears on  [ ]",
+            "Song 1",
+            "Hold On Till",
+            "2010",
+        ],
+    );
+    insta::assert_snapshot!("ac17_artist_page", text);
+    // A wider terminal has room for `EP` and `Single`.
+    let wide = draw(&artist_page(true), 120, 24);
+    assert_contains(&wide, &["Hold On Till May", "2010 EP", "2008 Single"]);
+
+    // *All tracks* focused: the hidden count, the roles.
+    let text = draw(&all_tracks(false), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "All tracks (548 · 37 hidden)  [ ]",
+            "Hell Above",
+            "Albums (78)",
+        ],
+    );
+    // The other tab's name when the pane has room for it.
+    let wide = draw(&all_tracks(false), 120, 24);
+    assert_contains(&wide, &["Top tracks │ All tracks (548 · 37 hidden)  [ ]"]);
+    insta::assert_snapshot!("ac17_artist_all_tracks", text);
+
+    // The role filter popup.
+    let text = draw(&roles_popup(), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "[x] Performer",
+            "[x] Songwriter",
+            "[x] Producer",
+            "[x] Engineer",
+        ],
+    );
+    insta::assert_snapshot!("ac17_roles_popup", text);
+
+    // A failed page.
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    fail(&mut state, id, "Could not reach Tidal: timed out");
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &["Could not load the library: Could not reach Tidal: timed out"],
+    );
+    assert!(!text.contains("Loading…"), "{text}");
+    insta::assert_snapshot!("ac17_failed_page", text);
+
+    // Empty favorites.
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('y')]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::FavoriteTracks {
+            tracks: list(vec![], 0, 0),
+        }),
+    );
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["No favorite tracks yet"]);
+    insta::assert_snapshot!("ac17_empty_favorite_tracks", text);
+
+    // The actions popup (an album), *Add to playlist…*, a `y/n`
+    // question, the name prompt.
+    let text = draw(&actions_popup(), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Collide With The Sky",
+            "Open",
+            "Go to artist: Pierce The Veil",
+            "Add to queue",
+            "Play next",
+            "Add to playlist…",
+        ],
+    );
+    insta::assert_snapshot!("ac17_actions_popup", text);
+
+    let text = draw(&add_to_playlist_popup(), 80, 24);
+    assert_contains(&text, &["New playlist…", "Running", "Gym mix"]);
+    // Only the library's own row, not a popup row.
+    assert_eq!(
+        text.matches("Late night").count(),
+        1,
+        "a followed playlist offered:\n{text}"
+    );
+    insta::assert_snapshot!("ac17_add_to_playlist", text);
+
+    let text = draw(&confirm_popup(), 80, 24);
+    assert_contains(&text, &["Delete Running? (y/n)"]);
+    insta::assert_snapshot!("ac17_confirm", text);
+
+    let text = draw(&name_popup(), 80, 24);
+    assert_contains(&text, &["Playlist name: Road trip"]);
+}
+
+/// Spec 0019 AC8: the question over a page, for a removal from
+/// favorites.
+#[test]
+fn ac8_confirm_removal() {
+    let text = draw(&remove_favorite_popup(), 80, 24);
+    assert_contains(
+        &text,
+        &["Remove Collide With The Sky from favorites?", "(y/n)"],
+    );
+    insta::assert_snapshot!("ac8_confirm_removal", text);
+}
+
+/// Each empty-list message, one window at a time (50×20).
+#[test]
+fn ac17_empty_messages() {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    answer(&mut state, id, LibraryResponse::Page(empty_library()));
+    for message in [
+        "No playlists yet",
+        "No favorite albums yet",
+        "No favorite artists yet",
+    ] {
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, &[message]);
+        press(&mut state, &[Key::Tab]);
+    }
+
+    let text = draw(&album_page(vec![]), 50, 20);
+    assert_contains(&text, &["This album has no tracks"]);
+    let text = draw(&playlist_page(vec![]), 50, 20);
+    assert_contains(&text, &["This playlist has no tracks"]);
+
+    let mut state = all_tracks(true);
+    let text = draw(&state, 50, 20);
+    assert_contains(&text, &["No credits (37 hidden)"]);
+    // `Tab` cycles the panes, `[`/`]` the tabs of the focused one.
+    press(&mut state, &[Key::Tab]);
+    assert_contains(&draw(&state, 50, 20), &["No albums"]);
+    press(&mut state, &[Key::Tab]);
+    assert_contains(&draw(&state, 50, 20), &["No credits (37 hidden)"]);
+    press(&mut state, &[Key::Char('[')]);
+    assert_contains(&draw(&state, 50, 20), &["No top tracks"]);
+}
+
+/// 50×20: only the focused window, its title followed by `‹Tab›`.
+#[test]
+fn ac17_narrow_50x20() {
+    let mut state = library();
+    let text = draw(&state, 50, 20);
+    assert_contains(&text, &["Playlists (22) ‹Tab›", "Running"]);
+    assert!(
+        !text.contains("Albums (14)") && !text.contains("Artists (196)"),
+        "other windows drawn:\n{text}"
+    );
+    insta::assert_snapshot!("ac17_narrow_library", text);
+    press(&mut state, &[Key::Tab]);
+    let text = draw(&state, 50, 20);
+    assert_contains(&text, &["Albums (14) ‹Tab›", "Collide With The Sky"]);
+    assert!(!text.contains("Playlists (22)"), "{text}");
+
+    let text = draw(&artist_page(true), 50, 20);
+    assert_contains(
+        &text,
+        &["Top tracks (91) │ All tracks  [ ] ‹Tab›", "Song 1"],
+    );
+    assert!(!text.contains("Hold On Till May"), "{text}");
+
+    // A page with one window has no `‹Tab›`.
+    let text = draw(&favorites(), 50, 20);
+    assert!(!text.contains("‹Tab›"), "{text}");
+}
+
+/// No panic from 0×0 to 120×40 on every page kind and popup.
+#[test]
+fn ac17_no_panic_any_size() {
+    let mut login = library();
+    login.login_required = true;
+    let mut loading = state_of(playing());
+    press(&mut loading, &[Key::Char('g'), Key::Char('l')]);
+    let mut failed = state_of(playing());
+    let id = ask(&mut failed, &[Key::Char('g'), Key::Char('l')]);
+    fail(&mut failed, id, "Could not reach Tidal: timed out");
+    let mut more = favorites();
+    press(&mut more, &[Key::Char('j')]);
+    let states = [
+        state_of(playing()),
+        library(),
+        loading,
+        failed,
+        more,
+        album_page(browse_tracks(9)),
+        album_page(vec![]),
+        playlist_page(browse_tracks(3)),
+        artist_page(true),
+        artist_page(false),
+        all_tracks(false),
+        all_tracks(true),
+        actions_popup(),
+        add_to_playlist_popup(),
+        confirm_popup(),
+        remove_favorite_popup(),
+        name_popup(),
+        roles_popup(),
+        login,
+    ];
+    let sizes = (0..=120)
+        .step_by(7)
+        .flat_map(|w| (0..=40).step_by(3).map(move |h| (w, h)))
+        .chain([
+            (0, 0),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (50, 20),
+            (59, 24),
+            (60, 24),
+            (62, 24),
+            (80, 24),
+            (120, 40),
+        ]);
+    // 0007 AC12: the search page in each of its states.
+    let search = search_states();
+    // 0008 AC14: the keys help, open over each kind of view.
+    let help = help_states();
+    // 0011 AC11: the mixes and radio pages.
+    let mixes = mixes_states();
+    // 0021 AC9: the lyrics page in each state, CJK and right-to-left.
+    let lyrics = lyrics_states();
+    // 0013 AC6: a pending sequence's hint over each kind of view.
+    let hints = hint_states();
+    // 0014 AC9: the devices popup in each of its states.
+    let devices = devices_states();
+    // 0012 AC9: a filter set (kept, typing, no match) on each kind of
+    // window and the queue.
+    let filters = filter_states();
+    // 0020 AC12: selections, motion mode, the selection popup and the
+    // removal question.
+    let selections = selection_states();
+    // 0017 AC12: the AC9 test theme over each kind of view, and the
+    // Themes popup open.
+    let mut themed: Vec<State> = states
+        .iter()
+        .chain(&search)
+        .chain(&help)
+        .chain(&hints)
+        .chain(&lyrics)
+        .cloned()
+        .map(test_themed)
+        .collect();
+    themed.extend([themes_popup_themed(), queue_themed(), library_themed()]);
+    let sizes = sizes.chain(
+        (1..=200)
+            .step_by(13)
+            .flat_map(|w| (1..=60).step_by(4).map(move |h| (w, h))),
+    );
+    for (width, height) in sizes {
+        for state in states
+            .iter()
+            .chain(&search)
+            .chain(&help)
+            .chain(&mixes)
+            .chain(&lyrics)
+            .chain(&hints)
+            .chain(&devices)
+            .chain(&filters)
+            .chain(&selections)
+            .chain(&themed)
+        {
+            draw(state, width, height);
+        }
+    }
+    // 0016 AC6: with the cover active, at sizes from 1x1 to 200x60
+    // (every width and height around the limits), with an image ready
+    // for the size's cover area.
+    let fake = FakeCover::new();
+    let tall = CoverGeometry {
+        rows: 20,
+        cell: None,
+    };
+    let sizes = (1..=200u16)
+        .step_by(7)
+        .flat_map(|w| (1..=60u16).step_by(3).map(move |h| (w, h)))
+        .chain((1..=40).map(|w| (w, 24)))
+        .chain((1..=30).map(|h| (80, h)))
+        .chain([(200, 60)]);
+    for (width, height) in sizes {
+        let terminal = rect(0, 0, width, height);
+        let geometry = if (width + height) % 2 == 0 {
+            GEOMETRY
+        } else {
+            tall
+        };
+        for (i, state) in states.iter().chain(&help).chain(&hints).enumerate() {
+            if i % 3 != usize::from((width + height) % 3) {
+                continue;
+            }
+            let area = cover_area(terminal, state.login_required, Some(geometry));
+            let image = area.map(|a| (a.as_size(), &fake as &dyn CoverImage));
+            draw_cover(state, width, height, geometry, image);
+        }
+    }
+}
+
+// --- spec 0011 AC11: the mixes and radio pages --------------------------------
+
+use tidal_player_core::library::{MixSummary, RadioSeed};
+
+fn mix_summary(id: &str, title: &str, subtitle: Option<&str>) -> MixSummary {
+    MixSummary {
+        id: id.into(),
+        title: title.into(),
+        subtitle: subtitle.map(str::to_owned),
+    }
+}
+
+fn mixes_data() -> PageData {
+    PageData::Mixes {
+        mixes: list(
+            vec![
+                mix_summary(
+                    "m1",
+                    "My Mix 1",
+                    Some("Pierce The Veil, Sleeping With Sirens"),
+                ),
+                mix_summary("m2", "My Mix 2", Some("Bring Me The Horizon and more")),
+                mix_summary("m3", "Discovery Mix", None),
+            ],
+            3,
+            0,
+        ),
+    }
+}
+
+/// `g m`, answered.
+fn mixes_page() -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('m')]);
+    answer(&mut state, id, LibraryResponse::Page(mixes_data()));
+    state
+}
+
+/// The first mix, opened and answered.
+fn mix_page(tracks: Vec<Track>) -> State {
+    let mut state = mixes_page();
+    let n = tracks.len() as u32;
+    let id = ask(&mut state, &[Key::Enter]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Mix {
+            mix: mix_summary(
+                "m1",
+                "My Mix 1",
+                Some("Pierce The Veil, Sleeping With Sirens"),
+            ),
+            tracks: list(tracks, n, 0),
+        }),
+    );
+    state
+}
+
+/// `r` on the first favorite track, answered.
+fn track_radio_page(tracks: Vec<Track>) -> State {
+    let mut state = favorites();
+    let n = tracks.len() as u32;
+    let seed = browse_tracks(1).remove(0);
+    let id = ask(&mut state, &[Key::Char('r')]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Radio {
+            seed: RadioSeed::Track(seed),
+            tracks: list(tracks, n, 0),
+        }),
+    );
+    state
+}
+
+/// `r` on the library's first artist, answered.
+fn artist_radio_page(tracks: Vec<Track>) -> State {
+    let mut state = library();
+    let n = tracks.len() as u32;
+    let id = ask(&mut state, &[Key::Tab, Key::Tab, Key::Char('r')]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Radio {
+            seed: RadioSeed::Artist(artist_ref(7, "Pierce The Veil")),
+            tracks: list(tracks, n, 0),
+        }),
+    );
+    state
+}
+
+// --- the lyrics page (spec 0021) ---------------------------------------------------
+
+use tidal_player_core::lyrics::{LyricLine, Lyrics};
+
+/// Rows of the lyrics window at 80x24.
+fn lyrics_rows() -> usize {
+    list_height(rect(0, 0, 80, 24), false, None)
+}
+
+/// 20 invented lines, `5 s` apart from `0:05`: line `i` at `i * 5 s`.
+fn synced_lyrics() -> Lyrics {
+    Lyrics {
+        synced: (1..=20)
+            .map(|i| LyricLine {
+                at: Duration::from_secs(i * 5),
+                text: format!("Lantern {i} drifts down the river"),
+            })
+            .collect(),
+        plain: String::new(),
+        right_to_left: false,
+    }
+}
+
+/// 30 invented plain lines.
+fn plain_lyrics() -> Lyrics {
+    Lyrics {
+        synced: vec![],
+        plain: (1..=30)
+            .map(|i| format!("Verse {i} of the quiet harbour"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        right_to_left: false,
+    }
+}
+
+/// The lyrics page of the playing track (entry 2), asked for and
+/// answered with `lyrics`, the player at `secs`.
+fn lyrics_at(lyrics: Option<Lyrics>, secs: u64) -> State {
+    let mut state = state_of(playing());
+    update(
+        &mut state,
+        Action::Resize {
+            list_height: lyrics_rows(),
+        },
+    );
+    let id = ask(&mut state, &[Key::Char('l')]);
+    let track = state.current().unwrap().track.id.0;
+    update(
+        &mut state,
+        Action::LibraryReply {
+            id,
+            result: Ok(LibraryResponse::Page(PageData::Lyrics { track, lyrics })),
+        },
+    );
+    at_position(&mut state, secs);
+    state
+}
+
+fn at_position(state: &mut State, secs: u64) {
+    update(
+        state,
+        Action::Player(Event::Position {
+            entry: EntryId(2),
+            position: Duration::from_secs(secs),
+        }),
+    );
+}
+
+/// The window row (0 = first inside the border) of the row with `part`.
+fn window_row(text: &str, part: &str) -> usize {
+    let title = text
+        .split('\n')
+        .position(|r| r.contains("┌Lyrics"))
+        .unwrap_or_else(|| panic!("no lyrics window:\n{text}"));
+    row_of(text, part) - title - 1
+}
+
+#[test]
+fn ac9_lyrics_80x24() {
+    let h = lyrics_rows();
+    // (snapshot, state, parts the text holds)
+    let long = {
+        let mut lyrics = synced_lyrics();
+        lyrics.synced[9].text = "Lantern 10 drifts down the river past the market stalls and the \
+                 paper boats and the sleeping bridge zzend"
+            .into();
+        lyrics
+    };
+    let gap = {
+        let mut lyrics = synced_lyrics();
+        lyrics.synced[9].text = String::new();
+        lyrics
+    };
+    let rtl = Lyrics {
+        synced: vec![],
+        plain: "مصباح على النهر\nيمضي الليل بهدوء".into(),
+        right_to_left: true,
+    };
+    let mut scrolled = lyrics_at(Some(synced_lyrics()), 5);
+    press(&mut scrolled, &[Key::Char('G')]);
+    let mut plain = lyrics_at(Some(plain_lyrics()), 5);
+    press(
+        &mut plain,
+        &[Key::Char('j'), Key::Char('j'), Key::Char('j')],
+    );
+    let mut loading = state_of(playing());
+    press(&mut loading, &[Key::Char('l')]);
+    let mut nothing = state_of(PlayerSnapshot {
+        current: None,
+        now_playing: None,
+        ..playing()
+    });
+    press(&mut nothing, &[Key::Char('l')]);
+    let mut failed = state_of(playing());
+    let id = ask(&mut failed, &[Key::Char('l')]);
+    fail(&mut failed, id, "Tidal answered 429: try again in a moment");
+    let cases: Vec<(&str, State, Vec<&str>)> = vec![
+        (
+            "before",
+            lyrics_at(Some(synced_lyrics()), 2),
+            vec!["Lyrics (synced)", "Lantern 1 drifts", "Lantern 12 drifts"],
+        ),
+        (
+            "middle",
+            lyrics_at(Some(synced_lyrics()), 53),
+            vec!["Lyrics (synced)", "Lantern 10 drifts"],
+        ),
+        (
+            "end",
+            lyrics_at(Some(synced_lyrics()), 100),
+            vec!["Lantern 20 drifts"],
+        ),
+        (
+            "scrolled",
+            scrolled,
+            vec!["Lyrics (synced) · scrolled", "Lantern 20 drifts"],
+        ),
+        ("plain", plain, vec!["Lyrics", "Verse 4 of", "Verse 16 of"]),
+        ("rtl", lyrics_at(Some(rtl), 5), vec!["مصباح على النهر"]),
+        (
+            "wrapped",
+            lyrics_at(Some(long), 53),
+            vec!["Lantern 10 drifts", "zzend"],
+        ),
+        ("gap", lyrics_at(Some(gap), 53), vec!["♪"]),
+        ("loading", loading, vec!["Loading…"]),
+        ("none", lyrics_at(None, 5), vec!["No lyrics for this track"]),
+        ("nothing", nothing, vec!["Nothing playing"]),
+        (
+            "failed",
+            failed,
+            vec!["Could not load the lyrics: Tidal answered 429"],
+        ),
+    ];
+    for (name, state, parts) in cases {
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &parts);
+        insta::assert_snapshot!(format!("ac9_lyrics_{name}"), text);
+    }
+
+    // Before the first line nothing is current: the view starts at the top.
+    let text = draw(&lyrics_at(Some(synced_lyrics()), 2), 80, 24);
+    assert_eq!(window_row(&text, "Lantern 1 drifts"), 0);
+    // In the middle the current line sits at the window's middle row.
+    let text = draw(&lyrics_at(Some(synced_lyrics()), 53), 80, 24);
+    assert_eq!(window_row(&text, "Lantern 10 drifts"), h / 2, "{text}");
+    // Scrolled by hand to the end: the current line (the first) is gone.
+    let text = draw(&lyrics_at(Some(synced_lyrics()), 5), 80, 24);
+    assert!(text.contains("Lantern 1 drifts"));
+    let mut state = lyrics_at(Some(synced_lyrics()), 5);
+    press(&mut state, &[Key::Char('G')]);
+    let text = draw(&state, 80, 24);
+    assert!(!text.contains("Lantern 1 drifts"), "{text}");
+    // Plain lyrics scrolled by three lines.
+    let mut state = lyrics_at(Some(plain_lyrics()), 5);
+    press(
+        &mut state,
+        &[Key::Char('j'), Key::Char('j'), Key::Char('j')],
+    );
+    let text = draw(&state, 80, 24);
+    assert!(
+        !text.contains("Verse 3 of") && text.contains("Verse 4 of"),
+        "{text}"
+    );
+    // Right-to-left lyrics end at the window's right edge.
+    let rtl = Lyrics {
+        synced: vec![],
+        plain: "مصباح على النهر".into(),
+        right_to_left: true,
+    };
+    let text = draw(&lyrics_at(Some(rtl), 5), 80, 24);
+    assert!(text.contains("مصباح على النهر││"), "{text}");
+    // An empty current line is drawn as `♪`, the cursor is not drawn.
+    let mut gap = synced_lyrics();
+    gap.synced[9].text = String::new();
+    let state = lyrics_at(Some(gap), 53);
+    assert!(draw(&state, 80, 24).contains('♪'));
+    // A wrapped current line is highlighted on every row.
+    let mut long = synced_lyrics();
+    long.synced[9].text = "Lantern 10 drifts down the river past the market stalls and the \
+             paper boats and the sleeping bridge zzend"
+        .into();
+    let state = lyrics_at(Some(long), 53);
+    for part in ["Lantern 10 drifts", "zzend"] {
+        let cell = cell_at(&state, 80, 24, part);
+        assert_eq!(cell.fg, ratatui::style::Color::Cyan, "{part}");
+        assert!(cell.modifier.contains(Mod::BOLD), "{part}");
+    }
+}
+
+#[test]
+fn ac9_lyrics_narrow_50x20() {
+    let state = lyrics_at(Some(synced_lyrics()), 53);
+    let text = draw(&state, 50, 20);
+    assert_contains(&text, &["Lyrics (synced)", "Lantern 10 drifts"]);
+    insta::assert_snapshot!("ac9_lyrics_narrow", text);
+}
+
+/// The lyrics page in each state, for the no-panic sweep (AC9), with
+/// CJK and right-to-left lines.
+fn lyrics_states() -> Vec<State> {
+    let cjk = Lyrics {
+        synced: (1..=12)
+            .map(|i| LyricLine {
+                at: Duration::from_secs(i * 5),
+                text: if i % 3 == 0 {
+                    String::new()
+                } else {
+                    "紙燈籠沿著河水慢慢漂向遠方的夜市和橋下的星光".repeat(2)
+                },
+            })
+            .collect(),
+        plain: String::new(),
+        right_to_left: false,
+    };
+    let rtl = Lyrics {
+        synced: vec![],
+        plain: "مصباح على النهر يمضي الليل بهدوء\n\nمصباح".into(),
+        right_to_left: true,
+    };
+    let mut scrolled = lyrics_at(Some(synced_lyrics()), 5);
+    press(&mut scrolled, &[Key::Char('G')]);
+    let mut loading = state_of(playing());
+    press(&mut loading, &[Key::Char('l')]);
+    let mut nothing = state_of(PlayerSnapshot {
+        current: None,
+        now_playing: None,
+        ..playing()
+    });
+    press(&mut nothing, &[Key::Char('l')]);
+    let mut failed = state_of(playing());
+    let id = ask(&mut failed, &[Key::Char('l')]);
+    fail(&mut failed, id, "Could not reach Tidal: timed out");
+    vec![
+        lyrics_at(Some(synced_lyrics()), 53),
+        lyrics_at(Some(cjk), 28),
+        lyrics_at(Some(rtl), 5),
+        lyrics_at(Some(plain_lyrics()), 5),
+        lyrics_at(None, 5),
+        scrolled,
+        loading,
+        nothing,
+        failed,
+    ]
+}
+
+#[test]
+fn ac10_lyrics_styles_in_a_theme() {
+    let state = test_themed(lyrics_at(Some(synced_lyrics()), 53));
+    let (played, playing, rest) = (
+        cell_at(&state, 80, 24, "Lantern 9 drifts"),
+        cell_at(&state, 80, 24, "Lantern 10 drifts"),
+        cell_at(&state, 80, 24, "Lantern 11 drifts"),
+    );
+    assert_eq!(played.fg, fg_of(Component::LyricsPlayed));
+    assert_eq!(playing.fg, fg_of(Component::LyricsPlaying));
+    assert_eq!(rest.fg, SCREEN_FG);
+    // The default theme: played dim, the current line cyan and bold.
+    let state = lyrics_at(Some(synced_lyrics()), 53);
+    let played = cell_at(&state, 80, 24, "Lantern 9 drifts");
+    assert!(played.modifier.contains(Mod::DIM));
+    let rest = cell_at(&state, 80, 24, "Lantern 11 drifts");
+    assert!(!rest.modifier.contains(Mod::DIM) && !rest.modifier.contains(Mod::BOLD));
+}
+
+fn mixes_states() -> Vec<State> {
+    let mut loading = state_of(playing());
+    press(&mut loading, &[Key::Char('g'), Key::Char('m')]);
+    let mut failed = state_of(playing());
+    let id = ask(&mut failed, &[Key::Char('g'), Key::Char('m')]);
+    fail(&mut failed, id, "Could not reach Tidal: timed out");
+    let mut empty = state_of(playing());
+    let id = ask(&mut empty, &[Key::Char('g'), Key::Char('m')]);
+    answer(
+        &mut empty,
+        id,
+        LibraryResponse::Page(PageData::Mixes {
+            mixes: list(vec![], 0, 0),
+        }),
+    );
+    vec![
+        mixes_page(),
+        loading,
+        failed,
+        empty,
+        mix_page(browse_tracks(4)),
+        mix_page(vec![]),
+        track_radio_page(browse_tracks(3)),
+        track_radio_page(vec![]),
+        artist_radio_page(browse_tracks(3)),
+        artist_radio_page(vec![]),
+        track_actions_popup(),
+    ]
+}
+
+/// The actions popup over a favorite track.
+fn track_actions_popup() -> State {
+    let mut state = favorites();
+    press(&mut state, &[Key::Ctrl(' ')]);
+    state
+}
+
+#[test]
+fn ac11_mixes_80x24() {
+    // Mixes loaded: the title with the count, each row its title then
+    // its subtitle (none for the last), the first row highlighted.
+    let state = mixes_page();
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Mixes · 3 mixes",
+            "My Mix 1  Pierce The Veil, Sleeping With Sirens",
+            "My Mix 2  Bring Me The Horizon and more",
+            "Discovery Mix",
+        ],
+    );
+    assert!(
+        cell_at(&state, 80, 24, "Pierce The Veil, Sleeping")
+            .modifier
+            .contains(Mod::REVERSED),
+        "the cursor row is not highlighted"
+    );
+    insta::assert_snapshot!("ac11_mixes", text);
+
+    // A mix: its title and track count, the subtitle as a second,
+    // dim title row, then the tracks.
+    let state = mix_page(browse_tracks(4));
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "My Mix 1 · 4 tracks",
+            "Pierce The Veil, Sleeping With Sirens",
+            "Song 1",
+            "Song 4",
+        ],
+    );
+    let title = row_of(&text, "My Mix 1 · 4 tracks");
+    assert_eq!(
+        row_of(&text, "Pierce The Veil, Sleeping With Sirens"),
+        title + 1,
+        "the subtitle is not the second title row:\n{text}"
+    );
+    assert!(
+        cell_at(&state, 80, 24, "Pierce The Veil, Sleeping")
+            .modifier
+            .contains(Mod::DIM),
+        "the subtitle is not dim"
+    );
+    insta::assert_snapshot!("ac11_mix", text);
+    // Under 8 rows tall the subtitle row goes.
+    let text = draw(&state, 80, 7);
+    assert!(
+        !text.contains("Sleeping With Sirens"),
+        "subtitle on a short page:\n{text}"
+    );
+
+    // Track radio.
+    let text = draw(&track_radio_page(browse_tracks(3)), 80, 24);
+    assert_contains(&text, &["Song 1 Radio · Pierce The Veil", "Song 3"]);
+    insta::assert_snapshot!("ac11_track_radio", text);
+
+    // Artist radio.
+    let text = draw(&artist_radio_page(browse_tracks(3)), 80, 24);
+    assert_contains(&text, &["Pierce The Veil Radio", "Song 2"]);
+    insta::assert_snapshot!("ac11_artist_radio", text);
+
+    // Empty and failed.
+    let states = mixes_states();
+    let text = draw(&states[3], 80, 24);
+    assert_contains(&text, &["Mixes", "No mixes yet"]);
+    insta::assert_snapshot!("ac11_mixes_empty", text);
+    let text = draw(&states[7], 80, 24);
+    assert_contains(&text, &["No radio for this track"]);
+    insta::assert_snapshot!("ac11_track_radio_empty", text);
+    let text = draw(&states[2], 80, 24);
+    assert_contains(
+        &text,
+        &["Could not load the mixes: Could not reach Tidal: timed out"],
+    );
+    insta::assert_snapshot!("ac11_mixes_failed", text);
+
+    // The actions popup on a track offers the radio.
+    let text = draw(&states[10], 80, 24);
+    assert_contains(&text, &["Go to radio"]);
+    insta::assert_snapshot!("ac11_track_actions_radio", text);
+}
+
+#[test]
+fn ac11_mixes_narrow_50x20() {
+    let text = draw(&mix_page(browse_tracks(4)), 50, 20);
+    assert_contains(
+        &text,
+        &[
+            "My Mix 1 · 4 tracks",
+            "Pierce The Veil, Sleeping With Sirens",
+            "Song 1",
+        ],
+    );
+    insta::assert_snapshot!("ac11_mix_narrow", text);
+    let text = draw(&mixes_page(), 50, 20);
+    assert_contains(
+        &text,
+        &["Mixes · 3 mixes", "My Mix 1  Pierce The Veil, Sleeping"],
+    );
+}
+
+// --- spec 0007 AC12: the search page ------------------------------------------
+
+use tidal_player_core::library::TopHit;
+
+const QUERY: &str = "pierce the veil";
+
+fn typed(text: &str) -> Vec<Key> {
+    text.chars().map(Key::Char).collect()
+}
+
+/// `g s` on the playing state: an empty search page, its input focused.
+fn search_empty() -> State {
+    let mut state = state_of(playing());
+    let effects = press(&mut state, &[Key::Char('g'), Key::Char('s')]);
+    assert!(effects.is_empty(), "{effects:?}");
+    state
+}
+
+/// `pierce the veil` typed and sent: the ID of the search.
+fn search_sent(state: &mut State) -> u64 {
+    press(state, &typed(QUERY));
+    ask(state, &[Key::Enter])
+}
+
+fn search_tracks() -> Vec<Track> {
+    let ptv = "Pierce The Veil";
+    vec![
+        track(11, "Hell Above", ptv, "Collide With The Sky", Some(212)),
+        track(12, "King For A Day", ptv, "Collide With The Sky", Some(232)),
+        track(
+            13,
+            "Bulls In The Bronx",
+            ptv,
+            "Collide With The Sky",
+            Some(290),
+        ),
+    ]
+}
+
+fn search_data(top_hit: Option<TopHit>) -> PageData {
+    PageData::Search {
+        top_hit: top_hit.map(Box::new),
+        tracks: list(search_tracks(), 300, 0),
+        albums: list(
+            vec![
+                album(
+                    1,
+                    "Collide With The Sky",
+                    "Pierce The Veil",
+                    2012,
+                    AlbumKind::Album,
+                ),
+                album(
+                    2,
+                    "Misadventures",
+                    "Pierce The Veil",
+                    2016,
+                    AlbumKind::Album,
+                ),
+            ],
+            41,
+            0,
+        ),
+        artists: list(
+            vec![
+                artist_ref(7, "Pierce The Veil"),
+                artist_ref(8, "Sleeping With Sirens"),
+            ],
+            6,
+            0,
+        ),
+        playlists: list(
+            vec![playlist("s1", "This Is Pierce The Veil", 50, false)],
+            300,
+            0,
+        ),
+    }
+}
+
+fn search_nothing() -> PageData {
+    PageData::Search {
+        top_hit: None,
+        tracks: list(vec![], 0, 0),
+        albums: list(vec![], 0, 0),
+        artists: list(vec![], 0, 0),
+        playlists: list(vec![], 0, 0),
+    }
+}
+
+/// A search for `pierce the veil` answered with `data`.
+fn searched(data: PageData) -> State {
+    let mut state = search_empty();
+    let id = search_sent(&mut state);
+    answer(&mut state, id, LibraryResponse::Page(data));
+    state
+}
+
+fn search_artist_hit() -> State {
+    searched(search_data(Some(TopHit::Artist(artist_ref(
+        7,
+        "Pierce The Veil",
+    )))))
+}
+
+fn search_loading() -> State {
+    let mut state = search_empty();
+    search_sent(&mut state);
+    state
+}
+
+fn search_failed() -> State {
+    let mut state = search_empty();
+    let id = search_sent(&mut state);
+    fail(&mut state, id, "Could not reach Tidal: timed out");
+    state
+}
+
+/// Every state of the search page, for the no-panic sweep.
+fn search_states() -> Vec<State> {
+    let mut windows = search_artist_hit();
+    press(&mut windows, &[Key::Tab, Key::Tab]);
+    let mut long = search_empty();
+    press(&mut long, &typed(&"米津玄師 ".repeat(40)));
+    vec![
+        search_empty(),
+        search_loading(),
+        search_artist_hit(),
+        searched(search_data(None)),
+        searched(search_nothing()),
+        search_failed(),
+        windows,
+        long,
+    ]
+}
+
+/// The row of `text` that holds `part`.
+fn row_of(text: &str, part: &str) -> usize {
+    text.split('\n')
+        .position(|r| r.contains(part))
+        .unwrap_or_else(|| panic!("{part:?} missing:\n{text}"))
+}
+
+/// The cell at the start of `part` on its row.
+fn cell_at(state: &State, width: u16, height: u16, part: &str) -> ratatui::buffer::Cell {
+    let text = draw(state, width, height);
+    let y = row_of(&text, part);
+    let line = row(&text, y);
+    let x = line[..line.find(part).unwrap()].chars().count();
+    let terminal = draw_terminal(state, width, height);
+    terminal.backend().buffer()[(x as u16, y as u16)].clone()
+}
+
+#[test]
+fn ac12_search_80x24() {
+    // The empty page: the input under the title, focused, with its
+    // cursor; the windows show nothing.
+    let state = search_empty();
+    let text = draw(&state, 80, 24);
+    let title = row_of(&text, "│Search ");
+    assert_eq!(row_of(&text, "Search: ▏"), title + 1, "{text}");
+    assert!(!text.contains("Search ·"), "{text}");
+    assert!(!text.contains("Loading…"), "{text}");
+    assert!(!text.contains("Top hit"), "{text}");
+    assert!(!text.contains("No tracks found"), "{text}");
+    assert!(
+        !cell_at(&state, 80, 24, "Search: ")
+            .modifier
+            .contains(Mod::DIM),
+        "focused input dimmed"
+    );
+    insta::assert_snapshot!("ac12_search_empty", text);
+
+    // Loading: the query in the title, each window `Loading…`.
+    let text = draw(&search_loading(), 80, 24);
+    assert_contains(
+        &text,
+        &["Search · \"pierce the veil\"", "Search: pierce the veil▏"],
+    );
+    assert_eq!(text.matches("Loading…").count(), 4, "{text}");
+    insta::assert_snapshot!("ac12_search_loading", text);
+
+    // Results with a top hit: the top-hit row, highlighted, under the
+    // input; the four windows with totals in a 2 × 2 grid.
+    let state = search_artist_hit();
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Search · \"pierce the veil\"",
+            "Search: pierce the veil",
+            "Top hit: Pierce The Veil · artist",
+            "Tracks (300)",
+            "Albums (41)",
+            "Artists (6)",
+            "Playlists (300)",
+            "Hell Above",
+            // Half the width: the third title is cut.
+            "Bulls In Th…",
+            "Collide With The…",
+            "Misadventures",
+            "Sleeping With Sirens",
+            "This Is Pierce The Veil",
+        ],
+    );
+    assert!(!text.contains('▏'), "the input has no focus:\n{text}");
+    let input = row_of(&text, "Search: ");
+    assert_eq!(row_of(&text, "Top hit: "), input + 1, "{text}");
+    let top = row_of(&text, "Tracks (300)");
+    assert_eq!(row_of(&text, "Albums (41)"), top, "{text}");
+    let bottom = row_of(&text, "Artists (6)");
+    assert_eq!(row_of(&text, "Playlists (300)"), bottom, "{text}");
+    assert!(bottom > row_of(&text, "Bulls In Th…"), "{text}");
+    assert!(!text.contains("‹Tab›"), "{text}");
+    assert!(
+        cell_at(&state, 80, 24, "Pierce The Veil · artist")
+            .modifier
+            .contains(Mod::REVERSED),
+        "the focused top hit is not highlighted"
+    );
+    assert!(
+        cell_at(&state, 80, 24, "Search: ")
+            .modifier
+            .contains(Mod::DIM),
+        "the unfocused input is not dim"
+    );
+    insta::assert_snapshot!("ac12_search_top_hit", text);
+
+    // A top hit of each other kind.
+    for (hit, row) in [
+        (
+            TopHit::Track(search_tracks()[0].clone()),
+            "Top hit: Hell Above · track",
+        ),
+        (
+            TopHit::Album(album(
+                1,
+                "Collide With The Sky",
+                "Pierce The Veil",
+                2012,
+                AlbumKind::Album,
+            )),
+            "Top hit: Collide With The Sky · album",
+        ),
+        (
+            TopHit::Playlist(playlist("s1", "This Is Pierce The Veil", 50, false)),
+            "Top hit: This Is Pierce The Veil · playlist",
+        ),
+    ] {
+        assert_contains(&draw(&searched(search_data(Some(hit))), 80, 24), &[row]);
+    }
+
+    // Results without a top hit: no top-hit row, *Tracks* focused.
+    let text = draw(&searched(search_data(None)), 80, 24);
+    assert_contains(
+        &text,
+        &["Search: pierce the veil", "Tracks (300)", "Hell Above"],
+    );
+    assert!(!text.contains("Top hit"), "{text}");
+    assert_eq!(
+        row_of(&text, "Tracks (300)"),
+        row_of(&text, "Search: ") + 1,
+        "{text}"
+    );
+    insta::assert_snapshot!("ac12_search_no_top_hit", text);
+
+    // Nothing found: each window says so; the input keeps the focus.
+    let text = draw(&searched(search_nothing()), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Search: pierce the veil▏",
+            "Tracks (0)",
+            "No tracks found",
+            "No albums found",
+            "No artists found",
+            "No playlists found",
+        ],
+    );
+    insta::assert_snapshot!("ac12_search_nothing_found", text);
+
+    // A failed search: its message in the page, the input still there.
+    let text = draw(&search_failed(), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Search: pierce the veil▏",
+            "Could not search: Could not reach Tidal: timed out",
+        ],
+    );
+    assert!(!text.contains("Loading…"), "{text}");
+    insta::assert_snapshot!("ac12_search_failed", text);
+}
+
+/// 50×20: the input, the top hit and the focused window alone, its
+/// title followed by `‹Tab›`.
+#[test]
+fn ac12_search_narrow_50x20() {
+    let mut state = search_artist_hit();
+    let text = draw(&state, 50, 20);
+    assert_contains(
+        &text,
+        &[
+            "Search: pierce the veil",
+            "Top hit: Pierce The Veil · artist",
+            "Tracks (300) ‹Tab›",
+            "Hell Above",
+        ],
+    );
+    for other in ["Albums (41)", "Artists (6)", "Playlists (300)"] {
+        assert!(!text.contains(other), "{other} drawn:\n{text}");
+    }
+    insta::assert_snapshot!("ac12_search_narrow", text);
+    // `Tab`: top hit → Tracks → Albums.
+    press(&mut state, &[Key::Tab, Key::Tab]);
+    let text = draw(&state, 50, 20);
+    assert_contains(&text, &["Albums (41) ‹Tab›", "Collide With The Sky"]);
+    assert!(!text.contains("Tracks (300)"), "{text}");
+    // The empty page: the input and one empty window.
+    let text = draw(&search_empty(), 50, 20);
+    assert_contains(&text, &["Search: ▏", "Tracks ‹Tab›"]);
+}
+// --- spec 0008 AC14: the keys help, the library layout ---------------------------
+
+/// `?` pressed on `state`, then `keys`.
+fn with_help(mut state: State, keys: &[Key]) -> State {
+    press(&mut state, &[Key::Char('?')]);
+    press(&mut state, keys);
+    assert!(state.help.is_some(), "the help did not open");
+    state
+}
+
+/// The library with its *Albums* window focused.
+fn library_albums() -> State {
+    let mut state = library();
+    press(&mut state, &[Key::Tab]);
+    state
+}
+
+/// The library with `n` moved to `g n`, `q` unbound and an
+/// `[[actions]]` binding.
+fn custom_keymap() -> State {
+    use tidal_player_core::ui::keymap::{
+        ActionEntry, CommandEntry, KeymapEntry, KeymapFile, Target, build,
+    };
+    let entry = |key_sequence: &str, name: &str| KeymapEntry {
+        command: CommandEntry::name(name),
+        key_sequence: key_sequence.into(),
+    };
+    let file = KeymapFile {
+        keymaps: vec![
+            entry("n", "None"),
+            entry("g n", "NextTrack"),
+            entry("q", "None"),
+        ],
+        actions: vec![ActionEntry {
+            action: "GoToAlbum".into(),
+            key_sequence: "g B".into(),
+            target: Target::PlayingTrack,
+        }],
+    };
+    let mut state = library();
+    tidal_player_core::ui::apply_keymap(&mut state, build(&file).unwrap());
+    state
+}
+
+fn typed_keys(text: &str) -> Vec<Key> {
+    text.chars().map(Key::Char).collect()
+}
+
+fn filtered(filter: &str) -> State {
+    let mut keys = vec![Key::Char('/')];
+    keys.extend(typed_keys(filter));
+    with_help(library_albums(), &keys)
+}
+
+fn help_states() -> Vec<State> {
+    vec![
+        with_help(state_of(playing()), &[]),
+        with_help(library_albums(), &[]),
+        filtered("fav"),
+        filtered("xyz"),
+        with_help(actions_popup(), &[]),
+        with_help(custom_keymap(), &[]),
+        with_help(state_of(playing()), &[Key::Char('j'); 30]),
+    ]
+}
+
+/// The line of `text` that contains `part`.
+fn line_with<'a>(text: &'a str, part: &str) -> &'a str {
+    text.split('\n')
+        .find(|l| l.contains(part))
+        .unwrap_or_else(|| panic!("{part:?} missing:\n{text}"))
+}
+
+#[test]
+fn ac14_help_80x24() {
+    // On the queue page: the window's section first, then the rest.
+    let state = with_help(state_of(playing()), &[]);
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "┌Keys",
+            "Queue",
+            "play the entry",
+            "Lists",
+            "j  down  C-n",
+            "move down",
+            "/ filter · enter run · esc close",
+        ],
+    );
+    let queue = row_of(&text, " Queue");
+    let lists = row_of(&text, " Lists");
+    assert!(queue < lists, "sections out of order:\n{text}");
+    // The highlighted row: the first binding row.
+    let y = row_of(&text, "play the entry");
+    let x = line_with(&text, "play the entry")
+        .split("enter")
+        .next()
+        .unwrap()
+        .chars()
+        .count();
+    let terminal = draw_terminal(&state, 80, 24);
+    let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+    assert!(cell.modifier.contains(Mod::REVERSED), "{cell:?}\n{text}");
+    // 80 % of the page area (78 × 18): 62 × 14, centred.
+    let top = row_of(&text, "┌Keys");
+    let left = line_with(&text, "┌Keys").chars().position(|c| c == '┌');
+    assert_eq!((left, top), (Some(9), 7), "{text}");
+    assert_eq!(
+        line_with(&text, "┌Keys")
+            .chars()
+            .filter(|c| *c == '─')
+            .count()
+            + 2
+            + 4,
+        62,
+        "{text}"
+    );
+    insta::assert_snapshot!("ac14_help_queue", text);
+
+    // The library, *Albums* focused.
+    let text = draw(&with_help(library_albums(), &[]), 80, 24);
+    assert_contains(
+        &text,
+        &["┌Keys", "Library · Albums", "open the album", "Z  C-z"],
+    );
+    insta::assert_snapshot!("ac14_help_library_albums", text);
+
+    // Filtered by `fav`: only the matching rows, the filter shown.
+    let text = draw(&filtered("fav"), 80, 24);
+    assert_contains(&text, &["┌Keys", "/fav", "favorite tracks", "g y"]);
+    assert!(!text.contains("play / pause"), "{text}");
+    insta::assert_snapshot!("ac14_help_filtered", text);
+
+    // Nothing matches.
+    let text = draw(&filtered("xyz"), 80, 24);
+    assert_contains(&text, &["┌Keys", "No keys match \"xyz\""]);
+    insta::assert_snapshot!("ac14_help_no_match", text);
+
+    // Opened from the actions popup: the popup's section first.
+    let state = with_help(actions_popup(), &[]);
+    assert!(state.popup.is_some());
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "┌Keys",
+            "Popup · Actions",
+            "run the selected entry",
+            "Lists",
+            " App",
+        ],
+    );
+    assert!(!text.contains("play / pause"), "{text}");
+    insta::assert_snapshot!("ac14_help_actions_popup", text);
+
+    // A custom keymap: the moved key, the removed one gone, `Actions`.
+    let text = draw(&with_help(custom_keymap(), &[]), 80, 24);
+    // The window, Lists and Pages sections come first: scroll to the
+    // end to see the rest.
+    let state = with_help(custom_keymap(), &[Key::Char('G')]);
+    let end = draw(&state, 80, 24);
+    assert_contains(&end, &["Actions", "g B", "go to the album (playing track)"]);
+    assert_contains(&end, &["C-c", "quit"]);
+    assert!(line_with(&end, "quit").contains("C-c"), "{end}");
+    assert!(!line_with(&end, "quit").contains("q  C-c"), "{end}");
+    insta::assert_snapshot!("ac14_help_custom_keymap", text);
+    insta::assert_snapshot!("ac14_help_custom_keymap_end", end);
+    let mut keys = vec![Key::Char('/')];
+    keys.extend(typed_keys("next"));
+    let middle = draw(&with_help(custom_keymap(), &keys), 80, 24);
+    assert!(line_with(&middle, "next track").contains("g n"), "{middle}");
+    assert!(
+        !line_with(&middle, "next track").contains("n  g n"),
+        "{middle}"
+    );
+}
+
+/// 40×12: the help takes the whole terminal (at least 40 × 10); the key
+/// column stays whole and the help text is cut with `…`.
+#[test]
+fn ac14_help_40x12() {
+    let text = draw(&with_help(library(), &[]), 40, 12);
+    assert_contains(
+        &text,
+        &["┌Keys", "Library · Playlists", "open the playlist"],
+    );
+    let row = line_with(&text, "Z  C-z");
+    assert!(row.contains("add to the end of"), "{text}");
+    assert!(row.contains('…'), "not cut: {row:?}\n{text}");
+    assert!(!text.contains("add to the end of the queue"), "{text}");
+    insta::assert_snapshot!("ac14_help_40x12", text);
+}
+
+/// The library at `playlist_percent = 30, album_percent = 50`: 23, 39
+/// and 16 of the 78 columns.
+#[test]
+fn ac14_library_percentages() {
+    let mut state = library();
+    state.library_layout = tidal_player_core::ui::LibraryLayout {
+        playlist_percent: 30,
+        album_percent: 50,
+    };
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["Playlists (22)", "Albums (14)", "Artists (196)"]);
+    let titles = line_with(&text, "Playlists (22)");
+    let column = |part: &str| titles[..titles.find(part).unwrap()].chars().count();
+    assert_eq!(
+        (column("Playlists"), column("Albums"), column("Artists")),
+        (2, 25, 64),
+        "{text}"
+    );
+    insta::assert_snapshot!("ac14_library_30_50", text);
+    // The defaults keep 0006's 40 / 40 / 20.
+    let text = draw(&library(), 80, 24);
+    let titles = line_with(&text, "Playlists (22)");
+    let column = |part: &str| titles[..titles.find(part).unwrap()].chars().count();
+    assert_eq!(
+        (column("Playlists"), column("Albums"), column("Artists")),
+        (2, 33, 64),
+        "{text}"
+    );
+}
+
+// --- spec 0009 AC14 ----------------------------------------------------------
+
+/// The player's state at start, as the standalone TUI and the daemon
+/// make it from what `playback.json` gave.
+fn started_from(loaded: crate::player::persist::Loaded) -> State {
+    let settings = crate::cli::play::PlayerSettings::default();
+    let player =
+        crate::player::runtime::starting_state(settings.player.clone(), 7, &settings, loaded);
+    state_of(player.snapshot())
+}
+
+/// AC14: a restored state: stopped (`■`) on "Hell Above" at 1:23 of
+/// 4:56 with its bar, the queue with the current entry marked.
+#[test]
+fn ac14_restored_80x24() {
+    use tidal_player_core::PlayerState;
+    use tidal_player_core::player::{PlayerConfig, PlayerInput, update as player_update};
+    use tidal_player_core::protocol::Command;
+
+    let ptv = "Pierce The Veil";
+    let album = "Collide With The Sky";
+    let mut st = PlayerState::new(PlayerConfig::default(), 3);
+    for command in [
+        Command::LoadQueue {
+            tracks: vec![
+                track(1001, "May These Noises Startle You", ptv, album, Some(241)),
+                track(1002, "Hell Above", ptv, album, Some(296)),
+                track(1003, "A Match Into Water", ptv, album, Some(262)),
+            ],
+            start: 1,
+        },
+        Command::CycleRepeat,
+        Command::SetVolume(70),
+        Command::SeekTo(Duration::from_secs(83)),
+    ] {
+        player_update(&mut st, PlayerInput::Command(command));
+    }
+    let state = started_from(crate::player::persist::Loaded {
+        saved: Some(st.saved()),
+        message: None,
+    });
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        row(&text, 1),
+        &["■ Hell Above · Pierce The Veil", "repeat: queue", "70%"],
+    );
+    assert_contains(row(&text, 4), &["━", "─", "1:23 / 4:56"]);
+    assert_contains(&text, &["Queue (3)", "▶ 2", "A Match Into Water"]);
+    insta::assert_snapshot!(text);
+}
+
+/// AC14: a corrupt `playback.json`: an empty start, the message on the
+/// message row.
+#[test]
+fn ac14_restore_message_80x24() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("playback.json"), "{\"version\": 1").unwrap();
+    let loaded = crate::player::persist::load(&crate::player::persist::RealFs, dir.path());
+    let text = draw(&started_from(loaded), 80, 24);
+    assert_contains(row(&text, 1), &["Nothing playing"]);
+    assert_contains(
+        row(&text, 3),
+        &["Could not restore the playback state (kept as playback.json.bad)"],
+    );
+    insta::assert_snapshot!(text);
+}
+
+// --- spec 0013: key-sequence hints -------------------------------------------------
+
+use tidal_player_core::ui::{HintEntry, Hints};
+
+/// AC5: the timer draws once the same pending keys have been pending
+/// for the delay; a further key restarts it, nothing pending resets it.
+#[test]
+fn ac5_hint_timer() {
+    let g = Key::Char('g');
+    let s = Key::Char('s');
+    let l = Key::Char('l');
+    type Step = (Vec<Key>, u64, bool);
+    let rows: Vec<(&str, u64, Vec<Step>)> = vec![
+        (
+            "delay",
+            1000,
+            vec![
+                (vec![g], 0, false),
+                (vec![g], 999, false),
+                (vec![g], 1000, true),
+                (vec![g], 5000, true),
+            ],
+        ),
+        ("delay 0", 0, vec![(vec![g], 0, true), (vec![g], 10, true)]),
+        (
+            "nothing pending",
+            0,
+            vec![(vec![], 0, false), (vec![], 5000, false)],
+        ),
+        (
+            "a further key restarts",
+            1000,
+            vec![
+                (vec![s], 0, false),
+                (vec![s], 800, false),
+                (vec![s, l], 900, false),
+                (vec![s, l], 1899, false),
+                (vec![s, l], 1900, true),
+            ],
+        ),
+        (
+            "completed, cancelled or mismatched resets",
+            1000,
+            vec![
+                (vec![g], 0, false),
+                (vec![g], 1000, true),
+                (vec![], 1100, false),
+                (vec![g], 1200, false),
+                (vec![g], 2199, false),
+                (vec![g], 2200, true),
+            ],
+        ),
+    ];
+    let start = Instant::now();
+    for (name, delay, steps) in rows {
+        let mut timer = HintTimer::new(Duration::from_millis(delay));
+        for (i, (pending, at, want)) in steps.into_iter().enumerate() {
+            let now = start + Duration::from_millis(at);
+            assert_eq!(
+                timer.update(&pending, now),
+                want,
+                "{name}: step {i} ({pending:?} at {at} ms)"
+            );
+        }
+    }
+}
+
+fn hint(key: &str, text: &str) -> HintEntry {
+    HintEntry {
+        key: key.into(),
+        text: text.into(),
+        dim: false,
+        more: 0,
+    }
+}
+
+/// The six default `g` entries, in the library's order.
+fn g_entries() -> Vec<HintEntry> {
+    vec![
+        hint("a", "actions on the selected row"),
+        hint("g", "move to the top"),
+        hint("l", "the library"),
+        hint("y", "favorite tracks"),
+        hint("s", "the search page (on one: its input)"),
+        hint("m", "your mixes"),
+    ]
+}
+
+/// AC6: the box's place, columns, rows, title and cut cells for a page
+/// area (`… +N more` when the entries do not fit); no box under 3 × 12.
+#[test]
+fn ac6_key_hints_layout() {
+    let g = |entries: Vec<HintEntry>| Hints {
+        prefix: "g".into(),
+        entries,
+    };
+    let cell = |text: &str| (text.to_owned(), false);
+    let page = |width: u16, height: u16| Rect {
+        x: 1,
+        y: 5,
+        width,
+        height,
+    };
+    type Want = Option<(Rect, usize, Vec<Vec<(String, bool)>>)>;
+    let rows: Vec<(&str, Hints, Rect, Want)> = vec![
+        (
+            "80 × 24: two columns of 32",
+            g(g_entries()),
+            page(78, 18),
+            Some((
+                Rect::new(1, 18, 78, 5),
+                32,
+                vec![
+                    vec![
+                        cell("a  actions on the selected row"),
+                        cell("y  favorite tracks"),
+                    ],
+                    vec![
+                        cell("g  move to the top"),
+                        cell("s  the search page (on one: its…"),
+                    ],
+                    vec![cell("l  the library"), cell("m  your mixes")],
+                ],
+            )),
+        ),
+        (
+            "120 × 30: three columns",
+            g(g_entries()),
+            page(118, 24),
+            Some((
+                Rect::new(1, 25, 118, 4),
+                32,
+                vec![
+                    vec![
+                        cell("a  actions on the selected row"),
+                        cell("l  the library"),
+                        cell("s  the search page (on one: its…"),
+                    ],
+                    vec![
+                        cell("g  move to the top"),
+                        cell("y  favorite tracks"),
+                        cell("m  your mixes"),
+                    ],
+                ],
+            )),
+        ),
+        (
+            "40 × 12: one column, … +4 more",
+            g(g_entries()),
+            page(38, 6),
+            Some((
+                Rect::new(1, 6, 38, 5),
+                32,
+                vec![
+                    vec![cell("a  actions on the selected row")],
+                    vec![cell("g  move to the top")],
+                    vec![cell("… +4 more")],
+                ],
+            )),
+        ),
+        (
+            "one row: … +5 more",
+            g(g_entries()),
+            page(78, 4),
+            Some((
+                Rect::new(1, 6, 78, 3),
+                32,
+                vec![vec![
+                    cell("a  actions on the selected row"),
+                    cell("… +5 more"),
+                ]],
+            )),
+        ),
+        (
+            "12 columns: cut to the inner width",
+            g(g_entries()[..1].to_vec()),
+            page(12, 4),
+            Some((Rect::new(1, 6, 12, 3), 10, vec![vec![cell("a  action…")]])),
+        ),
+        (
+            "short entries: as wide as the widest",
+            g(vec![hint("a", "x"), hint("b", "y"), hint("C-c", "z")]),
+            page(78, 18),
+            Some((
+                Rect::new(1, 20, 78, 3),
+                6,
+                vec![vec![cell("a  x"), cell("b  y"), cell("C-c  z")]],
+            )),
+        ),
+        (
+            "nested prefix and dim",
+            Hints {
+                prefix: "s l".into(),
+                entries: vec![
+                    hint("q", "the queue page"),
+                    HintEntry {
+                        key: "l".into(),
+                        text: String::new(),
+                        dim: true,
+                        more: 2,
+                    },
+                ],
+            },
+            page(78, 18),
+            Some((
+                Rect::new(1, 20, 78, 3),
+                17,
+                vec![vec![cell("q  the queue page"), ("l  +2".into(), true)]],
+            )),
+        ),
+        ("11 columns: none", g(g_entries()), page(11, 18), None),
+        ("2 rows: none", g(g_entries()), page(78, 2), None),
+        (
+            "3 rows: no room for a row",
+            g(g_entries()),
+            page(78, 3),
+            None,
+        ),
+    ];
+    for (name, hints, area, want) in rows {
+        let got = pages::hint_layout(&hints, area);
+        match want {
+            None => assert_eq!(got, None, "{name}"),
+            Some((rect, width, cells)) => {
+                let got = got.unwrap_or_else(|| panic!("{name}: no box"));
+                assert_eq!(got.rect, rect, "{name}: rect");
+                assert_eq!(got.width, width, "{name}: column width");
+                assert_eq!(got.rows, cells, "{name}: cells");
+                let title = format!("{} …", hints.prefix);
+                assert_eq!(got.title, title, "{name}: title");
+            }
+        }
+    }
+}
+
+/// `state` with `keys` pressed (a sequence left pending).
+fn pending(mut state: State, keys: &[Key]) -> State {
+    press(&mut state, keys);
+    assert!(!state.pending.is_empty(), "nothing pending");
+    state
+}
+
+/// The library with `s q`, `s l a` and `s l b` bound.
+fn nested_keymap() -> State {
+    use tidal_player_core::ui::keymap::{CommandEntry, KeymapEntry, KeymapFile, build};
+    let entry = |key_sequence: &str, name: &str| KeymapEntry {
+        command: CommandEntry::name(name),
+        key_sequence: key_sequence.into(),
+    };
+    let file = KeymapFile {
+        keymaps: vec![
+            entry("s q", "Queue"),
+            entry("s l a", "LikedTrackPage"),
+            entry("s l b", "NextTrack"),
+        ],
+        actions: vec![],
+    };
+    let mut state = library();
+    tidal_player_core::ui::apply_keymap(&mut state, build(&file).unwrap());
+    state
+}
+
+/// The library loaded with nothing in it: no row is selected.
+fn library_empty() -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    answer(&mut state, id, LibraryResponse::Page(empty_library()));
+    state
+}
+
+fn hint_states() -> Vec<State> {
+    let g = [Key::Char('g')];
+    vec![
+        pending(library(), &g),
+        pending(state_of(playing()), &g),
+        pending(actions_popup(), &g),
+        pending(nested_keymap(), &[Key::Char('s')]),
+        pending(library_empty(), &g),
+    ]
+}
+
+/// AC6: the hint docked at the bottom of the page area, titled `g …`,
+/// its entries in columns, dim entries dim; snapshots per view and size.
+#[test]
+fn ac6_key_hints() {
+    let g = [Key::Char('g')];
+
+    // The library, a row selected: two columns at 80 × 24.
+    let state = pending(library(), &g);
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "┌g …",
+            "a  actions on the selected row     s  the search page (on one: its…",
+            "g  move to the top                 m  your mixes",
+            "l  the library                     b  browse what Tidal picks",
+            "y  favorite tracks                 L  lyrics of the playing track",
+        ],
+    );
+    // Docked: the box's bottom border is the page area's last row.
+    assert_eq!(row_of(&text, "┌g …"), 17, "{text}");
+    assert!(row(&text, 22).starts_with("│└"), "{text}");
+    // Not drawn when the timer says no.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|frame| render(&state, frame, false)).unwrap();
+    assert!(!buffer_text(&terminal).contains("┌g …"));
+    insta::assert_snapshot!("ac6_key_hints_library", text);
+
+    // The queue page: the entry's text.
+    let text = draw(&pending(state_of(playing()), &g), 80, 24);
+    assert_contains(&text, &["┌g …", "a  actions on the entry"]);
+    insta::assert_snapshot!("ac6_key_hints_queue", text);
+
+    // Over the actions popup: only `g`.
+    let text = draw(&pending(actions_popup(), &g), 80, 24);
+    assert_contains(&text, &["┌g …", "g  move to the top"]);
+    assert!(!text.contains("the library"), "{text}");
+    insta::assert_snapshot!("ac6_key_hints_actions_popup", text);
+
+    // 40 × 12: one column, cut, `… +N more`.
+    let text = draw(&pending(library(), &g), 40, 12);
+    assert_contains(
+        &text,
+        &["┌g …", "a  actions on the selected row", "… +6 more"],
+    );
+    insta::assert_snapshot!("ac6_key_hints_40x12", text);
+
+    // 120 × 30: three columns.
+    let text = draw(&pending(library(), &g), 120, 30);
+    assert_contains(
+        &text,
+        &[
+            "┌g …",
+            "a  actions on the selected row     y  favorite tracks",
+        ],
+    );
+    insta::assert_snapshot!("ac6_key_hints_120x30", text);
+
+    // A nested prefix.
+    let text = draw(&pending(nested_keymap(), &[Key::Char('s')]), 80, 24);
+    assert_contains(&text, &["┌s …", "q  the queue page", "l  +2"]);
+    insta::assert_snapshot!("ac6_key_hints_nested", text);
+
+    // Dim: no row selected, so `a` does nothing; `l` does.
+    let state = pending(library_empty(), &g);
+    let text = draw(&state, 80, 24);
+    let terminal = draw_terminal(&state, 80, 24);
+    let at = |part: &str| {
+        let y = row_of(&text, part);
+        let x = line_with(&text, part)
+            .split(part)
+            .next()
+            .unwrap()
+            .chars()
+            .count();
+        terminal.backend().buffer()[(x as u16, y as u16)].clone()
+    };
+    assert!(
+        at("actions on the selected row")
+            .modifier
+            .contains(Mod::DIM)
+    );
+    assert!(!at("the library").modifier.contains(Mod::DIM));
+
+    // No page area (under 8 rows): no hint.
+    let text = draw(&pending(library(), &g), 80, 7);
+    assert!(!text.contains("g …"), "{text}");
+}
+
+// --- spec 0014 AC9: the devices popup ------------------------------------------
+
+use tidal_player_core::protocol::DeviceEntry;
+
+fn device_list() -> Vec<DeviceEntry> {
+    [
+        ("default", "shared, through the system mixer"),
+        ("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+        ("hw:1,0", "E30 II: USB Audio"),
+    ]
+    .into_iter()
+    .map(|(name, description)| DeviceEntry {
+        name: name.into(),
+        description: description.into(),
+    })
+    .collect()
+}
+
+/// `D` over the queue of a player on `device`: the popup, loading; its
+/// request ID.
+fn devices_popup(device: &str) -> (State, u64) {
+    let mut snapshot = playing();
+    snapshot.device = device.into();
+    let mut state = state_of(snapshot);
+    let effects = press(&mut state, &[Key::Char('D')]);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Devices { id } => Some(*id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no devices request: {effects:?}"));
+    (state, id)
+}
+
+/// The popup with the player's answer.
+fn devices_answered(device: &str, result: Result<Vec<DeviceEntry>, String>) -> State {
+    let (mut state, id) = devices_popup(device);
+    update(&mut state, Action::DevicesReply { id, result });
+    state
+}
+
+fn devices_states() -> Vec<State> {
+    let mut moved = devices_answered("hw:1,0", Ok(device_list()));
+    press(&mut moved, &[Key::Char('k')]);
+    vec![
+        devices_popup("default").0,
+        devices_answered("default", Ok(device_list())),
+        devices_answered("plughw:1,0", Ok(device_list())),
+        devices_answered("default", Err("cannot read /proc/asound/cards".into())),
+        devices_answered("default", Ok(Vec::new())),
+        moved,
+    ]
+}
+
+/// 0014 AC9: the devices popup at 80×24 (loading, the list with `●` on
+/// the selected device and the names aligned, a selected device the
+/// list lacks shown first as `not found`, a failure) and at 40×12.
+#[test]
+fn ac9_devices_popup() {
+    let text = draw(&devices_popup("default").0, 80, 24);
+    assert_contains(&text, &["┌Devices", "Loading devices…"]);
+    insta::assert_snapshot!("ac9_devices_loading", text);
+
+    let state = devices_answered("default", Ok(device_list()));
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "┌Devices",
+            "│● default   shared, through the system mixer",
+            "│  hw:0,0    HDA Intel PCH: ALC892 Analog",
+            "│  hw:1,0    E30 II: USB Audio",
+        ],
+    );
+    // The cursor's row (the selected device) is reversed.
+    let terminal = draw_terminal(&state, 80, 24);
+    let y = row_of(&text, "● default");
+    let x = line_with(&text, "● default")
+        .split("● default")
+        .next()
+        .unwrap()
+        .chars()
+        .count();
+    assert!(
+        terminal.backend().buffer()[(x as u16, y as u16)]
+            .modifier
+            .contains(Mod::REVERSED),
+        "{text}"
+    );
+    insta::assert_snapshot!("ac9_devices_list", text);
+
+    let text = draw(&devices_answered("plughw:1,0", Ok(device_list())), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "│● plughw:1,0   not found",
+            "│  default      shared, through the system mixer",
+        ],
+    );
+    insta::assert_snapshot!("ac9_devices_missing", text);
+
+    let text = draw(
+        &devices_answered(
+            "default",
+            Err("cannot read /proc/asound/cards: Permission denied".into()),
+        ),
+        80,
+        24,
+    );
+    assert_contains(&text, &["┌Devices", "Cannot list devices: cannot read"]);
+    insta::assert_snapshot!("ac9_devices_failed", text);
+
+    let text = draw(&devices_answered("hw:1,0", Ok(device_list())), 40, 12);
+    assert_contains(&text, &["┌Devices", "● hw:1,0"]);
+    insta::assert_snapshot!("ac9_devices_40x12", text);
+}
+
+// --- spec 0012 AC9: filtering a window ----------------------------------------
+
+/// `state` after `/`, `text` typed, and `Enter` when `keep`.
+fn with_filter(mut state: State, text: &str, keep: bool) -> State {
+    let mut keys = vec![Key::Char('/')];
+    keys.extend(typed_keys(text));
+    if keep {
+        keys.push(Key::Enter);
+    }
+    press(&mut state, &keys);
+    state
+}
+
+/// *All tracks* with only Performer checked.
+fn performer_only() -> State {
+    let mut state = all_tracks(false);
+    let keys = [
+        Key::Char('f'),
+        Key::Char('j'),
+        Key::Char(' '),
+        Key::Char('j'),
+        Key::Char(' '),
+        Key::Char('j'),
+        Key::Char(' '),
+        Key::Enter,
+    ];
+    press(&mut state, &keys);
+    state
+}
+
+/// The search page's *Tracks* window focused.
+fn search_tracks_window() -> State {
+    let mut state = search_artist_hit();
+    press(&mut state, &[Key::Tab]);
+    state
+}
+
+/// Every filter state, for the no-panic sweep.
+fn filter_states() -> Vec<State> {
+    let long = "pierce the veil ".repeat(6);
+    vec![
+        with_filter(favorites(), "song", true),
+        with_filter(favorites(), "so", false),
+        with_filter(favorites(), "", false),
+        with_filter(favorites(), "xyz", true),
+        with_filter(favorites(), &long, false),
+        with_filter(state_of(playing()), "you", true),
+        with_filter(state_of(playing()), "xyz", false),
+        with_filter(performer_only(), "hell", true),
+        with_filter(search_tracks_window(), "hell", true),
+        with_filter(library(), "late", true),
+        with_filter(album_page(vec![]), "x", false),
+        with_filter(mixes_page(), "mix 2", true),
+    ]
+}
+
+/// AC9: the titles with a filter, kept and while typing, in each kind
+/// of window and the queue.
+#[test]
+fn ac9_filter_titles() {
+    let cases: Vec<(&str, State, &str)> = vec![
+        (
+            "kept",
+            with_filter(favorites(), "song", true),
+            "Favorite tracks (362 · /song · 2 matches)",
+        ),
+        (
+            "typing",
+            with_filter(favorites(), "so", false),
+            "Favorite tracks (362 · /so▏ · 2 matches)",
+        ),
+        (
+            "typing, empty",
+            with_filter(favorites(), "", false),
+            "Favorite tracks (362 · /▏)",
+        ),
+        (
+            "one match",
+            with_filter(favorites(), "here", true),
+            "Favorite tracks (362 · /here · 1 match)",
+        ),
+        (
+            "no match",
+            with_filter(favorites(), "xyz", true),
+            "Favorite tracks (362 · /xyz · 0 matches)",
+        ),
+        (
+            "the queue",
+            with_filter(state_of(playing()), "you", true),
+            "Queue (12 · /you · 5 matches)",
+        ),
+        (
+            "the library",
+            with_filter(library(), "late", true),
+            "Playlists (22 · /late · 1 match)",
+        ),
+        (
+            "role and text filters",
+            with_filter(performer_only(), "hell", true),
+            "All tracks (548 · Performer · 37 hidden · /hell · 1 match)",
+        ),
+        (
+            "a search window",
+            with_filter(search_tracks_window(), "hell", true),
+            "/hell · 1 match)",
+        ),
+    ];
+    for (name, state, title) in cases {
+        let text = draw(&state, 200, 40);
+        assert!(text.contains(title), "{name}: {title:?} missing:\n{text}");
+    }
+    // The title is bold while typing (the focused window's is anyway).
+    let state = with_filter(state_of(playing()), "you", false);
+    let cell = cell_at(&state, 80, 24, "Queue (12 · /you▏");
+    assert!(cell.modifier.contains(Mod::BOLD), "{cell:?}");
+    let state = with_filter(state_of(playing()), "you", true);
+    let cell = cell_at(&state, 80, 24, "Queue (12 · /you ·");
+    assert!(!cell.modifier.contains(Mod::BOLD), "{cell:?}");
+}
+
+/// AC9: 80 × 24: favorite tracks with a kept filter, while typing, no
+/// match; the queue filtered (positions and `Suggested`); *All tracks*
+/// with a role filter and a text filter; a search window filtered.
+#[test]
+fn ac9_filter_80x24() {
+    // Kept: the matches only, `Loading more…` under them.
+    let text = draw(&with_filter(favorites(), "song", true), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Favorite tracks (362 · /song · 2 matches)",
+            "Song 1",
+            "Song 2",
+            "Loading more…",
+        ],
+    );
+    assert!(!text.contains("Not Streamable Here"), "{text}");
+    insta::assert_snapshot!("ac9_filter_kept", text);
+
+    // Typing: the cursor block after the text.
+    let text = draw(&with_filter(favorites(), "so", false), 80, 24);
+    assert_contains(&text, &["/so▏ · 2 matches", "Song 1", "Song 2"]);
+    insta::assert_snapshot!("ac9_filter_typing", text);
+
+    // No match.
+    let text = draw(&with_filter(favorites(), "xyz", true), 80, 24);
+    assert_contains(&text, &["No rows match \"xyz\"", "Loading more…"]);
+    assert!(
+        row_of(&text, "No rows match") < row_of(&text, "Loading more…"),
+        "{text}"
+    );
+    assert!(!text.contains("Song 1"), "{text}");
+    insta::assert_snapshot!("ac9_filter_no_match", text);
+
+    // The queue: queue positions, `Suggested` over the matching
+    // suggestions.
+    let text = draw(&with_filter(state_of(playing()), "you", true), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Queue (12 · /you · 5 matches)",
+            "Suggested",
+            "Can You Feel My Heart",
+        ],
+    );
+    let line = |part: &str| line_with(&text, part).to_owned();
+    assert!(line("May These Noises").contains(" 1 "), "{text}");
+    assert!(line("Low On Gas").contains(" 9 "), "{text}");
+    assert!(line("James Dean").contains("10 "), "{text}");
+    assert!(!text.contains("Hell Above  "), "{text}");
+    assert!(
+        row_of(&text, "Low On Gas") < row_of(&text, "Suggested"),
+        "{text}"
+    );
+    assert!(
+        row_of(&text, "Suggested") < row_of(&text, "James Dean"),
+        "{text}"
+    );
+    insta::assert_snapshot!("ac9_filter_queue", text);
+    // No suggestion matching: no `Suggested` row.
+    let text = draw(&with_filter(state_of(playing()), "veil", true), 80, 24);
+    assert_contains(&text, &["/veil · 9 matches", "Hell Above"]);
+    assert!(!text.contains("Suggested"), "{text}");
+    // No match on the queue.
+    let text = draw(&with_filter(state_of(playing()), "xyz", true), 80, 24);
+    assert_contains(&text, &["No rows match \"xyz\""]);
+
+    // *All tracks*: the role filter and the text filter.
+    let text = draw(&with_filter(performer_only(), "hell", true), 120, 24);
+    assert_contains(
+        &text,
+        &["Performer · 37 hidden · /hell · 1 match", "Hell Above"],
+    );
+    assert!(!text.contains("Caraphernelia"), "{text}");
+    let text80 = draw(&with_filter(performer_only(), "hell", true), 80, 24);
+    insta::assert_snapshot!("ac9_filter_all_tracks", text80);
+
+    // A search window.
+    let text = draw(&with_filter(search_tracks_window(), "hell", true), 80, 24);
+    assert_contains(&text, &["/hell · 1 match", "Hell Above"]);
+    insta::assert_snapshot!("ac9_filter_search", text);
+}
+
+/// AC9: 40 × 12: a filtered window; a long filter is cut with `…` in
+/// the title and in the no-match row.
+#[test]
+fn ac9_filter_40x12() {
+    let text = draw(&with_filter(favorites(), "song", true), 40, 12);
+    assert_contains(&text, &["/song", "Song 1"]);
+    insta::assert_snapshot!("ac9_filter_40x12", text);
+    let long = "pierce the veil ".repeat(6);
+    let text = draw(&with_filter(favorites(), &long, true), 40, 12);
+    assert_contains(&text, &["No rows match \"pierce", "…"]);
+    assert!(
+        line_with(&text, "Favorite tracks (").contains('…'),
+        "{text}"
+    );
+}
+
+// --- spec 0017: themes -------------------------------------------------------
+
+use ratatui::style::Color as Tc;
+use tidal_player_core::ui::theme::{COMPONENTS, Component, StyleEntry, ThemeEntry, ThemeFile};
+
+const SCREEN_BG: Tc = Tc::Rgb(0x01, 0x02, 0x03);
+const SCREEN_FG: Tc = Tc::Rgb(0xfa, 0xfb, 0xfc);
+
+/// The AC9 test theme's foreground of `component`: each its own.
+fn fg_of(component: Component) -> Tc {
+    Tc::Rgb(0x40 + 8 * component as u8, 0x20, 0x20)
+}
+
+fn bg_of(component: Component) -> Tc {
+    Tc::Rgb(0x20, 0x20, 0x40 + 8 * component as u8)
+}
+
+fn hex(color: Tc) -> String {
+    match color {
+        Tc::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A theme `name` with `palette` and `styles`.
+fn theme_entry(
+    name: &str,
+    palette: &[(&str, String)],
+    styles: Vec<(Component, Option<Tc>, Option<Tc>)>,
+) -> ThemeEntry {
+    ThemeEntry {
+        name: Some(name.to_owned()),
+        palette: palette
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+        component_style: styles
+            .into_iter()
+            .map(|(c, fg, bg)| {
+                (
+                    c.name().to_owned(),
+                    Some(StyleEntry {
+                        fg: fg.map(hex),
+                        bg: bg.map(hex),
+                        ..StyleEntry::default()
+                    }),
+                )
+            })
+            .collect(),
+        unknown: Vec::new(),
+    }
+}
+
+/// `state` drawn in the AC9 test theme: every component and the screen
+/// a distinct colour, no modifiers (the cues stay the TUI's own).
+fn test_themed(mut state: State) -> State {
+    let entry = theme_entry(
+        "test",
+        &[
+            ("background", hex(SCREEN_BG)),
+            ("foreground", hex(SCREEN_FG)),
+        ],
+        COMPONENTS
+            .iter()
+            .map(|c| (*c, Some(fg_of(*c)), Some(bg_of(*c))))
+            .collect(),
+    );
+    let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+        themes: vec![entry],
+    })
+    .unwrap();
+    tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+    state
+}
+
+/// The cell where `part` starts in the first row (at or after `from`)
+/// that has it.
+fn find_cell(terminal: &Terminal<TestBackend>, from: usize, part: &str) -> ratatui::buffer::Cell {
+    let text = buffer_text(terminal);
+    let (y, line) = text
+        .split('\n')
+        .enumerate()
+        .skip(from)
+        .find(|(_, l)| l.contains(part))
+        .unwrap_or_else(|| panic!("{part:?} not drawn:\n{text}"));
+    let x = line[..line.find(part).unwrap()].chars().count();
+    terminal.backend().buffer()[(x as u16, y as u16)].clone()
+}
+
+fn queue_themed() -> State {
+    let mut state = test_themed(state_of(playing()));
+    // The cursor on entry 3: the current entry shows `current_playing`.
+    press(&mut state, &[Key::Char('j')]);
+    state
+}
+
+fn library_themed() -> State {
+    let mut state = test_themed(library());
+    press(&mut state, &[Key::Tab]);
+    state
+}
+
+fn failed_themed() -> State {
+    let mut failed = state_of(playing());
+    let id = ask(&mut failed, &[Key::Char('g'), Key::Char('l')]);
+    fail(&mut failed, id, "Could not reach Tidal: timed out");
+    test_themed(failed)
+}
+
+fn themes_popup_themed() -> State {
+    let mut state = test_themed(library());
+    press(&mut state, &[Key::Char('T')]);
+    state
+}
+
+/// AC9: with the test theme, each component's colours where the
+/// table says it is drawn; cells drawn by nothing have the screen's.
+#[test]
+fn ac9_theme_components() {
+    use Component::*;
+    let queue = draw_terminal(&queue_themed(), 80, 24);
+    let library = draw_terminal(&library_themed(), 80, 24);
+    let mix = draw_terminal(&test_themed(mix_page(browse_tracks(4))), 80, 24);
+    let search = draw_terminal(&test_themed(search_empty()), 80, 24);
+    let top_hit = draw_terminal(&test_themed(search_artist_hit()), 80, 24);
+    let failed = draw_terminal(&failed_themed(), 80, 24);
+    let artist = draw_terminal(&test_themed(artist_page(true)), 80, 24);
+    let help = draw_terminal(&with_help(queue_themed(), &[]), 80, 24);
+    let themes = draw_terminal(&themes_popup_themed(), 80, 24);
+    let hints = draw_terminal(&pending(library_themed(), &[Key::Char('g')]), 80, 24);
+    let mut message = queue_themed();
+    message.message = Some("Album 1 was not found".into());
+    let message = draw_terminal(&message, 80, 24);
+    let mut prompt = queue_themed();
+    press(&mut prompt, &[Key::Char('o'), Key::Char('1')]);
+    let prompt = draw_terminal(&prompt, 80, 24);
+
+    // (where, terminal, first row, part, component)
+    let cases: Vec<(&str, &Terminal<TestBackend>, usize, &str, Component)> = vec![
+        ("frame title", &queue, 0, "tidal-player", BlockTitle),
+        ("frame border", &queue, 0, "┌", Border),
+        ("queue title", &queue, 5, "Queue (12)", BlockTitle),
+        ("queue border", &queue, 5, "┌", Border),
+        ("state symbol", &queue, 1, "▶", PlaybackStatus),
+        ("indicators", &queue, 1, "shuffle", PlaybackStatus),
+        ("volume", &queue, 1, "80%", PlaybackStatus),
+        ("track", &queue, 1, "Hell Above", PlaybackTrack),
+        ("artists", &queue, 1, "Pierce The Veil", PlaybackArtists),
+        (
+            "album row",
+            &queue,
+            2,
+            "Collide With The Sky",
+            PlaybackAlbum,
+        ),
+        ("details row", &queue, 3, "LOSSLESS", PlaybackMetadata),
+        ("time", &queue, 4, "1:23 / 3:32", PlaybackMetadata),
+        ("bar played", &queue, 4, "━", PlaybackProgressBar),
+        ("bar rest", &queue, 4, "─", PlaybackProgressBarUnfilled),
+        ("current entry", &queue, 5, "Hell Above", CurrentPlaying),
+        ("cursor row", &queue, 5, "A Match Into Water", Selection),
+        ("every other row", &queue, 5, "King For A Day", SecondaryRow),
+        ("message row", &message, 3, "Album 1 was not found", Error),
+        ("open prompt", &prompt, 5, "Add to queue: 1", Prompt),
+        ("page title row", &library, 5, "Library", PageDesc),
+        ("focused title", &library, 6, "Albums (14)", BlockTitle),
+        ("unfocused title", &library, 6, "Playlists (22)", BlockTitle),
+        ("unfocused border", &library, 6, "┌", Border),
+        ("heart", &library, 6, "♥", Like),
+        ("unfocused cursor", &library, 6, "Running", Selection),
+        ("active tab", &artist, 6, "Top tracks (91)", Selection),
+        ("other tab", &artist, 6, "All tracks", BlockTitle),
+        (
+            "mix subtitle",
+            &mix,
+            5,
+            "Pierce The Veil, Sleeping",
+            PlaylistDesc,
+        ),
+        ("search input", &search, 5, "Search: ", Prompt),
+        ("top hit", &top_hit, 5, "Top hit: ", Selection),
+        (
+            "failed page",
+            &failed,
+            6,
+            "Could not load the library",
+            Error,
+        ),
+        ("help title", &help, 5, "Keys", BlockTitle),
+        ("help heading", &help, 5, " Lists", TableHeader),
+        ("help cursor", &help, 5, "play the entry", Selection),
+        ("themes title", &themes, 5, "Themes", BlockTitle),
+        ("themes cursor", &themes, 5, "● test", Selection),
+        ("hint title", &hints, 5, "g …", BlockTitle),
+    ];
+    for (name, terminal, from, part, component) in cases {
+        let cell = find_cell(terminal, from, part);
+        assert_eq!(
+            (cell.fg, cell.bg),
+            (fg_of(component), bg_of(component)),
+            "{name}: {part:?} is not {}: {cell:?}\n{}",
+            component.name(),
+            buffer_text(terminal)
+        );
+    }
+    // The second row of a list: `secondary_row`; the third: the screen.
+    let cell = find_cell(&library, 6, "Late night");
+    assert_eq!(
+        (cell.fg, cell.bg),
+        (fg_of(SecondaryRow), bg_of(SecondaryRow))
+    );
+    let cell = find_cell(&library, 6, "Gym mix");
+    assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
+    let cell = find_cell(&queue, 5, "Bulls In The Bronx");
+    assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
+
+    // Drawn by nothing: the screen's colours (under the queue's rows,
+    // the playback window's gap, a popup's unselected row, the failed
+    // page's rest).
+    for (name, terminal, x, y) in [
+        ("below the queue", &queue, 40, 21),
+        ("playback gap", &queue, 40, 1),
+        ("themes popup row", &themes, 40, 13),
+        ("failed page", &failed, 40, 15),
+    ] {
+        let cell = &terminal.backend().buffer()[(x, y)];
+        assert_eq!(
+            (cell.fg, cell.bg),
+            (SCREEN_FG, SCREEN_BG),
+            "{name}: {cell:?}"
+        );
+    }
+}
+
+fn assert_styled_snapshot(name: &str, state: &State) {
+    let terminal = draw_terminal(state, 80, 24);
+    insta::assert_debug_snapshot!(name, terminal.backend().buffer());
+}
+
+/// AC9: the queue page playing in the test theme, styles recorded.
+#[test]
+fn ac9_theme_queue_80x24() {
+    let state = queue_themed();
+    let terminal = draw_terminal(&state, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 5, "Hell Above").fg,
+        fg_of(Component::CurrentPlaying)
+    );
+    assert_styled_snapshot("ac9_theme_queue_80x24", &state);
+}
+
+/// AC9: the library with *Albums* focused.
+#[test]
+fn ac9_theme_library_80x24() {
+    let state = library_themed();
+    let terminal = draw_terminal(&state, 80, 24);
+    assert_eq!(find_cell(&terminal, 6, "♥").fg, fg_of(Component::Like));
+    assert_styled_snapshot("ac9_theme_library_80x24", &state);
+}
+
+/// AC9: a mix page (its subtitle).
+#[test]
+fn ac9_theme_mix_80x24() {
+    let state = test_themed(mix_page(browse_tracks(4)));
+    let terminal = draw_terminal(&state, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 5, "Pierce The Veil, Sleeping").fg,
+        fg_of(Component::PlaylistDesc)
+    );
+    assert_styled_snapshot("ac9_theme_mix_80x24", &state);
+}
+
+/// AC9: the search page, its input focused, then its top hit selected.
+#[test]
+fn ac9_theme_search_80x24() {
+    let input = test_themed(search_empty());
+    let terminal = draw_terminal(&input, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 5, "Search: ").fg,
+        fg_of(Component::Prompt)
+    );
+    assert_styled_snapshot("ac9_theme_search_input_80x24", &input);
+    let top_hit = test_themed(search_artist_hit());
+    let terminal = draw_terminal(&top_hit, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 5, "Top hit: ").fg,
+        fg_of(Component::Selection)
+    );
+    assert_styled_snapshot("ac9_theme_search_top_hit_80x24", &top_hit);
+}
+
+/// AC9: a failed page.
+#[test]
+fn ac9_theme_failed_80x24() {
+    let state = failed_themed();
+    let terminal = draw_terminal(&state, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 6, "Could not load").fg,
+        fg_of(Component::Error)
+    );
+    assert_styled_snapshot("ac9_theme_failed_80x24", &state);
+}
+
+/// AC9: the actions popup, the keys help, the Themes popup and the key
+/// hints.
+#[test]
+fn ac9_theme_popups_80x24() {
+    let actions = test_themed(actions_popup());
+    let help = with_help(queue_themed(), &[]);
+    let themes = themes_popup_themed();
+    let hints = pending(library_themed(), &[Key::Char('g')]);
+    for (state, part) in [
+        (&actions, "Open"),
+        (&help, "Keys"),
+        (&themes, "Themes"),
+        (&hints, "g …"),
+    ] {
+        let terminal = draw_terminal(state, 80, 24);
+        let cell = find_cell(&terminal, 5, part);
+        assert!(
+            cell.fg == fg_of(Component::BlockTitle) || cell.fg == fg_of(Component::Selection),
+            "{part:?}: {cell:?}"
+        );
+    }
+    assert_styled_snapshot("ac9_theme_actions_popup_80x24", &actions);
+    assert_styled_snapshot("ac9_theme_help_80x24", &help);
+    assert_styled_snapshot("ac9_theme_themes_popup_80x24", &themes);
+    assert_styled_snapshot("ac9_theme_key_hints_80x24", &hints);
+}
+
+/// AC10: the focus, playing and dim cues are the TUI's, on top of a
+/// theme that sets colours only.
+#[test]
+fn ac10_cues_on_top() {
+    let colours = |mut state: State| {
+        let entry = theme_entry(
+            "colours",
+            &[],
+            [
+                Component::Selection,
+                Component::BlockTitle,
+                Component::Border,
+                Component::CurrentPlaying,
+                Component::Prompt,
+            ]
+            .into_iter()
+            .map(|c| (c, Some(fg_of(c)), Some(bg_of(c))))
+            .collect(),
+        );
+        let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+            themes: vec![entry],
+        })
+        .unwrap();
+        tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+        state
+    };
+    let albums = draw_terminal(&colours(library_albums()), 80, 24);
+    let favorites = draw_terminal(&colours(favorites()), 80, 24);
+    let actions = draw_terminal(&colours(actions_popup()), 80, 24);
+    let help = draw_terminal(&with_help(colours(state_of(playing())), &[]), 80, 24);
+    let mut themes = colours(library());
+    press(&mut themes, &[Key::Char('T')]);
+    let themes = draw_terminal(&themes, 80, 24);
+    let hints = draw_terminal(&pending(colours(library()), &[Key::Char('g')]), 80, 24);
+    let typing = draw_terminal(
+        &colours(with_filter(state_of(playing()), "you", false)),
+        80,
+        24,
+    );
+    let kept = draw_terminal(
+        &colours(with_filter(state_of(playing()), "you", true)),
+        80,
+        24,
+    );
+    let input = draw_terminal(&colours(search_empty()), 80, 24);
+    let top_hit = draw_terminal(&colours(search_artist_hit()), 80, 24);
+    let queue = draw_terminal(&colours(state_of(playing())), 80, 24);
+
+    let (bold, dim) = (Mod::BOLD, Mod::DIM);
+    // (cue, terminal, first row, part, the component's colours, has, has not)
+    type Cue<'a> = (
+        &'a str,
+        &'a Terminal<TestBackend>,
+        usize,
+        &'a str,
+        Option<Component>,
+        Mod,
+        Mod,
+    );
+    let cues: Vec<Cue> = vec![
+        (
+            "unfocused title",
+            &albums,
+            6,
+            "Playlists (22)",
+            Some(Component::BlockTitle),
+            dim,
+            bold,
+        ),
+        (
+            "unfocused border",
+            &albums,
+            6,
+            "┌",
+            Some(Component::Border),
+            dim,
+            Mod::empty(),
+        ),
+        (
+            "focused title",
+            &albums,
+            6,
+            "Albums (14)",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "unfocused cursor",
+            &albums,
+            6,
+            "Running",
+            Some(Component::Selection),
+            dim,
+            Mod::empty(),
+        ),
+        (
+            "focused cursor",
+            &albums,
+            6,
+            "Collide With",
+            Some(Component::Selection),
+            Mod::empty(),
+            dim,
+        ),
+        (
+            "unplayable row",
+            &favorites,
+            6,
+            "Not Streamable Here",
+            None,
+            dim,
+            Mod::empty(),
+        ),
+        (
+            "playable row",
+            &favorites,
+            6,
+            "Song 2",
+            None,
+            Mod::empty(),
+            dim,
+        ),
+        (
+            "popup title",
+            &actions,
+            5,
+            "Collide With The Sky",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "help title",
+            &help,
+            5,
+            "Keys",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "themes title",
+            &themes,
+            5,
+            "Themes",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "hint title",
+            &hints,
+            5,
+            "g …",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "queue title typing",
+            &typing,
+            5,
+            "Queue (12 · /you▏",
+            Some(Component::BlockTitle),
+            bold,
+            dim,
+        ),
+        (
+            "queue title kept",
+            &kept,
+            5,
+            "Queue (12 · /you ·",
+            Some(Component::BlockTitle),
+            Mod::empty(),
+            bold,
+        ),
+        (
+            "current entry",
+            &queue,
+            5,
+            "Hell Above",
+            Some(Component::Selection),
+            Mod::empty(),
+            dim,
+        ),
+        (
+            "suggestion",
+            &queue,
+            5,
+            "Can You Feel My Heart",
+            None,
+            dim,
+            Mod::empty(),
+        ),
+        (
+            "divider",
+            &queue,
+            5,
+            "── Suggested",
+            None,
+            dim,
+            Mod::empty(),
+        ),
+        (
+            "focused input",
+            &input,
+            5,
+            "Search: ",
+            Some(Component::Prompt),
+            bold,
+            dim,
+        ),
+        (
+            "unfocused input",
+            &top_hit,
+            5,
+            "Search: ",
+            Some(Component::Prompt),
+            dim,
+            bold,
+        ),
+    ];
+    for (cue, terminal, from, part, component, has, has_not) in cues {
+        let cell = find_cell(terminal, from, part);
+        assert!(cell.modifier.contains(has), "{cue}: {cell:?}");
+        assert!(
+            has_not.is_empty() || !cell.modifier.intersects(has_not),
+            "{cue}: {cell:?}"
+        );
+        if let Some(component) = component {
+            assert_eq!(
+                (cell.fg, cell.bg),
+                (fg_of(component), bg_of(component)),
+                "{cue}: {cell:?}"
+            );
+        }
+    }
+    // The current entry (not under the cursor) has `current_playing`.
+    let mut moved = colours(state_of(playing()));
+    press(&mut moved, &[Key::Char('j')]);
+    let moved = draw_terminal(&moved, 80, 24);
+    let cell = find_cell(&moved, 5, "Hell Above");
+    assert_eq!(
+        (cell.fg, cell.bg),
+        (
+            fg_of(Component::CurrentPlaying),
+            bg_of(Component::CurrentPlaying)
+        )
+    );
+}
+
+/// AC11: moving the Themes popup's cursor draws the frame in the theme
+/// under it; `Esc` draws the theme in use again.
+#[test]
+fn ac11_preview_draws_theme() {
+    let screen = |name: &str, bg: Tc| theme_entry(name, &[("background", hex(bg))], vec![]);
+    let one = Tc::Rgb(0x11, 0x11, 0x11);
+    let two = Tc::Rgb(0x22, 0x22, 0x22);
+    let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+        themes: vec![screen("one", one), screen("two", two)],
+    })
+    .unwrap();
+    let mut state = library();
+    tidal_player_core::ui::apply_themes(&mut state, themes, 1);
+    let before = draw_terminal(&state, 80, 24);
+    assert_eq!(before.backend().buffer()[(40, 1)].bg, one);
+
+    press(&mut state, &[Key::Char('T'), Key::Char('j')]);
+    let preview = draw_terminal(&state, 80, 24);
+    for (x, y) in [(0, 0), (40, 1), (40, 20), (79, 23)] {
+        assert_eq!(preview.backend().buffer()[(x, y)].bg, two, "({x}, {y})");
+    }
+    press(&mut state, &[Key::Char('k'), Key::Char('k')]);
+    let default = draw_terminal(&state, 80, 24);
+    assert_eq!(default.backend().buffer()[(40, 20)].bg, Tc::Reset);
+
+    press(&mut state, &[Key::Esc]);
+    let after = draw_terminal(&state, 80, 24);
+    assert_eq!(after.backend().buffer(), before.backend().buffer());
+}
+
+// --- spec 0020 AC12: selecting rows ----------------------------------------------
+
+/// `state` after `keys` typed as single-character keys.
+fn typed_in(mut state: State, keys: &str) -> State {
+    press(&mut state, &typed_keys(keys));
+    state
+}
+
+/// An album's six tracks: rows 1 and 2 selected, the cursor on row 3.
+fn selected_list() -> State {
+    typed_in(album_page(browse_tracks(6)), "scjscj")
+}
+
+/// The cursor on a selected row.
+fn selected_cursor() -> State {
+    typed_in(album_page(browse_tracks(6)), "scjscjk")
+}
+
+/// Motion mode from row 1 down to row 3.
+fn motion_list() -> State {
+    typed_in(album_page(browse_tracks(6)), "smjj")
+}
+
+/// Favorites: *Song 2* and the row below selected, then filtered to
+/// `Song`, which hides the second one.
+fn hidden_selection() -> State {
+    with_filter(typed_in(favorites(), "js2j"), "Song", true)
+}
+
+fn selected_queue() -> State {
+    typed_in(state_of(playing()), "scjs2j")
+}
+
+fn selection_popup() -> State {
+    typed_in(selected_list(), "sa")
+}
+
+fn remove_question(tracks: u64, select: &str, scroll: &str) -> State {
+    typed_in(
+        typed_in(playlist_page(browse_tracks(tracks)), select),
+        &format!("ds{scroll}"),
+    )
+}
+
+fn selection_states() -> Vec<State> {
+    vec![
+        selected_list(),
+        selected_cursor(),
+        motion_list(),
+        hidden_selection(),
+        selected_queue(),
+        typed_in(state_of(playing()), "sm"),
+        selection_popup(),
+        remove_question(3, "s3j", ""),
+        remove_question(30, "s20j", "jjjj"),
+        typed_in(search_tracks_window(), "s2j"),
+        typed_in(library_albums(), "sc"),
+        typed_in(library_albums(), "scsa"),
+    ]
+}
+
+#[test]
+fn ac12_selection_list() {
+    let text = draw(&selected_list(), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "· 2 selected",
+            "+   1  Song 1",
+            "+   2  Song 2",
+            "    3  Song 3",
+        ],
+    );
+    assert!(!line_with(&text, "Song 3").contains('+'), "{text}");
+    insta::assert_snapshot!("ac12_selection_list", text);
+}
+
+#[test]
+fn ac12_selection_cursor() {
+    let text = draw(&selected_cursor(), 80, 24);
+    assert_contains(&text, &["· 2 selected", "+   2  Song 2"]);
+    insta::assert_snapshot!("ac12_selection_cursor", text);
+}
+
+#[test]
+fn ac12_selection_motion() {
+    let text = draw(&motion_list(), 80, 24);
+    assert_contains(&text, &["3 selected · motion)"]);
+    insta::assert_snapshot!("ac12_selection_motion", text);
+}
+
+#[test]
+fn ac12_selection_filter_hidden() {
+    let text = draw(&hidden_selection(), 80, 24);
+    assert_contains(&text, &["· 2 selected, 1 hidden"]);
+    insta::assert_snapshot!("ac12_selection_filter_hidden", text);
+}
+
+/// AC12 (bug): a filter hiding the rows above a selected one marks the
+/// selected row, never the row shown in its place.
+#[test]
+fn ac12_selection_filter_shifted() {
+    // *Song 1* selected and hidden: *Song 2* takes its place.
+    let text = draw(
+        &with_filter(typed_in(favorites(), "sc"), "Song 2", true),
+        80,
+        24,
+    );
+    assert_contains(&text, &["· 1 selected, 1 hidden"]);
+    assert!(!line_with(&text, "Song 2   ").contains('+'), "{text}");
+    // *Song 2* selected and shown first.
+    let text = draw(
+        &with_filter(typed_in(favorites(), "jsc"), "Song 2", true),
+        80,
+        24,
+    );
+    assert_contains(&text, &["· 1 selected)", "+   1    Song 2"]);
+}
+
+#[test]
+fn ac12_selection_queue() {
+    let text = draw(&selected_queue(), 80, 24);
+    assert_contains(&text, &["· 3 selected)", "+ "]);
+    insta::assert_snapshot!("ac12_selection_queue", text);
+}
+
+#[test]
+fn ac12_selection_actions_popup() {
+    let text = draw(&selection_popup(), 80, 24);
+    assert_contains(&text, &["2 selected", "Play next", "Add to queue"]);
+    assert!(line_with(&text, "Play next").contains("  N "), "{text}");
+    insta::assert_snapshot!("ac12_selection_actions_popup", text);
+}
+
+#[test]
+fn ac12_selection_remove_question() {
+    let text = draw(&remove_question(3, "s3j", ""), 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Remove 3 tracks from Running? (y/n)",
+            "│   Song 1",
+            "│   Song 2",
+            "│   Song 3",
+        ],
+    );
+    insta::assert_snapshot!("ac12_selection_remove_question", text);
+}
+
+#[test]
+fn ac12_selection_remove_question_scrolled() {
+    let state = remove_question(30, "s20j", "jjjj");
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &["Remove 20 tracks from Running? (y/n)", "│   Song 5"],
+    );
+    assert!(!text.contains("│   Song 3"), "{text}");
+    insta::assert_snapshot!("ac12_selection_remove_question_scrolled", text);
+}
+
+/// Without a selection no marker column is drawn; below 10 columns of
+/// window width it is dropped.
+#[test]
+fn ac12_selection_marker_column() {
+    let plain = draw(&album_page(browse_tracks(6)), 80, 24);
+    assert!(!plain.contains("+ "), "{plain}");
+    assert!(!plain.contains("selected"), "{plain}");
+    let text = draw(&selected_list(), 80, 24);
+    assert!(
+        line_with(&text, "Song 3").contains("    3  Song 3"),
+        "{text}"
+    );
+    let narrow = draw(&selected_list(), 11, 24);
+    assert!(!narrow.contains('+'), "{narrow}");
+}
+
+/// 0017 AC10 style: the marked rows are `selected_row`'s, and the
+/// cursor's `selection` lies over it on the cursor row.
+#[test]
+fn ac10_theme_cues() {
+    let component = Component::from_name("selected_row").expect("selected_row component");
+    let marked = draw_terminal(&test_themed(selected_list()), 80, 24);
+    let cell = find_cell(&marked, 5, "Song 1");
+    assert_eq!(cell.fg, fg_of(component));
+    assert_eq!(cell.bg, bg_of(component));
+    let unmarked = find_cell(&marked, 5, "Song 4");
+    assert_ne!(unmarked.fg, fg_of(component));
+    let cursor = draw_terminal(&test_themed(selected_cursor()), 80, 24);
+    let cell = find_cell(&cursor, 5, "Song 2");
+    assert_eq!(cell.fg, fg_of(Component::Selection));
+    assert_eq!(cell.bg, bg_of(Component::Selection));
+    let other = find_cell(&cursor, 5, "Song 1");
+    assert_eq!(other.fg, fg_of(component));
+    let queue = draw_terminal(&test_themed(selected_queue()), 80, 24);
+    let rows: Vec<_> = buffer_text(&queue).lines().map(str::to_owned).collect();
+    assert!(rows.iter().any(|r| r.contains("+ ")));
+}
+
+/// 0006 AC17's sweep, with the selection states.
+#[test]
+fn ac12_selection_no_panic_any_size() {
+    let states = selection_states();
+    let themed: Vec<State> = states.iter().cloned().map(test_themed).collect();
+    let sizes = (0..=120)
+        .step_by(7)
+        .flat_map(|w| (0..=40).step_by(3).map(move |h| (w, h)))
+        .chain([
+            (0, 0),
+            (1, 1),
+            (9, 9),
+            (10, 10),
+            (11, 11),
+            (50, 20),
+            (80, 24),
+            (120, 40),
+        ]);
+    for (width, height) in sizes {
+        for state in states.iter().chain(&themed) {
+            draw(state, width, height);
+        }
+    }
+}
+
+/// A playlist page holding `description`, public or not (spec 0022).
+fn described_page(description: Option<&str>, public: bool) -> State {
+    let mut state = library();
+    let id = ask(&mut state, &[Key::Enter]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Playlist {
+            playlist: PlaylistSummary {
+                description: description.map(Into::into),
+                public,
+                ..playlist("p1", "Running", 2, true)
+            },
+            etag: Some("\"1\"".into()),
+            tracks: list(browse_tracks(2), 2, 0),
+        }),
+    );
+    state
+}
+
+fn page_text(state: &State, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render(state, frame, true)).unwrap();
+    buffer_text(&terminal)
+}
+
+/// Spec 0022 AC12: the title says a playlist is public.
+#[test]
+fn ac12_playlist_title_public() {
+    let public = page_text(&described_page(None, true), 80, 24);
+    assert!(public.contains("· public"), "{public}");
+    let private = page_text(&described_page(None, false), 80, 24);
+    assert!(!private.contains("public"), "{private}");
+}
+
+/// Spec 0022 AC12: a description takes the row under the title.
+#[test]
+fn ac12_description_row() {
+    let text = page_text(&described_page(Some("For the road"), false), 150, 42);
+    assert!(text.contains("For the road"), "{text}");
+    insta::assert_snapshot!(text);
+}
+
+/// Spec 0022 AC12: one row, cut, line breaks as spaces.
+#[test]
+fn ac12_description_cut_and_flattened() {
+    let long = format!("One\ntwo {}", "x".repeat(200));
+    let text = page_text(&described_page(Some(&long), false), 80, 24);
+    assert!(text.contains("One two xxx"), "{text}");
+    assert!(text.contains('…'), "{text}");
+}
+
+/// Spec 0022 AC12: no description, no row, and a short page has none.
+#[test]
+fn ac12_no_description_unchanged() {
+    let without = page_text(&described_page(None, false), 80, 24);
+    assert_eq!(
+        without.lines().position(|l| l.contains("Tracks")),
+        page_text(&playlist_page(browse_tracks(2)), 80, 24)
+            .lines()
+            .position(|l| l.contains("Tracks")),
+    );
+    let short = page_text(&described_page(Some("For the road"), false), 80, 11);
+    assert!(!short.contains("For the road"), "{short}");
+}
+
+/// Spec 0022 AC12: the prompts draw their labels.
+#[test]
+fn ac12_description_prompt() {
+    let mut state = library();
+    state.popup = Some(Popup::NewPlaylist {
+        tracks: None,
+        name: "Road".into(),
+        description: Some("Words".into()),
+    });
+    let text = page_text(&state, 80, 24);
+    assert!(text.contains("Description (optional): Words"), "{text}");
+    state.popup = Some(Popup::EditPlaylist {
+        uuid: "p1".into(),
+        title: "Mine".into(),
+        field: PlaylistField::Description,
+        original: String::new(),
+        text: "Words".into(),
+    });
+    let text = page_text(&state, 80, 24);
+    assert!(text.contains("Description: Words"), "{text}");
+}
+// --- spec 0024: browse -----------------------------------------------------
+
+use tidal_player_core::library::{BrowseMore, BrowseRef, BrowseSection, MixedRow, PageLink};
+
+fn browse_link(title: &str, path: &str) -> PageLink {
+    PageLink {
+        title: title.into(),
+        target: BrowseRef::Page(format!("pages/{path}")),
+    }
+}
+
+fn links_section(title: &str, titles: &[&str]) -> BrowseSection {
+    let items: Vec<PageLink> = titles
+        .iter()
+        .map(|t| browse_link(t, &t.to_lowercase().replace(' ', "_")))
+        .collect();
+    let total = items.len() as u32;
+    BrowseSection {
+        title: title.into(),
+        rows: ListItems::Links(list(items, total, 0)),
+        more: BrowseMore::None,
+    }
+}
+
+fn tracks_section(title: &str, n: u64) -> BrowseSection {
+    BrowseSection {
+        title: title.into(),
+        rows: ListItems::Tracks(list(browse_tracks(n), n as u32, 0)),
+        more: BrowseMore::None,
+    }
+}
+
+/// `g b`, answered with `title` and `sections`.
+fn browse_page(title: &str, sections: Vec<BrowseSection>) -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('b')]);
+    answer(
+        &mut state,
+        id,
+        LibraryResponse::Page(PageData::Browse {
+            title: title.into(),
+            sections,
+        }),
+    );
+    state
+}
+
+fn root_sections() -> Vec<BrowseSection> {
+    vec![
+        links_section(
+            "Discover",
+            &[
+                "Home",
+                "Staff picks",
+                "For you",
+                "New",
+                "Top",
+                "HiRes",
+                "Clean Content",
+            ],
+        ),
+        links_section("Genres", &["Hip-Hop", "Pop", "Rock", "Jazz"]),
+        links_section("Moods & Activities", &["Chill", "Workout"]),
+        links_section("Decades", &["60s", "70s", "80s"]),
+    ]
+}
+
+/// A genre page of twelve sections, the longest title 117 characters.
+fn genre_sections() -> Vec<BrowseSection> {
+    let long = "A".repeat(116) + "Z";
+    let titles = [
+        "Top Tracks",
+        "New Albums",
+        "Essentials",
+        "Hip-Hop Classics",
+        "Rising Artists",
+        "Featured Playlists",
+        "Behind the Beats",
+        "Throwback Jams",
+        "Staff Picks",
+        "Deep Cuts",
+        "Live Sessions",
+        long.as_str(),
+    ];
+    titles
+        .iter()
+        .map(|t| tracks_section(t, 6))
+        .collect::<Vec<_>>()
+}
+
+/// Row `n` of the page below the playback window: 0 its title, 1 its
+/// tab strip or window border.
+fn assert_row_has(text: &str, n: usize, parts: &[&str]) {
+    let row = row(text, 5 + n);
+    for part in parts {
+        assert!(row.contains(part), "{part:?} missing from row {n}:\n{text}");
+    }
+}
+
+#[test]
+fn ac13_browse_80x24() {
+    // The root: its title, the four tabs, *Discover* active with its
+    // links, the first highlighted.
+    let state = browse_page("Browse", root_sections());
+    let text = draw(&state, 80, 24);
+    assert_row_has(&text, 0, &["Browse"]);
+    assert_row_has(
+        &text,
+        1,
+        &["Discover", "Genres", "Moods & Activities", "Decades", "[ ]"],
+    );
+    assert_contains(&text, &["Home", "Staff picks", "For you", "Clean Content"]);
+    assert!(!text.contains("Hip-Hop"), "{text}");
+    assert!(
+        cell_at(&state, 80, 24, "Home")
+            .modifier
+            .contains(Mod::REVERSED),
+        "the cursor row is not highlighted"
+    );
+    insta::assert_snapshot!("ac13_browse_80x24", text);
+}
+
+#[test]
+fn ac13_browse_150x42() {
+    // Twelve sections do not fit: the strip scrolls with the active
+    // tab, `…` on a side with more, and a 117-character title is cut.
+    let mut state = browse_page("Hip-Hop", genre_sections());
+    let first = draw(&state, 150, 42);
+    assert_row_has(&first, 1, &["Top Tracks", "New Albums", " │ …", "[ ]"]);
+    assert!(!row(&first, 6).contains("… │"), "{first}");
+    press_keys(&mut state, &[Key::Char(']'); 6]);
+    let middle = draw(&state, 150, 42);
+    assert_row_has(&middle, 1, &["Behind the Beats", "… │", " │ …", "[ ]"]);
+    assert_contains(&middle, &["Behind the Beats (6)"]);
+    press_keys(&mut state, &[Key::Char(']'); 5]);
+    let last = draw(&state, 150, 42);
+    assert_row_has(&last, 1, &["… │", "[ ]"]);
+    assert!(!row(&last, 6).contains(" │ …"), "{last}");
+    assert!(
+        !last.contains(&"A".repeat(60)) || row(&last, 6).contains('…'),
+        "{last}"
+    );
+    // A title too long for the strip is cut to fit.
+    let cut = draw(&state, 100, 30);
+    assert_row_has(&cut, 1, &["… │", "AAAA", "…  [ ]"]);
+    assert!(!row(&cut, 6).contains("AAAZ"), "{cut}");
+    insta::assert_snapshot!("ac13_browse_150x42", middle);
+    insta::assert_snapshot!("ac13_browse_150x42_last", last);
+}
+
+#[test]
+fn ac13_browse_narrow_50x20() {
+    // Under 60 columns: the active tab's name and `[ ]`.
+    let mut state = browse_page("Hip-Hop", genre_sections());
+    press_keys(&mut state, &[Key::Char(']'); 2]);
+    let text = draw(&state, 50, 20);
+    assert_row_has(&text, 1, &["Essentials", "[ ]"]);
+    assert!(!row(&text, 6).contains("New Albums"), "{text}");
+    insta::assert_snapshot!("ac13_browse_narrow_50x20", text);
+}
+
+#[test]
+fn ac13_browse_mixed_80x24() {
+    // A section of several kinds puts the kind first on each row.
+    let mixed = BrowseSection {
+        title: "Recently played".into(),
+        rows: ListItems::Mixed(list(
+            vec![
+                MixedRow::Track(browse_tracks(1).remove(0)),
+                MixedRow::Album(AlbumSummary {
+                    id: 5,
+                    title: "Collide".into(),
+                    artists: vec![artist_ref(1, "Pierce The Veil")],
+                    year: Some(2012),
+                    kind: AlbumKind::Album,
+                    tracks: Some(11),
+                    duration: None,
+                }),
+                MixedRow::Playlist(playlist("p1", "Running", 42, false)),
+                MixedRow::Artist(artist_ref(2, "Sleeping With Sirens")),
+                MixedRow::Mix(mix_summary("m1", "My Mix 1", Some("Pierce The Veil"))),
+            ],
+            5,
+            0,
+        )),
+        more: BrowseMore::None,
+    };
+    let state = browse_page("Home", vec![mixed, tracks_section("Songs", 3)]);
+    let text = draw(&state, 80, 24);
+    assert_contains(
+        &text,
+        &[
+            "Track     ",
+            "Album     ",
+            "Playlist  ",
+            "Artist    ",
+            "Mix       ",
+            "Collide",
+            "Sleeping With Sirens",
+        ],
+    );
+    // A section of one kind has no kind column.
+    let mut other = state.clone();
+    press_keys(&mut other, &[Key::Char(']')]);
+    let plain = draw(&other, 80, 24);
+    assert!(!plain.contains("Track     "), "{plain}");
+    insta::assert_snapshot!("ac13_browse_mixed_80x24", text);
+}
+
+#[test]
+fn ac13_browse_one_section_80x24() {
+    // One section: no tab strip, the page looks like a list.
+    let state = browse_page("Top", vec![tracks_section("Tracks", 4)]);
+    let text = draw(&state, 80, 24);
+    assert_row_has(&text, 0, &["Top"]);
+    assert!(!text.contains("[ ]"), "{text}");
+    assert_row_has(&text, 1, &["Tracks (4)"]);
+    insta::assert_snapshot!("ac13_browse_one_section_80x24", text);
+}
+
+#[test]
+fn ac12_browse_failed_80x24() {
+    // A failed page shows its message in the page; *Home* alone.
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('b')]);
+    fail(&mut state, id, "Home is not available: Tidal answered 400");
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["Home is not available: Tidal answered 400"]);
+    insta::assert_snapshot!("ac12_browse_failed_80x24", text);
+
+    // A page with no sections says so.
+    let state = browse_page("Videos", Vec::new());
+    let text = draw(&state, 80, 24);
+    assert_contains(&text, &["Videos", "Nothing to show here"]);
+    insta::assert_snapshot!("ac12_browse_empty_80x24", text);
+}

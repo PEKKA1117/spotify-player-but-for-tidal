@@ -1,26 +1,22 @@
-//! Library half of the `tidal-player` binary: rendering, key mapping and the
-//! panic hook, kept here so integration tests can import them.
+//! Library half of the `tidal-player` binary, kept here so integration
+//! tests can import it. The modules follow spec 0001's split:
+//!
+//! - [`player`]: the player side: the runtime around
+//!   `tidal_player_core::player::update` and everything only a player does
+//!   (streams, the audio engine's wiring, the remembered state, the cover
+//!   cache, MPRIS, the event hook)
+//! - [`client`] and [`ipc`]: how a client reaches a player, in the same
+//!   process or over the socket
+//! - [`tui`]: the terminal client: keys in, frames out
+//! - [`cli`]: the subcommands (`play`, `playback`, `playlist`, `daemon`)
+//! - [`session`]: where the login session is kept
+//! - [`config`]: the files in the config directory
 
+pub mod cli;
 pub mod client;
 pub mod config;
-pub mod cover;
-pub mod covers;
-pub mod daemon;
-pub mod hook;
-pub mod http_source;
-pub mod input;
 pub mod ipc;
-pub mod login;
-pub mod mpris;
-pub mod oneshot;
 pub mod panic_hook;
-pub mod passphrase;
-pub mod persist;
-pub mod play;
-pub mod playback;
-pub mod player_runtime;
-pub mod playlist_cli;
-pub mod reserve;
-pub mod session_store;
-pub mod store_setup;
-pub mod ui;
+pub mod player;
+pub mod session;
+pub mod tui;
