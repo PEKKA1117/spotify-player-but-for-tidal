@@ -69,8 +69,21 @@ pub fn plan(crates: &[Crate], published: &BTreeMap<String, Vec<IndexVersion>>) -
 /// The skipped crates that depend on a crate the plan publishes (spec 0018
 /// AC10): with exact pins (AC6) the published dependent needs the old
 /// version, so the release cannot resolve. One line per such crate.
-pub fn stale_dependents(_plan: &Plan) -> Vec<String> {
-    Vec::new()
+pub fn stale_dependents(plan: &Plan) -> Vec<String> {
+    let mut lines = Vec::new();
+    for dependent in &plan.skipped {
+        for dep in plan
+            .publish
+            .iter()
+            .filter(|p| dependent.deps.contains(&p.name))
+        {
+            lines.push(format!(
+                "{} {} is on crates.io and needs the {} it was released with, but {} {} is new: bump {}",
+                dependent.name, dependent.version, dep.name, dep.name, dep.version, dependent.name
+            ));
+        }
+    }
+    lines
 }
 
 /// The publishable crates, each after the crates it needs. Ties go by name so

@@ -35,6 +35,9 @@ jobs:
         run: cargo xtask layering
       - name: Specs
         run: cargo xtask specs
+      # Spec 0018 AC11: a release whose crates cannot be published together fails here.
+      - name: Publish dry run
+        run: cargo xtask publish --dry-run
       - name: Build
         run: cargo build --workspace
       - name: Test
