@@ -2,8 +2,7 @@
 
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: cargo xtask layering | cargo xtask wiki <out-dir> | cargo xtask publish [--dry-run]";
+const USAGE: &str = "usage: cargo xtask layering | cargo xtask specs | cargo xtask wiki <out-dir> | cargo xtask publish [--dry-run]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -14,6 +13,7 @@ fn main() -> ExitCode {
         .as_slice()
     {
         ["layering"] => layering(),
+        ["specs"] => specs(),
         ["wiki", out] => wiki(std::path::Path::new(out)),
         ["publish"] => publish(false),
         ["publish", "--dry-run"] => publish(true),
@@ -39,6 +39,27 @@ fn layering() -> ExitCode {
         }
         Err(e) => {
             eprintln!("layering: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `cargo xtask specs`: every spec's test plan names files and tests that
+/// exist (spec 0026).
+fn specs() -> ExitCode {
+    match xtask::specs::check_workspace(std::path::Path::new(".")) {
+        Ok(findings) if findings.is_empty() => {
+            println!("specs ok");
+            ExitCode::SUCCESS
+        }
+        Ok(findings) => {
+            for f in findings {
+                eprintln!("{f}");
+            }
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("specs: {e:#}");
             ExitCode::FAILURE
         }
     }

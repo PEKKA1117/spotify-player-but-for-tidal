@@ -108,8 +108,18 @@ fn ac8_ci_runs_once_per_commit() {
         .collect();
     assert!(jobs > 0, "ci.yml has jobs");
     assert_eq!(ifs.len(), jobs, "every job has an `if`: {ifs:?}");
-    let expected = "if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') }}";
+    let expected = "if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') || startsWith(github.head_ref, 'refactor/') }}";
     for line in ifs {
         assert_eq!(line, expected, "a job's `if`");
     }
+}
+
+/// Spec 0026 AC4: CI checks the specs against the code.
+#[test]
+fn ac4_ci_checks_the_specs() {
+    let yml = read_workflow("ci.yml");
+    assert!(
+        yml.lines().any(|l| l.trim() == "run: cargo xtask specs"),
+        "ci.yml runs `cargo xtask specs`"
+    );
 }
