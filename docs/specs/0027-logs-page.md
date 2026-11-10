@@ -1,6 +1,6 @@
 # 0027 — Logs: a log file and the logs page
 
-- **Status**: implemented (2026-11-10; approved 2026-11-10)
+- **Status**: approved (2026-11-10; "What the program logs" and AC16–AC19 added 2026-11-11 at the user's request; AC1–AC15 are implemented)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#64](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/64)
 - **Depends on**: 0001 (implemented: the crates, `Command`/`Event`, the "logging" row this spec replaces), 0005 (implemented: the socket, requests answered to one client, the lock, AC14), 0006 (implemented: pages, the history, disconnected rules), 0008 (implemented: `app.toml`, the keymap, the keys help, the skipped spotify-player commands), 0012 (implemented: `/` and its title), 0013 (implemented: key hints), 0017 (implemented: themes)
@@ -38,6 +38,38 @@ Almost all of this player's log lines come from the **player** side (auth, the a
 - `"off"`: nothing is kept, no file is created or touched
 - Each process reads its own `log_level`: a daemon the daemon's, an attached TUI its own (for its own lines)
 - Nothing a user must see is only in the log (0001): errors still go to the message row or stderr as before. No existing message moves
+
+### What the program logs
+
+Giving the 40-odd existing calls somewhere to go was not enough: they are nearly all warnings about rare failures, so a healthy run logged nothing, and what the TUI shows its user when something fails was in no log at all (found at the hands-on check, 2026-11-11). The program logs these lines, each one `tracing` event with the message and fields shown (fields in this order; AC2 turns them into the text):
+
+**A run's life, at `INFO`** (in every process that keeps a log):
+
+| When | Message and fields |
+|---|---|
+| The log is installed | `starting version=<x.y.z> mode=<standalone\|daemon\|play\|client> log_level=<level> config=<config dir>` |
+| A player's output device is opened (the first time, after a release, after a device change) | `device opened device=<name> format=<sample format> rate=<Hz> channels=<n> bit_perfect=<true\|false>` |
+| A player gives the device up while paused (0005), or closes it | `device released device=<name>` |
+| A track starts playing (an entry becomes the playing one, gapless advances included) | `playing track=<id> title=<title> quality=<the stream's quality> requested=<the configured quality>` |
+| The queue runs out or playback stops | `stopped` |
+| The login is lost / restored (0002) | `WARN login required` / `INFO login restored` |
+| A player or TUI shuts down in order | `shutting down reason=<quit\|shutdown command\|signal\|player gone>` |
+
+**At `DEBUG`**: `client connected client=<n>` and `client disconnected client=<n>` in a player (a status bar that runs a one-shot command every second connects every second, so these are not `INFO`).
+
+**What the user was told, at `WARN`**, so that a message that was replaced on screen can still be found:
+
+| Where | When | Message and fields |
+|---|---|---|
+| player | It answers a request with `Err` (`Reply`, `LibraryReply`, `DevicesReply`; not `LogsReply`) | `request failed request=<the command's or request's name> reason=<the answer's text>` |
+| player | Its snapshot's `message` changes to a new text (`Could not save the playback state: …`, a failed hook, a device that would not open) | `message text=<the text>` |
+| TUI | The connection is lost, a reconnect fails, or the versions differ | `disconnected reason=<the text shown>`; a reconnect is `INFO reconnected` |
+| TUI | A start-up notice (`keymap.toml`/`theme.toml` entries skipped, 0008, 0017) | `notice text=<the text>` |
+| TUI | An export fails (AC14's failure) | `export failed reason=<reason>` |
+
+- A standalone TUI is a player and a TUI in one process with one log, so a failed request appears once (the player's line); the TUI's own lines are only those in the table
+- **Never logged**, in these lines or any other: a token, the `Authorization` header, a stream or cover URL (a stream's host name is allowed), the account's name, e-mail or ID. A request's name is the variant's name (`LoadQueue`, `Page`), never its payload
+- **A panic** (0001's hook, in every process that keeps a log): before the terminal is restored and the report printed, one `ERROR` line `panic location=<file:line:column> message=<the panic's message>` is written straight to the process's log file (a player's; a client has none) and its buffer, without going through `tracing` and without waiting for a lock: if the log is busy (the panic happened while it was writing) the line is skipped. The hook then does what it did before, in the same order
 
 ### Who keeps what
 
@@ -125,6 +157,10 @@ A request of its own, like `Devices` (0014), answered to the asking client only:
 - **AC13** — Docs: `docs/tui.md` (the page, its keys, following, filtering, exporting), `docs/config.md` (`log_level`, `OpenLogs`, the skipped list without it), `docs/daemon.md` (the log file, the journal), `README.md`, their zh-TW copies, `examples/app.toml` and `examples/keymap.toml` match this spec; 0001's "logging" row and 0008's skipped list point here
 - **AC14** — Export, the model (pure): on the logs page `e` emits one export of the held lines, filtered by a kept filter, in the page's order, whatever the scroll position and whether connected or not; with no such line it emits none and the message row says `No log lines to export`; on any other page it does nothing; the result sets the message row (`Exported N log lines to <path>`, with `1 log line` for one, or `Could not export the log: <reason>`); `ExportLogs` is in the default keymap, the keys help (in the logs page's section) and can be rebound or unbound
 - **AC15** — Export, the file: the export is written to the cache directory under the name above for a given local time, mode `0600`, in the log file's line format; a taken name gets the next `-N`; the directory is created when missing; a directory that cannot be written gives the failure and leaves no file
+- **AC16** — A run's life: each row of "A run's life" is logged once per occurrence with its level, message and fields in order, and the two `DEBUG` lines at `DEBUG` (table: for each row, the seam's input → the captured event); `playing` is logged once per entry that starts, a gapless advance included, and not on resume from pause or on a seek; no captured line of these tests contains a token, a URL or an account field (the fixtures carry recognisable ones)
+- **AC17** — What the user was told: every `Err` answer of a player logs one `request failed` with the request's name and the reason, and no payload (table over `Reply`, `LibraryReply`, `DevicesReply`; `LogsReply` logs nothing, AC5); a snapshot `message` logs once when its text changes and not again while it stays; the TUI's rows log as the table says; a standalone TUI logs a failed request once
+- **AC18** — Panic: the line's text for a location and a message (table: `&str` and `String` payloads, another payload → `message=<non-string panic>`); with a log installed, the hook writes it to the file and the buffer before `restore` and the previous hook run, in that order (0001 AC10 still holds); with the log's lock held by the panicking thread, the hook skips the line and still restores and reports, without blocking
+- **AC19** — Docs: `docs/tui.md` "What is logged and where" lists these lines by group (a run's life, what you were told, a panic) and says what is never logged; its zh-TW copy matches; `CLAUDE.md`'s Logs entry says the log records a run's life and the failures shown
 
 ## Edge cases & errors
 
@@ -162,13 +198,17 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC13 | — reviewed at acceptance | docs match this spec, linked, zh-TW in step | — |
 | AC14 | `crates/core/src/ui/logs/tests.rs` :: `ac14_export` (table) + `crates/core/src/ui/keymap/tests.rs` :: `ac14_export_key` | the exported lines; messages; inert elsewhere; the key and help | stub export emits every line, unfiltered |
 | AC15 | `crates/app/src/tui/logs_export.rs` :: `ac15_export_file` (table) | name, mode, content, `-N`, created directory, failure | stub writes nothing |
+| AC16 | `crates/app/src/logging/events.rs` :: `ac16_run_life` (table), `ac16_playing_once_per_entry`, `ac16_no_secrets` | level, message, fields per row; once per entry; nothing secret | stub functions log nothing |
+| AC17 | `crates/app/src/logging/events.rs` :: `ac17_request_failed` (table), `ac17_message_once`, `ac17_tui_rows` (table) + `crates/app/src/player/runtime.rs` :: `ac17_err_answers_are_logged` | one line per `Err` answer, name and reason; once per text; the TUI's lines; once in a standalone | stub logs nothing |
+| AC18 | `crates/app/src/logging.rs` :: `ac18_panic_line` (table), `ac18_panic_skips_when_busy` + `crates/app/tests/panic_hook.rs` :: `ac18_panic_is_logged_first` | the text; no blocking; file and buffer, then restore, then report | stub line is empty; stub hook writes nothing |
+| AC19 | — reviewed at acceptance | docs match this spec, zh-TW in step | — |
 
-Checked by hand at acceptance with a real account (results in the PR's hands-on check): `g o` in a standalone TUI and in a TUI attached to a daemon shows the player's lines; a second attached TUI shows the same; new lines appear within about a second while following and do not move a scrolled view; `/` narrows them and `e` writes exactly the narrowed lines to the file the message row names; `log_level = "debug"` shows more and `"off"` shows the message; `journalctl --user -u tidal-player` (the maintainer's, by hand) shows the daemon's lines; no token or account name appears in a screenshot or in the file at `debug`.
+Checked by hand at acceptance with a real account (results in the PR's hands-on check): `g o` in a standalone TUI and in a TUI attached to a daemon shows the player's lines; a second attached TUI shows the same; new lines appear within about a second while following and do not move a scrolled view; `/` narrows them and `e` writes exactly the narrowed lines to the file the message row names; a healthy start and a played track show `starting`, `device opened` and `playing` at `info`, and `log_level = "debug"` adds the client lines; `"off"` shows the message; a request that fails (a track ID that does not exist) shows `request failed`; `journalctl --user -u tidal-player` (the maintainer's, by hand) shows the daemon's lines; no token or account name appears in a screenshot or in the file at `debug`.
 
 ## Crate placement
 
 - `tidal-player-core`: `log` (new: `LogLevel`, `LogLine`, `LogBatch`, the buffer, what is kept, the line formats), `protocol` (the two messages), `ui` (the logs page: `PageKind::Logs`, asking, following, filter), `ui::keymap` (`OpenLogs`, `ExportLogs` and their defaults). No I/O, no new dependency
-- `tidal-player` (binary): `logging.rs` (new, top level: every mode uses it): the `tracing` subscriber that feeds the buffer, the file and stderr; `settings.rs`/`config.rs` (`log_level`); `player/runtime.rs` and `ipc/` (serving `Logs`); `client.rs` (asking); `tui/` (rendering, the poll timer beside `HintTimer`, `logs_export.rs` for the export file). New dependencies, declared in the root manifest: `tracing-subscriber` (the registry and layer, default features off) and one crate for local time
+- `tidal-player` (binary): `logging.rs` (new, top level: every mode uses it): the `tracing` subscriber that feeds the buffer, the file and stderr, and the panic line; `logging/events.rs`: one function per line of "What the program logs", called at the seams, so each line's level, message and fields are tested in one place; `settings.rs`/`config.rs` (`log_level`); `player/runtime.rs` and `ipc/` (serving `Logs`); `client.rs` (asking); `tui/` (rendering, the poll timer beside `HintTimer`, `logs_export.rs` for the export file). New dependencies, declared in the root manifest: `tracing-subscriber` (the registry and layer, default features off) and one crate for local time
 - `tidal-player-api`, `tidal-player-audio`: unchanged (their `tracing` calls now reach a subscriber)
 
 ## Out of scope
@@ -177,4 +217,4 @@ Checked by hand at acceptance with a real account (results in the PR's hands-on 
 - Structured (JSON) logs, per-module levels, `RUST_LOG`, a setting for the buffer or file size
 - A cursor, selection or copying to the clipboard on the logs page (the clipboard is #57's); choosing the export's path or name
 - New theme components for log levels
-- Adding or rewording log calls: this spec gives the existing ones somewhere to go
+- Rewording or removing the log calls that existed before this spec; a log file for an attached TUI (its lines live in its buffer: `e` exports them)
