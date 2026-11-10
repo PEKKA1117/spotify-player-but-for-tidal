@@ -6,7 +6,7 @@ use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -255,6 +255,7 @@ fn run<C: Connector>(
                 actions.insert(1, Action::OwnLogs(lines));
             }
         }
+        let mut exported = Vec::new();
         for action in actions.drain(..) {
             for effect in update(&mut state, action) {
                 match effect {
@@ -263,12 +264,22 @@ fn run<C: Connector>(
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
                     Effect::Logs { id, after } => session.send_logs(id, after),
-                    // Stub (spec 0027 AC15, slice S2): the file is not written.
-                    Effect::ExportLogs { .. } => {}
+                    // Spec 0027: the TUI writes the page's lines itself.
+                    Effect::ExportLogs { lines } => {
+                        let result = tidal_player::tui::logs_export::export(
+                            &lines,
+                            &tidal_player::player::cover_cache::process_cache_dir(),
+                            SystemTime::now(),
+                            &logging::Zone::system(),
+                        );
+                        exported.push(Action::LogsExported(result));
+                    }
                     Effect::Envy(envy) => return Ok(Some(envy)),
                 }
             }
         }
+        // The export's result is the next frame's first action.
+        actions.append(&mut exported);
         let hint = hint_timer.update(&state.pending, Instant::now());
         // Spec 0016: the loader follows the current cover and the cover
         // area; a ready image is drawn, nothing waits for one.

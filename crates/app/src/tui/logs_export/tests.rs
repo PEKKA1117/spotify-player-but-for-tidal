@@ -135,7 +135,7 @@ fn ac15_export_file() {
     std::fs::write(&blocker, "x").unwrap();
     let error = export(&lines(), &blocker.join("cache"), at(T1), &zone).unwrap_err();
     assert!(!error.is_empty(), "a reason");
-    assert_eq!(names(tmp.path()).len(), 3, "{:?}", names(tmp.path()));
+    assert_eq!(names(tmp.path()), ["blocker", "cache"]);
 
     // The directory cannot be written: the reason, nothing left behind.
     let locked = tmp.path().join("locked");
