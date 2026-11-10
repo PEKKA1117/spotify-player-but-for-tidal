@@ -172,6 +172,7 @@ impl Link for InProcessLink {
                 request,
             },
             ClientMessage::Devices { id } => ClientInput::Devices { client, id },
+            ClientMessage::Logs { id, after } => ClientInput::Logs { client, id, after },
         };
         self.inputs
             .send(RuntimeInput::Client(input))
@@ -391,6 +392,12 @@ impl<C: Connector> Session<C> {
         self.write(&ClientMessage::Devices { id });
     }
 
+    /// Asks the player for its log lines after `after` (spec 0027); the
+    /// answer comes back as `Action::LogsReply` with `id`.
+    pub fn send_logs(&mut self, id: u64, after: Option<u64>) {
+        self.write(&ClientMessage::Logs { id, after });
+    }
+
     fn write(&mut self, message: &ClientMessage) {
         if let Some(link) = self.link.as_mut()
             && link.send(message).is_err()
@@ -448,6 +455,9 @@ impl<C: Connector> Session<C> {
                 }
                 Ok(Some(ServerMessage::DevicesReply { id, result })) => {
                     actions.push(Action::DevicesReply { id, result })
+                }
+                Ok(Some(ServerMessage::LogsReply { id, result })) => {
+                    actions.push(Action::LogsReply { id, result })
                 }
                 Err(_) => self.lost = true,
             }

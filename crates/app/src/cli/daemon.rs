@@ -94,6 +94,7 @@ pub fn forward_signals(
             _ = term.recv() => {}
             _ = int.recv() => {}
         }
+        crate::logging::events::shutting_down(crate::logging::events::Shutdown::Signal);
         let _ = inputs.send(RuntimeInput::Command(Command::Shutdown));
     });
     Ok(())

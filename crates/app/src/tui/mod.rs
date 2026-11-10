@@ -4,4 +4,5 @@
 
 pub mod cover;
 pub mod input;
+pub mod logs_export;
 pub mod render;

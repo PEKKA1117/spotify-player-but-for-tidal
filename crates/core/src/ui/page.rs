@@ -13,6 +13,7 @@ use crate::library::{
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::filter::{self, Filter};
+use super::logs::LogsView;
 use super::lyrics::LyricsView;
 use super::search::{Search, SearchFocus};
 use super::select::Selection;
@@ -57,6 +58,9 @@ pub enum PageKind {
     /// the page shows is in [`Page::lyrics`], so the kind alone names the
     /// page.
     Lyrics,
+    /// The logs page (spec 0027): the player's log lines; they live in
+    /// [`State::logs`](super::State::logs).
+    Logs,
     /// A browse page (spec 0024): its sections are the tabs of one pane.
     Browse(BrowseRef),
 }
@@ -68,7 +72,7 @@ impl PageKind {
         Some(match self {
             Self::Queue => return None,
             // The track is the page's own (`Page::request`).
-            Self::Lyrics => return None,
+            Self::Lyrics | Self::Logs => return None,
             Self::Library => PageRequest::Library,
             Self::FavoriteTracks => PageRequest::FavoriteTracks,
             Self::Album(id) => PageRequest::Album(*id),
@@ -989,6 +993,10 @@ pub struct Page {
     /// The lyrics page's track, lyrics and scroll state (spec 0021);
     /// `Some` on that page only.
     pub lyrics: Option<LyricsView>,
+    /// The logs page's follow state (spec 0027); `Some` on that page only.
+    /// Its lines are in [`State::logs`](super::State::logs), its filter
+    /// is [`Page::filter`].
+    pub logs: Option<LogsView>,
 }
 
 impl Page {
@@ -1041,7 +1049,7 @@ impl Page {
             PageKind::Mix(_) => vec![Window::whole(WindowKind::MixTracks)],
             PageKind::TrackRadio(_) => vec![Window::whole(WindowKind::RadioTracks)],
             PageKind::ArtistRadio(_) => vec![Window::whole(WindowKind::ArtistRadioTracks)],
-            PageKind::Lyrics | PageKind::Browse(_) => vec![],
+            PageKind::Lyrics | PageKind::Logs | PageKind::Browse(_) => vec![],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -1051,9 +1059,11 @@ impl Page {
         let tabs = vec![0; panes.len()];
         let search = matches!(kind, PageKind::Search(_)).then(Search::default);
         let lyrics = (kind == PageKind::Lyrics).then(|| LyricsView::new(None));
+        let logs = (kind == PageKind::Logs).then(LogsView::default);
         Self {
             search,
             lyrics,
+            logs,
             kind,
             header: None,
             load: Load::Idle,
@@ -1218,6 +1228,7 @@ impl Page {
                         }),
                 )
                 .collect(),
+            (PageKind::Logs, _) => vec!["Logs".into()],
             (PageKind::Library, _) => vec!["Library".into()],
             (PageKind::FavoriteTracks, _) => std::iter::once("Favorite tracks".into())
                 .chain(tracks)

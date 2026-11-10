@@ -966,6 +966,11 @@ fn ac17_ready_and_sigterm() {
     let machine = Machine::new();
     let (code, _, stderr) =
         Running(machine.client(&["daemon"]).spawn().unwrap()).output(Duration::from_secs(20));
+    // The daemon's own `starting` line (0027) is not what this checks.
+    let stderr: String = stderr
+        .split_inclusive('\n')
+        .filter(|line| !line.starts_with("INFO tidal_player::run: starting "))
+        .collect();
     assert_eq!(
         (code, stderr.as_str()),
         (Some(1), "Not logged in: run \"tidal-player login\"\n")
@@ -1504,5 +1509,94 @@ fn ac10_playlist_exit_codes() {
     assert_eq!(
         machine.run_client(&["playlist", "list"]),
         (Some(1), String::new(), format!("{NO_PLAYER}\n"))
+    );
+}
+
+/// Spec 0027 AC12: against a daemon started with a state directory, an
+/// attached client's `Logs` request is answered with the daemon's lines;
+/// `tidal-player.log` exists with mode 0600 and holds them; the daemon's
+/// stderr holds them without the time; a client process creates no file in
+/// its state directory. The line is the warning the daemon already logs
+/// when its passphrase file is readable by others (no log call is added).
+#[test]
+fn ac12_daemon_log() {
+    use std::os::unix::fs::PermissionsExt;
+    use tidal_player_core::log::LogLevel;
+
+    let machine = Machine::new();
+    std::fs::set_permissions(&machine.pass_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let mut daemon = machine.spawn(&["daemon"]);
+    let mut client = attach(&machine.socket());
+
+    // The reply: the daemon's lines, the log is on.
+    client
+        .send(&ClientMessage::Logs { id: 7, after: None })
+        .unwrap();
+    let batch = loop {
+        match client.recv(Some(Duration::from_secs(5))) {
+            Ok(Some(ServerMessage::LogsReply { id, result })) => {
+                assert_eq!(id, 7);
+                break result.expect("the lines");
+            }
+            Ok(Some(_)) => {}
+            other => panic!("expected a LogsReply, got {other:?}"),
+        }
+    };
+    assert!(!batch.off);
+    let warning = batch
+        .lines
+        .iter()
+        .find(|l| {
+            l.text
+                .starts_with("passphrase file is readable by other users")
+        })
+        .unwrap_or_else(|| panic!("the daemon's lines: {:?}", batch.lines));
+    assert_eq!(warning.level, LogLevel::Warn);
+    assert_eq!(warning.target, "tidal_player::session::passphrase");
+    assert_eq!(batch.lines[0].seq, 1);
+
+    // A client that is not the player writes nothing of its own.
+    let (code, _, stderr) = machine.run_client(&["playback", "pause"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        std::fs::read_dir(machine.empty.path()).unwrap().count(),
+        0,
+        "the client created a file in its state directory"
+    );
+
+    // Stop the daemon: its stderr is complete.
+    assert_eq!(
+        machine.run_client(&["daemon", "stop"]),
+        (Some(0), String::new(), String::new())
+    );
+    let (code, stderr) = daemon.finish(Duration::from_secs(5));
+    assert_eq!(code, Some(0), "{stderr}");
+
+    // The file: mode 0600, one line per line, with the time and offset.
+    let path = machine.state.path().join("tidal-player.log");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let file = std::fs::read_to_string(&path).unwrap();
+    let in_file = file
+        .lines()
+        .find(|l| l.contains("tidal_player::session::passphrase: passphrase file is readable"))
+        .unwrap_or_else(|| panic!("the log file:\n{file}"));
+    let year = &in_file[..4];
+    assert!(
+        year.chars().all(|c| c.is_ascii_digit()) && &in_file[4..5] == "-",
+        "{in_file}"
+    );
+    assert!(in_file.contains(" WARN tidal_player::session::passphrase: "));
+
+    // The stderr: the same line, without the time.
+    let on_stderr = stderr
+        .lines()
+        .find(|l| l.contains("passphrase file is readable"))
+        .unwrap_or_else(|| panic!("the daemon's stderr:\n{stderr}"));
+    assert!(
+        on_stderr.starts_with("WARN tidal_player::session::passphrase: passphrase file is readable by other users path="),
+        "{on_stderr}"
     );
 }

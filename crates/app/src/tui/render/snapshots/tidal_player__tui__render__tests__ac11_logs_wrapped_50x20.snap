@@ -1,0 +1,24 @@
+---
+source: crates/app/src/tui/render/tests.rs
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│Logs                                            │
+│┌Logs──────────────────────────────────────────┐│
+││13:04:05 INFO                                 ││
+││tidal_player::player::http_source: stream     ││
+││reconnected after a stalled read of the       ││
+││segment at offset 1048576 of the track that   ││
+││was playing when the network went away zzend  ││
+││13:04:06 WARN  tidal_player::x:               ││
+││播 放 佇 列 已 還 原 ， 共 十 二 首 曲 目 ， 正 在 等 待 裝 置 釋 放 ││
+││， 請 稍 候 片 刻 再 試 一 次 看 看 是 否 能 夠 成 功 完 成       ││
+││13:04:07 INFO  tidal_player::x: short         ││
+││                                              ││
+││                                              ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

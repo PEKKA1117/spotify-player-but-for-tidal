@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 
 use tidal_player_api::auth::AuthStatus;
 use tidal_player_core::library::{LibraryRequest, LibraryResponse};
+use tidal_player_core::log::LogBatch;
 use tidal_player_core::protocol::{
     ClientMessage, Command, DeviceEntry, Event, PlayerSnapshot, ServerMessage,
 };
@@ -95,6 +96,13 @@ pub enum ClientInput {
     Devices {
         client: ClientId,
         id: u64,
+    },
+    /// A log request (spec 0027), answered by one `LogsReply` to this
+    /// client only.
+    Logs {
+        client: ClientId,
+        id: u64,
+        after: Option<u64>,
     },
     /// The client left, or was dropped for a bad line.
     Detach(ClientId),
@@ -197,6 +205,11 @@ impl Hub {
         result: Result<Vec<DeviceEntry>, String>,
     ) {
         self.send(client, ServerMessage::DevicesReply { id, result });
+    }
+
+    /// Answers log request `id` of `client` (it alone gets it; spec 0027).
+    pub fn reply_logs(&mut self, client: ClientId, id: u64, result: Result<LogBatch, String>) {
+        self.send(client, ServerMessage::LogsReply { id, result });
     }
 
     /// Whether `client` is connected.
@@ -309,6 +322,9 @@ fn attach(
                             request,
                         },
                         Ok(ClientMessage::Devices { id }) => ClientInput::Devices { client, id },
+                        Ok(ClientMessage::Logs { id, after }) => {
+                            ClientInput::Logs { client, id, after }
+                        }
                         Err(e) => {
                             tracing::warn!(client = client.0, "dropped: {e}");
                             break 'read;

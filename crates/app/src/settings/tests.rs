@@ -530,3 +530,70 @@ fn ac12_autoplay_precedence() {
         assert_eq!(start_autoplay(&settings, *remembered), *want, "{name}");
     }
 }
+
+/// 0027 AC6: `log_level` from `app.toml` and `TIDAL_PLAYER_LOG_LEVEL`, the
+/// variable over the file, any letter case, `info` by default; another
+/// value is a bad setting naming where it came from.
+#[test]
+fn ac6_log_level_setting() {
+    use tidal_player_core::log::LogSetting as L;
+    let file = |level: Option<L>| AppConfig {
+        log_level: level,
+        ..AppConfig::default()
+    };
+    // (name, the file's value, the variable, the level or the bad setting)
+    type Row = (&'static str, Option<L>, Option<&'static str>, Result<L, ()>);
+    let rows: [Row; 10] = [
+        ("default", None, None, Ok(L::Info)),
+        ("empty counts as unset", None, Some(""), Ok(L::Info)),
+        ("the file", Some(L::Debug), None, Ok(L::Debug)),
+        ("the variable", None, Some("warn"), Ok(L::Warn)),
+        (
+            "the variable beats the file",
+            Some(L::Debug),
+            Some("error"),
+            Ok(L::Error),
+        ),
+        ("upper case", None, Some("TRACE"), Ok(L::Trace)),
+        ("mixed case", None, Some("Off"), Ok(L::Off)),
+        (
+            "off over a loud file",
+            Some(L::Trace),
+            Some("off"),
+            Ok(L::Off),
+        ),
+        ("not a level", None, Some("loud"), Err(())),
+        (
+            "not a level over a file",
+            Some(L::Debug),
+            Some("verbose"),
+            Err(()),
+        ),
+    ];
+    for (name, from_file, var, want) in rows {
+        let env = |key: &str| {
+            (key == LOG_LEVEL_VAR)
+                .then_some(var)
+                .flatten()
+                .map(str::to_owned)
+        };
+        let got = resolve_player_config_with(&file(from_file), env);
+        match want {
+            Ok(level) => assert_eq!(got.map(|s| s.log_level), Ok(level), "{name}"),
+            Err(()) => {
+                let err = got.expect_err(name);
+                assert_eq!(err.setting, LOG_LEVEL_VAR, "{name}");
+                let text = err.to_string();
+                assert!(
+                    text.starts_with("invalid TIDAL_PLAYER_LOG_LEVEL: expected")
+                        && text.contains("off, error, warn, info, debug or trace")
+                        && text.contains(&format!("got \"{}\"", var.unwrap())),
+                    "{name}: {text}"
+                );
+            }
+        }
+    }
+    // `play` reads it as the others do.
+    let play = resolve_play_config_with(&file(Some(L::Warn)), false, |_: &str| None);
+    assert_eq!(play.map(|s| s.log_level), Ok(L::Warn));
+}

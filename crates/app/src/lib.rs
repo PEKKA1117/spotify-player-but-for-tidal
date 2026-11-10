@@ -16,6 +16,7 @@ pub mod cli;
 pub mod client;
 pub mod config;
 pub mod ipc;
+pub mod logging;
 pub mod panic_hook;
 pub mod player;
 pub mod session;

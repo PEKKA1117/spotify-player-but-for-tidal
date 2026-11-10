@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::item::Item;
 use crate::library::{LibraryRequest, LibraryResponse};
+use crate::log::LogBatch;
 use crate::quality::AudioQuality;
 use crate::track::{EntryId, Track};
 
@@ -98,6 +99,10 @@ pub enum ClientMessage {
     /// client alone with one [`ServerMessage::DevicesReply`] carrying the
     /// same `id`.
     Devices { id: u64 },
+    /// Ask the player for its log lines after `after` (all of them for
+    /// `None`; spec 0027); answered to this client alone with one
+    /// [`ServerMessage::LogsReply`] carrying the same `id`.
+    Logs { id: u64, after: Option<u64> },
 }
 
 /// What the player sends over the socket (spec 0005 "Messages").
@@ -126,6 +131,12 @@ pub enum ServerMessage {
     DevicesReply {
         id: u64,
         result: Result<Vec<DeviceEntry>, String>,
+    },
+    /// The answer to a `Logs` request, sent to the asking client only
+    /// (spec 0027): the lines, or why not.
+    LogsReply {
+        id: u64,
+        result: Result<LogBatch, String>,
     },
 }
 

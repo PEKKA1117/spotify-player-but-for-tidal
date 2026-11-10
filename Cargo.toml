@@ -14,7 +14,7 @@ categories = ["multimedia::audio", "command-line-utilities"]
 # Every third-party crate the workspace may use is declared here, so a slice
 # only edits its own crate's Cargo.toml (`dep = { workspace = true }`).
 [workspace.dependencies]
-tidal-player-core = { path = "crates/core", version = "=1.4.4" }
+tidal-player-core = { path = "crates/core", version = "=1.5.0" }
 tidal-player-api = { path = "crates/api", version = "=1.3.4" }
 tidal-player-audio = { path = "crates/audio", version = "=1.1.1", default-features = false }
 
@@ -30,6 +30,8 @@ directories = "6.0.0"
 # The album cover (spec 0016): JPEG only, no chafa (no system library).
 image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 insta = "1.49.0"
+# Local time for the log (spec 0027): the system zone, read from TZ or /etc/localtime.
+jiff = { version = "0.2.42", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 keyring = "4.2.0"
 predicates = "3.1.4"
 quick-xml = "0.42.0"
@@ -44,6 +46,8 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = "1.1.7"
 tracing = "0.1.44"
+# The log (spec 0027): the registry and a custom layer, nothing else.
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 webbrowser = "1.2.4"
 wiremock = "0.6.5"

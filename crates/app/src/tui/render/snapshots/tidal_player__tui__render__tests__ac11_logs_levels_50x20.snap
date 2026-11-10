@@ -1,0 +1,24 @@
+---
+source: crates/app/src/tui/render/tests.rs
+expression: text
+---
+┌tidal-player────────────────────────────────────┐
+│▶ Hell Above · Pier… shuffle  repeat: queue  80%│
+│  Collide With The Sky                          │
+│  not bit-perfect: volume below 100%            │
+│  ━━━━━━━━━━━━━────────────────────  1:23 / 3:32│
+│Logs                                            │
+│┌Logs──────────────────────────────────────────┐│
+││13:04:10 INFO  tidal_player_api::auth:        ││
+││adopting a newer session from the session     ││
+││store                                         ││
+││13:04:11 ERROR tidal_player_api::auth: refresh││
+││token rejected: run "tidal-player login"      ││
+││13:04:12 WARN  reqwest::connect: slow connect ││
+││error=timed out                               ││
+││13:04:13 INFO  tidal_player::ipc::server:     ││
+││client left client=3                          ││
+││13:04:14 INFO  tidal_player::player::runtime: ││
+││queue changed                                 ││
+│└──────────────────────────────────────────────┘│
+└────────────────────────────────────────────────┘

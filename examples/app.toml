@@ -50,6 +50,12 @@ key_hints_delay_ms = 1000
 # the queue: true or false. (TIDAL_PLAYER_CONFIRM_REMOVALS, on/off)
 confirm_removals = true
 
+# The lowest level the log keeps (the log file, and the logs page `g o`):
+# "off", "error", "warn", "info", "debug" or "trace", any letter case. Other
+# crates' lines are kept at "warn" and above whatever this says.
+# (TIDAL_PLAYER_LOG_LEVEL)
+log_level = "info"
+
 # Album covers kept in the cache directory for the desktop and the TUI, least
 # recently used deleted first: 0 to 1000; 0 keeps none, and the TUI shows no
 # cover. (TIDAL_PLAYER_MAX_COVER_ARTS)

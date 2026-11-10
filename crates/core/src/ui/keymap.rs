@@ -310,6 +310,10 @@ pub enum UiCommand {
     BrowsePage,
     /// The lyrics page (spec 0021).
     LyricsPage,
+    /// The logs page (spec 0027).
+    OpenLogs,
+    /// Writes the logs page's lines to a file (spec 0027); ours.
+    ExportLogs,
     Search,
     PreviousPage,
     ClosePopup,
@@ -320,7 +324,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 55] = [
+pub const COMMANDS: [UiCommand; 57] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -370,6 +374,8 @@ pub const COMMANDS: [UiCommand; 55] = [
     UiCommand::MixesPage,
     UiCommand::BrowsePage,
     UiCommand::LyricsPage,
+    UiCommand::OpenLogs,
+    UiCommand::ExportLogs,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -431,6 +437,8 @@ impl UiCommand {
             Self::MixesPage => "MixesPage",
             Self::BrowsePage => "BrowsePage",
             Self::LyricsPage => "LyricsPage",
+            Self::OpenLogs => "OpenLogs",
+            Self::ExportLogs => "ExportLogs",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
@@ -635,7 +643,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 22] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -657,7 +665,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 22] = [
     "ReverseTrackOrder",
     "SortLibraryAlphabetically",
     "SortLibraryByRecent",
-    "OpenLogs",
 ];
 
 /// spotify-player actions without a counterpart here: skipped with a
@@ -1082,6 +1089,8 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![g('m')], C::MixesPage),
         (vec![g('b')], C::BrowsePage),
         (vec![one(Char('l')), g('L')], C::LyricsPage),
+        (vec![g('o')], C::OpenLogs),
+        (vec![one(Char('e'))], C::ExportLogs),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),

@@ -438,6 +438,7 @@ impl Client {
                             self.session.send(command);
                         }
                         ui::Effect::Devices { id } => self.session.send_devices(id),
+                        ui::Effect::Logs { id, after } => self.session.send_logs(id, after),
                         _ => {}
                     }
                 }
@@ -1904,4 +1905,279 @@ fn ac14_shutdown_sends_stopped() {
 
     let mut h = Hooked::new(Script::Plays);
     assert_eq!(shutdown(&mut h), None);
+}
+
+/// 0027 AC5: `Logs` is answered once, to the asking client, with the
+/// buffer's lines after `after` and the player's `off`; another subscriber
+/// receives nothing; answering adds no line to the buffer; a player that
+/// keeps no log says it is off.
+#[test]
+fn ac5_logs_reply() {
+    use crate::ipc::server::{OUTBOX, Peer};
+    use crate::logging::LogHandle;
+    use std::time::SystemTime;
+    use tidal_player_core::log::LogLevel;
+    use tidal_player_core::protocol::ServerMessage;
+    use tidal_player_core::ui::logs;
+
+    const OTHER: ClientId = ClientId(900);
+    let at = |n: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(n);
+    let texts = |client: &Client| -> Vec<String> {
+        logs::shown(&client.ui)
+            .into_iter()
+            .map(|d| d.text.split(": ").nth(1).unwrap_or_default().to_owned())
+            .collect()
+    };
+    let buffer = LogHandle::detached(false);
+    for n in 1..=3 {
+        buffer.push(
+            at(n),
+            LogLevel::Info,
+            "tidal_player::x",
+            &format!("line {n}"),
+        );
+    }
+    let (mut client, _log) = Client::build(
+        |engine, jobs| {
+            PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs).with_logs(buffer.clone())
+        },
+        None,
+    );
+    let (outbox, other) = mpsc::sync_channel(OUTBOX);
+    client.rt.handle(RuntimeInput::Client(ClientInput::Attach {
+        client: OTHER,
+        peer: Peer::new(outbox, None),
+    }));
+    client
+        .rt
+        .handle(RuntimeInput::Client(ClientInput::Subscribe(OTHER)));
+    other.try_iter().for_each(drop);
+
+    // `g o`: every line.
+    client.act(vec![
+        ui::Action::Key(ui::Key::Char('g')),
+        ui::Action::Key(ui::Key::Char('o')),
+    ]);
+    assert_eq!(texts(&client), ["line 1", "line 2", "line 3"]);
+    // A second later: the lines after the newest, none yet; then one.
+    client.act(vec![ui::Action::Clock(Duration::from_secs(2))]);
+    assert_eq!(texts(&client).len(), 3);
+    buffer.push(at(4), LogLevel::Warn, "tidal_player::x", "line 4");
+    client.act(vec![ui::Action::Clock(Duration::from_secs(4))]);
+    assert_eq!(texts(&client), ["line 1", "line 2", "line 3", "line 4"]);
+    // Serving added nothing, and the other subscriber was told nothing.
+    assert_eq!(buffer.lines_after(None).len(), 4);
+    let seen: Vec<_> = other.try_iter().collect();
+    assert!(
+        !seen
+            .iter()
+            .any(|m| matches!(m, ServerMessage::LogsReply { .. })),
+        "{seen:?}"
+    );
+
+    // A log that is off says so; a player with none installed too.
+    let off = LogHandle::detached(true);
+    for logs in [Some(off), None] {
+        let (mut client, _log) = Client::build(
+            |engine, jobs| {
+                let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+                match logs {
+                    Some(handle) => rt.with_logs(handle),
+                    None => rt,
+                }
+            },
+            None,
+        );
+        client.act(vec![
+            ui::Action::Key(ui::Key::Char('g')),
+            ui::Action::Key(ui::Key::Char('o')),
+        ]);
+        assert_eq!(
+            logs::content(&client.ui),
+            logs::LogsContent::Off,
+            "{:?}",
+            client.ui.logs
+        );
+    }
+}
+
+/// What `f` logs at `info` on this thread, as `LEVEL text`.
+fn logged(setting: tidal_player_core::log::LogSetting, f: impl FnOnce()) -> Vec<String> {
+    crate::logging::capture(setting, f)
+        .into_iter()
+        .map(|l| format!("{} {}", l.level.as_str(), l.text))
+        .collect()
+}
+
+/// A device lister that cannot read the cards.
+struct BrokenDevices;
+
+impl DeviceLister for BrokenDevices {
+    fn list(&self) -> Result<Vec<DeviceEntry>, String> {
+        Err("no sound cards".to_owned())
+    }
+}
+
+/// 0027 AC17: every `Err` answer of the player (`Reply`, `LibraryReply`,
+/// `DevicesReply`) logs one `request failed` line with the request's name
+/// and the reason, and no payload; the `LogsReply` and an `Ok` answer log
+/// nothing; the standalone TUI's in-process client, answered through the
+/// same hub, gets one line, not two.
+#[test]
+fn ac17_err_answers_are_logged() {
+    use crate::ipc::server::{OUTBOX, Peer};
+    use tidal_player_core::library::LibraryRequest;
+    use tidal_player_core::log::LogSetting;
+
+    const ME: ClientId = ClientId(700);
+    let (rt, _log, rx) = runtime(Script::Plays, true);
+    let mut rt = rt
+        .with_devices(Box::new(BrokenDevices))
+        .with_logs(crate::logging::LogHandle::detached(false));
+    let (outbox, _inbox) = mpsc::sync_channel(OUTBOX);
+    rt.handle(RuntimeInput::Client(ClientInput::Attach {
+        client: ME,
+        peer: Peer::new(outbox, None),
+    }));
+    rt.handle(RuntimeInput::Client(ClientInput::Subscribe(ME)));
+
+    let secret_delete = LibraryRequest::DeletePlaylist {
+        uuid: "SECRET-PAYLOAD-UUID".into(),
+    };
+    let got = logged(LogSetting::Info, || {
+        // Reply: an empty device name.
+        rt.handle(RuntimeInput::Client(ClientInput::Request {
+            client: ME,
+            id: 1,
+            command: Command::SetDevice(String::new()),
+        }));
+        // LibraryReply: the fake player has no library.
+        rt.handle(RuntimeInput::Client(ClientInput::Library {
+            client: ME,
+            id: 2,
+            request: secret_delete.clone(),
+        }));
+        // The fake library answers from a thread.
+        let done = rx.recv_timeout(Duration::from_secs(5)).expect("the answer");
+        rt.handle(done);
+        // DevicesReply.
+        rt.handle(RuntimeInput::Client(ClientInput::Devices {
+            client: ME,
+            id: 3,
+        }));
+        // Not these: an `Ok` reply, and the log's own.
+        rt.handle(RuntimeInput::Client(ClientInput::Request {
+            client: ME,
+            id: 4,
+            command: Command::Pause,
+        }));
+        rt.handle(RuntimeInput::Client(ClientInput::Logs {
+            client: ME,
+            id: 5,
+            after: None,
+        }));
+    });
+    assert_eq!(
+        got,
+        [
+            "WARN request failed request=SetDevice reason=Device name is empty",
+            "WARN request failed request=DeletePlaylist reason=library not available",
+            "WARN request failed request=Devices reason=no sound cards",
+        ]
+    );
+    assert!(!got.join("\n").contains("SECRET-PAYLOAD-UUID"));
+
+    // The standalone TUI's client: the same hub, one line.
+    let (mut client, _log) = Client::new();
+    let got = logged(LogSetting::Info, || {
+        client.session.send(Command::SetDevice(String::new()));
+        client.act(Vec::new());
+    });
+    assert_eq!(
+        got,
+        ["WARN request failed request=SetDevice reason=Device name is empty"]
+    );
+}
+
+/// 0027 AC16: the player's own run: the device opens with the first track,
+/// the entry that starts is logged once, a pause, a resume and a seek log
+/// nothing, and a stop is `stopped` and the device given up; clients
+/// connecting are `DEBUG` lines.
+#[test]
+fn ac16_runtime_logs_a_run() {
+    use tidal_player_core::log::LogSetting;
+
+    let (rt, _log, rx) = runtime(Script::Plays, true);
+    let mut rt = rt.with_requested(AudioQuality::HiResLossless);
+    let got = logged(LogSetting::Info, || {
+        rt.handle(load(&[1, 2]));
+        while let Some(input) = rt.next_input(&rx, Duration::ZERO) {
+            rt.handle(input);
+        }
+        rt.handle(RuntimeInput::Command(Command::Pause));
+        rt.handle(RuntimeInput::Command(Command::TogglePause));
+        rt.handle(RuntimeInput::Command(Command::SeekTo(Duration::from_secs(
+            5,
+        ))));
+        rt.handle(RuntimeInput::Command(Command::Stop));
+        rt.handle(RuntimeInput::Engine(audio::Event::Stopped));
+    });
+    assert_eq!(
+        got,
+        [
+            "INFO device opened device=hw:1,0 format=S32_LE rate=44100 channels=2 bit_perfect=true",
+            "INFO playing track=1 title=Title 1 quality=LOSSLESS requested=HI_RES_LOSSLESS",
+            "INFO stopped",
+            "INFO device released device=hw:1,0",
+        ]
+    );
+
+    let got = logged(LogSetting::Debug, || {
+        use crate::ipc::server::{OUTBOX, Peer};
+        let (outbox, _inbox) = mpsc::sync_channel(OUTBOX);
+        rt.handle(RuntimeInput::Client(ClientInput::Attach {
+            client: ClientId(801),
+            peer: Peer::new(outbox, None),
+        }));
+        rt.handle(RuntimeInput::Client(ClientInput::Detach(ClientId(801))));
+    });
+    assert_eq!(
+        got,
+        [
+            "DEBUG client connected client=801",
+            "DEBUG client disconnected client=801"
+        ]
+    );
+}
+
+/// 0027 AC17: a message of the player's snapshot is logged once when it
+/// changes, a login lost and restored is logged, and a client's `Shutdown`
+/// is a `shutting down` line.
+#[test]
+fn ac17_runtime_logs_messages_and_login() {
+    use tidal_player_core::log::LogSetting;
+
+    let (mut rt, _log, rx) = runtime(Script::Plays, true);
+    let got = logged(LogSetting::Info, || {
+        rt.handle(RuntimeInput::HookFailed("The hook failed".into()));
+        rt.handle(RuntimeInput::Command(Command::Pause));
+        rt.handle(RuntimeInput::Login { required: true });
+        rt.handle(RuntimeInput::Login { required: true });
+        rt.handle(RuntimeInput::Login { required: false });
+        rt.handle(RuntimeInput::Client(ClientInput::Request {
+            client: ClientId(1),
+            id: 1,
+            command: Command::Shutdown,
+        }));
+    });
+    drop(rx);
+    assert_eq!(
+        got,
+        [
+            "WARN message text=The hook failed",
+            "WARN login required",
+            "INFO login restored",
+            "INFO shutting down reason=shutdown command",
+        ]
+    );
 }

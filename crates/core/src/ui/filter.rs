@@ -188,6 +188,8 @@ pub(super) fn move_queue_cursor(state: &mut State, to: impl Fn(usize, usize) -> 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Target {
     Queue,
+    /// The logs page's lines (spec 0027): the filter is the page's.
+    Logs,
     Window(usize),
 }
 
@@ -198,6 +200,9 @@ fn target(state: &State) -> Option<Target> {
     let page = state.page();
     if page.kind == PageKind::Queue {
         return Some(Target::Queue);
+    }
+    if page.kind == PageKind::Logs {
+        return Some(Target::Logs);
     }
     if page.load != Load::Idle || !page.windows_focused() || page.windows.get(page.focus).is_none()
     {
@@ -212,6 +217,9 @@ fn typing_target(state: &State) -> Option<Target> {
     let page = state.page();
     if page.kind == PageKind::Queue {
         return page.filter.typing.then_some(Target::Queue);
+    }
+    if page.kind == PageKind::Logs {
+        return page.filter.typing.then_some(Target::Logs);
     }
     if !page.windows_focused() {
         return None;
@@ -231,7 +239,7 @@ fn filter_mut(state: &mut State, target: Target) -> &mut Filter {
     let index = browse::top(state);
     let page = &mut state.history[index];
     match target {
-        Target::Queue => &mut page.filter,
+        Target::Queue | Target::Logs => &mut page.filter,
         Target::Window(w) => &mut page.windows[w].filter,
     }
 }
@@ -250,7 +258,7 @@ pub(super) fn start(state: &mut State) -> Vec<Effect> {
 pub(super) fn kept(state: &State) -> bool {
     let page = state.page();
     match target(state) {
-        Some(Target::Queue) => page.filter.active(),
+        Some(Target::Queue | Target::Logs) => page.filter.active(),
         Some(Target::Window(w)) => page.windows[w].filter.active(),
         None => false,
     }
@@ -319,6 +327,7 @@ pub(super) fn key(state: &mut State, key: Key) -> Vec<Effect> {
                     move_queue_cursor(state, |i, len| step(command, i, len, height));
                     Vec::new()
                 }
+                Target::Logs => super::logs::command(state, command),
                 Target::Window(_) => {
                     browse::move_window_cursor(state, |i, len| step(command, i, len, height))
                 }
@@ -338,6 +347,10 @@ fn set_text(state: &mut State, target: Target, text: String) -> Vec<Effect> {
         Target::Queue => {
             filter_mut(state, target).text = text;
             keep_queue_cursor(state);
+            Vec::new()
+        }
+        Target::Logs => {
+            filter_mut(state, target).text = text;
             Vec::new()
         }
         Target::Window(w) => {

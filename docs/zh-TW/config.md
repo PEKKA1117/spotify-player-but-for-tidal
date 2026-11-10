@@ -48,6 +48,7 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `theme` | 佈景主題的名稱 | `"default"` | `-t`/`--theme`（TUI）、`TIDAL_PLAYER_THEME` | TUI |
 | `key_hints` | `true`、`false` | `true` | `TIDAL_PLAYER_KEY_HINTS`（`on`、`off`） | TUI |
 | `key_hints_delay_ms` | 整數 0–10 000（毫秒；`0`：立即顯示） | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
+| `log_level` | `"off"`、`"error"`、`"warn"`、`"info"`、`"debug"`、`"trace"`（不分大小寫） | `"info"` | `TIDAL_PLAYER_LOG_LEVEL` | 播放器、TUI |
 | `confirm_removals` | `true`、`false` | `true` | `TIDAL_PLAYER_CONFIRM_REMOVALS`（`on`、`off`） | TUI |
 | `cover_img` | `true`、`false` | `true` | `TIDAL_PLAYER_COVER_IMG`（`on`、`off`） | TUI |
 | `cover_img_rows` | 整數 4–20（顯示封面時播放視窗的列數） | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
@@ -59,7 +60,7 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `player_event_hook_command` | 一個表格：`command`，以及選用的 `args`（見[下方](#running-a-command-on-player-events)） | 無 | | player |
 | `[layout] library = { playlist_percent, album_percent }` | 各為整數 1–98，總和最多 99；*Artists*（藝人）佔用其餘部分 | `40`、`40` | | TUI |
 
-各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`hide_browse_pages` 說明於[瀏覽](tui.md#browse)（名稱是頁面路徑中 `pages/` 之後的部分，須完全相符，且只隱藏連結）；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)；`theme` 指定 [`theme.toml`](#themetoml) 中的一個佈景主題（沒有檔案時為 `default`），TUI 執行期間可按 `T` 切換（見[佈景主題](tui.md#themes)）。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
+各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`hide_browse_pages` 說明於[瀏覽](tui.md#browse)（名稱是頁面路徑中 `pages/` 之後的部分，須完全相符，且只隱藏連結）；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)；`log_level` 見[記錄](tui.md#what-is-logged-and-where)（本程式各 crate 保留的最低等級；每個行程讀取自己的設定，連上播放器的 TUI 只用於它自己的記錄行）；`theme` 指定 [`theme.toml`](#themetoml) 中的一個佈景主題（沒有檔案時為 `default`），TUI 執行期間可按 `T` 切換（見[佈景主題](tui.md#themes)）。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
 
 ```toml
 # ~/.config/tidal-player/app.toml
@@ -326,9 +327,11 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `MixesPage` | `g m` | 所有地方 | your mixes（你的 mix） |
 | `BrowsePage` | `g b` | 所有地方 | browse what Tidal picks（瀏覽 Tidal 精選的內容，見[瀏覽](tui.md#browse)） |
 | `LyricsPage` | `l`、`g L` | 所有地方 | lyrics of the playing track（正在播放曲目的歌詞） |
+| `OpenLogs` | `g o` | 所有地方 | open the logs page（開啟記錄頁，見[記錄](tui.md#logs)） |
+| `ExportLogs` | `e` | 記錄頁 | export the shown log lines to a file（把顯示的記錄行匯出到檔案） |
 | `Search` | `/` | 清單 | filter the rows（篩選列；見[篩選清單](tui.md#filtering-a-list)） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
-| `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選；在歌詞頁：重新跟隨目前這一行） |
+| `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選；在歌詞頁：重新跟隨目前這一行；在記錄頁：重新跟隨最新的一行） |
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help（此說明） |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches)（結束；連接中的 TUI 會中斷連接） |
 
@@ -360,9 +363,9 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 <a id="spotify-player-names-not-supported-here"></a>
 ### 此處不支援的 spotify-player 名稱
 
-這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, OpenLogs, SortTrackByTitle`。
+這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, TopTrackPage, SortTrackByTitle`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`、`OpenLogs`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`
 - 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。

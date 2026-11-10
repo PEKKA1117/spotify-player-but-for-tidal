@@ -25,6 +25,7 @@ use super::super::{
 const GL: [Key; 2] = [Key::Char('g'), Key::Char('l')];
 const GY: [Key; 2] = [Key::Char('g'), Key::Char('y')];
 const GA: [Key; 2] = [Key::Char('g'), Key::Char('a')];
+const GO: [Key; 2] = [Key::Char('g'), Key::Char('o')];
 
 fn artist(id: u64) -> ArtistRef {
     ArtistRef {
@@ -206,6 +207,8 @@ enum Out {
     Send(Command),
     Library(LibraryRequest),
     Devices,
+    Logs,
+    Export,
 }
 
 fn outs(effects: &[Effect]) -> Vec<Out> {
@@ -216,6 +219,8 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
             Effect::Send(c) => Out::Send(c.clone()),
             Effect::Library { request, .. } => Out::Library(request.clone()),
             Effect::Devices { .. } => Out::Devices,
+            Effect::Logs { .. } => Out::Logs,
+            Effect::ExportLogs { .. } => Out::Export,
         })
         .collect()
 }
@@ -1736,6 +1741,29 @@ fn ac16_disconnected_and_login() {
         assert_eq!(request, LibraryRequest::Page(PageRequest::Lyrics(101)));
         assert!(matches!(state.page().load, Load::Loading { .. }));
     }
+    // Spec 0027: the logs page. Disconnected, it opens with no request
+    // and the connection's message, a request in flight is dropped, and
+    // the first `Welcome` asks for every line.
+    for (shut_down, message) in [(false, DISCONNECTED), (true, SHUT_DOWN)] {
+        let mut state = State::default();
+        let sent = press(&mut state, &GO);
+        assert_eq!(sent, vec![Effect::Logs { id: 1, after: None }]);
+        update(&mut state, Action::Disconnected { shut_down });
+        assert_eq!(state.page().kind, PageKind::Logs);
+        assert_eq!(
+            super::super::logs::content(&state).message().as_deref(),
+            Some(message)
+        );
+        press(&mut state, &[Backspace]);
+        assert_eq!(press(&mut state, &GO), vec![], "{message}");
+        assert_eq!(
+            super::super::logs::content(&state).message().as_deref(),
+            Some(message)
+        );
+        let effects = update(&mut state, welcome());
+        assert_eq!(effects, vec![Effect::Logs { id: 2, after: None }]);
+    }
+
     // Session expired: the player's error shows in the lyrics page.
     let mut state = with_queue(&[1], Some(1));
     let (id, _) = one_request(&press(&mut state, &[Char('l')]));

@@ -89,6 +89,8 @@ pub struct AppConfig {
     /// Spec 0017: the TUI's theme, by name (checked against `theme.toml`
     /// by the TUI only).
     pub theme: Option<String>,
+    /// Spec 0027: the lowest level the log keeps.
+    pub log_level: Option<tidal_player_core::log::LogSetting>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -296,6 +298,21 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             "player_event_hook_command" => {
                 config.player_event_hook_command = Some(hook_command(path, key, value)?);
             }
+            "log_level" => match value
+                .as_str()
+                .and_then(|text| text.parse::<tidal_player_core::log::LogSetting>().ok())
+            {
+                Some(level) => config.log_level = Some(level),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!(
+                            "expected off, error, warn, info, debug or trace, got {}",
+                            describe(value)
+                        ),
+                    ));
+                }
+            },
             "theme" => match value.as_str() {
                 Some(name) => config.theme = Some(name.to_owned()),
                 None => {

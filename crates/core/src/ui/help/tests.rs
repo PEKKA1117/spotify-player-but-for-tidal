@@ -279,6 +279,7 @@ fn pages(focus: bool, tabs: bool) -> Vec<&'static str> {
         "MixesPage",
         "BrowsePage",
         "LyricsPage",
+        "OpenLogs",
         "PreviousPage",
     ]);
     pages
@@ -485,6 +486,12 @@ fn ac7_help_keys_and_texts() {
     assert_eq!(keys("SelectFirstOrScrollToTop").as_deref(), Some("g g"));
     assert_eq!(keys("OpenCommandHelp").as_deref(), Some("?  C-h"));
     assert_eq!(keys("Quit").as_deref(), Some("q  C-c"));
+    // Spec 0027 AC7.
+    assert_eq!(keys("OpenLogs").as_deref(), Some("g o"));
+    assert_eq!(
+        row(&sections, "OpenLogs").map(|r| r.text.as_str()),
+        Some("open the logs page")
+    );
     assert_eq!(keys("VolumeChange"), None, "no key: not listed");
     let text = |state: &State, c: &str| row(&help(state), c).map(|r| r.text.clone());
     assert_eq!(
@@ -1109,6 +1116,7 @@ fn ac1_hints_entries() {
             entry("m", "your mixes", false),
             entry("b", "browse what Tidal picks", false),
             entry("L", "lyrics of the playing track", false),
+            entry("o", "open the logs page", false),
         ]
     };
     let rows: Vec<(&str, State, Vec<HintEntry>)> = vec![
@@ -1150,6 +1158,7 @@ fn ac1_hints_entries() {
                 entry("m", "your mixes", false),
                 entry("b", "browse what Tidal picks", false),
                 entry("L", "lyrics of the playing track", false),
+                entry("o", "open the logs page", false),
                 entry("n", "next track", false),
                 entry("B", "go to the album (playing track)", false),
             ],

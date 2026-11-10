@@ -54,8 +54,24 @@ fn run(mut cmd: Command) -> (i32, String, String) {
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
-        String::from_utf8_lossy(&out.stderr).into_owned(),
+        without_log_lines(&String::from_utf8_lossy(&out.stderr)),
     )
+}
+
+/// `stderr` without the daemon's own log lines (`INFO tidal_player::run:
+/// starting …`, spec 0027): these tests are about what else it says.
+fn without_log_lines(stderr: &str) -> String {
+    stderr
+        .split_inclusive('\n')
+        .filter(|line| {
+            !["ERROR ", "WARN ", "INFO ", "DEBUG ", "TRACE "]
+                .iter()
+                .any(|level| {
+                    line.strip_prefix(level)
+                        .is_some_and(|r| r.starts_with("tidal_player"))
+                })
+        })
+        .collect()
 }
 
 /// AC12: a broken `app.toml` or `keymap.toml` exits 2 with `<path>: <message>` on stderr,

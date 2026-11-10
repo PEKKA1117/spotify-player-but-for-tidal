@@ -1577,6 +1577,8 @@ fn ac17_no_panic_any_size() {
     let mixes = mixes_states();
     // 0021 AC9: the lyrics page in each state, CJK and right-to-left.
     let lyrics = lyrics_states();
+    // 0027 AC11: the logs page in each state.
+    let logs = logs_states();
     // 0013 AC6: a pending sequence's hint over each kind of view.
     let hints = hint_states();
     // 0014 AC9: the devices popup in each of its states.
@@ -1611,6 +1613,7 @@ fn ac17_no_panic_any_size() {
             .chain(&help)
             .chain(&mixes)
             .chain(&lyrics)
+            .chain(&logs)
             .chain(&hints)
             .chain(&devices)
             .chain(&filters)
@@ -3077,14 +3080,15 @@ fn ac6_key_hints() {
         &text,
         &[
             "┌g …",
-            "a  actions on the selected row     s  the search page (on one: its…",
-            "g  move to the top                 m  your mixes",
-            "l  the library                     b  browse what Tidal picks",
-            "y  favorite tracks                 L  lyrics of the playing track",
+            "a  actions on the selected row     m  your mixes",
+            "g  move to the top                 b  browse what Tidal picks",
+            "l  the library                     L  lyrics of the playing track",
+            "y  favorite tracks                 o  open the logs page",
+            "s  the search page (on one: its…",
         ],
     );
     // Docked: the box's bottom border is the page area's last row.
-    assert_eq!(row_of(&text, "┌g …"), 17, "{text}");
+    assert_eq!(row_of(&text, "┌g …"), 16, "{text}");
     assert!(row(&text, 22).starts_with("│└"), "{text}");
     // Not drawn when the timer says no.
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -3107,7 +3111,7 @@ fn ac6_key_hints() {
     let text = draw(&pending(library(), &g), 40, 12);
     assert_contains(
         &text,
-        &["┌g …", "a  actions on the selected row", "… +6 more"],
+        &["┌g …", "a  actions on the selected row", "… +7 more"],
     );
     insta::assert_snapshot!("ac6_key_hints_40x12", text);
 
@@ -4648,4 +4652,351 @@ fn ac12_browse_failed_80x24() {
     let text = draw(&state, 80, 24);
     assert_contains(&text, &["Videos", "Nothing to show here"]);
     insta::assert_snapshot!("ac12_browse_empty_80x24", text);
+}
+
+// --- the logs page (spec 0027) -----------------------------------------------------
+
+use tidal_player_core::log::{LogBatch, LogLevel, LogLine};
+
+/// A line at 13:04:05 plus `secs`, drawn with the offset 0 the state has.
+fn log_line(seq: u64, secs: u64, level: LogLevel, target: &str, text: &str) -> LogLine {
+    LogLine {
+        seq,
+        at: std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(47_045 + secs),
+        level,
+        target: target.into(),
+        text: text.into(),
+    }
+}
+
+/// Ten lines, every level.
+fn log_levels() -> Vec<LogLine> {
+    use LogLevel::{Debug, Error, Info, Trace, Warn};
+    vec![
+        log_line(
+            1,
+            0,
+            Info,
+            "tidal_player::player::persist",
+            "restored the queue: 12 tracks",
+        ),
+        log_line(
+            2,
+            1,
+            Debug,
+            "tidal_player_audio::open",
+            "opened hw:1,0 as S32_LE at 96000 Hz",
+        ),
+        log_line(3, 2, Trace, "tidal_player_audio::alsa", "wrote 4096 frames"),
+        log_line(
+            4,
+            3,
+            Info,
+            "tidal_player::player::runtime",
+            "client connected client=3",
+        ),
+        log_line(
+            5,
+            4,
+            Warn,
+            "tidal_player::player::reserve",
+            "cannot reserve card 1: busy",
+        ),
+        log_line(
+            6,
+            5,
+            Info,
+            "tidal_player_api::auth",
+            "adopting a newer session from the session store",
+        ),
+        log_line(
+            7,
+            6,
+            Error,
+            "tidal_player_api::auth",
+            "refresh token rejected: run \"tidal-player login\"",
+        ),
+        log_line(
+            8,
+            7,
+            Warn,
+            "reqwest::connect",
+            "slow connect error=timed out",
+        ),
+        log_line(
+            9,
+            8,
+            Info,
+            "tidal_player::ipc::server",
+            "client left client=3",
+        ),
+        log_line(
+            10,
+            9,
+            Info,
+            "tidal_player::player::runtime",
+            "queue changed",
+        ),
+    ]
+}
+
+/// The first `n` lines of `lines`, plus a long one and a CJK one.
+fn log_wrapped() -> Vec<LogLine> {
+    use LogLevel::{Info, Warn};
+    vec![
+        log_line(
+            1,
+            0,
+            Info,
+            "tidal_player::player::http_source",
+            "stream reconnected after a stalled read of the segment at offset 1048576 of the track \
+             that was playing when the network went away zzend",
+        ),
+        log_line(
+            2,
+            1,
+            Warn,
+            "tidal_player::x",
+            "播放佇列已還原，共十二首曲目，正在等待裝置釋放，請稍候片刻再試一次看看是否能夠成功完成",
+        ),
+        log_line(3, 2, Info, "tidal_player::x", "short"),
+    ]
+}
+
+/// `n` numbered lines.
+fn log_many(n: u64) -> Vec<LogLine> {
+    (1..=n)
+        .map(|i| {
+            log_line(
+                i,
+                i,
+                LogLevel::Info,
+                "tidal_player::x",
+                &format!("numbered line {i}"),
+            )
+        })
+        .collect()
+}
+
+/// The logs page of a `width` x `height` terminal, asked for with `g o`
+/// and (unless `None`) answered.
+fn logs_page(reply: Option<Result<LogBatch, String>>, width: u16, height: u16) -> State {
+    let mut state = state_of(playing());
+    update(
+        &mut state,
+        Action::Resize {
+            list_height: list_height(rect(0, 0, width, height), false, None),
+        },
+    );
+    let effects = press(&mut state, &[Key::Char('g'), Key::Char('o')]);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Logs { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no logs request: {effects:?}"));
+    if let Some(result) = reply {
+        update(&mut state, Action::LogsReply { id, result });
+    }
+    state
+}
+
+fn logs_ok(lines: Vec<LogLine>, width: u16, height: u16) -> State {
+    logs_page(Some(Ok(LogBatch { lines, off: false })), width, height)
+}
+
+/// The logs page in each state, for the no-panic sweep (AC11).
+fn logs_states() -> Vec<State> {
+    let mut scrolled = logs_ok(log_many(60), 80, 24);
+    press(&mut scrolled, &[Key::Char('k')]);
+    let mut filtered = logs_ok(log_levels(), 80, 24);
+    press(&mut filtered, &[Key::Char('/')]);
+    press(
+        &mut filtered,
+        &"reserve".chars().map(Key::Char).collect::<Vec<_>>(),
+    );
+    let mut no_match = logs_ok(log_levels(), 80, 24);
+    press(&mut no_match, &[Key::Char('/'), Key::Char('z'), Key::Enter]);
+    let mut disconnected = logs_ok(vec![], 80, 24);
+    update(&mut disconnected, Action::Disconnected { shut_down: false });
+    vec![
+        logs_ok(log_levels(), 80, 24),
+        logs_ok(log_wrapped(), 80, 24),
+        scrolled,
+        filtered,
+        no_match,
+        logs_page(None, 80, 24),
+        logs_ok(vec![], 80, 24),
+        logs_page(
+            Some(Ok(LogBatch {
+                lines: vec![],
+                off: true,
+            })),
+            80,
+            24,
+        ),
+        logs_page(Some(Err("boom".into())), 80, 24),
+        disconnected,
+    ]
+}
+
+/// AC11: the logs page at 80x24 and 50x20 (snapshots): every level, wrapped
+/// long and CJK lines, the scrolled title, a filter, and each window
+/// message.
+fn logs_cases(width: u16, height: u16) -> Vec<(&'static str, State, Vec<&'static str>)> {
+    let mut scrolled = logs_ok(log_many(60), width, height);
+    press(&mut scrolled, &[Key::Char('k')]);
+    let mut filtered = logs_ok(log_levels(), width, height);
+    press(&mut filtered, &[Key::Char('/')]);
+    press(
+        &mut filtered,
+        &"reserve".chars().map(Key::Char).collect::<Vec<_>>(),
+    );
+    press(&mut filtered, &[Key::Enter]);
+    let mut no_match = logs_ok(log_levels(), width, height);
+    press(
+        &mut no_match,
+        &[Key::Char('/'), Key::Char('q'), Key::Char('q'), Key::Enter],
+    );
+    let mut disconnected = logs_page(None, width, height);
+    update(&mut disconnected, Action::Disconnected { shut_down: false });
+    // Following, every line wrapping to two rows or more: the newest line
+    // is still on the last rows.
+    let long: Vec<LogLine> = (1..=30)
+        .map(|i| {
+            log_line(
+                i,
+                i,
+                LogLevel::Info,
+                "tidal_player::x",
+                &format!("long line {i} that is wide enough to wrap past the window and then some more words end{i}"),
+            )
+        })
+        .collect();
+    vec![
+        (
+            "following_wrapped",
+            logs_ok(long, width, height),
+            vec!["end30"],
+        ),
+        (
+            "levels",
+            logs_ok(log_levels(), width, height),
+            vec![
+                "Logs",
+                "13:04:05 INFO  tidal_player::player::persist",
+                "13:04:09 WARN  tidal_player::player::reserve",
+                "13:04:11 ERROR tidal_player_api::auth",
+                "13:04:12 WARN  reqwest::connect",
+                "13:04:14 INFO",
+            ],
+        ),
+        (
+            "wrapped",
+            logs_ok(log_wrapped(), width, height),
+            vec!["13:04:05 INFO", "zzend", "播 放 佇 列 已 還 原"],
+        ),
+        (
+            "scrolled",
+            scrolled,
+            vec!["Logs · scrolled", "numbered line"],
+        ),
+        (
+            "filter",
+            filtered,
+            vec!["Logs · /reserve · 1 match", "cannot reserve card 1: busy"],
+        ),
+        ("no_match", no_match, vec!["No rows match \"qq\""]),
+        ("loading", logs_page(None, width, height), vec!["Loading…"]),
+        (
+            "none",
+            logs_ok(vec![], width, height),
+            vec!["No log lines yet"],
+        ),
+        (
+            "off",
+            logs_page(
+                Some(Ok(LogBatch {
+                    lines: vec![],
+                    off: true,
+                })),
+                width,
+                height,
+            ),
+            vec!["Logging is off: set log_level in app.toml"],
+        ),
+        (
+            "failed",
+            logs_page(Some(Err("the player did not answer".into())), width, height),
+            vec!["Could not load the log: the player did not answer"],
+        ),
+        (
+            "disconnected",
+            disconnected,
+            vec!["Disconnected from the player: reconnecting…"],
+        ),
+    ]
+}
+
+#[test]
+fn ac11_logs_80x24() {
+    for (name, state, parts) in logs_cases(80, 24) {
+        let text = draw(&state, 80, 24);
+        assert_contains(&text, &parts);
+        insta::assert_snapshot!(format!("ac11_logs_{name}_80x24"), text);
+    }
+}
+
+#[test]
+fn ac11_logs_narrow_50x20() {
+    for (name, state, _) in logs_cases(50, 20) {
+        let parts: &[&str] = match name {
+            "levels" => &["Logs", "13:04:14 INFO", "13:04:11 ERROR"],
+            "wrapped" => &["13:04:05 INFO", "zzend"],
+            "filter" => &["Logs · /reserve · 1 match"],
+            "off" => &["Logging is off: set log_level in app.toml"],
+            _ => continue,
+        };
+        let text = draw(&state, 50, 20);
+        assert_contains(&text, parts);
+        insta::assert_snapshot!(format!("ac11_logs_{name}_50x20"), text);
+    }
+}
+
+/// AC11: an `ERROR` line is drawn in the theme's `error` component, a
+/// `WARN` line in the palette's `yellow`, the rest in the screen's style.
+#[test]
+fn ac11_logs_colours() {
+    let state = logs_ok(log_levels(), 80, 24);
+    let terminal = draw_terminal(&state, 80, 24);
+    let fg = |part: &str| find_cell(&terminal, 0, part).fg;
+    let error = of(state.theme(), Component::Error).fg.unwrap();
+    assert_eq!(fg("13:04:11 ERROR"), error);
+    assert_eq!(fg("13:04:09 WARN"), Tc::Yellow);
+    assert_eq!(fg("13:04:12 WARN"), Tc::Yellow);
+    assert_eq!(fg("13:04:05 INFO"), Tc::Reset);
+    assert_eq!(fg("13:04:06 DEBUG"), Tc::Reset);
+
+    // A theme: the error component's colour, and the palette's yellow.
+    let mut themed = logs_ok(log_levels(), 80, 24);
+    let entry = theme_entry(
+        "logs",
+        &[("yellow", "#123456".to_owned())],
+        vec![(Component::Error, Some(Tc::Rgb(0xaa, 0x11, 0x22)), None)],
+    );
+    let themes = tidal_player_core::ui::theme::build(&ThemeFile {
+        themes: vec![entry],
+    })
+    .unwrap();
+    tidal_player_core::ui::apply_themes(&mut themed, themes, 1);
+    let terminal = draw_terminal(&themed, 80, 24);
+    assert_eq!(
+        find_cell(&terminal, 0, "13:04:11 ERROR").fg,
+        Tc::Rgb(0xaa, 0x11, 0x22)
+    );
+    assert_eq!(
+        find_cell(&terminal, 0, "13:04:09 WARN").fg,
+        Tc::Rgb(0x12, 0x34, 0x56)
+    );
 }

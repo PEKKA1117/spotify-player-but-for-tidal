@@ -344,7 +344,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 54] = [
+const DEFAULTS: [(&[&str], &str); 56] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -397,6 +397,8 @@ const DEFAULTS: [(&[&str], &str); 54] = [
     (&["g b"], "BrowsePage"),
     // Spec 0021.
     (&["l", "g L"], "LyricsPage"),
+    (&["g o"], "OpenLogs"),
+    (&["e"], "ExportLogs"),
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
@@ -667,7 +669,7 @@ fn ac2_build_keymap() {
             file(
                 vec![
                     entry("x", "PlayRandom"),
-                    entry("n", "OpenLogs"),
+                    entry("n", "TopTrackPage"),
                     entry("y", "PlayRandom"),
                 ],
                 vec![action("w", "GoToShow", Target::SelectedItem)],
@@ -679,7 +681,7 @@ fn ac2_build_keymap() {
                     ("w", None),
                     ("n", cmd(C::NextTrack)),
                 ],
-                vec!["PlayRandom", "OpenLogs", "GoToShow"],
+                vec!["PlayRandom", "TopTrackPage", "GoToShow"],
             ),
         ),
         (
@@ -830,10 +832,32 @@ fn ac2_build_keymap() {
 
 // --- AC3 ---------------------------------------------------------------------
 
+/// `state` with the logs page open and one line on it.
+fn logs_page_with_a_line(mut state: State) -> State {
+    let effects = press(&mut state, &typed("go"));
+    let [Effect::Logs { id, .. }] = effects.as_slice() else {
+        panic!("{effects:?}");
+    };
+    let line = crate::log::LogLine {
+        seq: 1,
+        at: std::time::SystemTime::UNIX_EPOCH,
+        level: crate::log::LogLevel::Info,
+        target: "tidal_player".into(),
+        text: "hello".into(),
+    };
+    let result = Ok(crate::log::LogBatch {
+        lines: vec![line],
+        off: false,
+    });
+    update(&mut state, Action::LogsReply { id: *id, result });
+    state
+}
+
 /// A state in which `command` acts.
 fn acting(command: UiCommand) -> State {
     use UiCommand as C;
     match command {
+        C::ExportLogs => logs_page_with_a_line(queue()),
         C::ClosePopup => {
             let mut state = queue();
             press(&mut state, &[Key::Char('a')]);
@@ -1300,7 +1324,7 @@ fn ac12_unsupported_notice() {
             vec![
                 entry("x", "PlayRandom"),
                 entry("g n", "NextTrack"),
-                entry("y", "OpenLogs"),
+                entry("y", "TopTrackPage"),
                 entry("w", "PlayRandom"),
                 // Spec 0017: `SwitchTheme` is a command now; another
                 // skipped name takes its place.
@@ -1308,7 +1332,7 @@ fn ac12_unsupported_notice() {
             ],
             vec![],
             Some(
-                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, OpenLogs, SortTrackByTitle",
+                "keymap.toml: 3 spotify-player commands not supported here: PlayRandom, TopTrackPage, SortTrackByTitle",
             ),
         ),
         (
@@ -1656,7 +1680,7 @@ fn ac9_file_beats_conflicting_defaults() {
             file(vec![entry("g", "LibraryPage")], vec![]),
             vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
             Some(
-                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage)"#,
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage), "g o" (OpenLogs)"#,
             ),
         ),
         (
@@ -1934,4 +1958,107 @@ fn ac14_browse_page_command() {
         Some(Binding::Command(UiCommand::BrowsePage))
     );
     assert!(!UNSUPPORTED_COMMANDS.contains(&"BrowsePage"));
+}
+
+// --- spec 0027 AC7 ------------------------------------------------------------
+
+/// Spec 0027 AC7: `g o` is `OpenLogs` in the defaults, the keys help and
+/// `g`'s key hints; it is no longer unsupported; it can be rebound and
+/// unbound.
+#[test]
+fn ac7_logs_keys() {
+    use UiCommand as C;
+    let logs = Some(Binding::Command(C::OpenLogs));
+    let defaults = Keymap::default();
+    assert_eq!(bound(&defaults, "g o"), logs);
+    assert!(super::super::keymap::COMMANDS.contains(&C::OpenLogs));
+    assert_eq!(C::OpenLogs.name(), "OpenLogs");
+    assert!(defaults.unsupported().is_empty());
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"OpenLogs"));
+
+    // In the keys help, with its text.
+    let found = help(&queue())
+        .iter()
+        .flat_map(|s| &s.rows)
+        .find(|r| r.command == "OpenLogs")
+        .map(|r| (r.keys.clone(), r.text.clone(), r.dim));
+    assert_eq!(
+        found,
+        Some(("g o".into(), "open the logs page".into(), false))
+    );
+
+    // Among `g`'s key hints.
+    let mut state = queue();
+    state.pending = vec![Key::Char('g')];
+    let hint = hints(&state).expect("g starts bindings");
+    let entry_o = hint.entries.iter().find(|e| e.key == "o").expect("g o");
+    assert_eq!(entry_o.text, "open the logs page");
+    assert_eq!(entry_o.more, 0);
+
+    // A spotify-player file binding it builds without a notice, and the
+    // key opens the page; the default stays.
+    let built = keymap(vec![entry("M-o", "OpenLogs")], vec![]);
+    assert_eq!(built.unsupported(), Vec::<String>::new());
+    assert_eq!(bound(&built, "M-o"), logs);
+    assert_eq!(bound(&built, "g o"), logs);
+    let mut state = with_keymap(queue(), built);
+    assert_eq!(state.message(), None);
+    let effects = press(&mut state, &[Key::Alt(BaseKey::Char('o'))]);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Logs { after: None, .. }]
+    ));
+    assert_eq!(state.page().kind, PageKind::Logs);
+
+    // Unbound: the key does nothing.
+    let built = keymap(vec![entry("g o", "None")], vec![]);
+    assert_eq!(bound(&built, "g o"), None);
+    let mut state = with_keymap(queue(), built);
+    assert_eq!(press(&mut state, &typed("go")), vec![]);
+    assert_eq!(state.page().kind, PageKind::Queue);
+}
+
+// --- spec 0027 AC14 -----------------------------------------------------------
+
+/// Spec 0027 AC14: `e` is `ExportLogs` in the defaults and, on the logs
+/// page, in the keys help; it is not a spotify-player name; it can be
+/// rebound or unbound; elsewhere the help does not list it.
+#[test]
+fn ac14_export_key() {
+    use UiCommand as C;
+    let export = Some(Binding::Command(C::ExportLogs));
+    let defaults = Keymap::default();
+    assert_eq!(bound(&defaults, "e"), export);
+    assert!(super::super::keymap::COMMANDS.contains(&C::ExportLogs));
+    assert_eq!(C::ExportLogs.name(), "ExportLogs");
+    assert!(defaults.unsupported().is_empty());
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"ExportLogs"));
+
+    // On the logs page the help lists it, elsewhere not.
+    let found = |state: &State| {
+        help(state)
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.command == "ExportLogs")
+            .map(|r| (r.keys.clone(), r.text.clone()))
+    };
+    assert_eq!(found(&queue()), None);
+    let mut state = queue();
+    press(&mut state, &typed("go"));
+    assert_eq!(state.page().kind, PageKind::Logs);
+    assert_eq!(
+        found(&state),
+        Some(("e".into(), "export the shown log lines to a file".into()))
+    );
+
+    // Rebound: the new key exports, `e` does not.
+    let built = keymap(vec![entry("e", "None"), entry("M-e", "ExportLogs")], vec![]);
+    assert_eq!(built.unsupported(), Vec::<String>::new());
+    assert_eq!(bound(&built, "e"), None);
+    assert_eq!(bound(&built, "M-e"), export);
+    let mut state = with_keymap(queue(), built);
+    state = logs_page_with_a_line(state);
+    assert_eq!(press(&mut state, &typed("e")), vec![]);
+    let sent = press(&mut state, &[Key::Alt(BaseKey::Char('e'))]);
+    assert!(matches!(sent.as_slice(), [Effect::ExportLogs { .. }]));
 }

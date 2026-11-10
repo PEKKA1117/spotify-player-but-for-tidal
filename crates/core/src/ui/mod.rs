@@ -45,6 +45,7 @@ mod dispatch;
 pub mod filter;
 pub mod help;
 pub mod keymap;
+pub mod logs;
 pub mod lyrics;
 pub mod page;
 pub mod popup;
@@ -55,6 +56,7 @@ pub mod theme;
 use std::time::Duration;
 
 use crate::library::{LibraryRequest, LibraryResponse};
+use crate::log::{LogBatch, LogLine};
 use crate::protocol::{
     self, Command, DeviceEntry, InsertAt, PlaybackState, PlayerSnapshot, QueueEntry,
 };
@@ -268,6 +270,8 @@ pub struct State {
     /// The index in [`State::themes`] of the theme drawn: the one in use,
     /// or the one under the Themes popup's cursor while it is open.
     pub theme: usize,
+    /// The log lines the logs page shows and its asking (spec 0027).
+    pub logs: logs::LogStore,
 }
 
 impl Default for State {
@@ -305,6 +309,7 @@ impl Default for State {
             start_pending: false,
             themes: Themes::default(),
             theme: 0,
+            logs: logs::LogStore::default(),
         }
     }
 }
@@ -399,6 +404,22 @@ pub enum Action {
         id: u64,
         result: Result<Vec<DeviceEntry>, String>,
     },
+    /// The player's answer to [`Effect::Logs`] with the same `id` (spec
+    /// 0027).
+    LogsReply {
+        id: u64,
+        result: Result<LogBatch, String>,
+    },
+    /// The time now on a monotonic clock (since the TUI started), fed
+    /// before every other action and on every tick: the logs page asks
+    /// again a second after each answer (spec 0027).
+    Clock(Duration),
+    /// Lines of the TUI's own log, new since the last ones given (spec
+    /// 0027): merged into the logs page by time.
+    OwnLogs(Vec<LogLine>),
+    /// The result of [`Effect::ExportLogs`] (spec 0027): how many lines
+    /// were written and to which path, or why not.
+    LogsExported(Result<(usize, String), String>),
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -414,6 +435,13 @@ pub enum Effect {
     /// Ask the player for its output devices (spec 0014); its answer comes
     /// back as [`Action::DevicesReply`] with the same `id`.
     Devices { id: u64 },
+    /// Ask the player for its log lines after `after` (spec 0027); its
+    /// answer comes back as [`Action::LogsReply`] with the same `id`.
+    Logs { id: u64, after: Option<u64> },
+    /// Write `lines` (the logs page's, filtered, in page order) to a new
+    /// file (spec 0027); the result comes back as
+    /// [`Action::LogsExported`]. Runs whatever the connection.
+    ExportLogs { lines: Vec<LogLine> },
     /// Spec 0017 addendum 67055c40c1e2.
     Envy(theme::Envy),
 }
@@ -474,7 +502,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 effects.retain(|e| {
                     !matches!(
                         e,
-                        Effect::Send(_) | Effect::Library { .. } | Effect::Devices { .. }
+                        Effect::Send(_)
+                            | Effect::Library { .. }
+                            | Effect::Devices { .. }
+                            | Effect::Logs { .. }
                     )
                 });
             }
@@ -521,11 +552,25 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 state.message = Some(notice);
             }
             effects.extend(browse::reconnected(state));
+            effects.extend(logs::welcome(state));
             effects
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),
         Action::DevicesReply { id, result } => {
             browse::devices_reply(state, id, result);
+            Vec::new()
+        }
+        Action::LogsReply { id, result } => {
+            logs::reply(state, id, result);
+            Vec::new()
+        }
+        Action::LogsExported(result) => {
+            logs::exported(state, result);
+            Vec::new()
+        }
+        Action::Clock(now) => logs::clock(state, now),
+        Action::OwnLogs(lines) => {
+            logs::own_lines(state, lines);
             Vec::new()
         }
         Action::Resize { list_height } => {

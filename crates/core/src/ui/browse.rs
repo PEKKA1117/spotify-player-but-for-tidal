@@ -108,7 +108,7 @@ fn connected(state: &State) -> bool {
 }
 
 /// Why nothing can be asked: the connection's message.
-fn connection_message(state: &State) -> String {
+pub(super) fn connection_message(state: &State) -> String {
     match &state.connection {
         Connection::Disconnected { shut_down: true } => SHUT_DOWN.to_owned(),
         Connection::Refused(message) => message.clone(),
@@ -203,8 +203,11 @@ pub(super) fn back(state: &mut State) -> Vec<Effect> {
         select::leave_page(state);
         state.history.pop();
     }
-    // A lyrics page coming back on top follows the track (spec 0021).
-    super::lyrics::follow_track(state)
+    // A lyrics page coming back on top follows the track (spec 0021); a
+    // logs page asks for what it missed (spec 0027).
+    let mut effects = super::lyrics::follow_track(state);
+    effects.extend(super::logs::come_back(state));
+    effects
 }
 
 /// `Tab`/`BackTab`: the next or previous pane, wrapping.
@@ -1852,6 +1855,7 @@ pub(super) fn disconnected(state: &mut State) {
     }
     cancel_whole_list(state);
     state.writes.clear();
+    super::logs::disconnected(state);
     // Nothing of a selection's writes succeeded: the selections stay.
     state.batches.clear();
     state.selection_add = None;

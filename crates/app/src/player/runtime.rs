@@ -47,9 +47,11 @@ use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::cli::play::{engine_failure, output_description, source_description};
 use crate::ipc::server::{ClientId, ClientInput, Hub};
+use crate::logging::LogHandle;
+use crate::logging::events::{self, PlayerLog, Playing, Shutdown};
 use crate::player::hook::HookSink;
 use crate::player::persist::{Loaded, Persister, SaveResult, SaveSchedule};
-use crate::settings::{PlayerSettings, start_autoplay};
+use crate::settings::{DEFAULT_QUALITY, PlayerSettings, start_autoplay};
 
 /// The reply to a `SetDevice` with an empty name (spec 0014).
 pub const EMPTY_DEVICE_NAME: &str = "Device name is empty";
@@ -512,6 +514,14 @@ pub struct PlayerRuntime<E, J> {
     devices: Box<dyn DeviceLister>,
     /// The player event hook (spec 0025), when `app.toml` sets one.
     hook: Option<PlayerHook>,
+    /// The log buffer `Logs` is answered from (spec 0027); `None`: the
+    /// process keeps no log.
+    logs: Option<LogHandle>,
+    /// What the player tells its log between inputs (spec 0027).
+    plog: PlayerLog,
+    /// The library request each client has out, for the name of a failed
+    /// one.
+    running: HashMap<ClientId, LibraryRequest>,
 }
 
 /// The hook and what it remembers between inputs.
@@ -659,10 +669,12 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             self.execute(effect, &mut handled);
         }
         self.hub.broadcast(&handled.events);
+        self.plog.snapshot(&self.state.snapshot());
         handled.events
     }
 
     fn with_state(state: PlayerState, engine: E, jobs: J) -> Self {
+        let state_now = state.snapshot().state;
         Self {
             state,
             engine,
@@ -680,6 +692,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             persistence: None,
             devices: Box::new(AsoundDevices::from_env()),
             hook: None,
+            logs: None,
+            plog: PlayerLog::new(DEFAULT_QUALITY, state_now),
+            running: HashMap::new(),
         }
     }
 
@@ -690,6 +705,21 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             sink,
             tracker: HookTracker::default(),
         });
+        self
+    }
+
+    /// Answers `Logs` from `logs` (spec 0027): the process's log buffer.
+    #[must_use]
+    pub fn with_logs(mut self, logs: LogHandle) -> Self {
+        self.logs = Some(logs);
+        self
+    }
+
+    /// The quality the player asks Tidal for, as `playing` says it (spec
+    /// 0027).
+    #[must_use]
+    pub fn with_requested(mut self, requested: AudioQuality) -> Self {
+        self.plog.set_requested(requested);
         self
     }
 
@@ -744,7 +774,11 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         );
         // `Previous` can restart the track, a seek to the hook's eyes.
         let moved_by_hand = seek || matches!(command, Some(Command::Previous));
+        let position_only = matches!(input, RuntimeInput::Engine(audio::Event::Position(_)));
         let mut handled = self.handle_input(input);
+        if !position_only {
+            self.plog.snapshot(&self.state.snapshot());
+        }
         if handled.shutdown {
             self.save_at_exit();
             self.hook_shutdown();
@@ -793,6 +827,13 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             RuntimeInput::Login { required } => {
                 let events: Vec<Event> =
                     self.hub.set_login_required(required).into_iter().collect();
+                if !events.is_empty() {
+                    if required {
+                        events::login_required();
+                    } else {
+                        events::login_restored();
+                    }
+                }
                 self.hub.broadcast(&events);
                 Handled {
                     events,
@@ -911,8 +952,38 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         start
     }
 
+    /// Tells the log what an engine event did to the device and, for the
+    /// start of an entry the player sent, which track it is (spec 0027).
+    fn log_engine(&mut self, event: &audio::Event) {
+        let sent = match event {
+            audio::Event::Started { tag, .. } | audio::Event::Transitioned { tag, .. } => {
+                self.sent.get(tag).copied()
+            }
+            _ => None,
+        };
+        let title = sent.and_then(|s| {
+            self.state
+                .snapshot()
+                .queue
+                .iter()
+                .find(|e| e.track.id == s.track)
+                .map(|e| e.track.title.clone())
+        });
+        let playing = sent.map(|s| Playing {
+            track: s.track.0,
+            title: title.as_deref().unwrap_or_default(),
+            quality: s.quality,
+        });
+        self.plog.engine(event, playing);
+    }
+
     /// Maps an engine event into the player's terms.
-    fn engine_input(&self, event: audio::Event, handled: &mut Handled) -> (PlayerInput, Notice) {
+    fn engine_input(
+        &mut self,
+        event: audio::Event,
+        handled: &mut Handled,
+    ) -> (PlayerInput, Notice) {
+        self.log_engine(&event);
         let sent = |tag: u64| self.sent.get(&tag).copied();
         let start = |tag: u64, source: &SourceFormat, output: &OutputInfo| {
             sent(tag).map(|s| TrackStart {
@@ -1076,9 +1147,16 @@ struct PendingOpen {
 impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
     fn client_input(&mut self, input: ClientInput) -> Handled {
         match input {
-            ClientInput::Attach { client, peer } => self.hub.attach(client, peer),
+            ClientInput::Attach { client, peer } => {
+                self.hub.attach(client, peer);
+                events::client_connected(client.0);
+            }
             ClientInput::Detach(client) => {
+                if self.hub.contains(client) {
+                    events::client_disconnected(client.0);
+                }
                 self.hub.detach(client);
+                self.running.remove(&client);
                 // Its waiting requests never run; the one out is answered
                 // to nobody.
                 self.library.remove(&client);
@@ -1101,13 +1179,26 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             ClientInput::Devices { client, id } => {
                 // Read now: a card plugged in since shows up (spec 0014).
                 let result = self.devices.list();
+                if let Err(reason) = &result {
+                    events::request_failed("Devices", reason);
+                }
                 self.hub.reply_devices(client, id, result);
+            }
+            // Spec 0027: from the buffer, to the asker only. Nothing here
+            // logs, so serving adds no line.
+            ClientInput::Logs { client, id, after } => {
+                let batch = self.logs.as_ref().map_or_else(
+                    || LogHandle::detached(true).batch(after),
+                    |l| l.batch(after),
+                );
+                self.hub.reply_logs(client, id, Ok(batch));
             }
             ClientInput::Request {
                 client,
                 id,
                 command: Command::SetDevice(name),
             } if name.is_empty() => {
+                events::request_failed("SetDevice", EMPTY_DEVICE_NAME);
                 self.hub
                     .reply(client, id, Err(EMPTY_DEVICE_NAME.to_owned()));
             }
@@ -1121,6 +1212,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 id,
                 command,
             } => {
+                if command == Command::Shutdown {
+                    events::shutting_down(Shutdown::Command);
+                }
                 let handled = self.step(RuntimeInput::Command(command));
                 self.hub.reply(client, id, Ok(()));
                 return handled;
@@ -1139,12 +1233,17 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         }
         if let Some((id, request)) = queue.waiting.pop_front() {
             queue.busy = true;
+            self.running.insert(client, request.clone());
             self.jobs.library(client, id, request);
         }
     }
 
     /// A library request finished: the reply to its client, then its next.
     fn library_done(&mut self, client: ClientId, id: u64, result: Result<LibraryResponse, String>) {
+        let request = self.running.remove(&client);
+        if let (Err(reason), Some(request)) = (&result, request) {
+            events::request_failed(&events::request_name(&format!("{request:?}")), reason);
+        }
         self.hub.reply_library(client, id, result);
         if let Some(queue) = self.library.get_mut(&client) {
             queue.busy = false;
@@ -1187,6 +1286,9 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 merge(&mut handled, queued);
             });
             if let Some((client, id)) = reply {
+                if let Err(reason) = &outcome {
+                    events::request_failed("Open", reason);
+                }
                 self.hub.reply(client, id, outcome);
             }
         }

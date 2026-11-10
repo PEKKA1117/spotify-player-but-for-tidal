@@ -19,6 +19,7 @@ use tidal_player_core::{EntryId, Track, ui};
 
 use super::*;
 use crate::ipc::client::{Connection, RecvError};
+use crate::logging::LogHandle;
 use crate::player::runtime::fakes::{
     Call, FakeEngine, FakeJobs, FakeLibrary, Log, Script, delete, track,
 };
@@ -49,15 +50,24 @@ impl TestPlayer {
     }
 
     fn start_with(jobs: impl FnOnce(FakeJobs) -> FakeJobs) -> Self {
-        Self::start_on(jobs, None)
+        Self::start_on(jobs, None, None)
+    }
+
+    /// A player whose log buffer is `logs` (spec 0027).
+    fn start_with_logs(logs: &LogHandle) -> Self {
+        Self::start_on(|jobs| jobs, None, Some(logs.clone()))
     }
 
     /// A player that reads its device list from `asound` (spec 0014).
     fn start_with_asound(asound: &Path) -> Self {
-        Self::start_on(|jobs| jobs, Some(asound))
+        Self::start_on(|jobs| jobs, Some(asound), None)
     }
 
-    fn start_on(jobs: impl FnOnce(FakeJobs) -> FakeJobs, asound: Option<&Path>) -> Self {
+    fn start_on(
+        jobs: impl FnOnce(FakeJobs) -> FakeJobs,
+        asound: Option<&Path>,
+        logs: Option<LogHandle>,
+    ) -> Self {
         let log: Log = Log::default();
         let (tx, rx) = mpsc::channel();
         let engine = FakeEngine::new(&log, Script::Plays);
@@ -67,6 +77,9 @@ impl TestPlayer {
             runtime = runtime.with_devices(Box::new(AsoundDevices {
                 dir: dir.to_owned(),
             }));
+        }
+        if let Some(logs) = logs {
+            runtime = runtime.with_logs(logs);
         }
         let handle = spawn_runtime(runtime, rx, tx.clone());
         Self {
@@ -245,7 +258,8 @@ impl View {
             ServerMessage::Event(Event::ShuttingDown)
             | ServerMessage::Reply { .. }
             | ServerMessage::LibraryReply { .. }
-            | ServerMessage::DevicesReply { .. } => {}
+            | ServerMessage::DevicesReply { .. }
+            | ServerMessage::LogsReply { .. } => {}
         }
     }
 
@@ -512,6 +526,7 @@ impl ModelClient {
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
                 ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
                 ServerMessage::DevicesReply { id, .. } => panic!("unasked devices reply {id}"),
+                ServerMessage::LogsReply { id, .. } => panic!("unasked logs reply {id}"),
             }
         }
     }
@@ -1313,6 +1328,63 @@ fn ac7_devices_reply() {
         !seen
             .iter()
             .any(|m| matches!(m, ServerMessage::DevicesReply { .. })),
+        "{seen:?}"
+    );
+}
+
+/// 0027 AC5 (over the socket): `Logs` is answered once, to the asking
+/// client only, with the lines after `after` (all for `None` and for an
+/// `after` beyond the newest) and the player's `off`; the buffer is the
+/// same after, and no event carries a log line.
+#[test]
+fn ac5_logs_reply_to_sender() {
+    use std::time::{Duration, SystemTime};
+    use tidal_player_core::log::{LogBatch, LogLevel};
+
+    let buffer = LogHandle::detached(false);
+    for n in 1..=3u64 {
+        buffer.push(
+            SystemTime::UNIX_EPOCH + Duration::from_millis(n),
+            LogLevel::Info,
+            "tidal_player::x",
+            &format!("line {n}"),
+        );
+    }
+    let player = TestPlayer::start_with_logs(&buffer);
+    let mut asker = player.connect();
+    let mut other = player.connect();
+    other.subscribe();
+    asker.subscribe();
+
+    let ask = |client: &mut Client, after: Option<u64>| -> Result<LogBatch, String> {
+        let id = client.next_id;
+        client.next_id += 1;
+        client
+            .conn
+            .send(&ClientMessage::Logs { id, after })
+            .unwrap();
+        loop {
+            if let ServerMessage::LogsReply { id: got, result } = client.recv() {
+                assert_eq!(got, id);
+                return result;
+            }
+        }
+    };
+    let seqs = |result: Result<LogBatch, String>| -> (Vec<u64>, bool) {
+        let batch = result.unwrap();
+        (batch.lines.iter().map(|l| l.seq).collect(), batch.off)
+    };
+    assert_eq!(seqs(ask(&mut asker, None)), (vec![1, 2, 3], false));
+    assert_eq!(seqs(ask(&mut asker, Some(1))), (vec![2, 3], false));
+    assert_eq!(seqs(ask(&mut asker, Some(3))), (vec![], false));
+    assert_eq!(seqs(ask(&mut asker, Some(99))), (vec![1, 2, 3], false));
+    assert_eq!(buffer.lines_after(None).len(), 3);
+    // The other subscriber got no reply, and no event carries a line.
+    let seen = other.settle();
+    assert!(
+        !seen
+            .iter()
+            .any(|m| matches!(m, ServerMessage::LogsReply { .. })),
         "{seen:?}"
     );
 }

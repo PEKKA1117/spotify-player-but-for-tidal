@@ -46,6 +46,7 @@ Flat keys, every one optional.
 | `key_hints` | `true`, `false` | `true` | `TIDAL_PLAYER_KEY_HINTS` (`on`, `off`) | TUI |
 | `key_hints_delay_ms` | integer 0–10 000 (ms; `0`: at once) | `1000` | `TIDAL_PLAYER_KEY_HINTS_DELAY_MS` | TUI |
 | `confirm_removals` | `true`, `false` | `true` | `TIDAL_PLAYER_CONFIRM_REMOVALS` (`on`, `off`) | TUI |
+| `log_level` | `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"trace"` (any letter case) | `"info"` | `TIDAL_PLAYER_LOG_LEVEL` | player, TUI |
 | `cover_img` | `true`, `false` | `true` | `TIDAL_PLAYER_COVER_IMG` (`on`, `off`) | TUI |
 | `cover_img_rows` | integer 4–20 (the playback window's rows with the cover) | `6` | `TIDAL_PLAYER_COVER_IMG_ROWS` | TUI |
 | `cover_img_protocol` | `"auto"`, `"sixel"`, `"kitty"`, `"iterm2"`, `"halfblocks"` | `"auto"` | `TIDAL_PLAYER_COVER_IMG_PROTOCOL` | TUI |
@@ -56,7 +57,7 @@ Flat keys, every one optional.
 | `player_event_hook_command` | a table: `command`, and optional `args` (see [below](#running-a-command-on-player-events)) | none | | player |
 | `[layout] library = { playlist_percent, album_percent }` | integers 1–98 each, sum at most 99; *Artists* takes the rest | `40`, `40` | | TUI |
 
-What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `hide_browse_pages` in [Browse](tui.md#browse) (the names are the part of a page's path after `pages/`, matched exactly, and only links are hidden); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md); `theme` names one of the themes in [`theme.toml`](#themetoml) (`default` when there is none), and `T` switches it while the TUI runs (see [Themes](tui.md#themes)). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
+What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `hide_browse_pages` in [Browse](tui.md#browse) (the names are the part of a page's path after `pages/`, matched exactly, and only links are hidden); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md); `log_level` in [Logs](tui.md#what-is-logged-and-where) (the lowest level kept from this program's crates; each process reads its own, an attached TUI for its own lines only); `theme` names one of the themes in [`theme.toml`](#themetoml) (`default` when there is none), and `T` switches it while the TUI runs (see [Themes](tui.md#themes)). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
 
 ```toml
 # ~/.config/tidal-player/app.toml
@@ -314,9 +315,11 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `MixesPage` | `g m` | everywhere | your mixes |
 | `BrowsePage` | `g b` | everywhere | browse what Tidal picks (see [Browse](tui.md#browse)) |
 | `LyricsPage` | `l`, `g L` | everywhere | lyrics of the playing track |
+| `OpenLogs` | `g o` | everywhere | open the logs page (see [Logs](tui.md#logs)) |
+| `ExportLogs` | `e` | the logs page | export the shown log lines to a file |
 | `Search` | `/` | lists | filter the rows (see [Filtering a list](tui.md#filtering-a-list)) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
-| `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter; on the lyrics page: follow the current line again) |
+| `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter; on the lyrics page: follow the current line again; on the logs page: follow the newest line again) |
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
 
@@ -346,9 +349,9 @@ The three removals ask `y/n` the way the actions popup does, a bound key being n
 
 ### spotify-player names not supported here
 
-These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, OpenLogs, SortTrackByTitle`.
+These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, TopTrackPage, SortTrackByTitle`.
 
-- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`, `OpenLogs`
+- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`
 - Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
 
 A misspelt name (`NxtTrack`) is still an error.

@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），[spec 0016](../specs/0016-cover-art.md)（專輯封面），以及 [spec 0021](../specs/0021-lyrics.md)（歌詞）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），[spec 0016](../specs/0016-cover-art.md)（專輯封面），[spec 0021](../specs/0021-lyrics.md)（歌詞），以及 [spec 0027](../specs/0027-logs-page.md)（記錄頁）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -117,6 +117,8 @@
 | `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
 | `g b` | `BrowsePage` | 開啟[瀏覽](#browse)頁面：Tidal 精選的內容（首頁、曲風、心情、年代） |
 | `l`、`g L` | `LyricsPage` | 開啟正在播放曲目的[歌詞](#lyrics) |
+| `g o` | `OpenLogs` | 開啟[記錄](#logs)頁 |
+| `e` | `ExportLogs` | 在記錄頁：把頁面持有的記錄行[匯出](#logs)到檔案 |
 | `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
 | `/` | `Search` | [篩選](#filtering-a-list)焦點視窗或佇列的列 |
 | `backspace`, `C-q` | `PreviousPage` | 回到上一個頁面 |
@@ -127,7 +129,7 @@
 | `f` | `RoleFilter` | 在藝人的 *All tracks* 中：[角色篩選](#the-role-filter) |
 | `N` | `CreatePlaylist` | 在音樂庫中：[新增播放清單](#editing-your-playlists) |
 | `C-k` / `C-j` | `MovePlaylistItemUp` / `MovePlaylistItemDown` | 在你自己的播放清單頁：將[曲目](#editing-your-playlists)上移／下移 |
-| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗保留的[篩選](#filtering-a-list)，沒有篩選時清除其[選取](#selecting-rows)；在歌詞頁：重新跟隨目前這一行 |
+| `esc` | `ClosePopup` | 關閉彈出視窗或開啟中的輸入提示，或取消正在載入的清單；在頁面上：清除焦點視窗保留的[篩選](#filtering-a-list)，沒有篩選時清除其[選取](#selecting-rows)；在歌詞頁：重新跟隨目前這一行；在記錄頁：重新跟隨最新的一行 |
 | `?`, `C-h` | `OpenCommandHelp` | [按鍵說明](#the-keys-help) |
 | `q`, `C-c` | `Quit` | 離開（連上播放器的 TUI 會中斷連線；播放器繼續播放） |
 
@@ -192,6 +194,7 @@
 | Mixes | `g m` | 你的 mix（見 [Mix 與電台](#mixes-and-radio)） |
 | 瀏覽 | `g b`；在連結上按 `Enter` | Tidal 精選的內容，以及它通往的頁面（見[瀏覽](#browse)） |
 | Lyrics | `l`、`g L` | 正在播放曲目的歌詞（見[歌詞](#lyrics)） |
+| Logs | `g o` | 播放器的記錄行（見[記錄](#logs)） |
 | Mix | 在 mix 上按 `Enter` | 該 mix 的曲目 |
 | 電台 | 在曲目或藝人上按 `r`；*Go to radio* | 電台的曲目 |
 | 專輯 | 在專輯上按 `Enter`；*Go to album* | 專輯的曲目 |
@@ -421,6 +424,40 @@
 - 比視窗寬的行會依顯示寬度換行（CJK 字元佔兩欄），且換行後的每一列都會高亮。Tidal 標示為由右至左的歌詞會靠右對齊；字元以邏輯順序送出，由終端機排序，因此不支援雙向文字的終端機可能會顯示成相反的順序
 - 其他作用在列上的按鍵（`Enter`、`Z`、動作）在這裡什麼都不做，也沒有游標
 - 視窗中的訊息：`Loading…`、`No lyrics for this track`（純音樂，或 Tidal 沒有歌詞）、`Nothing playing`（沒有目前曲目），失敗時為 `Could not load the lyrics: <reason>`（例如 `Tidal answered 429: try again in a moment`）
+
+<a id="logs"></a>
+## 記錄
+
+`g o` 開啟**記錄**頁：播放器與這個 TUI 本身的記錄行，最舊的在最上面、最新的在最下面，放在一個標題為 `Logs` 的視窗中。當發生訊息列說明不了的問題時，就來這裡看：被拒絕的更新權杖、無法保留的音效卡、重新連線的串流、損毀的狀態檔。設計文件：[spec 0027](../specs/0027-logs-page.md)。
+
+```
+┌Logs──────────────────────────────────────────────────────────────────────────┐
+│13:04:08 INFO  tidal_player::player::runtime: client connected client=3       │
+│13:04:09 WARN  tidal_player::player::reserve: cannot reserve card 1: busy     │  黃色
+│13:04:11 ERROR tidal_player_api::auth: refresh token rejected: run            │  紅色
+│"tidal-player login"                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **記錄行**：`HH:MM:SS LEVEL target: text`，為本地時間。target 是記錄該行的模組（`tidal_player::player::reserve`），因此看得出一行來自播放器或這個 TUI（`tidal_player::tui::…`）。比視窗寬的行會依顯示寬度換行。`ERROR` 行以 `error` 元件的樣式繪製，`WARN` 行以佈景主題調色盤的 `yellow` 繪製，其餘維持畫面的樣式
+- **誰的記錄**：連上[常駐程式](daemon.md#attaching-a-tui)的 TUI 顯示常駐程式的記錄（透過播放器的協定向它索取），並依時間與自己的少數幾行合併。獨立模式的 TUI 只有一份記錄。此頁保留最後 1000 行
+- **跟隨**：頁面開啟時停在最新的行並跟隨：新行約一秒內出現並捲動畫面，且只有在此頁位於最上層時才會索取。清單按鍵（`j`、`k`、方向鍵、`C-f`、`C-b`、`page_down`、`page_up`、`g g`、`G`）以記錄行為單位捲動。不在底部的畫面會停在它顯示的行上，新行抵達時不動，標題顯示 `Logs · scrolled`。回到底部（`G`）或按 `Esc` 會再次跟隨
+- **篩選**：`/` 如同篩選清單一樣篩選記錄行（見[篩選清單](#filtering-a-list)）：只留下文字包含你輸入內容（不分大小寫）的行，標題顯示 `Logs · /reserve · 3 matches`。`Enter` 保留篩選，`Esc` 清除（先清除保留的篩選，再回到跟隨）
+- **匯出**：`e` 把此頁持有的記錄行（保留篩選時只有符合的；不論是否在畫面內，全部都會寫出）寫入快取目錄（`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`）中的新檔案 `tidal-player-logs-YYYYMMDD-HHMMSS.log`，只有你能讀寫（權限 `0600`），訊息列會顯示 `Exported 42 log lines to <path>`。同一秒內重複的名稱會加上 `-2`、`-3`……，絕不覆寫任何檔案。斷線時也可使用已顯示的行；沒有可寫的行時會顯示 `No log lines to export`
+- 作用於某一列的按鍵（`Enter`、`Z`、動作、`s …`、`d …`、`r`）在此不做任何事，也沒有游標
+- 視窗中的訊息：`Loading…`、`No log lines yet`、`Logging is off: set log_level in app.toml`、`Could not load the log: <reason>`（已顯示的行會保留，一秒後再次索取），以及播放器消失時的斷線訊息
+
+<a id="what-is-logged-and-where"></a>
+### 記錄什麼、記在哪裡
+
+每個播放器（獨立模式、[常駐程式](daemon.md#the-log)、`play`）都會在其狀態目錄寫入 `tidal-player.log`。[`app.toml`](config.md#apptoml) 的 `log_level`（預設 `info`；`off`、`error`、`warn`、`info`、`debug`、`trace`）是本程式各 crate 保留的最低等級；其他 crate（`reqwest`、`zbus` 等）的記錄無論設定為何都只保留 `warn` 以上，因為 HTTP crate 較低等級的記錄可能含有工作階段的標頭。設為 `off` 時什麼都不保留，也不建立檔案。連上播放器的 TUI 只在記憶體中保留自己的記錄行。
+
+記錄的內容依類別如下（訊息之後的文字是 `name=value` 欄位）：
+
+- **一次執行的過程**，在 `info`：`starting version=… mode=… log_level=… config=…`（每個保留記錄的行程的第一行；`mode` 為 `standalone`、`daemon`、`play` 或 `client`）；開啟輸出裝置時的 `device opened device=… format=… rate=… channels=… bit_perfect=…`（第一首曲目、暫停時放掉裝置之後、更換裝置之後）；`device released device=…`；每首開始播放的曲目各一行 `playing track=… title=… quality=… requested=…`，Tidal 實際給的音質會與你要求的並列；`stopped`；`login required`（警告）與 `login restored`；`shutting down reason=…`（`quit`、`shutdown command`、`signal` 或 `player gone`）。在 `debug` 時，播放器還會記錄 `client connected` 與 `client disconnected`：若狀態列每秒執行一次 `tidal-player playback status`，這些行在 `info` 會塞滿記錄
+- **你被告知的事**，在 `warn`，讓已被畫面取代的訊息仍然找得到：播放器以錯誤回答請求時的 `request failed request=… reason=…`，指出請求的名稱（`SetDevice`、`Page` 等）與原因；播放視窗的訊息改變時的 `message text=…`（`Could not save the playback state: …`、失敗的 hook 指令、開不起來的裝置）；以及 TUI 端的 `disconnected reason=…`（連線中斷或版本不合）、`reconnected`、`notice text=…`（啟動時 `keymap.toml` 或 `theme.toml` 被略過的項目）與 `export failed reason=…`
+- **當機（panic）**：一行 `ERROR`，`panic location=<file:line:column> message=<panic 的訊息>`，在還原終端機、印出報告之前就寫入記錄檔。若當下記錄正忙（panic 發生在它寫入的途中），這一行會被略過
+- **絕不記錄**：權杖或 `Authorization` 標頭、串流或封面的 URL（只留主機名稱）、你帳號的名稱、電子郵件或 ID，以及請求所帶的內容：請求只記名稱，從不引述內容
 
 <a id="playing-and-queueing-from-a-page"></a>
 ## 從頁面播放與加入佇列
