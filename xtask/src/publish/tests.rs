@@ -426,3 +426,114 @@ fn ac3_publish_command() {
         }
     }
 }
+
+/// AC10: a skipped crate that depends on a published one stops the run.
+#[test]
+fn ac10_stale_dependents() {
+    // `v1.5.0` as it was tagged: core bumped, api left at its published version.
+    let v150 = || {
+        vec![
+            krate(
+                "tidal-player",
+                "1.5.0",
+                true,
+                &[
+                    "tidal-player-api",
+                    "tidal-player-audio",
+                    "tidal-player-core",
+                ],
+            ),
+            krate("tidal-player-core", "1.5.0", true, &[]),
+            krate("tidal-player-api", "1.3.4", true, &["tidal-player-core"]),
+            krate("tidal-player-audio", "1.1.1", true, &[]),
+            krate("xtask", "1.1.0", false, &[]),
+        ]
+    };
+    let fixed = || {
+        let mut crates = v150();
+        crates[2].version = "1.3.5".into();
+        crates
+    };
+    let on_crates_io = |core: &[&str]| {
+        vec![
+            (
+                "tidal-player".to_string(),
+                Ok(Some(entry("tidal-player", &["1.4.6"]))),
+            ),
+            (
+                "tidal-player-core".to_string(),
+                Ok(Some(entry("tidal-player-core", core))),
+            ),
+            (
+                "tidal-player-api".to_string(),
+                Ok(Some(entry("tidal-player-api", &["1.3.4"]))),
+            ),
+            (
+                "tidal-player-audio".to_string(),
+                Ok(Some(entry("tidal-player-audio", &["1.1.1"]))),
+            ),
+        ]
+    };
+    const STALE: &str = "tidal-player-api 1.3.4 is on crates.io and needs the tidal-player-core it was released with, but tidal-player-core 1.5.0 is new: bump tidal-player-api";
+    struct Case {
+        name: &'static str,
+        crates: Vec<Crate>,
+        core: &'static [&'static str],
+        dry_run: bool,
+        ran: &'static [&'static str],
+        err: Option<&'static str>,
+    }
+    let cases = [
+        Case {
+            name: "a stale dependent publishes nothing",
+            crates: v150(),
+            core: &["1.4.4"],
+            dry_run: false,
+            ran: &[],
+            err: Some(STALE),
+        },
+        Case {
+            name: "the dry run fails too",
+            crates: v150(),
+            core: &["1.4.4"],
+            dry_run: true,
+            ran: &[],
+            err: Some(STALE),
+        },
+        Case {
+            name: "the dependent bumped: published in order",
+            crates: fixed(),
+            core: &["1.4.4"],
+            dry_run: false,
+            ran: &["tidal-player-core", "tidal-player-api", "tidal-player"],
+            err: None,
+        },
+        Case {
+            name: "the recovery: core already there, its dependents new",
+            crates: fixed(),
+            core: &["1.4.4", "1.5.0"],
+            dry_run: false,
+            ran: &["tidal-player-api", "tidal-player"],
+            err: None,
+        },
+    ];
+    for c in cases {
+        let mut index = FakeIndex {
+            answers: on_crates_io(c.core).into_iter().collect(),
+            fetched: Vec::new(),
+        };
+        let mut runner = FakeRunner {
+            fail: None,
+            ran: Vec::new(),
+        };
+        let mut out = Vec::new();
+        let result = run(&c.crates, &mut index, &mut runner, c.dry_run, &mut out);
+        let name = c.name;
+        assert_eq!(runner.ran, c.ran, "{name}: cargo publish calls");
+        match (result, c.err) {
+            (Ok(()), None) => {}
+            (Err(e), Some(line)) => assert_eq!(format!("{e:#}"), line, "{name}"),
+            (got, want) => panic!("{name}: got {got:?}, want error {want:?}"),
+        }
+    }
+}

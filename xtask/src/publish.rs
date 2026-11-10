@@ -66,6 +66,13 @@ pub fn plan(crates: &[Crate], published: &BTreeMap<String, Vec<IndexVersion>>) -
     plan
 }
 
+/// The skipped crates that depend on a crate the plan publishes (spec 0018
+/// AC10): with exact pins (AC6) the published dependent needs the old
+/// version, so the release cannot resolve. One line per such crate.
+pub fn stale_dependents(_plan: &Plan) -> Vec<String> {
+    Vec::new()
+}
+
 /// The publishable crates, each after the crates it needs. Ties go by name so
 /// the order does not depend on the input order.
 fn dependency_order(crates: &[Crate]) -> Vec<Crate> {
@@ -151,6 +158,13 @@ pub fn run(
     if plan.publish.is_empty() {
         writeln!(out, "nothing to publish")?;
         return Ok(());
+    }
+    let stale = stale_dependents(&plan);
+    if !stale.is_empty() {
+        for c in &plan.publish {
+            writeln!(out, "would publish {} {}", c.name, c.version)?;
+        }
+        bail!("{}", stale.join("\n"));
     }
     for c in &plan.publish {
         if dry_run {
