@@ -91,7 +91,7 @@ The transport (a Unix socket carrying JSON lines; tidalt used D-Bus), attach/det
 | secrets            | `keyring` 4                                    |
 | MPRIS ([0010](0010-mpris.md), implemented) | `zbus` 5 (plain; `mpris-server` not used) |
 | errors             | `thiserror` in libraries, `anyhow` in the binary |
-| logging            | `tracing` macros at the call sites; **no subscriber is installed**, so they write nothing yet. Where the lines go (a file, a logs page) is issue #64's to design. What a user must see goes in the player's message row or on stderr, never only in a log |
+| logging            | `tracing` macros at the call sites; a subscriber keeps the lines in a buffer, in `tidal-player.log` in the state directory and, for the daemon, on stderr, and the logs page shows them (see [0027](0027-logs-page.md)). What a user must see goes in the player's message row or on stderr, never only in a log |
 | tests              | `insta` (snapshots), `wiremock` (HTTP fixtures), `assert_cmd` (CLI) |
 
 ### Build & tooling (copied into `CLAUDE.md` when this spec is approved)

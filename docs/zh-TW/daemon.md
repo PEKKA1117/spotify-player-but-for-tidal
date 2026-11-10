@@ -170,6 +170,21 @@ edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
 
 結束代碼和 [`playback`](#one-shot-commands) 相同：參數錯誤為 2，且什麼都不會送出；沒有播放器、播放器回報錯誤或沒有回應為 1。
 
+<a id="the-log"></a>
+## 記錄
+
+每個播放器無論以哪種方式執行（這個常駐程式、獨立模式的 TUI、`play`）都會寫入記錄：**狀態目錄**（`$TIDAL_PLAYER_STATE_DIR`，否則 `$XDG_STATE_HOME/tidal-player`，否則 `~/.local/state/tidal-player`，也就是記住工作階段的地方）中的 `tidal-player.log`，每個事件一行，附本地時間：
+
+```
+2026-11-10T21:04:05.123+08:00  WARN tidal_player::player::reserve: cannot reserve card 1: busy
+```
+
+- 檔案只有你能讀寫（權限 `0600`），大小最多約 2 MiB：將超過 1 MiB 時會改名為 `tidal-player.log.old`（取代原有的），並開始新檔案，因此上一次執行的結尾一定在這兩個檔案之一。`logout` 不會刪除它們，因為其中沒有工作階段
+- 無法寫入的檔案（沒有目錄、唯讀、磁碟已滿）在本次執行的其餘時間會被放棄，並在記錄頁留下一行 `cannot write <path>: <reason>`；播放器繼續播放
+- 常駐程式也會把記錄行寫到 **stderr**，格式為不含時間的 `LEVEL target: text`，在 systemd 下就是 journal：`journalctl --user -u tidal-player`
+- [`app.toml`](config.md#apptoml) 的 `log_level` 設定保留的最低等級（預設 `info`；`off` 什麼都不保留，也不建立檔案）。常駐程式讀取它自己的設定
+- 連上的 TUI 在其[記錄頁](tui.md#logs)（`g o`）顯示常駐程式的記錄行；它向播放器索取，絕不讀取檔案，因此第二個 TUI 看到的內容相同
+
 <a id="releasing-the-device-while-paused"></a>
 ## 暫停時釋放裝置
 

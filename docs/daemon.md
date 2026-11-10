@@ -162,6 +162,21 @@ edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
 
 The exit codes are those of [`playback`](#one-shot-commands): 2 for a bad argument, with nothing sent; 1 for no player, the player's error or no answer.
 
+<a id="the-log"></a>
+## The log
+
+Every player writes a log, whichever way it runs (this daemon, a standalone TUI, `play`): `tidal-player.log` in the **state directory** (`$TIDAL_PLAYER_STATE_DIR`, else `$XDG_STATE_HOME/tidal-player`, else `~/.local/state/tidal-player`, where the remembered session is), one line per event with its local time:
+
+```
+2026-11-10T21:04:05.123+08:00  WARN tidal_player::player::reserve: cannot reserve card 1: busy
+```
+
+- The file is private to you (mode `0600`) and holds at most about 2 MiB: when it would pass 1 MiB it becomes `tidal-player.log.old` (replacing the one there) and a new file starts, so the end of the previous run is always in one of the two. `logout` leaves them, since they hold no session
+- A file that cannot be written (no directory, read-only, full disk) is given up for the rest of the run with one `cannot write <path>: <reason>` line in the log page; the player keeps playing
+- The daemon also writes the lines to **stderr**, as `LEVEL target: text` without the time, which under systemd is the journal: `journalctl --user -u tidal-player`
+- `log_level` in [`app.toml`](config.md#apptoml) sets the lowest level kept (default `info`; `off` keeps nothing and creates no file). The daemon reads its own
+- An attached TUI shows the daemon's lines on its [logs page](tui.md#logs) (`g o`); it asks the player for them and never reads the file, so a second TUI shows the same
+
 ## Releasing the device while paused
 
 While paused, the player lets go of the audio device so other applications can use your DAC:

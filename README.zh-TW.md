@@ -21,6 +21,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **歌詞**：按 `l` 顯示正在播放曲目的歌詞；同步歌詞會隨演唱跟隨並高亮目前這一行，也可用清單按鍵手動捲動。[歌詞](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#lyrics)
 - **選取多列**：標記清單或佇列中的多列（`s c`、`s 5 j`，或按 `s m` 後移動游標），再一起播放、加入佇列、加入收藏或移除（`s a`、`d s`）。[選取多列](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#selecting-rows)
 - **完整的佇列**：隨機播放、重複播放，佇列播完時以 Tidal 的推薦自動播放，再次啟動時還原上次的工作階段（佇列、位置、模式與音量）
+- **記錄**：每個播放器都會在其狀態目錄寫入 `tidal-player.log`，`g o` 在一個會跟隨最新行的頁面顯示播放器（與 TUI 自己）的記錄行，可用 `/` 篩選、用 `e` 匯出；`app.toml` 的 `log_level` 設定保留的量。[記錄](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#logs)
 - **常駐程式與用戶端**：以 systemd 使用者服務在背景執行播放器，可連上任意數量的 TUI，並以單次的 `tidal-player playback …` 指令控制。暫停時會釋放音訊裝置。[常駐程式](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon-zh-TW)
 - **桌面控制**：透過 MPRIS 支援多媒體鍵、藍牙耳機、GNOME/KDE 媒體控制與 `playerctl`，含專輯封面。[桌面控制與多媒體鍵](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS-zh-TW)
 - **播放器事件**：在換曲、暫停、停止或播完時執行你自己的指令，環境變數會帶上曲名、藝人與專輯，可用於狀態列和 scrobble。[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW#running-a-command-on-player-events)

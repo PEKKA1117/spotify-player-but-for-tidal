@@ -2,7 +2,7 @@ English | [正體中文](zh-TW/tui.md)
 
 # The TUI
 
-Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device) and [spec 0016](specs/0016-cover-art.md) (the album cover) and [spec 0021](specs/0021-lyrics.md) (lyrics).
+Plain `tidal-player` (optionally with [items](playback.md#items)) opens the terminal interface. With no player running, the player and the screen run in one process (standalone): quitting stops playback and releases the audio device. With a player already running (a [daemon](daemon.md), or another TUI), the TUI attaches to it instead: the screen and the keys are the same, and quitting leaves the music playing (see [Attaching a TUI](daemon.md#attaching-a-tui)). Design: [spec 0004](specs/0004-queue-and-controls.md), [spec 0005](specs/0005-daemon-and-clients.md) and [spec 0006](specs/0006-library.md) (pages and the library) and [spec 0007](specs/0007-search.md) (search) and [spec 0011](specs/0011-mixes-and-radio.md) (mixes and radio) and [spec 0008](specs/0008-keymap-and-config.md) (keymap, config files and the keys help) and [spec 0013](specs/0013-key-hints.md) (key hints) and [spec 0014](specs/0014-device-selection.md) (the output device) and [spec 0016](specs/0016-cover-art.md) (the album cover) and [spec 0021](specs/0021-lyrics.md) (lyrics) and [spec 0027](specs/0027-logs-page.md) (the logs page).
 
 ## The screen
 
@@ -111,6 +111,8 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
 | `g b` | `BrowsePage` | open the [browse](#browse) page: what Tidal picks (home, genres, moods, decades) |
 | `l`, `g L` | `LyricsPage` | open the [lyrics](#lyrics) of the playing track |
+| `g o` | `OpenLogs` | open the [logs](#logs) page |
+| `e` | `ExportLogs` | on the logs page: [export](#logs) the lines it holds to a file |
 | `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
 | `/` | `Search` | [filter](#filtering-a-list) the rows of the focused window or the queue |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
@@ -121,7 +123,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `f` | `RoleFilter` | in an artist's *All tracks*: the [role filter](#the-role-filter) |
 | `N` | `CreatePlaylist` | in the library: [a new playlist](#editing-your-playlists) |
 | `C-k` / `C-j` | `MovePlaylistItemUp` / `MovePlaylistItemDown` | on your own playlist's page: [move the track](#editing-your-playlists) up / down |
-| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows); on the lyrics page: follow the current line again |
+| `esc` | `ClosePopup` | close a popup or the open prompt, or cancel a list that is loading; on a page: clear the focused window's kept [filter](#filtering-a-list), or else its [selection](#selecting-rows); on the lyrics page: follow the current line again; on the logs page: follow the newest line again |
 | `?`, `C-h` | `OpenCommandHelp` | the [keys help](#the-keys-help) |
 | `q`, `C-c` | `Quit` | quit (an attached TUI detaches; the player keeps playing) |
 
@@ -184,6 +186,7 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Browse | `g b`; `Enter` on a link | what Tidal picks, and the pages it leads to (see [Browse](#browse)) |
 | Mix | `Enter` on a mix | the mix's tracks |
 | Lyrics | `l`, `g L` | the lyrics of the playing track (see [Lyrics](#lyrics)) |
+| Logs | `g o` | the player's log lines (see [Logs](#logs)) |
 | Radio | `r` on a track or an artist; *Go to radio* | the radio's tracks |
 | Album | `Enter` on an album; *Go to album* | the album's tracks |
 | Playlist | `Enter` on a playlist | the playlist's tracks |
@@ -401,6 +404,31 @@ A page a link opens has one **tab per section**, in Tidal's order, named by the 
 - A line wider than the window wraps by display width (CJK characters take two columns) and is highlighted on all its rows. Lyrics Tidal marks as right-to-left are right-aligned; the characters are sent in their logical order and the terminal orders them, so a terminal without bidirectional text support may show them reversed
 - The other keys that act on a row (`Enter`, `Z`, the actions) do nothing here, and there is no cursor
 - Messages in the window: `Loading…`, `No lyrics for this track` (an instrumental, or Tidal has none), `Nothing playing` (no current track), and for failures `Could not load the lyrics: <reason>` (for example `Tidal answered 429: try again in a moment`)
+
+## Logs
+
+`g o` opens the **logs** page: the log lines of the player, and of this TUI itself, oldest at the top and newest at the bottom, in one window titled `Logs`. It is where to look when something goes wrong that the message row does not explain: a refresh token that was rejected, a card that could not be reserved, a stream that was reconnected, a state file that was corrupt. Design: [spec 0027](specs/0027-logs-page.md).
+
+```
+┌Logs──────────────────────────────────────────────────────────────────────────┐
+│13:04:08 INFO  tidal_player::player::runtime: client connected client=3       │
+│13:04:09 WARN  tidal_player::player::reserve: cannot reserve card 1: busy     │  yellow
+│13:04:11 ERROR tidal_player_api::auth: refresh token rejected: run            │  red
+│"tidal-player login"                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Lines**: `HH:MM:SS LEVEL target: text`, in local time. The target is the module that logged it (`tidal_player::player::reserve`), so it says where a line came from, the player or this TUI (`tidal_player::tui::…`). A line wider than the window wraps by display width. `ERROR` lines are drawn in the `error` component's style, `WARN` lines in the theme's palette `yellow`, the rest in the screen's style
+- **Whose lines**: a TUI attached to a [daemon](daemon.md#attaching-a-tui) shows the daemon's log, asked of it through the player's protocol, merged by time with its own few lines. A standalone TUI has one log. The page keeps the last 1000 lines
+- **Following**: the page opens on the newest lines and follows them: they appear within about a second, scrolling the view, and the page asks for them only while it is on top. The list keys (`j`, `k`, the arrows, `C-f`, `C-b`, `page_down`, `page_up`, `g g`, `G`) scroll by log lines. A view that is not at the bottom stays on the lines it shows while new ones arrive, and the title says `Logs · scrolled`. Reaching the bottom (`G`) or `Esc` follows again
+- **Filtering**: `/` filters the lines as it filters a list (see [Filtering a list](#filtering-a-list)): only the lines whose text contains what you type, ignoring case, stay, and the title shows `Logs · /reserve · 3 matches`. `Enter` keeps the filter, `Esc` clears it (a kept filter first, then following)
+- **Exporting**: `e` writes the lines the page holds (only the matching ones while a filter is kept, all of them, not only the rows in view) to a new file `tidal-player-logs-YYYYMMDD-HHMMSS.log` in the cache directory (`$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player`), private to you (mode `0600`), and the message row says `Exported 42 log lines to <path>`. A name taken in the same second gets `-2`, `-3`, … and nothing is overwritten. It works while disconnected with the lines already shown; with nothing to write it says `No log lines to export`
+- The keys that act on a row (`Enter`, `Z`, the actions, `s …`, `d …`, `r`) do nothing here, and there is no cursor
+- Messages in the window: `Loading…`, `No log lines yet`, `Logging is off: set log_level in app.toml`, `Could not load the log: <reason>` (the lines already shown stay, and it asks again a second later), and the disconnected message while the player is gone
+
+### What is logged and where
+
+Every player (standalone, [daemon](daemon.md#the-log), `play`) writes `tidal-player.log` in its state directory. `log_level` in [`app.toml`](config.md#apptoml) (default `info`; `off`, `error`, `warn`, `info`, `debug`, `trace`) is the lowest level kept from this program's crates; other crates' lines (`reqwest`, `zbus`, …) are kept at `warn` and above whatever it says, because an HTTP crate's lower levels can hold the session's headers. With `off` nothing is kept and no file is created. A TUI attached to a player keeps only its own lines, in memory.
 
 ## Playing and queueing from a page
 
