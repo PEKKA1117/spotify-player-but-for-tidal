@@ -1,5 +1,5 @@
 ---
-source: crates/app/src/daemon.rs
+source: crates/app/src/cli/daemon.rs
 expression: text
 ---
 [Unit]

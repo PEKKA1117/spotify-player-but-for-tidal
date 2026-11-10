@@ -45,12 +45,11 @@ use tidal_player_core::protocol::{
 };
 use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
-use crate::cli::play::{
-    PlayerSettings, engine_failure, output_description, source_description, start_autoplay,
-};
+use crate::cli::play::{engine_failure, output_description, source_description};
 use crate::ipc::server::{ClientId, ClientInput, Hub};
 use crate::player::hook::HookSink;
 use crate::player::persist::{Loaded, Persister, SaveResult, SaveSchedule};
+use crate::settings::{PlayerSettings, start_autoplay};
 
 /// The reply to a `SetDevice` with an empty name (spec 0014).
 pub const EMPTY_DEVICE_NAME: &str = "Device name is empty";
@@ -126,7 +125,7 @@ impl AsoundDevices {
     /// From the process environment.
     pub fn from_env() -> Self {
         Self {
-            dir: crate::cli::play::asound_dir(|key| std::env::var(key).ok()),
+            dir: crate::settings::asound_dir(|key| std::env::var(key).ok()),
         }
     }
 }

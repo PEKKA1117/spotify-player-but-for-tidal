@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::play::{
+use crate::settings::{
     AUTOPLAY_VAR, CONFIRM_REMOVALS_VAR, COVER_IMG_PROTOCOL_VAR, COVER_IMG_ROWS_VAR, COVER_IMG_VAR,
     DEVICE_VAR, HIDE_VERSIONS_VAR, KEY_HINTS_DELAY_VAR, KEY_HINTS_VAR, MAX_COVER_ARTS_VAR,
     MPRIS_VAR, PAGE_SIZE_VAR, PREVIOUS_RESTART_VAR, QUALITY_VAR, RELEASE_PAUSED_VAR,
@@ -648,7 +648,7 @@ impl Row {
 /// file is valid.
 #[test]
 fn ac11_precedence() {
-    type Observe = fn(&crate::cli::play::Settings, &crate::cli::play::PlayerSettings) -> String;
+    type Observe = fn(&crate::settings::Settings, &crate::settings::PlayerSettings) -> String;
     let settings: &[(&str, Observe, Vec<Row>)] = &[
         (
             "quality",
@@ -1289,7 +1289,7 @@ fn ac4_theme_precedence() {
 /// that is not an array of strings is refused as `hide_versions`'s is.
 #[test]
 fn ac16_hide_browse_pages() {
-    use crate::cli::play::{HIDE_BROWSE_PAGES_VAR, resolve_player_config_with};
+    use crate::settings::{HIDE_BROWSE_PAGES_VAR, resolve_player_config_with};
     // (name, file, environment, want)
     type Row = (
         &'static str,
@@ -1434,11 +1434,11 @@ fn ac13_hook_reaches_the_settings() {
     let path = Path::new("/c/app.toml");
     let text = "player_event_hook_command = { command = \"a.sh\" }";
     let file = parse_app_toml(path, text).expect("it parses");
-    let settings = crate::cli::play::resolve_player_config_with(&file, |_| None)
-        .expect("the settings resolve");
+    let settings =
+        crate::settings::resolve_player_config_with(&file, |_| None).expect("the settings resolve");
     assert_eq!(settings.hook, file.player_event_hook_command);
     assert!(settings.hook.is_some());
-    let none = crate::cli::play::resolve_player_config_with(&AppConfig::default(), |_| None)
+    let none = crate::settings::resolve_player_config_with(&AppConfig::default(), |_| None)
         .expect("the settings resolve");
     assert_eq!(none.hook, None);
 }

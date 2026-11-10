@@ -2721,7 +2721,7 @@ fn ac14_library_percentages() {
 /// The player's state at start, as the standalone TUI and the daemon
 /// make it from what `playback.json` gave.
 fn started_from(loaded: crate::player::persist::Loaded) -> State {
-    let settings = crate::cli::play::PlayerSettings::default();
+    let settings = crate::settings::PlayerSettings::default();
     let player =
         crate::player::runtime::starting_state(settings.player.clone(), 7, &settings, loaded);
     state_of(player.snapshot())

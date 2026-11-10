@@ -61,7 +61,7 @@ pub struct Settings {
 
 impl Settings {
     /// From the player's resolved settings and this process's environment.
-    pub fn from_env(player: &crate::cli::play::PlayerSettings) -> Self {
+    pub fn from_env(player: &crate::settings::PlayerSettings) -> Self {
         let images_base = if cfg!(debug_assertions) {
             std::env::var(IMAGES_BASE_VAR)
                 .ok()

@@ -20,11 +20,7 @@ use tidal_player::{
     cli::{
         daemon::{forward_signals, notify_ready},
         oneshot::{self, PlaybackCommand},
-        play::{
-            PlayOptions, asound_dir, configured_device_with, read_devices,
-            resolve_play_config_with, resolve_player_config_with, resolve_settings_with,
-            with_device,
-        },
+        play::{PlayOptions, read_devices},
     },
     client::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
@@ -49,6 +45,10 @@ use tidal_player::{
     session::{
         login::{LoginOutcome, run_login},
         setup::StorePlan,
+    },
+    settings::{
+        asound_dir, configured_device_with, resolve_play_config_with, resolve_player_config_with,
+        resolve_settings_with, with_device,
     },
     tui::{
         cover::{self, Cover, Loader},
@@ -559,7 +559,7 @@ fn tui_main(
 /// them with the same environment (spec 0006 "Page size", 0007 "Search
 /// page size"), and a standalone one is the player. It starts on the
 /// library (spec 0006 "Pages").
-fn tui_state(player_settings: &tidal_player::cli::play::PlayerSettings) -> State {
+fn tui_state(player_settings: &tidal_player::settings::PlayerSettings) -> State {
     let mut state = State::new(tui_model::Steps {
         volume: player_settings.steps.volume,
         seek: player_settings.steps.seek,
@@ -625,7 +625,7 @@ fn tui_files(
 /// the keymap and the themes, whose notices show once the player has
 /// answered.
 fn configured_tui_state(
-    player_settings: &tidal_player::cli::play::PlayerSettings,
+    player_settings: &tidal_player::settings::PlayerSettings,
     files: impl Into<TuiFiles>,
 ) -> State {
     let files = files.into();
@@ -658,7 +658,7 @@ fn standalone(
     store: Arc<dyn SessionStore>,
     state_dir: PathBuf,
     app: &AppConfig,
-    player_settings: tidal_player::cli::play::PlayerSettings,
+    player_settings: tidal_player::settings::PlayerSettings,
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
 ) -> Result<ExitCode> {
@@ -1104,7 +1104,7 @@ mod tests {
     /// requests with both resolved page sizes, and starts on the library.
     #[test]
     fn ac13_tui_state_page_sizes() {
-        let mut settings = tidal_player::cli::play::PlayerSettings::default();
+        let mut settings = tidal_player::settings::PlayerSettings::default();
         settings.library.page_size = 33;
         settings.library.search_page_size = 7;
         let state = tui_state(&settings);
@@ -1117,7 +1117,7 @@ mod tests {
     #[test]
     fn ac7_tui_state_key_hints() {
         for on in [true, false] {
-            let settings = tidal_player::cli::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 key_hints: on,
                 ..Default::default()
             };
@@ -1130,13 +1130,13 @@ mod tests {
     #[test]
     fn ac16_tui_state_hide_browse_pages() {
         let names = |list: &[&str]| list.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
-        let default = tidal_player::cli::play::PlayerSettings::default();
+        let default = tidal_player::settings::PlayerSettings::default();
         assert_eq!(
             configured_tui_state(&default, Keymap::default()).hide_browse_pages,
             names(&["videos", "tidal_magazine"])
         );
         for hidden in [names(&[]), names(&["a", "b"])] {
-            let settings = tidal_player::cli::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 hide_browse_pages: hidden.clone(),
                 ..Default::default()
             };
@@ -1149,7 +1149,7 @@ mod tests {
     #[test]
     fn ac7_tui_state_confirm_removals() {
         for on in [true, false] {
-            let settings = tidal_player::cli::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 confirm_removals: on,
                 ..Default::default()
             };

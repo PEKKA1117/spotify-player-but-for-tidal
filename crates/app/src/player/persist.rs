@@ -10,7 +10,7 @@
 //! 1. At start, before the first input: `let p = Persister::new(state_dir,
 //!    settings.remember_playback)`, then `let Loaded { saved, message } =
 //!    p.load()`; restore from `saved` (with `autoplay` set by
-//!    [`crate::cli::play::start_autoplay`]), put `message` in the player's
+//!    [`crate::settings::start_autoplay`]), put `message` in the player's
 //!    message, and make `SaveSchedule::new(state.saved(), now)`.
 //! 2. After every input the player handles: `schedule.on_change(now,
 //!    state.saved(), playing, urgent)`, where `urgent` is a pause, a stop, a

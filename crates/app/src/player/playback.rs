@@ -17,9 +17,10 @@ use tidal_player_audio::{self as audio, EngineError, SinkError};
 use tidal_player_core::player::{Failure, PlayerConfig};
 use tidal_player_core::{AudioQuality, Item, TrackId};
 
-use crate::cli::play::{PlayOptions, Settings, engine_failure, stream_failure};
+use crate::cli::play::{PlayOptions, engine_failure, stream_failure};
 use crate::player::http_source::{HttpSource, HttpSourceConfig, NETWORK_TIMEOUT, Reresolve};
 use crate::player::runtime::{EngineControl, Prepared, StreamOpener};
+use crate::settings::Settings;
 
 /// Exit code after Ctrl-C.
 pub const EXIT_INTERRUPTED: u8 = 130;

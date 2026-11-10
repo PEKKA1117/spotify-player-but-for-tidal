@@ -124,7 +124,7 @@ pub struct Settings {
 
 impl Settings {
     /// From the resolved settings and this process's environment.
-    pub fn from_player(player: &crate::cli::play::PlayerSettings) -> Self {
+    pub fn from_player(player: &crate::settings::PlayerSettings) -> Self {
         Self {
             enabled: player.cover_img,
             rows: player.cover_img_rows,

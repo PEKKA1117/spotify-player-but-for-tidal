@@ -1282,11 +1282,11 @@ fn asound_fixture(name: &str) -> std::path::PathBuf {
 /// says so, for a fresh and a restored player.
 #[test]
 fn ac6_snapshot_device_is_configured() {
-    use crate::cli::play::{
+    use crate::config::AppConfig;
+    use crate::settings::{
         DEVICE_VAR, resolve_play_config_with, resolve_player_config_with, resolve_settings_with,
         with_device,
     };
-    use crate::config::AppConfig;
 
     struct Row {
         name: &'static str,

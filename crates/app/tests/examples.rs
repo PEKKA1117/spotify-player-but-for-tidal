@@ -6,8 +6,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use tidal_player::cli::play::{resolve_player_config_with, resolve_settings_with};
 use tidal_player::config::{AppConfig, parse_app_toml, parse_keymap_toml, parse_theme_toml};
+use tidal_player::settings::{resolve_player_config_with, resolve_settings_with};
 use tidal_player_core::ui::Keymap;
 use tidal_player_core::ui::keymap::{Binding, defaults};
 

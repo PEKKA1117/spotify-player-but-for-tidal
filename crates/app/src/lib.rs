@@ -19,4 +19,5 @@ pub mod ipc;
 pub mod panic_hook;
 pub mod player;
 pub mod session;
+pub mod settings;
 pub mod tui;
