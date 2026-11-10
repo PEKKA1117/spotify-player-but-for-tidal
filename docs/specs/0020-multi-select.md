@@ -157,7 +157,7 @@ Each test is named after its criterion. Red is a failing assertion against stubs
 | AC9 | `crates/core/src/ui/select/tests.rs` :: `ac9_cursor_keys_ignore_selection` (table) | `Enter`, `a`, `d d`, a binding act on the cursor row | stub selection empty, so the "selection kept" assertion fails |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_remove_selection` (table over windows) | question text and list, what `y` sends, `n`/`Esc`, off switch | no question |
 | AC11 | `crates/core/src/ui/browse/tests.rs` :: `ac11_remove_selected_playlists` | mixed question, always asked, writes, messages | no question |
-| AC12 | `crates/app/src/ui.rs` :: `ac12_selection_*` (snapshots), `ac10_theme_cues` (new cell rows), `ac17_no_panic_any_size` (new rows) | drawn marker, title, popup, question | no marker or title text |
+| AC12 | `crates/app/src/tui/render.rs` :: `ac12_selection_*` (snapshots), `ac10_theme_cues` (new cell rows), `ac17_no_panic_any_size` (new rows) | drawn marker, title, popup, question | no marker or title text |
 | AC13 | `crates/core/src/ui/keymap/tests.rs` :: `ac13_select_defaults`; `crates/core/src/ui/help/tests.rs` :: `ac13_select_keys_listed`; `crates/core/src/ui/theme/tests.rs` :: `ac13_selected_row_component`; `crates/app/tests/examples.rs` (existing example tests); `crates/app/tests/docs.rs` :: `ac13_selection_documented`; zh-TW copies, README and `CLAUDE.md` reviewed at acceptance | defaults, help, hints, theme name, examples, docs | defaults lack the bindings |
 | AC14 | `crates/api/src/library.rs` tests :: `ac14_remove_several_positions` (recorded fixture); `crates/core/src/library.rs` :: protocol round trip row | the request path and headers; one position unchanged; 412 | stub sends the first index only |
 

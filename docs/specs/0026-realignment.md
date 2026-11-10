@@ -1,6 +1,6 @@
 # 0026 — Realignment: the code, the specs and the rules say the same thing
 
-- **Status**: approved (2026-11-10: the user asked for a review of the whole project, with leave to revisit any spec or decision)
+- **Status**: implemented (2026-11-10; approved the same day: the user asked for a review of the whole project, with leave to revisit any spec or decision)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented: the crates and their rules), 0018 (implemented: CI and releases)
 - **User docs**: none (nothing a user sees changes)
@@ -89,7 +89,7 @@ It reads the test plans as they are written today; no spec has to change its for
 
 ## Edge cases & errors
 
-- **A spec names a test that lives in another file than the one it names** (found 2026-11-10 in 0002, 0005, 0014 and others, where one cell listed several files): the plan is corrected to name the right file; the check is not loosened to search the workspace, because then a plan could name any file
+- **A spec names a test that lives in another file than the one it names, or under a later name** (found 2026-11-10: 0006's page tests had moved to `ui/browse/tests.rs`, 0010's `ac18_cover` was an integration test, 0004 and 0012 named tests that later specs renamed): the plan is corrected; the check is not loosened to search the workspace, because then a plan could name any file
 - **A test plan row for a criterion with no test** (`— reviewed at acceptance`): names no file, so nothing is checked
 - **A spec quotes a path of another project** (`docs/client-server.md` of spotify-player) or a probe script that was deleted on purpose (`scripts/tidal-*-probe.sh`): not under `crates/` or `xtask/`, not checked
 - **A `refactor/*` pull request that does change behaviour**: it is a `feat` or a `bugfix` and is renamed; the kind is a promise the reviewer checks, as with `docs/*`

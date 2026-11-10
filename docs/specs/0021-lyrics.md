@@ -172,12 +172,12 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) | round trip; decoding | stub `Serialize` writes `null` |
 | AC2 | `crates/core/src/lyrics.rs` :: `ac2_parse_lrc` (table), `ac2_current_line` (table) | lines, times, order; current index | stub parser returns no lines; stub `current_line` returns `None` |
 | AC3 | `crates/api/tests/lyrics.rs` :: `ac3_lyrics` (table) | path, params, mapping, `404` → `None`, errors | stub answers every request `NotFound` |
-| AC4 | `crates/app/src/player_runtime.rs` :: `ac4_lyrics_cache` (table) + `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (new row) | API call counts; eviction order; one reply | stub cache keeps nothing, so calls are 2 not 1 |
+| AC4 | `crates/app/src/player/runtime.rs` :: `ac4_lyrics_cache` (table) + `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender` (new row) | API call counts; eviction order; one reply | stub cache keeps nothing, so calls are 2 not 1 |
 | AC5 | `crates/core/src/ui/lyrics/tests.rs` :: `ac5_open_lyrics` (table) | push, request, `Nothing playing`, history | stub `LyricsPage` does nothing |
 | AC6 | `crates/core/src/ui/lyrics/tests.rs` :: `ac6_follow_track` (table) | requests per change; late answer dropped | stub never re-requests |
 | AC7 | `crates/core/src/ui/lyrics/tests.rs` :: `ac7_display_state` (table) | current/played; scroll; following and `Esc`; inert keys | stub never stops following, so a movement key leaves the view on the current line |
 | AC8 | `crates/core/src/ui/keymap/tests.rs` :: `ac8_lyrics_keys` + 0008's help and unsupported tests (rows updated) + `crates/core/src/ui/browse/tests.rs` :: `ac16_disconnected_and_login` (new rows) | default keys, help text, hints, unbinding; disconnected | stub keeps `LyricsPage` unsupported |
-| AC9 | `crates/app/src/ui.rs` :: `ac9_lyrics_80x24` (one snapshot per row), `ac9_lyrics_narrow_50x20`, `ac17_no_panic_any_size` (new page) | `contains` + snapshots | stub render draws the queue |
+| AC9 | `crates/app/src/tui/render.rs` :: `ac9_lyrics_80x24` (one snapshot per row), `ac9_lyrics_narrow_50x20`, `ac17_no_panic_any_size` (new page) | `contains` + snapshots | stub render draws the queue |
 | AC10 | `crates/core/src/ui/theme/tests.rs` :: `ac10_lyrics_components`, `ac6_theme_notice` (rows updated) + `crates/app/tests/examples.rs` :: `ac14_example_theme_toml_loads` | defaults; not skipped; buffer styles; example | stub keeps them skipped |
 | AC11 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (an `l` step) | answered; no session | stub client drops the request |
 | AC12 | — reviewed at acceptance | docs match this spec, linked, zh-TW in step | — |
@@ -188,7 +188,7 @@ Checked by hand at acceptance with a real account (results in the PR description
 
 - `tidal-player-core`: `lyrics` (new: `LyricLine`, `Lyrics`, `parse_lrc`, `current_line`), `library` (`PageRequest::Lyrics`, `PageData::Lyrics`), `ui` (the lyrics page: `PageKind::Lyrics`, following the track, scroll state), `ui::keymap` (`LyricsPage` and its defaults), `ui::theme` (the two components). No I/O, no new dependency
 - `tidal-player-api`: the lyrics call and its DTO mapping (`library.rs`, or a new `lyrics.rs` beside it)
-- `tidal-player`: `player_runtime` (the cache in front of the `Library` trait's lyrics request), `ui.rs`/`ui/pages.rs` (the page)
+- `tidal-player`: `player::runtime` (the cache in front of the `Library` trait's lyrics request), `ui.rs`/`ui/pages.rs` (the page)
 - `xtask layering`: no change
 
 ## Facts vs. assumptions
@@ -232,7 +232,7 @@ Answered by the user (2026-11-03; folded into the body above):
 - **Scrolling**: the model scrolls in *lines* (it does not know the width); the TUI turns the line offset into rows with `pages.rs`'s `wrap` (display width). Following, the current line's first row sits at row `h / 2` (never above 0). A hand scroll clamps to `len - height`, or to the followed offset when that is further; any movement key on synced lyrics stops following even if the offset does not move; plain lyrics never show `· scrolled`. The window's inner height is 0006's `list_height`, so `Resize` is unchanged
 - **Keys help**: a `Where::Lyrics` section lists `ClosePopup` as `follow the current line again` (dim while following) with the Lists, Pages, Playback and App sections. `COMMANDS` holds 51 commands, `UNSUPPORTED_COMMANDS` 26
 - **API**: the call sits in `crates/api/src/library.rs` beside `page()`. It reads the body itself, so any `404` is `lyrics: None` whatever its body; other statuses go through 0006's `check`. A `200` that is not JSON is `malformed lyrics response from Tidal`. Every field is optional; `plain` turns CRLF into LF and drops trailing blank lines
-- **Player**: `LyricsCache` (`crates/app/src/player_runtime.rs`) wraps the `Library` given to `TokioJobs::with_library`: a `Mutex<VecDeque>` of `LYRICS_CACHE_SIZE` = 50, hits move to the back, inserts evict from the front, only `Ok(Page(Lyrics))` is kept. Two clients asking for the same uncached track at once both call the API (the answers are the same)
+- **Player**: `LyricsCache` (`crates/app/src/player/runtime.rs`) wraps the `Library` given to `TokioJobs::with_library`: a `Mutex<VecDeque>` of `LYRICS_CACHE_SIZE` = 50, hits move to the back, inserts evict from the front, only `Ok(Page(Lyrics))` is kept. Two clients asking for the same uncached track at once both call the API (the answers are the same)
 - **TUI**: the messages are dim in the window, failures in `error`; plain lyrics are not styled and no cursor is drawn. Right-to-left lyrics use `Alignment::Right`
 - **Themes**: `COMPONENTS` holds 21; `SKIPPED_COMPONENTS` keeps `playback_genres` and `visualization`, which the tests that needed a skipped name now use
 - **Fixtures** (`crates/api/tests/fixtures/lyrics/`): invented text in the probe's shapes; `lyrics_synced.json` also carries CRLF and trailing blank lines, which the probe did not see

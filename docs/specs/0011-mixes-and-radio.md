@@ -202,7 +202,7 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC8 | `crates/core/src/ui/browse/tests.rs` :: `ac8_go_to_radio` (table) | position in the popup; `r` per row kind; page and request; no command | stub popup omits *Go to radio* and `r` does nothing |
 | AC9 | `crates/core/src/ui/keymap.rs` :: `ac9_mixes_and_radio_keys` + 0008's help and unsupported-action tests (rows updated) | default keys, action parsing, unbinding, help text | stub keeps `GoToRadio` unsupported and binds no `r` |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_disconnected` (table) | nothing sent; one re-fetch | stub requests while disconnected |
-| AC11 | `crates/app/src/ui.rs` :: `ac11_mixes_80x24` (one snapshot per row), `ac11_mixes_narrow_50x20`, `ac17_no_panic_any_size` (new pages) | `contains` + snapshots | stub render draws the queue |
+| AC11 | `crates/app/src/tui/render.rs` :: `ac11_mixes_80x24` (one snapshot per row), `ac11_mixes_narrow_50x20`, `ac17_no_panic_any_size` (new pages) | `contains` + snapshots | stub render draws the queue |
 | AC12 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (a `g m` step) | answered, no session | stub client drops the request |
 | AC13 | — reviewed at acceptance | docs match this spec, linked, zh-TW in step | — |
 
@@ -212,7 +212,7 @@ Checked by hand at acceptance with a real account (results in the PR description
 
 - `tidal-player-core`: `library` (`MixSummary`, `RadioSeed`, the new requests and pages), `ui` (the pages, the mix row, *Go to radio*), `ui::keymap` (`MixesPage`, the default `GoToRadio` binding). No I/O, no new dependency
 - `tidal-player-api::library`: the mixes list, mix page and radio calls and their DTO mapping
-- `tidal-player`: `player_runtime` (the `Library` trait answers the new requests), `ui.rs`/`ui/pages.rs` (the three pages)
+- `tidal-player`: `player::runtime` (the `Library` trait answers the new requests), `ui.rs`/`ui/pages.rs` (the three pages)
 - `xtask layering`: no change
 
 ## Facts vs. assumptions

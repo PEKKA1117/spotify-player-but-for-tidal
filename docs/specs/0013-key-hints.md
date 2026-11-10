@@ -95,8 +95,8 @@ Each test is named after its criterion. Red is a failing assertion against stub 
 | AC2 | `crates/core/src/ui/help/tests.rs` :: `ac2_hints_nested_prefix` | `+N` entry, its dim, next level after the key | stub `hints` returns `None` |
 | AC3 | `crates/core/src/ui/help/tests.rs` :: `ac3_no_hints` (table) | `None` in each listed case | stub `hints` returns `Some` with every binding under the prefix whatever the state |
 | AC4 | `crates/core/src/ui/help/tests.rs` :: `ac4_hints_do_not_change_keys` (table) | same effects and state on/off; hints gone afterwards | stub `hints` ignores `pending` and keeps returning entries after the sequence ends |
-| AC5 | `crates/app/src/ui.rs` :: `ac5_hint_timer` (table: key presses and instants → draw or not; fake instants, no sleeping) | delay, restart, reset, delay 0 | stub timer always says draw |
-| AC6 | `crates/app/src/ui.rs` :: `ac6_key_hints` (snapshot per row), `ac6_key_hints_layout` (table: entries × area → columns, rows, `… +N more`), `ac17_no_panic_any_size` (new rows with a pending `g`) | position, columns, title, dim, truncation, sizes | stub render draws no hint |
+| AC5 | `crates/app/src/tui/render.rs` :: `ac5_hint_timer` (table: key presses and instants → draw or not; fake instants, no sleeping) | delay, restart, reset, delay 0 | stub timer always says draw |
+| AC6 | `crates/app/src/tui/render.rs` :: `ac6_key_hints` (snapshot per row), `ac6_key_hints_layout` (table: entries × area → columns, rows, `… +N more`), `ac17_no_panic_any_size` (new rows with a pending `g`) | position, columns, title, dim, truncation, sizes | stub render draws no hint |
 | AC7 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows), `crates/app/tests/examples.rs` :: `ac18_example_app_toml_is_the_defaults` (unchanged, fails until the example has the key), `crates/app/tests/docs.rs` :: `ac7_key_hints_documented` + zh-TW copies reviewed at acceptance | value per source, error message, example, docs mention both keys | stub config ignores both keys |
 
 Checked by hand at acceptance: in a real terminal `g l` typed quickly opens the library with no box; `g` held for a second shows it and `l` then opens the library; `key_hints = false` hides it.
@@ -109,7 +109,7 @@ Checked by hand at acceptance: in a real terminal `g l` typed quickly opens the 
 
 ## Facts vs. assumptions
 
-Verified (2026-10-09, from code): pending keys live in `State::pending` (`crates/core/src/ui/dispatch.rs`: `resolve`, `set_pending`); fixed keys and opening the help clear them; the keys help's sections, texts and dim rule are `help::help`, `text`, `dim` (`crates/core/src/ui/help.rs`); the default multi-key bindings are the six `g` ones (`keymap::defaults`); 0008 refuses a bound prefix of a longer sequence (`check_prefixes`); the page area is absent under 8 terminal rows (`crates/app/src/ui.rs` `areas`).
+Verified (2026-10-09, from code): pending keys live in `State::pending` (`crates/core/src/ui/dispatch.rs`: `resolve`, `set_pending`); fixed keys and opening the help clear them; the keys help's sections, texts and dim rule are `help::help`, `text`, `dim` (`crates/core/src/ui/help.rs`); the default multi-key bindings are the six `g` ones (`keymap::defaults`); 0008 refuses a bound prefix of a longer sequence (`check_prefixes`); the page area is absent under 8 terminal rows (`crates/app/src/tui/render.rs` `areas`).
 
 Assumptions: none about external systems (no API, no audio, no terminal protocol involved).
 
