@@ -427,7 +427,22 @@ fn ac3_publish_command() {
     }
 }
 
-/// AC10: a skipped crate that depends on a published one stops the run.
+/// An index entry whose versions each need `core_req` of `tidal-player-core`.
+fn entry_needing(name: &str, vers: &[(&str, &str)]) -> String {
+    vers.iter()
+        .map(|(v, core_req)| {
+            format!(
+                "{{\"name\":\"{name}\",\"vers\":\"{v}\",\"yanked\":false,\"deps\":[\
+                 {{\"name\":\"tidal-player-core\",\"req\":\"{core_req}\",\"kind\":\"normal\"}},\
+                 {{\"name\":\"tidal-player-core\",\"req\":\"=0.0.1\",\"kind\":\"dev\"}},\
+                 {{\"name\":\"serde\",\"req\":\"=1.0.0\",\"kind\":\"normal\"}}]}}\n"
+            )
+        })
+        .collect()
+}
+
+/// AC10: a published crate that needs another version of a workspace crate
+/// than this release has stops the run.
 #[test]
 fn ac10_stale_dependents() {
     // `v1.5.0` as it was tagged: core bumped, api left at its published version.
@@ -454,7 +469,7 @@ fn ac10_stale_dependents() {
         crates[2].version = "1.3.5".into();
         crates
     };
-    let on_crates_io = |core: &[&str]| {
+    let on_crates_io = |core: &[&str], api_req: &str| {
         vec![
             (
                 "tidal-player".to_string(),
@@ -466,7 +481,10 @@ fn ac10_stale_dependents() {
             ),
             (
                 "tidal-player-api".to_string(),
-                Ok(Some(entry("tidal-player-api", &["1.3.4"]))),
+                Ok(Some(entry_needing(
+                    "tidal-player-api",
+                    &[("1.3.3", "=1.4.3"), ("1.3.4", api_req)],
+                ))),
             ),
             (
                 "tidal-player-audio".to_string(),
@@ -474,11 +492,12 @@ fn ac10_stale_dependents() {
             ),
         ]
     };
-    const STALE: &str = "tidal-player-api 1.3.4 is on crates.io and needs the tidal-player-core it was released with, but tidal-player-core 1.5.0 is new: bump tidal-player-api";
+    const STALE: &str = "tidal-player-api 1.3.4 on crates.io needs tidal-player-core =1.4.4, but this release has tidal-player-core 1.5.0: bump tidal-player-api";
     struct Case {
         name: &'static str,
         crates: Vec<Crate>,
         core: &'static [&'static str],
+        api_req: &'static str,
         dry_run: bool,
         ran: &'static [&'static str],
         err: Option<&'static str>,
@@ -488,6 +507,7 @@ fn ac10_stale_dependents() {
             name: "a stale dependent publishes nothing",
             crates: v150(),
             core: &["1.4.4"],
+            api_req: "=1.4.4",
             dry_run: false,
             ran: &[],
             err: Some(STALE),
@@ -496,14 +516,34 @@ fn ac10_stale_dependents() {
             name: "the dry run fails too",
             crates: v150(),
             core: &["1.4.4"],
+            api_req: "=1.4.4",
             dry_run: true,
             ran: &[],
             err: Some(STALE),
         },
         Case {
+            name: "after a failed run published the dependency",
+            crates: v150(),
+            core: &["1.4.4", "1.5.0"],
+            api_req: "=1.4.4",
+            dry_run: true,
+            ran: &[],
+            err: Some(STALE),
+        },
+        Case {
+            name: "a requirement that is not exact is not compared",
+            crates: v150(),
+            core: &["1.4.4"],
+            api_req: "^1.4.4",
+            dry_run: false,
+            ran: &["tidal-player-core", "tidal-player"],
+            err: None,
+        },
+        Case {
             name: "the dependent bumped: published in order",
             crates: fixed(),
             core: &["1.4.4"],
+            api_req: "=1.4.4",
             dry_run: false,
             ran: &["tidal-player-core", "tidal-player-api", "tidal-player"],
             err: None,
@@ -512,6 +552,7 @@ fn ac10_stale_dependents() {
             name: "the recovery: core already there, its dependents new",
             crates: fixed(),
             core: &["1.4.4", "1.5.0"],
+            api_req: "=1.4.4",
             dry_run: false,
             ran: &["tidal-player-api", "tidal-player"],
             err: None,
@@ -519,7 +560,7 @@ fn ac10_stale_dependents() {
     ];
     for c in cases {
         let mut index = FakeIndex {
-            answers: on_crates_io(c.core).into_iter().collect(),
+            answers: on_crates_io(c.core, c.api_req).into_iter().collect(),
             fetched: Vec::new(),
         };
         let mut runner = FakeRunner {
