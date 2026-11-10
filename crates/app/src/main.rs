@@ -248,6 +248,7 @@ fn run<C: Connector>(
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
+                    Effect::Logs { id, after } => session.send_logs(id, after),
                     Effect::Envy(envy) => return Ok(Some(envy)),
                 }
             }

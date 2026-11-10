@@ -1103,6 +1103,11 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
                 let result = self.devices.list();
                 self.hub.reply_devices(client, id, result);
             }
+            // Stub (spec 0027, slice S2 serves it): no log is kept yet.
+            ClientInput::Logs { client, id, .. } => {
+                self.hub
+                    .reply_logs(client, id, Err("not implemented".to_owned()));
+            }
             ClientInput::Request {
                 client,
                 id,

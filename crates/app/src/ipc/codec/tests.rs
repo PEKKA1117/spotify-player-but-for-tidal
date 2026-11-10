@@ -1,10 +1,11 @@
 use super::*;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tidal_player_core::library::{
     BrowseRef, LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, PageData,
     PageRequest,
 };
 
+use tidal_player_core::log::{LogBatch, LogLevel, LogLine};
 use tidal_player_core::lyrics::{LyricLine, Lyrics};
 use tidal_player_core::protocol::{ClientMessage, Command, Event, ServerMessage};
 
@@ -226,6 +227,24 @@ fn ac2_framing() {
                     })],
                 ),
                 (
+                    "a log request for everything (0027 AC1)",
+                    vec![b"{\"Logs\":{\"id\":11,\"after\":null}}\n".to_vec()],
+                    vec![Want::Message(ClientMessage::Logs { id: 11, after: None })],
+                ),
+                (
+                    "a log request after a line (0027 AC1)",
+                    vec![b"{\"Logs\":{\"id\":12,\"after\":4096}}\n".to_vec()],
+                    vec![Want::Message(ClientMessage::Logs {
+                        id: 12,
+                        after: Some(4096),
+                    })],
+                ),
+                (
+                    "a log request without `after` (0027 AC1)",
+                    vec![b"{\"Logs\":{\"id\":13}}\n".to_vec()],
+                    vec![Want::Message(ClientMessage::Logs { id: 13, after: None })],
+                ),
+                (
                     "an encoded library request, split",
                     encode(&library).chunks(5).map(<[u8]>::to_vec).collect(),
                     vec![Want::Message(library)],
@@ -323,6 +342,44 @@ fn ac2_framing() {
             })),
         })],
         "a lyrics reply"
+    );
+
+    // 0027 AC1: a log reply, `at` in milliseconds on the wire, a level by
+    // its name; a level that is none of the five is an error.
+    let line = |level: &str| {
+        format!(
+            "{{\"LogsReply\":{{\"id\":2,\"result\":{{\"Ok\":{{\"lines\":[{{\"seq\":5,\"at\":1762800245123,\"level\":\"{level}\",\"target\":\"tidal_player::auth\",\"text\":\"refresh failed error=x\"}}],\"off\":false}}}}}}}}\n"
+        )
+    };
+    assert_eq!(
+        Decoder::<ServerMessage>::new().feed(line("Warn").as_bytes()),
+        vec![Ok(ServerMessage::LogsReply {
+            id: 2,
+            result: Ok(LogBatch {
+                lines: vec![LogLine {
+                    seq: 5,
+                    at: SystemTime::UNIX_EPOCH + Duration::from_millis(1_762_800_245_123),
+                    level: LogLevel::Warn,
+                    target: "tidal_player::auth".into(),
+                    text: "refresh failed error=x".into(),
+                }],
+                off: false,
+            }),
+        })],
+        "a log reply"
+    );
+    let bad = Decoder::<ServerMessage>::new().feed(line("Verbose").as_bytes());
+    assert!(
+        matches!(bad.as_slice(), [Err(e)] if e.to_string().contains("unknown variant `Verbose`")),
+        "{bad:?}"
+    );
+    let reply = ServerMessage::LogsReply {
+        id: 3,
+        result: Err("the log is not available".into()),
+    };
+    assert_eq!(
+        Decoder::<ServerMessage>::new().feed(&encode(&reply)),
+        vec![Ok(reply)]
     );
 
     // The real limit: a 17 MiB line is refused once it passes 16 MiB,

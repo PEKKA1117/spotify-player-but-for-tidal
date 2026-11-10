@@ -3,6 +3,7 @@
 pub mod hook;
 pub mod item;
 pub mod library;
+pub mod log;
 pub mod lyrics;
 pub mod player;
 pub mod protocol;

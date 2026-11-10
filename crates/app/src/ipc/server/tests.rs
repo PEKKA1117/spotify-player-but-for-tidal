@@ -245,7 +245,8 @@ impl View {
             ServerMessage::Event(Event::ShuttingDown)
             | ServerMessage::Reply { .. }
             | ServerMessage::LibraryReply { .. }
-            | ServerMessage::DevicesReply { .. } => {}
+            | ServerMessage::DevicesReply { .. }
+            | ServerMessage::LogsReply { .. } => {}
         }
     }
 
@@ -512,6 +513,7 @@ impl ModelClient {
                 ServerMessage::Reply { result, .. } => assert_eq!(result, Ok(())),
                 ServerMessage::LibraryReply { id, .. } => panic!("unasked library reply {id}"),
                 ServerMessage::DevicesReply { id, .. } => panic!("unasked devices reply {id}"),
+                ServerMessage::LogsReply { id, .. } => panic!("unasked logs reply {id}"),
             }
         }
     }

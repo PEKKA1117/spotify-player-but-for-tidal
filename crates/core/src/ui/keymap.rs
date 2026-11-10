@@ -310,6 +310,8 @@ pub enum UiCommand {
     BrowsePage,
     /// The lyrics page (spec 0021).
     LyricsPage,
+    /// The logs page (spec 0027).
+    OpenLogs,
     Search,
     PreviousPage,
     ClosePopup,
@@ -431,6 +433,7 @@ impl UiCommand {
             Self::MixesPage => "MixesPage",
             Self::BrowsePage => "BrowsePage",
             Self::LyricsPage => "LyricsPage",
+            Self::OpenLogs => "OpenLogs",
             Self::Search => "Search",
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",

@@ -319,7 +319,8 @@ impl Shared {
             ServerMessage::Event(Event::ShuttingDown) => self.shut(),
             ServerMessage::Event(_)
             | ServerMessage::LibraryReply { .. }
-            | ServerMessage::DevicesReply { .. } => {}
+            | ServerMessage::DevicesReply { .. }
+            | ServerMessage::LogsReply { .. } => {}
             ServerMessage::Reply { id, result } => {
                 if let Some(tx) = lock(&self.calls).pending.remove(&id) {
                     let _ = tx.send(result);

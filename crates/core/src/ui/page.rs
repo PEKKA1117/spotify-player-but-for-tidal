@@ -57,6 +57,9 @@ pub enum PageKind {
     /// the page shows is in [`Page::lyrics`], so the kind alone names the
     /// page.
     Lyrics,
+    /// The logs page (spec 0027): the player's log lines; they live in
+    /// [`State::logs`](super::State::logs).
+    Logs,
     /// A browse page (spec 0024): its sections are the tabs of one pane.
     Browse(BrowseRef),
 }
@@ -68,7 +71,7 @@ impl PageKind {
         Some(match self {
             Self::Queue => return None,
             // The track is the page's own (`Page::request`).
-            Self::Lyrics => return None,
+            Self::Lyrics | Self::Logs => return None,
             Self::Library => PageRequest::Library,
             Self::FavoriteTracks => PageRequest::FavoriteTracks,
             Self::Album(id) => PageRequest::Album(*id),
@@ -1041,7 +1044,7 @@ impl Page {
             PageKind::Mix(_) => vec![Window::whole(WindowKind::MixTracks)],
             PageKind::TrackRadio(_) => vec![Window::whole(WindowKind::RadioTracks)],
             PageKind::ArtistRadio(_) => vec![Window::whole(WindowKind::ArtistRadioTracks)],
-            PageKind::Lyrics | PageKind::Browse(_) => vec![],
+            PageKind::Lyrics | PageKind::Logs | PageKind::Browse(_) => vec![],
         };
         // The artist page: Top tracks | All tracks, Albums | Appears on.
         let panes: Vec<Vec<usize>> = match &kind {
@@ -1218,6 +1221,7 @@ impl Page {
                         }),
                 )
                 .collect(),
+            (PageKind::Logs, _) => vec!["Logs".into()],
             (PageKind::Library, _) => vec!["Library".into()],
             (PageKind::FavoriteTracks, _) => std::iter::once("Favorite tracks".into())
                 .chain(tracks)

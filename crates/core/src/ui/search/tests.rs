@@ -180,6 +180,7 @@ enum Out {
     Send(Command),
     Library(LibraryRequest),
     Devices,
+    Logs,
 }
 
 fn outs(effects: &[Effect]) -> Vec<Out> {
@@ -190,6 +191,7 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
             Effect::Send(c) => Out::Send(c.clone()),
             Effect::Library { request, .. } => Out::Library(request.clone()),
             Effect::Devices { .. } => Out::Devices,
+            Effect::Logs { .. } => Out::Logs,
         })
         .collect()
 }

@@ -4,9 +4,11 @@ use crate::library::{
     ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData, PageLink, PageRequest,
     PlaylistSummary, RadioSeed, RoleCategory, TopHit,
 };
+use crate::log::{LogBatch, LogLevel, LogLine};
 use crate::lyrics::{LyricLine, Lyrics};
 use crate::track::{AlbumRef, ArtistRef, TrackId};
 use serde::de::DeserializeOwned;
+use std::time::SystemTime;
 
 fn round_trip<T>(v: &T)
 where
@@ -541,6 +543,13 @@ fn all_messages() -> (Vec<ClientMessage>, Vec<ServerMessage>) {
     // 0014 AC1: the device list.
     client.push(ClientMessage::Devices { id: 7 });
     server.extend(device_replies());
+    // 0027 AC1: the log lines.
+    client.push(ClientMessage::Logs { id: 3, after: None });
+    client.push(ClientMessage::Logs {
+        id: u64::MAX,
+        after: Some(u64::MAX),
+    });
+    server.extend(logs_replies());
     (client, server)
 }
 
@@ -627,6 +636,80 @@ fn all_events() -> Vec<Event> {
 }
 
 /// Every shape of `DevicesReply` (spec 0014 AC1).
+fn log_line(seq: u64, level: LogLevel, at_ms: u64) -> LogLine {
+    LogLine {
+        seq,
+        at: SystemTime::UNIX_EPOCH + Duration::from_millis(at_ms),
+        level,
+        target: "tidal_player::player::reserve".into(),
+        text: "cannot reserve card 1: busy error=déjà vu".into(),
+    }
+}
+
+fn logs_replies() -> Vec<ServerMessage> {
+    let levels = [
+        LogLevel::Error,
+        LogLevel::Warn,
+        LogLevel::Info,
+        LogLevel::Debug,
+        LogLevel::Trace,
+    ];
+    vec![
+        ServerMessage::LogsReply {
+            id: 3,
+            result: Ok(LogBatch {
+                lines: levels
+                    .into_iter()
+                    .zip(1..)
+                    .map(|(level, seq)| log_line(seq, level, 1_762_800_245_123 + seq))
+                    .collect(),
+                off: false,
+            }),
+        },
+        ServerMessage::LogsReply {
+            id: 4,
+            result: Ok(LogBatch {
+                lines: vec![],
+                off: true,
+            }),
+        },
+        ServerMessage::LogsReply {
+            id: u64::MAX,
+            result: Err("the log is not available".into()),
+        },
+    ]
+}
+
+/// 0027 AC1: `at` is milliseconds since the epoch on the wire, a level is
+/// its name, and a level that is none of the five fails to decode.
+#[test]
+fn ac1_log_wire_format() {
+    let line = log_line(7, LogLevel::Warn, 1_762_800_245_123);
+    let json = serde_json::to_value(&line).unwrap();
+    assert_eq!(json["at"], serde_json::json!(1_762_800_245_123_u64));
+    assert_eq!(json["level"], serde_json::json!("Warn"));
+    assert_eq!(json["seq"], serde_json::json!(7));
+    // Sub-millisecond parts do not survive; the millisecond does.
+    let mut precise = line.clone();
+    precise.at += Duration::from_micros(456);
+    let back: LogLine = serde_json::from_value(serde_json::to_value(&precise).unwrap()).unwrap();
+    assert_eq!(back.at, line.at);
+
+    let request = serde_json::to_value(ClientMessage::Logs {
+        id: 3,
+        after: Some(9),
+    })
+    .unwrap();
+    assert_eq!(request, serde_json::json!({"Logs": {"id": 3, "after": 9}}));
+
+    let mut bad = json.clone();
+    bad["level"] = serde_json::json!("Verbose");
+    assert!(serde_json::from_value::<LogLine>(bad).is_err());
+    let mut bad = json;
+    bad["at"] = serde_json::json!("yesterday");
+    assert!(serde_json::from_value::<LogLine>(bad).is_err());
+}
+
 fn device_replies() -> Vec<ServerMessage> {
     vec![
         ServerMessage::DevicesReply {

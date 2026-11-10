@@ -758,6 +758,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::ClosePopup if at == Where::Lyrics => owned("follow the current line again"),
         C::ClosePopup => owned("close / cancel"),
         C::LyricsPage => owned("lyrics of the playing track"),
+        C::OpenLogs => owned("open the logs page"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
         C::SwitchDevice => owned("choose the output device"),

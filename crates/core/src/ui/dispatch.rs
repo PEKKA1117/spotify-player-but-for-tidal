@@ -181,6 +181,8 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::MixesPage => return browse::open(state, PageKind::Mixes),
         C::BrowsePage => return browse::open(state, PageKind::Browse(BrowseRef::Root)),
         C::LyricsPage => return browse::open(state, PageKind::Lyrics),
+        // Stub (red): not wired yet.
+        C::OpenLogs => return Vec::new(),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
