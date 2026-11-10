@@ -181,3 +181,64 @@ fn ac9_format_line() {
         "13:04:05 INFO  t: ab[31mc"
     );
 }
+
+/// AC3: the buffer keeps the last lines in order, drops the oldest first,
+/// numbers `seq` from 1 without gaps, and `after(n)` returns the kept lines
+/// with `seq > n` (everything for `None` and for an `n` beyond the newest).
+#[test]
+fn ac3_buffer() {
+    let at = |ms: u64| SystemTime::UNIX_EPOCH + Duration::from_millis(ms);
+    let seqs = |lines: Vec<LogLine>| lines.iter().map(|l| l.seq).collect::<Vec<_>>();
+    // (capacity, pushes, after, the seqs it returns, the newest seq)
+    let rows: [(usize, u64, Option<u64>, Vec<u64>, Option<u64>); 9] = [
+        (3, 0, None, vec![], None),
+        (3, 0, Some(5), vec![], None),
+        (3, 2, None, vec![1, 2], Some(2)),
+        (3, 2, Some(1), vec![2], Some(2)),
+        (3, 2, Some(2), vec![], Some(2)),
+        (3, 5, None, vec![3, 4, 5], Some(5)),
+        (3, 5, Some(3), vec![4, 5], Some(5)),
+        (3, 5, Some(1), vec![3, 4, 5], Some(5)),
+        // The player restarted: the asker's `seq` is beyond the newest.
+        (3, 5, Some(99), vec![3, 4, 5], Some(5)),
+    ];
+    for (capacity, pushes, after, want, newest) in rows {
+        let mut buffer = LogBuffer::with_capacity(capacity);
+        assert!(buffer.is_empty());
+        for n in 1..=pushes {
+            let seq = buffer.push(at(n * 10), Info, "tidal_player::x", format!("line {n}"));
+            assert_eq!(seq, n, "seq of push {n}");
+        }
+        assert_eq!(
+            seqs(buffer.after(after)),
+            want,
+            "{capacity} {pushes} {after:?}"
+        );
+        assert_eq!(buffer.newest(), newest, "{capacity} {pushes}");
+        assert_eq!(buffer.len(), want_len(capacity, pushes));
+    }
+    // The lines keep what they were given.
+    let mut buffer = LogBuffer::default();
+    buffer.push(at(5), Warn, "reqwest::connect", "slow".into());
+    assert_eq!(
+        buffer.after(None),
+        vec![LogLine {
+            seq: 1,
+            at: at(5),
+            level: Warn,
+            target: "reqwest::connect".into(),
+            text: "slow".into(),
+        }]
+    );
+    // The default keeps the last 1000.
+    for n in 0..1500 {
+        buffer.push(at(n), Debug, "t", n.to_string());
+    }
+    assert_eq!(buffer.len(), BUFFER_LINES);
+    assert_eq!(buffer.after(None).first().map(|l| l.seq), Some(502));
+    assert_eq!(buffer.newest(), Some(1501));
+}
+
+fn want_len(capacity: usize, pushes: u64) -> usize {
+    capacity.min(usize::try_from(pushes).unwrap())
+}

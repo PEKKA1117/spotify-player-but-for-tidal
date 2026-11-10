@@ -3,6 +3,7 @@
 //! draws it. Pure: the clock, the file and the subscriber live in the
 //! binary; the local UTC offset is a parameter here.
 
+use std::collections::VecDeque;
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -73,6 +74,65 @@ mod epoch_millis {
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SystemTime, D::Error> {
         let millis = u64::deserialize(deserializer)?;
         Ok(SystemTime::UNIX_EPOCH + Duration::from_millis(millis))
+    }
+}
+
+/// How many lines a player's (or a TUI's own) buffer keeps.
+pub const BUFFER_LINES: usize = 1000;
+
+/// A process's last log lines (spec 0027 "Who keeps what"): the oldest is
+/// dropped first, and every line is numbered `seq` 1, 2, 3, … for the
+/// buffer's lifetime.
+#[derive(Debug, Clone)]
+pub struct LogBuffer {
+    lines: VecDeque<LogLine>,
+    next_seq: u64,
+    capacity: usize,
+}
+
+impl Default for LogBuffer {
+    fn default() -> Self {
+        Self::with_capacity(BUFFER_LINES)
+    }
+}
+
+impl LogBuffer {
+    /// A buffer that keeps the last `capacity` lines.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            lines: VecDeque::new(),
+            next_seq: 1,
+            capacity,
+        }
+    }
+
+    /// Keeps a new line and returns its `seq`.
+    pub fn push(&mut self, at: SystemTime, level: LogLevel, target: &str, text: String) -> u64 {
+        let _ = (at, level, target, text);
+        0
+    }
+
+    /// The kept lines with `seq` greater than `after`, oldest first; all of
+    /// them for `None`, and for an `after` beyond the newest `seq` (the
+    /// player restarted).
+    pub fn after(&self, after: Option<u64>) -> Vec<LogLine> {
+        let _ = after;
+        Vec::new()
+    }
+
+    /// The newest `seq`; `None` while nothing was pushed.
+    pub fn newest(&self) -> Option<u64> {
+        None
+    }
+
+    /// How many lines are kept.
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Whether no line is kept.
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
     }
 }
 
