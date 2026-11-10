@@ -56,20 +56,23 @@ pub struct LogBatch {
     pub off: bool,
 }
 
-/// `SystemTime` as milliseconds since the Unix epoch.
+/// `SystemTime` as milliseconds since the Unix epoch (a time before it is
+/// 0).
 mod epoch_millis {
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
-    use serde::{Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(_at: &SystemTime, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_unit()
+    pub fn serialize<S: Serializer>(at: &SystemTime, serializer: S) -> Result<S::Ok, S::Error> {
+        let millis = at
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        serializer.serialize_u64(millis)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        _deserializer: D,
-    ) -> Result<SystemTime, D::Error> {
-        Ok(SystemTime::UNIX_EPOCH)
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SystemTime, D::Error> {
+        let millis = u64::deserialize(deserializer)?;
+        Ok(SystemTime::UNIX_EPOCH + Duration::from_millis(millis))
     }
 }
 
@@ -94,35 +97,103 @@ impl FromStr for LogSetting {
     type Err = ParseLogSettingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let _ = s;
-        Ok(Self::Info)
+        Ok(match s.to_ascii_lowercase().as_str() {
+            "off" => Self::Off,
+            "error" => Self::Error,
+            "warn" => Self::Warn,
+            "info" => Self::Info,
+            "debug" => Self::Debug,
+            "trace" => Self::Trace,
+            _ => return Err(ParseLogSettingError(s.to_owned())),
+        })
     }
 }
 
 impl LogSetting {
     /// The lowest level kept from this program's crates; `None` for `off`.
     pub fn max_level(self) -> Option<LogLevel> {
-        let _ = self;
-        None
+        match self {
+            Self::Off => None,
+            Self::Error => Some(LogLevel::Error),
+            Self::Warn => Some(LogLevel::Warn),
+            Self::Info => Some(LogLevel::Info),
+            Self::Debug => Some(LogLevel::Debug),
+            Self::Trace => Some(LogLevel::Trace),
+        }
     }
 }
 
-/// Whether an event with `level` and `target` is kept under `setting`.
+/// This program's crates: their targets, and the modules of them, are its
+/// own (`tidal_player_extra` is not).
+const OWN_CRATES: [&str; 4] = [
+    "tidal_player",
+    "tidal_player_core",
+    "tidal_player_api",
+    "tidal_player_audio",
+];
+
+/// Whether `target` is one of this program's crates or a module of one.
+fn is_own(target: &str) -> bool {
+    OWN_CRATES.iter().any(|name| {
+        target
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
+
+/// Whether an event with `level` and `target` is kept under `setting`
+/// (spec 0027 "What is logged"): this program's crates at `setting` and
+/// above, any other crate at `WARN` and `ERROR` only (HTTP crates log
+/// the session's headers below that), nothing at `off`.
 pub fn is_kept(setting: LogSetting, level: LogLevel, target: &str) -> bool {
-    let _ = (setting, level, target);
-    true
+    let Some(lowest) = setting.max_level() else {
+        return false;
+    };
+    if is_own(target) {
+        level <= lowest
+    } else {
+        level <= LogLevel::Warn
+    }
 }
 
-/// The text of a line: the message, then ` name=value` for each field.
+/// `text` with every line break (`\r\n` included) as one space.
+fn one_line(text: &str) -> String {
+    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
+}
+
+/// The text of a line: the message, then ` name=value` for each other
+/// field, in the order given, line breaks as spaces. With no message the
+/// first field starts the text.
 pub fn build_text(message: &str, fields: &[(&str, &str)]) -> String {
-    let _ = fields;
-    message.to_owned()
+    let mut text = one_line(message);
+    for (name, value) in fields {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(name);
+        text.push('=');
+        text.push_str(&one_line(value));
+    }
+    text
 }
 
-/// How the logs page draws `line`: `HH:MM:SS LEVEL target: text`.
+/// How the logs page draws `line`: `HH:MM:SS LEVEL target: text` in the
+/// local time `utc_offset_secs` from UTC, the level left-aligned to 5
+/// columns, control characters left out.
 pub fn format_line(line: &LogLine, utc_offset_secs: i32) -> String {
-    let _ = utc_offset_secs;
-    line.text.clone()
+    let secs = line
+        .at
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let day = (secs + i64::from(utc_offset_secs)).rem_euclid(86_400);
+    let (h, m, s) = (day / 3600, day / 60 % 60, day % 60);
+    let drawn = format!(
+        "{h:02}:{m:02}:{s:02} {:<5} {}: {}",
+        line.level.as_str(),
+        line.target,
+        line.text
+    );
+    drawn.chars().filter(|c| !c.is_control()).collect()
 }
 
 #[cfg(test)]

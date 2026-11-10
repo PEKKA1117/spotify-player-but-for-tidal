@@ -84,7 +84,12 @@ fn ac2_kept() {
 /// are spaces.
 #[test]
 fn ac2_text() {
-    let cases: [(&str, &[(&str, &str)], &str); 8] = [
+    type Case = (
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        &'static str,
+    );
+    let cases: [Case; 8] = [
         ("plain", &[], "plain"),
         (
             "could not save the refreshed session",
