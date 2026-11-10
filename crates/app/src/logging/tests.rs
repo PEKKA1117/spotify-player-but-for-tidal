@@ -433,3 +433,100 @@ fn ac2_layer_capture() {
     // The attached TUI keeps no file.
     assert!(!dir.path().join(LOG_FILE).exists());
 }
+
+/// 0027 AC18: the panic line's text for a location and a message, for each
+/// kind of payload.
+#[test]
+fn ac18_panic_line() {
+    use std::any::Any;
+
+    assert_eq!(
+        panic_text("src/main.rs:10:5", "boom"),
+        "panic location=src/main.rs:10:5 message=boom"
+    );
+    assert_eq!(
+        panic_text("a.rs:1:1", "two\nlines"),
+        "panic location=a.rs:1:1 message=two lines"
+    );
+    let payloads: [(Box<dyn Any + Send>, &str); 4] = [
+        (Box::new("a literal"), "a literal"),
+        (Box::new(String::from("a formatted 7")), "a formatted 7"),
+        (Box::new(42_u32), "<non-string panic>"),
+        (Box::new(()), "<non-string panic>"),
+    ];
+    for (payload, want) in &payloads {
+        assert_eq!(panic_message(payload.as_ref()), *want);
+    }
+
+    // The line goes to the buffer and the file, as an ERROR of its own.
+    let dir = tempfile::tempdir().unwrap();
+    let (logger, stderr) = make(
+        LogSetting::Info,
+        Mode::Standalone.roles(),
+        dir.path(),
+        FILE_LIMIT,
+        Zone::Fixed(0),
+    );
+    let text = panic_text("src/x.rs:3:9", "boom");
+    assert!(logger.record_panic(at(T1), &text));
+    let lines = logger.handle().batch(None).lines;
+    assert_eq!(lines.len(), 1);
+    assert_eq!(
+        (
+            lines[0].level,
+            lines[0].target.as_str(),
+            lines[0].text.as_str()
+        ),
+        (
+            Error,
+            "tidal_player::panic",
+            "panic location=src/x.rs:3:9 message=boom"
+        )
+    );
+    let file = std::fs::read_to_string(dir.path().join(LOG_FILE)).unwrap();
+    assert_eq!(
+        file,
+        "2026-11-10T13:04:05.123+00:00 ERROR tidal_player::panic: panic location=src/x.rs:3:9 message=boom\n"
+    );
+    assert_eq!(
+        stderr.text(),
+        "",
+        "the hook's report is the previous hook's"
+    );
+}
+
+/// 0027 AC18: with the log's lock held (the panic happened while it was
+/// writing) the line is skipped without waiting, and the log still works
+/// after.
+#[test]
+fn ac18_panic_skips_when_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let (logger, _) = make(
+        LogSetting::Info,
+        Mode::Standalone.roles(),
+        dir.path(),
+        FILE_LIMIT,
+        Zone::Fixed(0),
+    );
+    let text = panic_text("src/x.rs:3:9", "boom");
+
+    // The file's lock is held by this very thread: waiting would never end.
+    {
+        let _writing = locked(&logger.file);
+        assert!(!logger.record_panic(at(T1), &text));
+    }
+    // So is the buffer's.
+    {
+        let _reading = locked(&logger.buffer);
+        assert!(!logger.record_panic(at(T1), &text));
+    }
+    assert!(logger.handle().batch(None).lines.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(LOG_FILE)).unwrap(),
+        ""
+    );
+
+    // Nothing was left locked or half-written.
+    assert!(logger.record_panic(at(T2), &text));
+    assert_eq!(logger.handle().batch(None).lines.len(), 1);
+}

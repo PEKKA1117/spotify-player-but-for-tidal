@@ -22,6 +22,8 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::{Layer, Registry};
 
+pub mod events;
+
 /// The log file's name in the state directory.
 pub const LOG_FILE: &str = "tidal-player.log";
 /// What the log file becomes when it is rotated.
@@ -295,6 +297,15 @@ impl Logger {
         }
     }
 
+    /// Writes one already-formatted `ERROR` line of a panic straight to the
+    /// file and the buffer, without waiting for a lock: when either is busy
+    /// (the panic happened while the log was writing) the line is skipped
+    /// and this says so (`false`). Never goes through `tracing`.
+    pub fn record_panic(&self, at: SystemTime, text: &str) -> bool {
+        let _ = (at, text);
+        true
+    }
+
     fn to_stderr(&self, level: LogLevel, target: &str, text: &str) {
         if let Some(stderr) = &self.stderr {
             // A closed stderr is not the player's problem.
@@ -347,6 +358,26 @@ impl LogHandle {
     pub fn lines_after(&self, after: Option<u64>) -> Vec<LogLine> {
         locked(&self.buffer).after(after)
     }
+}
+
+/// The text of a panic's line: `panic location=<file:line:column>
+/// message=<message>`.
+pub fn panic_text(location: &str, message: &str) -> String {
+    let _ = (location, message);
+    String::new()
+}
+
+/// The message of a panic's payload: a `&str` or a `String`, else a fixed
+/// text.
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    let _ = payload;
+    String::new()
+}
+
+/// What the panic hook calls first: the panic's line to the installed
+/// log's file and buffer. Does nothing without a log.
+pub fn log_panic(info: &std::panic::PanicHookInfo<'_>) {
+    let _ = info;
 }
 
 /// The `tracing` layer that hands each kept event to a [`Logger`].
@@ -460,6 +491,27 @@ pub fn install(mode: Mode, setting: LogSetting, state_dir: &Path) -> Option<LogH
         );
     }
     Some(handle)
+}
+
+/// What `f` logs on this thread at `setting`, as the buffer keeps it
+/// (tests).
+#[cfg(test)]
+pub(crate) fn capture(setting: LogSetting, f: impl FnOnce()) -> Vec<LogLine> {
+    let logger = Arc::new(Logger::new(
+        setting,
+        Roles {
+            buffer: true,
+            file: false,
+            stderr: false,
+        },
+        Path::new("/nonexistent"),
+        FILE_LIMIT,
+        Box::new(std::io::sink()),
+        Zone::Fixed(0),
+    ));
+    let handle = logger.handle();
+    tracing::subscriber::with_default(Registry::default().with(LogLayer::new(logger)), f);
+    handle.lines_after(None)
 }
 
 #[cfg(test)]

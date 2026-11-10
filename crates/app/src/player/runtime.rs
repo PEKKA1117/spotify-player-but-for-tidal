@@ -705,6 +705,14 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         self
     }
 
+    /// The quality the player asks Tidal for, as `playing` says it (spec
+    /// 0027).
+    #[must_use]
+    pub fn with_requested(mut self, requested: AudioQuality) -> Self {
+        let _ = requested;
+        self
+    }
+
     /// Answers `Devices` with `devices` instead of `/proc/asound`.
     #[must_use]
     pub fn with_devices(mut self, devices: Box<dyn DeviceLister>) -> Self {
