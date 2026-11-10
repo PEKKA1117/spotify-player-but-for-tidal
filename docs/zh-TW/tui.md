@@ -452,6 +452,13 @@
 
 每個播放器（獨立模式、[常駐程式](daemon.md#the-log)、`play`）都會在其狀態目錄寫入 `tidal-player.log`。[`app.toml`](config.md#apptoml) 的 `log_level`（預設 `info`；`off`、`error`、`warn`、`info`、`debug`、`trace`）是本程式各 crate 保留的最低等級；其他 crate（`reqwest`、`zbus` 等）的記錄無論設定為何都只保留 `warn` 以上，因為 HTTP crate 較低等級的記錄可能含有工作階段的標頭。設為 `off` 時什麼都不保留，也不建立檔案。連上播放器的 TUI 只在記憶體中保留自己的記錄行。
 
+記錄的內容依類別如下（訊息之後的文字是 `name=value` 欄位）：
+
+- **一次執行的過程**，在 `info`：`starting version=… mode=… log_level=… config=…`（每個保留記錄的行程的第一行；`mode` 為 `standalone`、`daemon`、`play` 或 `client`）；開啟輸出裝置時的 `device opened device=… format=… rate=… channels=… bit_perfect=…`（第一首曲目、暫停時放掉裝置之後、更換裝置之後）；`device released device=…`；每首開始播放的曲目各一行 `playing track=… title=… quality=… requested=…`，Tidal 實際給的音質會與你要求的並列；`stopped`；`login required`（警告）與 `login restored`；`shutting down reason=…`（`quit`、`shutdown command`、`signal` 或 `player gone`）。在 `debug` 時，播放器還會記錄 `client connected` 與 `client disconnected`：若狀態列每秒執行一次 `tidal-player playback status`，這些行在 `info` 會塞滿記錄
+- **你被告知的事**，在 `warn`，讓已被畫面取代的訊息仍然找得到：播放器以錯誤回答請求時的 `request failed request=… reason=…`，指出請求的名稱（`SetDevice`、`Page` 等）與原因；播放視窗的訊息改變時的 `message text=…`（`Could not save the playback state: …`、失敗的 hook 指令、開不起來的裝置）；以及 TUI 端的 `disconnected reason=…`（連線中斷或版本不合）、`reconnected`、`notice text=…`（啟動時 `keymap.toml` 或 `theme.toml` 被略過的項目）與 `export failed reason=…`
+- **當機（panic）**：一行 `ERROR`，`panic location=<file:line:column> message=<panic 的訊息>`，在還原終端機、印出報告之前就寫入記錄檔。若當下記錄正忙（panic 發生在它寫入的途中），這一行會被略過
+- **絕不記錄**：權杖或 `Authorization` 標頭、串流或封面的 URL（只留主機名稱）、你帳號的名稱、電子郵件或 ID，以及請求所帶的內容：請求只記名稱，從不引述內容
+
 <a id="playing-and-queueing-from-a-page"></a>
 ## 從頁面播放與加入佇列
 

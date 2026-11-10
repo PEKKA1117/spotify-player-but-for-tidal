@@ -1,6 +1,6 @@
 # 0027 — Logs: a log file and the logs page
 
-- **Status**: approved (2026-11-10; "What the program logs" and AC16–AC19 added 2026-11-11 at the user's request; AC1–AC15 are implemented)
+- **Status**: implemented (2026-11-11; approved 2026-11-10, AC16–AC19 approved 2026-11-11)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#64](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/64)
 - **Depends on**: 0001 (implemented: the crates, `Command`/`Event`, the "logging" row this spec replaces), 0005 (implemented: the socket, requests answered to one client, the lock, AC14), 0006 (implemented: pages, the history, disconnected rules), 0008 (implemented: `app.toml`, the keymap, the keys help, the skipped spotify-player commands), 0012 (implemented: `/` and its title), 0013 (implemented: key hints), 0017 (implemented: themes)

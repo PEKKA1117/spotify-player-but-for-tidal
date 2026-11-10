@@ -430,6 +430,13 @@ A page a link opens has one **tab per section**, in Tidal's order, named by the 
 
 Every player (standalone, [daemon](daemon.md#the-log), `play`) writes `tidal-player.log` in its state directory. `log_level` in [`app.toml`](config.md#apptoml) (default `info`; `off`, `error`, `warn`, `info`, `debug`, `trace`) is the lowest level kept from this program's crates; other crates' lines (`reqwest`, `zbus`, …) are kept at `warn` and above whatever it says, because an HTTP crate's lower levels can hold the session's headers. With `off` nothing is kept and no file is created. A TUI attached to a player keeps only its own lines, in memory.
 
+What the log holds, by group (the text after the message is `name=value` fields):
+
+- **A run's life**, at `info`: `starting version=… mode=… log_level=… config=…` (the first line of every process that keeps a log; `mode` is `standalone`, `daemon`, `play` or `client`); `device opened device=… format=… rate=… channels=… bit_perfect=…` when the output device is opened (the first track, after the device was given up while paused, after a device change); `device released device=…`; `playing track=… title=… quality=… requested=…` for each track that starts, the quality Tidal granted next to the one you asked for; `stopped`; `login required` (a warning) and `login restored`; `shutting down reason=…` (`quit`, `shutdown command`, `signal` or `player gone`). At `debug` a player also logs `client connected` and `client disconnected`: a status bar that runs `tidal-player playback status` every second would otherwise fill the log
+- **What you were told**, at `warn`, so that a message the screen has since replaced can still be found: `request failed request=… reason=…` when the player answers a request with an error, naming the request (`SetDevice`, `Page`, …) and giving the reason; `message text=…` when the playback window's message changes (`Could not save the playback state: …`, a failed hook command, a device that would not open); and, from the TUI, `disconnected reason=…` (the connection was lost, or the versions differ), `reconnected`, `notice text=…` (entries skipped in `keymap.toml` or `theme.toml` at start) and `export failed reason=…`
+- **A panic**: one `ERROR` line, `panic location=<file:line:column> message=<the panic's message>`, written to the log file before the terminal is restored and the report printed. If the log was busy at that moment (the panic happened while it was writing) the line is skipped
+- **Never logged**: a token or the `Authorization` header, a stream or cover URL (only its host name), your account's name, e-mail or ID, and what a request carried: a request is named, never quoted
+
 ## Playing and queueing from a page
 
 | Key | On | Does |
