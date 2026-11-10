@@ -1,5 +1,5 @@
 //! Browse pages and the personal home feed (spec 0024). A child of
-//! `library` (see its `mod browse`), so it reads the client's HTTP helpers
+//! `library`, so it reads the client's HTTP helpers
 //! and DTOs without widening their visibility.
 //!
 //! Choices the spec leaves open:

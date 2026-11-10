@@ -44,7 +44,6 @@ use crate::ApiResponse;
 use crate::auth::{AuthError, Authenticator};
 use crate::metadata::{ArtistDto, REQUEST_TIMEOUT, TrackDto};
 
-#[path = "browse.rs"]
 mod browse;
 
 /// Tidal's `subStatus` for an unknown item (on a `404`).
