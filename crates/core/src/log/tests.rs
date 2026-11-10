@@ -190,7 +190,8 @@ fn ac3_buffer() {
     let at = |ms: u64| SystemTime::UNIX_EPOCH + Duration::from_millis(ms);
     let seqs = |lines: Vec<LogLine>| lines.iter().map(|l| l.seq).collect::<Vec<_>>();
     // (capacity, pushes, after, the seqs it returns, the newest seq)
-    let rows: [(usize, u64, Option<u64>, Vec<u64>, Option<u64>); 9] = [
+    type Row = (usize, u64, Option<u64>, Vec<u64>, Option<u64>);
+    let rows: [Row; 9] = [
         (3, 0, None, vec![], None),
         (3, 0, Some(5), vec![], None),
         (3, 2, None, vec![1, 2], Some(2)),

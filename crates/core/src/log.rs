@@ -108,21 +108,37 @@ impl LogBuffer {
 
     /// Keeps a new line and returns its `seq`.
     pub fn push(&mut self, at: SystemTime, level: LogLevel, target: &str, text: String) -> u64 {
-        let _ = (at, level, target, text);
-        0
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.lines.push_back(LogLine {
+            seq,
+            at,
+            level,
+            target: target.to_owned(),
+            text,
+        });
+        while self.lines.len() > self.capacity {
+            self.lines.pop_front();
+        }
+        seq
     }
 
     /// The kept lines with `seq` greater than `after`, oldest first; all of
     /// them for `None`, and for an `after` beyond the newest `seq` (the
     /// player restarted).
     pub fn after(&self, after: Option<u64>) -> Vec<LogLine> {
-        let _ = after;
-        Vec::new()
+        // Beyond the newest: the asker's player is another one.
+        let after = after.filter(|n| self.newest().is_some_and(|newest| *n <= newest));
+        self.lines
+            .iter()
+            .filter(|line| after.is_none_or(|n| line.seq > n))
+            .cloned()
+            .collect()
     }
 
     /// The newest `seq`; `None` while nothing was pushed.
     pub fn newest(&self) -> Option<u64> {
-        None
+        self.next_seq.checked_sub(1).filter(|n| *n > 0)
     }
 
     /// How many lines are kept.
