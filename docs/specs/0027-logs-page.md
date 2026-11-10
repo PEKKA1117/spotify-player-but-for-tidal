@@ -91,13 +91,22 @@ A request of its own, like `Devices` (0014), answered to the asking client only:
 - **Messages in the window**: `Loading…` before the first answer; `No log lines yet` for none; `Logging is off: set log_level in app.toml` when the player's `off` is `true` and the TUI has no lines of its own; failures `Could not load the log: <reason>` (the lines already shown stay, and the page asks again a second later); a lost connection shows 0006's disconnected message as is, and the lines already shown stay
 - Keys that act on rows (`Enter`, `Z`, the actions popup on a row, `s …`, `d …`, `r`) do nothing on the logs page; global keys work as everywhere
 
+### Exporting
+
+- **`e`** (`ExportLogs`) on the logs page writes the lines the page holds to a new file: with a filter (typed or kept), only the lines that match; all of them, not only the rows in view; the player's and the TUI's own, in the page's order
+- The file is `tidal-player-logs-YYYYMMDD-HHMMSS.log` (local time) in the cache directory (`$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player`; created if missing), mode `0600`, one line per log line in the log file's format (full local time with offset). A name already taken (two exports in one second) gets `-2`, `-3`, … before `.log`; an export never overwrites a file
+- The TUI writes it (the client process, attached or standalone): it is the page's content, not the player's file, so it works while disconnected with the lines already shown
+- The message row says `Exported 42 log lines to <path>`; a failure `Could not export the log: <reason>` (nothing is left half-written under the final name); with no line to write, `No log lines to export`, and no file
+- Anywhere but the logs page, `ExportLogs` does nothing
+
 ### Keys
 
 | Command | Default keys | Acts in | Help text |
 |---|---|---|---|
 | `OpenLogs` | `g o` | everywhere | `open the logs page` |
+| `ExportLogs` | `e` | the logs page | `export the shown log lines to a file` |
 
-`OpenLogs` leaves 0008's list of skipped spotify-player commands: a copied `keymap.toml` that binds it now binds it. The keys help (0008) and the key hints (0013) list it like any command.
+`ExportLogs` is this player's own command. `OpenLogs` leaves 0008's list of skipped spotify-player commands: a copied `keymap.toml` that binds it now binds it. The keys help (0008) and the key hints (0013) list it like any command.
 
 ## Acceptance criteria
 
@@ -113,7 +122,9 @@ A request of its own, like `Devices` (0014), answered to the asking client only:
 - **AC10** — Filter: `/` on the logs page filters lines by their drawn text, ignoring case, with 0012's typing, `Enter`, `Esc` and title; `Esc` clears a kept filter before it follows again; arriving lines are filtered too
 - **AC11** — Rendering: at 80 × 24 and 50 × 20, snapshots of a log with every level (colours: `error` component, palette yellow), wrapped long and CJK lines, the scrolled title, a filter, and each window message; no panic at any size
 - **AC12** — End to end: against a daemon started with a state directory, an attached client's `Logs` request is answered with the daemon's lines, `tidal-player.log` exists with mode `0600` and holds them, the daemon's stderr holds them without the time, and the client process has created no file in the state directory
-- **AC13** — Docs: `docs/tui.md` (the page, its keys, following, filtering), `docs/config.md` (`log_level`, `OpenLogs`, the skipped list without it), `docs/daemon.md` (the log file, the journal), `README.md`, their zh-TW copies, `examples/app.toml` and `examples/keymap.toml` match this spec; 0001's "logging" row and 0008's skipped list point here
+- **AC13** — Docs: `docs/tui.md` (the page, its keys, following, filtering, exporting), `docs/config.md` (`log_level`, `OpenLogs`, the skipped list without it), `docs/daemon.md` (the log file, the journal), `README.md`, their zh-TW copies, `examples/app.toml` and `examples/keymap.toml` match this spec; 0001's "logging" row and 0008's skipped list point here
+- **AC14** — Export, the model (pure): on the logs page `e` emits one export of the held lines, filtered by a typed or kept filter, in the page's order, whatever the scroll position and whether connected or not; with no such line it emits none and the message row says `No log lines to export`; on any other page it does nothing; the result sets the message row (`Exported N log lines to <path>`, with `1 log line` for one, or `Could not export the log: <reason>`); `ExportLogs` is in the default keymap, the keys help (in the logs page's section) and can be rebound or unbound
+- **AC15** — Export, the file: the export is written to the cache directory under the name above for a given local time, mode `0600`, in the log file's line format; a taken name gets the next `-N`; the directory is created when missing; a directory that cannot be written gives the failure and leaves no file
 
 ## Edge cases & errors
 
@@ -149,19 +160,21 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC11 | `crates/app/src/tui/render.rs` :: `ac11_logs_80x24` (one snapshot per row), `ac11_logs_narrow_50x20`, `ac17_no_panic_any_size` (new page) | `contains` + snapshots | stub render draws the queue |
 | AC12 | `crates/app/tests/daemon.rs` :: `ac12_daemon_log` | reply, file and mode, stderr, nothing created by the client | stub installs no subscriber, so the reply is empty |
 | AC13 | — reviewed at acceptance | docs match this spec, linked, zh-TW in step | — |
+| AC14 | `crates/core/src/ui/logs/tests.rs` :: `ac14_export` (table) + `crates/core/src/ui/keymap/tests.rs` :: `ac14_export_key` | the exported lines; messages; inert elsewhere; the key and help | stub export emits every line, unfiltered |
+| AC15 | `crates/app/src/tui/logs_export.rs` :: `ac15_export_file` (table) | name, mode, content, `-N`, created directory, failure | stub writes nothing |
 
-Checked by hand at acceptance with a real account (results in the PR's hands-on check): `g o` in a standalone TUI and in a TUI attached to a daemon shows the player's lines; a second attached TUI shows the same; new lines appear within about a second while following and do not move a scrolled view; `/` narrows them; `log_level = "debug"` shows more and `"off"` shows the message; `journalctl --user -u tidal-player` (the maintainer's, by hand) shows the daemon's lines; no token or account name appears in a screenshot or in the file at `debug`.
+Checked by hand at acceptance with a real account (results in the PR's hands-on check): `g o` in a standalone TUI and in a TUI attached to a daemon shows the player's lines; a second attached TUI shows the same; new lines appear within about a second while following and do not move a scrolled view; `/` narrows them and `e` writes exactly the narrowed lines to the file the message row names; `log_level = "debug"` shows more and `"off"` shows the message; `journalctl --user -u tidal-player` (the maintainer's, by hand) shows the daemon's lines; no token or account name appears in a screenshot or in the file at `debug`.
 
 ## Crate placement
 
-- `tidal-player-core`: `log` (new: `LogLevel`, `LogLine`, `LogBatch`, the buffer, what is kept, the line formats), `protocol` (the two messages), `ui` (the logs page: `PageKind::Logs`, asking, following, filter), `ui::keymap` (`OpenLogs` and its default). No I/O, no new dependency
-- `tidal-player` (binary): `logging.rs` (new, top level: every mode uses it): the `tracing` subscriber that feeds the buffer, the file and stderr; `settings.rs`/`config.rs` (`log_level`); `player/runtime.rs` and `ipc/` (serving `Logs`); `client.rs` (asking); `tui/` (rendering, the poll timer beside `HintTimer`). New dependencies, declared in the root manifest: `tracing-subscriber` (the registry and layer, default features off) and one crate for local time
+- `tidal-player-core`: `log` (new: `LogLevel`, `LogLine`, `LogBatch`, the buffer, what is kept, the line formats), `protocol` (the two messages), `ui` (the logs page: `PageKind::Logs`, asking, following, filter), `ui::keymap` (`OpenLogs`, `ExportLogs` and their defaults). No I/O, no new dependency
+- `tidal-player` (binary): `logging.rs` (new, top level: every mode uses it): the `tracing` subscriber that feeds the buffer, the file and stderr; `settings.rs`/`config.rs` (`log_level`); `player/runtime.rs` and `ipc/` (serving `Logs`); `client.rs` (asking); `tui/` (rendering, the poll timer beside `HintTimer`, `logs_export.rs` for the export file). New dependencies, declared in the root manifest: `tracing-subscriber` (the registry and layer, default features off) and one crate for local time
 - `tidal-player-api`, `tidal-player-audio`: unchanged (their `tracing` calls now reach a subscriber)
 
 ## Out of scope
 
 - A one-shot command that prints the player's log (`tail -f` on the file, or `journalctl`, do it)
 - Structured (JSON) logs, per-module levels, `RUST_LOG`, a setting for the buffer or file size
-- A cursor, selection or copying on the logs page
+- A cursor, selection or copying to the clipboard on the logs page (the clipboard is #57's); choosing the export's path or name
 - New theme components for log levels
 - Adding or rewording log calls: this spec gives the existing ones somewhere to go
