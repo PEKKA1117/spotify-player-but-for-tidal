@@ -57,9 +57,13 @@ pub struct Roles {
 impl Mode {
     /// The sinks this mode installs.
     pub fn roles(self) -> Roles {
-        // Stub (red): every mode gets every sink.
-        let (buffer, file, stderr) = (true, true, true);
-        let _ = self;
+        let (buffer, file, stderr) = match self {
+            Self::Standalone | Self::Play => (true, true, false),
+            Self::Daemon => (true, true, true),
+            // Only the player writes the file: a client writes none.
+            Self::Attached => (true, false, false),
+            Self::Other => (false, false, false),
+        };
         Roles {
             buffer,
             file,
@@ -109,9 +113,26 @@ pub fn file_line(
     target: &str,
     text: &str,
 ) -> String {
-    // Stub (red): the text alone.
-    let _ = (at, offset_secs, level, target);
-    text.to_owned()
+    let utc = jiff::tz::Offset::UTC;
+    let offset = jiff::tz::Offset::from_seconds(offset_secs).unwrap_or(utc);
+    let zoned = jiff::Timestamp::try_from(at)
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+        .to_zoned(jiff::tz::TimeZone::fixed(offset));
+    let sign = if offset.seconds() < 0 { '-' } else { '+' };
+    let minutes = offset.seconds().unsigned_abs() / 60;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}{sign}{:02}:{:02} {:>5} {target}: {text}",
+        zoned.year(),
+        zoned.month(),
+        zoned.day(),
+        zoned.hour(),
+        zoned.minute(),
+        zoned.second(),
+        zoned.millisecond(),
+        minutes / 60,
+        minutes % 60,
+        level.as_str(),
+    )
 }
 
 /// A daemon's stderr line: `LEVEL target: text`, without the time (the
@@ -170,9 +191,14 @@ impl FileLog {
     /// Appends `line` and a line break, first rotating when the line would
     /// pass the limit.
     fn append(&mut self, line: &str) -> std::io::Result<()> {
-        // Stub (red): writes nothing.
-        let _ = line;
-        let _ = (&self.old, self.limit, &self.file, self.size);
+        let bytes = u64::try_from(line.len() + 1).unwrap_or(u64::MAX);
+        if needs_rotation(self.size, bytes, self.limit) {
+            std::fs::rename(&self.path, &self.old)?;
+            self.file = open_append(&self.path)?;
+            self.size = 0;
+        }
+        self.file.write_all(format!("{line}\n").as_bytes())?;
+        self.size += bytes;
         Ok(())
     }
 }
