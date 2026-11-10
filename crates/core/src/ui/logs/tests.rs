@@ -350,8 +350,17 @@ fn ac8_asking_reconnect() {
 
 // --- AC9 ---------------------------------------------------------------------
 
-/// AC9: lines merged by time, the player's first on equal times, capped.
+/// AC9: the display state, in its parts.
 #[test]
+fn ac9_display_state() {
+    ac9_display_state_merge_and_cap();
+    ac9_display_state_scrolling();
+    ac9_display_state_follow_and_hold();
+    ac9_display_state_messages();
+    ac9_display_state_row_keys_inert();
+}
+
+/// AC9: lines merged by time, the player's first on equal times, capped.
 fn ac9_display_state_merge_and_cap() {
     let at = |seq, ms, text: &str| line(seq, LogLevel::Info, ms, "t", text);
     let player = || {
@@ -410,7 +419,6 @@ fn ac9_display_state_merge_and_cap() {
 
 /// AC9: the page follows at the bottom, each movement key scrolls by
 /// rows clamped to the lines; away from the bottom it does not follow.
-#[test]
 fn ac9_display_state_scrolling() {
     use Key::{Char, Ctrl, Down, PageDown, PageUp, Up};
     // 12 lines in a window of 5 rows: the bottom starts at line 8.
@@ -460,7 +468,6 @@ fn ac9_display_state_scrolling() {
 
 /// AC9: following, new lines scroll the view; scrolled away, it holds its
 /// rows as lines arrive and are dropped; `Esc` follows again.
-#[test]
 fn ac9_display_state_follow_and_hold() {
     let mut state = with_lines(5, lines(1, 12));
     let (id, after) = the_request(&clock(&mut state, 1000));
@@ -518,7 +525,6 @@ fn ac9_display_state_follow_and_hold() {
 }
 
 /// AC9: the window's messages for each state, and the page's title row.
-#[test]
 fn ac9_display_state_messages() {
     // Before the first answer.
     let (mut state, id) = opened(5);
@@ -583,7 +589,6 @@ fn ac9_display_state_messages() {
 }
 
 /// AC9: keys that act on rows do nothing on the logs page.
-#[test]
 fn ac9_display_state_row_keys_inert() {
     use Key::{Char, Ctrl, Enter};
     let mut state = with_lines(5, lines(1, 12));

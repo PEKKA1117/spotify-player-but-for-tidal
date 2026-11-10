@@ -545,6 +545,7 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
                 state.message = Some(notice);
             }
             effects.extend(browse::reconnected(state));
+            effects.extend(logs::welcome(state));
             effects
         }
         Action::LibraryReply { id, result } => browse::reply(state, id, result),

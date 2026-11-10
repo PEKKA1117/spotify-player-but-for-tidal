@@ -1116,6 +1116,7 @@ fn ac1_hints_entries() {
             entry("m", "your mixes", false),
             entry("b", "browse what Tidal picks", false),
             entry("L", "lyrics of the playing track", false),
+            entry("o", "open the logs page", false),
         ]
     };
     let rows: Vec<(&str, State, Vec<HintEntry>)> = vec![
@@ -1157,6 +1158,7 @@ fn ac1_hints_entries() {
                 entry("m", "your mixes", false),
                 entry("b", "browse what Tidal picks", false),
                 entry("L", "lyrics of the playing track", false),
+                entry("o", "open the logs page", false),
                 entry("n", "next track", false),
                 entry("B", "go to the album (playing track)", false),
             ],

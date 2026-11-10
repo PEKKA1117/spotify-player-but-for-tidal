@@ -285,6 +285,11 @@ key_sequence = "l"
 command = "LyricsPage"
 key_sequence = "g L"
 
+# OpenLogs: the logs page, the player's log lines (everywhere)
+[[keymaps]]
+command = "OpenLogs"
+key_sequence = "g o"
+
 # Search: back to the search input (the search page)
 [[keymaps]]
 command = "Search"

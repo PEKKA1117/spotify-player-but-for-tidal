@@ -3077,14 +3077,15 @@ fn ac6_key_hints() {
         &text,
         &[
             "┌g …",
-            "a  actions on the selected row     s  the search page (on one: its…",
-            "g  move to the top                 m  your mixes",
-            "l  the library                     b  browse what Tidal picks",
-            "y  favorite tracks                 L  lyrics of the playing track",
+            "a  actions on the selected row     m  your mixes",
+            "g  move to the top                 b  browse what Tidal picks",
+            "l  the library                     L  lyrics of the playing track",
+            "y  favorite tracks                 o  open the logs page",
+            "s  the search page (on one: its…",
         ],
     );
     // Docked: the box's bottom border is the page area's last row.
-    assert_eq!(row_of(&text, "┌g …"), 17, "{text}");
+    assert_eq!(row_of(&text, "┌g …"), 16, "{text}");
     assert!(row(&text, 22).starts_with("│└"), "{text}");
     // Not drawn when the timer says no.
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -3107,7 +3108,7 @@ fn ac6_key_hints() {
     let text = draw(&pending(library(), &g), 40, 12);
     assert_contains(
         &text,
-        &["┌g …", "a  actions on the selected row", "… +6 more"],
+        &["┌g …", "a  actions on the selected row", "… +7 more"],
     );
     insta::assert_snapshot!("ac6_key_hints_40x12", text);
 

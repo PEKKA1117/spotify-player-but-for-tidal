@@ -13,6 +13,7 @@ use crate::library::{
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::filter::{self, Filter};
+use super::logs::LogsView;
 use super::lyrics::LyricsView;
 use super::search::{Search, SearchFocus};
 use super::select::Selection;
@@ -992,6 +993,10 @@ pub struct Page {
     /// The lyrics page's track, lyrics and scroll state (spec 0021);
     /// `Some` on that page only.
     pub lyrics: Option<LyricsView>,
+    /// The logs page's follow state (spec 0027); `Some` on that page only.
+    /// Its lines are in [`State::logs`](super::State::logs), its filter
+    /// is [`Page::filter`].
+    pub logs: Option<LogsView>,
 }
 
 impl Page {
@@ -1054,9 +1059,11 @@ impl Page {
         let tabs = vec![0; panes.len()];
         let search = matches!(kind, PageKind::Search(_)).then(Search::default);
         let lyrics = (kind == PageKind::Lyrics).then(|| LyricsView::new(None));
+        let logs = (kind == PageKind::Logs).then(LogsView::default);
         Self {
             search,
             lyrics,
+            logs,
             kind,
             header: None,
             load: Load::Idle,

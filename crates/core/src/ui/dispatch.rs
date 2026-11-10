@@ -12,7 +12,7 @@ use crate::protocol::{Command, InsertAt};
 use super::keymap::{Binding, Lookup, UiCommand};
 use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
 use super::{
-    Effect, Key, PageKind, Prompt, State, browse, filter, help, lyrics, search, select, theme,
+    Effect, Key, PageKind, Prompt, State, browse, filter, help, logs, lyrics, search, select, theme,
 };
 
 /// A key press: what it does, wherever the UI is.
@@ -166,6 +166,9 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
             if state.page().kind == PageKind::Lyrics {
                 return lyrics::follow(state);
             }
+            if state.page().kind == PageKind::Logs {
+                return logs::escape(state);
+            }
             if !filter::kept(state) {
                 select::clear_focused(state);
             }
@@ -181,8 +184,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::MixesPage => return browse::open(state, PageKind::Mixes),
         C::BrowsePage => return browse::open(state, PageKind::Browse(BrowseRef::Root)),
         C::LyricsPage => return browse::open(state, PageKind::Lyrics),
-        // Stub (red): not wired yet.
-        C::OpenLogs => return Vec::new(),
+        C::OpenLogs => return logs::open(state),
         C::Search => return filter::start(state),
         C::PreviousPage => return browse::back(state),
         C::ShowActionsOnSelectedItem => return browse::actions_on_selected(state),
@@ -239,6 +241,8 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         | C::SelectLastOrScrollToBottom => {
             return if state.page().kind == PageKind::Lyrics {
                 lyrics::command(state, command)
+            } else if state.page().kind == PageKind::Logs {
+                logs::command(state, command)
             } else if state.page().kind == PageKind::Queue {
                 queue_command(state, command)
             } else if command == C::ChooseSelected && state.page().search.is_some() {
