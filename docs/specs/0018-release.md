@@ -1,6 +1,6 @@
 # 0018 — The release workflow
 
-- **Status**: implemented (2026-10-24)
+- **Status**: implemented (2026-10-24; Bug 4, AC10 and AC11 added 2026-11-11)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#50](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/50), [#73](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/73) (Bug 3)
 - **Depends on**: 0001 (implemented: the workspace's crates and their dependency rules)
@@ -39,6 +39,8 @@ Unchanged from today except the publish step:
 - **AC7** — The release's CI gate (Bug 3; a test reads `release.yml`): the step before the publish step that waits for CI lists `ci.yml` runs with `--event push`, `--branch master` and `--commit "${GITHUB_SHA}"`, never with the tag's name (`GITHUB_REF_NAME`) as the branch; with no run it fails (`exit 1`); otherwise it watches the run with `--exit-status`, so a failed or cancelled run fails the release
 - **AC8** — CI runs once per commit (Bug 3; a test reads `ci.yml`): its triggers are exactly `push` to `branches: [master]` and `pull_request`, so a tag push and a push to any other branch run nothing; every job's `if` is `github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') || startsWith(github.head_ref, 'refactor/')` (master's pushes, and pull requests from `feat/*`, `bugfix/*` and, since [0026](0026-realignment.md), `refactor/*`, which runs CI and is not a release)
 - **AC9** — The first release after the fix (by hand, at acceptance, like AC5): on its merge commit Actions shows one CI run (the push to `master`) and none for the tag, and the release's wait step watches that run, then publishes. No automated test: it needs a real release
+- **AC10** — Stale dependents (Bug 4; table): the index entry of each crate the plan skips (already on crates.io at its version) says which workspace crates that version needs; where it needs one exactly (`=x.y.z`, AC6) and the workspace's version of that crate is another, `publish` fails before any `cargo publish`, under `--dry-run` too, after the plan's lines, with one line per such requirement: `<dependent> <version> on crates.io needs <dependency> =<old>, but this release has <dependency> <new>: bump <dependent>`. It holds whether the dependency is being published in this run or was published by an earlier, failed one. Requirements that are not exact (the releases before AC6), dev-dependencies and crates outside the workspace are not compared; with no such requirement it runs as before
+- **AC11** — The dry run in CI (Bug 4; a test reads `ci.yml`): the `check` job runs `cargo xtask publish --dry-run` after `cargo xtask specs`, so a release PR with a stale dependent fails before it is merged and tagged
 
 ## Edge cases & errors
 
@@ -68,6 +70,8 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 | AC7 | `xtask/tests/release_workflow.rs` :: `ac7_release_waits_for_master_ci` | the wait step's `gh run list` flags, its `exit 1` with no run, `gh run watch --exit-status`, and that it comes before the publish step | the step still lists runs with `--branch "${GITHUB_REF_NAME}"` (the red commit leaves `release.yml` as it is) |
 | AC8 | `xtask/tests/release_workflow.rs` :: `ac8_ci_runs_once_per_commit` | `ci.yml`'s `on:` block (comments and blank lines dropped) is exactly the three trigger lines; every job (`runs-on:`) has one `if:` equal to the expected one | `on:` still has a bare `push:` (the red commit leaves `ci.yml` as it is) |
 | AC9 | by hand at acceptance (see AC9) | the first real release after the merge | — |
+| AC10 | `xtask/src/publish.rs` :: `ac10_stale_dependents` (table) | the failure and its lines; nothing published; dry run too; no failure without one | stub finds no stale dependent, so the run succeeds |
+| AC11 | `xtask/tests/release_workflow.rs` :: `ac11_ci_dry_runs_the_publish` | the step's `run:` and that it follows the specs step | `ci.yml` has no such step |
 
 ## Bugs
 
@@ -91,6 +95,14 @@ Red is a failing assertion against stub functions with stub bodies (no `todo!()`
 - **Actual**: `ci.yml` runs on every `push` and `pull_request`. Merging a PR pushes its merge commit to `master` (a CI run), then the release tag is pushed on the same commit (a second, identical run): `v1.2.1` on `d04867c` ran [master](https://github.com/PEKKA1117/spotify-player-but-for-tidal/actions/runs/40168880426) and [the tag](https://github.com/PEKKA1117/spotify-player-but-for-tidal/actions/runs/40169113802). A `feat/*` or `bugfix/*` branch with an open PR runs a `push` and a `pull_request` run for every push
 - **Root cause**: the triggers are bare `push` and `pull_request`, and the release (step 3) waited for the tag's own CI run, so the tag's run could not be dropped
 - **New criteria**: AC7 (the release waits for `master`'s run on `GITHUB_SHA`), AC8 (CI on pushes to `master` and pull requests only; spec 0001 AC9 changed with it), AC9 (the first release after the fix)
+
+### Bug 4 — a bumped library does not force its dependents to bump (#99)
+
+- **Expected**: a release whose crates cannot be published together fails on its PR
+- **Actual**: `v1.5.0` bumped `tidal-player-core` to 1.5.0 and left `tidal-player-api` at 1.3.4 (its code had not changed). With AC6's exact pins the published `tidal-player-api 1.3.4` needs `tidal-player-core =1.4.4` and `tidal-player 1.5.0` needs `=1.5.0`, so `cargo publish -p tidal-player` could not resolve. `cargo xtask publish --dry-run` printed the plan and said nothing, CI passed, and the [Release run](https://github.com/PEKKA1117/spotify-player-but-for-tidal/actions/workflows/release.yml) published `tidal-player-core 1.5.0` and failed on `tidal-player`: no `tidal-player 1.5.0`, no GitHub release
+- **Root cause**: AC6 made "a crate depends on a bumped crate" a reason to bump it, and nothing checked that. The index says what each published version needs, and `publish` never read it
+- **New criteria**: AC10 (`publish` compares what each skipped crate's published version needs with the workspace's versions), AC11 (CI runs the dry run). `CLAUDE.md` "Versions" says so too
+- **Recovery**: `tidal-player-api` 1.3.5 pins `tidal-player-core =1.5.0`; the tag `v1.5.0`, which no release was built from, moves to the fix's merge commit (the maintainer's decision), and the workflow publishes `tidal-player-api 1.3.5` and `tidal-player 1.5.0`
 
 ## Implementation notes
 

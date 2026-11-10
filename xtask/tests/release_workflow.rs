@@ -123,3 +123,18 @@ fn ac4_ci_checks_the_specs() {
         "ci.yml runs `cargo xtask specs`"
     );
 }
+
+/// 0018 AC11: CI dry-runs the publish, after the specs check.
+#[test]
+fn ac11_ci_dry_runs_the_publish() {
+    let yml = read_workflow("ci.yml");
+    let runs: Vec<&str> = yml
+        .lines()
+        .map(str::trim)
+        .filter_map(|l| l.strip_prefix("run: "))
+        .collect();
+    let at = |cmd: &str| runs.iter().position(|r| *r == cmd);
+    let specs = at("cargo xtask specs").expect("the specs step");
+    let dry = at("cargo xtask publish --dry-run").expect("a publish dry-run step");
+    assert!(dry > specs, "the dry run follows the specs check");
+}
