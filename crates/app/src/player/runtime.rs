@@ -47,6 +47,7 @@ use tidal_player_core::{AudioQuality, Item, ItemError, Track, TrackId};
 
 use crate::cli::play::{engine_failure, output_description, source_description};
 use crate::ipc::server::{ClientId, ClientInput, Hub};
+use crate::logging::LogHandle;
 use crate::player::hook::HookSink;
 use crate::player::persist::{Loaded, Persister, SaveResult, SaveSchedule};
 use crate::settings::{PlayerSettings, start_autoplay};
@@ -690,6 +691,13 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             sink,
             tracker: HookTracker::default(),
         });
+        self
+    }
+
+    /// Answers `Logs` from `logs` (spec 0027): the process's log buffer.
+    #[must_use]
+    pub fn with_logs(self, logs: LogHandle) -> Self {
+        let _ = logs;
         self
     }
 

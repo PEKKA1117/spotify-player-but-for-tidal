@@ -438,6 +438,7 @@ impl Client {
                             self.session.send(command);
                         }
                         ui::Effect::Devices { id } => self.session.send_devices(id),
+                        ui::Effect::Logs { id, after } => self.session.send_logs(id, after),
                         _ => {}
                     }
                 }
@@ -1904,4 +1905,98 @@ fn ac14_shutdown_sends_stopped() {
 
     let mut h = Hooked::new(Script::Plays);
     assert_eq!(shutdown(&mut h), None);
+}
+
+/// 0027 AC5: `Logs` is answered once, to the asking client, with the
+/// buffer's lines after `after` and the player's `off`; another subscriber
+/// receives nothing; answering adds no line to the buffer; a player that
+/// keeps no log says it is off.
+#[test]
+fn ac5_logs_reply() {
+    use crate::ipc::server::{OUTBOX, Peer};
+    use crate::logging::LogHandle;
+    use std::time::SystemTime;
+    use tidal_player_core::log::LogLevel;
+    use tidal_player_core::protocol::ServerMessage;
+    use tidal_player_core::ui::logs;
+
+    const OTHER: ClientId = ClientId(900);
+    let at = |n: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(n);
+    let texts = |client: &Client| -> Vec<String> {
+        logs::shown(&client.ui)
+            .into_iter()
+            .map(|d| d.text.split(": ").nth(1).unwrap_or_default().to_owned())
+            .collect()
+    };
+    let buffer = LogHandle::detached(false);
+    for n in 1..=3 {
+        buffer.push(
+            at(n),
+            LogLevel::Info,
+            "tidal_player::x",
+            &format!("line {n}"),
+        );
+    }
+    let (mut client, _log) = Client::build(
+        |engine, jobs| {
+            PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs).with_logs(buffer.clone())
+        },
+        None,
+    );
+    let (outbox, other) = mpsc::sync_channel(OUTBOX);
+    client.rt.handle(RuntimeInput::Client(ClientInput::Attach {
+        client: OTHER,
+        peer: Peer::new(outbox, None),
+    }));
+    client
+        .rt
+        .handle(RuntimeInput::Client(ClientInput::Subscribe(OTHER)));
+    other.try_iter().for_each(drop);
+
+    // `g o`: every line.
+    client.act(vec![
+        ui::Action::Key(ui::Key::Char('g')),
+        ui::Action::Key(ui::Key::Char('o')),
+    ]);
+    assert_eq!(texts(&client), ["line 1", "line 2", "line 3"]);
+    // A second later: the lines after the newest, none yet; then one.
+    client.act(vec![ui::Action::Clock(Duration::from_secs(2))]);
+    assert_eq!(texts(&client).len(), 3);
+    buffer.push(at(4), LogLevel::Warn, "tidal_player::x", "line 4");
+    client.act(vec![ui::Action::Clock(Duration::from_secs(4))]);
+    assert_eq!(texts(&client), ["line 1", "line 2", "line 3", "line 4"]);
+    // Serving added nothing, and the other subscriber was told nothing.
+    assert_eq!(buffer.lines_after(None).len(), 4);
+    let seen: Vec<_> = other.try_iter().collect();
+    assert!(
+        !seen
+            .iter()
+            .any(|m| matches!(m, ServerMessage::LogsReply { .. })),
+        "{seen:?}"
+    );
+
+    // A log that is off says so; a player with none installed too.
+    let off = LogHandle::detached(true);
+    for logs in [Some(off), None] {
+        let (mut client, _log) = Client::build(
+            |engine, jobs| {
+                let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs);
+                match logs {
+                    Some(handle) => rt.with_logs(handle),
+                    None => rt,
+                }
+            },
+            None,
+        );
+        client.act(vec![
+            ui::Action::Key(ui::Key::Char('g')),
+            ui::Action::Key(ui::Key::Char('o')),
+        ]);
+        assert_eq!(
+            logs::content(&client.ui),
+            logs::LogsContent::Off,
+            "{:?}",
+            client.ui.logs
+        );
+    }
 }

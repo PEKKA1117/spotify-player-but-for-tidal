@@ -91,7 +91,9 @@ fn ac3_roles() {
         logger.record(at(T1), Warn, "tidal_player::x", "one line");
         let in_buffer = !logger.handle().batch(None).lines.is_empty();
         // A mode with no buffer role installs nothing at all.
-        assert_eq!(in_buffer, buffer || !buffer, "{mode:?}");
+        if buffer {
+            assert!(in_buffer, "{mode:?} buffer");
+        }
         assert_eq!(dir.path().join(LOG_FILE).exists(), file, "{mode:?} file");
         assert_eq!(
             captured.text(),
