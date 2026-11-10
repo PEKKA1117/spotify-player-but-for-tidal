@@ -141,7 +141,7 @@ Client model (`tidal_player_core::ui`, pure):
 
 TUI rendering and runtime (`tidal-player`):
 
-- **AC11** — Key decoding: `C-u` decodes; pasted text (bracketed paste) reaches the input as characters (`crates/app/src/input.rs`, table)
+- **AC11** — Key decoding: `C-u` decodes; pasted text (bracketed paste) reaches the input as characters (`crates/app/src/tui/input.rs`, table)
 - **AC12** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): empty search page with focused input; loading; results with a top hit and four windows with totals; results without a top hit; each `No … found`; a failed search; 50×20: input plus the focused window with `‹Tab›`. No panic from 0×0 to 120×40
 - **AC13** — Wiring: an attached client's search is answered from the test player's wiremock API and opens no session store (0006 AC19's test, a `g s`, typed query, `Enter`)
 
@@ -173,18 +173,18 @@ Each test is named after its criterion (`ac7_…`). Red is a failing assertion a
 
 | AC | Test (file :: name) | What it asserts | Expected red |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) + `crates/app/src/play.rs` :: `ac25_player_config` (new rows) | round trip; decoding; the setting | stub `Serialize` writes `null`; stub setting stays 100 |
+| AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) + `crates/app/src/settings.rs` :: `ac25_player_config` (new rows) | round trip; decoding; the setting | stub `Serialize` writes `null`; stub setting stays 100 |
 | AC2 | `crates/api/tests/search.rs` :: `ac2_search_page` (table) | path, encoded query, params, four lists, errors | stub sends `query` unencoded and returns empty lists |
 | AC3 | `crates/api/tests/search.rs` :: `ac3_search_more` (table) | per-type path, clamp, offset, unwrapping, Atmos drop | stub ignores `offset` |
-| AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac4_search_reply_to_sender` + `crates/app/src/player_runtime.rs` :: `ac4_tokio_jobs_search_page_size` | one reply to the sender | stub answers `Search` with an error |
+| AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac4_search_reply_to_sender` + `crates/app/src/player/runtime.rs` :: `ac4_tokio_jobs_search_page_size` | one reply to the sender | stub answers `Search` with an error |
 | AC5 | `crates/core/src/ui/search/tests.rs` :: `ac5_search_page_history` (table) | push, refocus, kept state | stub `g s` does nothing |
 | AC6 | `crates/core/src/ui/search/tests.rs` :: `ac6_input_editing` (table) | typed text, no commands | stub lets `q` quit |
 | AC7 | `crates/core/src/ui/search/tests.rs` :: `ac7_send_and_reply` (table) | one request, trimmed, stale drop, focus | stub applies every reply |
 | AC8 | `crates/core/src/ui/search/tests.rs` :: `ac8_windows_and_scroll` (table) | focus cycle, `/`, `Esc`, `More` | stub `Tab` skips the input |
 | AC9 | `crates/core/src/ui/search/tests.rs` :: `ac9_rows_act` (table) | exact command or page per row | stub `Enter` fetches the whole track list |
 | AC10 | `crates/core/src/ui/search/tests.rs` :: `ac10_disconnected` (table) | nothing sent; one re-send | stub sends while disconnected |
-| AC11 | `crates/app/src/input.rs` :: `ac18_key_events` (new `C-u` row, green at once: Ctrl+letter was already decoded) + `ac11_paste_reaches_the_search_input` | decoded keys, paste | stub drops `C-u` and paste |
-| AC12 | `crates/app/src/ui.rs` :: `ac12_search_80x24` (one snapshot per row), `ac12_search_narrow_50x20`, `ac17_no_panic_any_size` (search rows) | `contains` + snapshots | stub render draws no input row |
+| AC11 | `crates/app/src/tui/input.rs` :: `ac18_key_events` (new `C-u` row, green at once: Ctrl+letter was already decoded) + `ac11_paste_reaches_the_search_input` | decoded keys, paste | stub drops `C-u` and paste |
+| AC12 | `crates/app/src/tui/render.rs` :: `ac12_search_80x24` (one snapshot per row), `ac12_search_narrow_50x20`, `ac17_no_panic_any_size` (search rows) | `contains` + snapshots | stub render draws no input row |
 | AC13 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (search step) + `crates/app/src/main.rs` :: `ac13_tui_state_page_sizes` | answered; no session opened | stub client drops the search |
 | AC14 | — reviewed at acceptance | docs match this spec, linked | — |
 
@@ -194,7 +194,7 @@ Checked by hand at acceptance with a real account (results in the PR description
 
 - `tidal-player-core`: `library` (`PageRequest::Search`, `PageData::Search`, `ListRef::Search*`), `ui` (`PageKind::Search`, the input and its focus, `WindowKind::{SearchTracks, SearchAlbums, SearchArtists, SearchPlaylists}`; a `ui/search` module with its tests). No I/O, no new dependency
 - `tidal-player-api::library` (or a `search` module beside it): the two calls and their DTO mapping
-- `tidal-player`: `player_runtime` (the `Library` trait answers the new requests), `ui.rs`/`ui/pages.rs` (search page), `input.rs` (`C-u`, paste)
+- `tidal-player`: `player::runtime` (the `Library` trait answers the new requests), `ui.rs`/`ui/pages.rs` (search page), `input.rs` (`C-u`, paste)
 - `xtask layering`: no change
 
 ## Facts vs. assumptions

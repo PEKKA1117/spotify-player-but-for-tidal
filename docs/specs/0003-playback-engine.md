@@ -262,7 +262,7 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC23 | `crates/audio/tests/engine.rs` :: `ac23_buffering` | events, no writes, frozen position, no underrun | stub keeps writing silence |
 | AC24 | `crates/app/tests/http_source.rs` :: `ac24_range_resume`, `ac24_retry_then_fail`, `ac24_reresolve_on_403`, `ac24_segmented_order`, `ac24_readahead_cap` | `Range` headers on the mock, sleeper log, callback count | stub reads the first response only |
 | AC25 | `crates/audio/src/devices.rs` :: `ac25_parse_devices` (table over fixtures) + `crates/app/tests/cli.rs` :: `ac25_devices_marks_configured` (fixture files via `TIDAL_PLAYER_ASOUND_DIR`) | listed devices and order; `*` mark | stub returns only `default` |
-| AC26 | `crates/app/src/play.rs` :: `ac26_settings_precedence`, `ac26_status_lines` (tables) + `crates/app/tests/cli.rs` :: `ac26_bad_quality`, `ac26_play_needs_login` | precedence; exact lines; exit codes and stderr | stub ignores the environment and prints nothing |
+| AC26 | `crates/app/src/settings.rs` :: `ac26_settings_precedence` (table) + `crates/app/src/cli/play.rs` :: `ac26_status_lines` (table) + `crates/app/tests/cli.rs` :: `ac26_bad_quality`, `ac26_play_needs_login` | precedence; exact lines; exit codes and stderr | stub ignores the environment and prints nothing |
 | AC27 | — reviewed at acceptance | `docs/playback.md` exists, matches this spec, is linked here | — |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account on real hardware (results go in the PR description):

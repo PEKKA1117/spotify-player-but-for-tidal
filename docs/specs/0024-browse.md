@@ -184,12 +184,12 @@ Each test is named after its criterion (`ac4_…`). Red is a failing assertion a
 | AC5 | `crates/api/tests/browse.rs` :: `ac5_root` + `crates/core/src/ui/browse/tests.rs` :: `ac5_root_page` | the four tabs and *Discover*'s rows; `g b` sends the request | stub `g b` does nothing |
 | AC6 | `crates/api/tests/browse.rs` :: `ac6_feed` (table) | parameters, the header, `cursor`, the 5-request cap, kinds, mix fields | stub stops at the first page |
 | AC7 | `crates/api/tests/browse.rs` :: `ac7_view_all` + `crates/core/src/ui/browse/tests.rs` :: `ac7_view_all_tab` | no `limit`/`offset`; asked once on first show; replaced, cursor kept; failure keeps the preview | stub never asks |
-| AC8 | `crates/api/src/browse.rs` :: `ac8_browse_paths` (table) + `crates/api/tests/browse.rs` :: `ac8_refused_paths_send_nothing` | accepted and refused paths; no request sent | stub accepts every path |
+| AC8 | `crates/api/src/library/browse.rs` :: `ac8_browse_paths` (table) + `crates/api/tests/browse.rs` :: `ac8_refused_paths_send_nothing` | accepted and refused paths; no request sent | stub accepts every path |
 | AC9 | `crates/core/src/ui/browse/tests.rs` :: `ac9_navigation` (table) | push, tabs, wrap, opening rows, `Backspace`, fresh `g b` | stub `Enter` on a link does nothing |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_rows_and_actions` (table) + `crates/core/src/ui/select.rs` tests :: `ac10_links_not_selected` | queued tracks skip other kinds; a link does nothing | stub queues every row |
 | AC11 | `crates/core/src/ui/filter` tests :: `ac11_browse_filter` (table) | a mixed section's fields, a link's title, a filter per tab, more pages | stub matches no link |
-| AC12 | `crates/api/tests/browse.rs` :: `ac12_failures` (table) + `crates/app/src/ui.rs` :: `ac12_browse_failed_80x24` | wording per status; *Home* alone fails; the empty page | stub fails with a raw status |
-| AC13 | `crates/app/src/ui.rs` :: `ac13_browse_150x42`, `ac13_browse_80x24`, `ac13_browse_narrow_50x20`, `ac13_browse_mixed_80x24`, `ac13_browse_one_section_80x24` | snapshots | no snapshot |
+| AC12 | `crates/api/tests/browse.rs` :: `ac12_failures` (table) + `crates/app/src/tui/render.rs` :: `ac12_browse_failed_80x24` | wording per status; *Home* alone fails; the empty page | stub fails with a raw status |
+| AC13 | `crates/app/src/tui/render.rs` :: `ac13_browse_150x42`, `ac13_browse_80x24`, `ac13_browse_narrow_50x20`, `ac13_browse_mixed_80x24`, `ac13_browse_one_section_80x24` | snapshots | no snapshot |
 | AC14 | `crates/core/src/ui/keymap/tests.rs` (updated rows) + `crates/core/src/ui/help/tests.rs` (new row) | the command, its default key, help text; no longer skipped | stub leaves it skipped |
 | AC15 | At acceptance: read the pages. `cargo xtask wiki` builds them | no test: prose | n/a |
 | AC16 | `crates/app/src/config.rs` :: `ac16_hide_browse_pages` (table) + `crates/app/src/main.rs` :: `ac16_tui_state_hide_browse_pages` + `crates/core/src/ui/browse/tests.rs` :: `ac16_hidden_links` (table) | default, file, environment, refusal; reaches the state; hidden links, a dropped section, `[]`, exact match | stub shows every link |
@@ -199,7 +199,7 @@ Manual checks for the PR's hands-on section (live Tidal, tmux 150 × 42): `g b` 
 ## Crate placement
 
 - `tidal-player-core`: the types, `Rows::Links`, `Rows::Mixed`, `Row::Link`, the page and key logic, hiding links (`State::hide_browse_pages`, applied when a page arrives)
-- `tidal-player-api`: the requests, DTOs, row rules and path check, in a new `crates/api/src/browse.rs` so `library.rs` does not grow further; the v2 base URL and header stay there
+- `tidal-player-api`: the requests, DTOs, row rules and path check, in a new `crates/api/src/library/browse.rs` so `library.rs` does not grow further; the v2 base URL and header stay there
 - `tidal-player`: rendering, the tab strip and reading `hide_browse_pages`
 
 ## Facts vs. assumptions

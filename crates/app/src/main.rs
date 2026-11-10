@@ -17,14 +17,15 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tidal_player::{
+    cli::{
+        daemon::{forward_signals, notify_ready},
+        oneshot::{self, PlaybackCommand},
+        play::{PlayOptions, read_devices},
+    },
     client::{
         self, Connector, FindError, InProcess, Session, SocketConnector, SystemClock, startup_open,
     },
     config::{self, AppConfig},
-    cover::{self, Cover, Loader},
-    daemon::{forward_signals, notify_ready},
-    hook,
-    input::event_to_action,
     ipc::{
         self, ClaimError,
         client::{ConnectError, Connection},
@@ -32,21 +33,28 @@ use tidal_player::{
         paths::current_uid,
         server,
     },
-    login::{LoginOutcome, run_login},
-    mpris,
-    oneshot::{self, PlaybackCommand},
     panic_hook::install_panic_hook,
-    persist::Persister,
-    play::{
-        PlayOptions, asound_dir, configured_device_with, read_devices, resolve_play_config_with,
-        resolve_player_config_with, resolve_settings_with, with_device,
+    player::{
+        hook, mpris,
+        persist::Persister,
+        playback::{
+            HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
+        },
+        runtime::{PlayerRuntime, TokioJobs, parse_items, spawn_runtime, time_seed},
     },
-    playback::{
-        HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
+    session::{
+        login::{LoginOutcome, run_login},
+        setup::StorePlan,
     },
-    player_runtime::{PlayerRuntime, TokioJobs, parse_items, spawn_runtime, time_seed},
-    store_setup::StorePlan,
-    ui::{CoverFrame, CoverGeometry, CoverImage, HintTimer, render_with_cover},
+    settings::{
+        asound_dir, configured_device_with, resolve_play_config_with, resolve_player_config_with,
+        resolve_settings_with, with_device,
+    },
+    tui::{
+        cover::{self, Cover, Loader},
+        input::event_to_action,
+        render::{CoverFrame, CoverGeometry, CoverImage, HintTimer, render_with_cover},
+    },
 };
 use tidal_player_api::auth::{
     AuthConfig, Authenticator, SessionStore, StoreError, SystemClock as AuthClock,
@@ -119,7 +127,7 @@ enum Command {
     /// Manage your playlists through the running player.
     Playlist {
         #[command(subcommand)]
-        command: tidal_player::playlist_cli::PlaylistCommand,
+        command: tidal_player::cli::playlist::PlaylistCommand,
     },
     /// Play tracks, albums or playlists in the foreground, headless, as one
     /// queue, and exit when it ends.
@@ -225,7 +233,7 @@ fn run<C: Connector>(
         let size = terminal.size()?;
         let screen = ratatui::layout::Rect::new(0, 0, size.width, size.height);
         let geometry = cover.as_ref().map(|c| c.geometry);
-        let height = tidal_player::ui::list_height(screen, state.login_required, geometry);
+        let height = tidal_player::tui::render::list_height(screen, state.login_required, geometry);
         if list_height != Some(height) {
             list_height = Some(height);
             actions.push(Action::Resize {
@@ -248,7 +256,8 @@ fn run<C: Connector>(
         // Spec 0016: the loader follows the current cover and the cover
         // area; a ready image is drawn, nothing waits for one.
         if let Some(cover) = &mut cover {
-            let area = tidal_player::ui::cover_area(screen, state.login_required, geometry);
+            let area =
+                tidal_player::tui::render::cover_area(screen, state.login_required, geometry);
             let current = state
                 .current()
                 .and_then(|entry| entry.track.album.as_ref())
@@ -296,7 +305,10 @@ fn logout(plan: &StorePlan) -> ExitCode {
     let had_session = plan.has_stored_session();
     // Spec 0009: the next account does not inherit this one's queue. A
     // failure is reported but does not change the outcome.
-    if let Err(e) = tidal_player::persist::forget(&tidal_player::persist::RealFs, &plan.state_dir) {
+    if let Err(e) = tidal_player::player::persist::forget(
+        &tidal_player::player::persist::RealFs,
+        &plan.state_dir,
+    ) {
         eprintln!("Could not forget the playback state: {e}");
     }
     if let Err(e) = plan.build_store().delete() {
@@ -490,7 +502,7 @@ fn choose_role() -> Result<Role, ExitCode> {
 
 /// The library the player answers clients' requests with (spec 0006),
 /// sharing the player's `Authenticator`.
-fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player_runtime::Library> {
+fn player_library(auth: &Arc<Authenticator>) -> Arc<dyn tidal_player::player::runtime::Library> {
     Arc::new(LibraryClient::new(Arc::clone(auth)))
 }
 
@@ -547,7 +559,7 @@ fn tui_main(
 /// them with the same environment (spec 0006 "Page size", 0007 "Search
 /// page size"), and a standalone one is the player. It starts on the
 /// library (spec 0006 "Pages").
-fn tui_state(player_settings: &tidal_player::play::PlayerSettings) -> State {
+fn tui_state(player_settings: &tidal_player::settings::PlayerSettings) -> State {
     let mut state = State::new(tui_model::Steps {
         volume: player_settings.steps.volume,
         seek: player_settings.steps.seek,
@@ -613,7 +625,7 @@ fn tui_files(
 /// the keymap and the themes, whose notices show once the player has
 /// answered.
 fn configured_tui_state(
-    player_settings: &tidal_player::play::PlayerSettings,
+    player_settings: &tidal_player::settings::PlayerSettings,
     files: impl Into<TuiFiles>,
 ) -> State {
     let files = files.into();
@@ -646,7 +658,7 @@ fn standalone(
     store: Arc<dyn SessionStore>,
     state_dir: PathBuf,
     app: &AppConfig,
-    player_settings: tidal_player::play::PlayerSettings,
+    player_settings: tidal_player::settings::PlayerSettings,
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
 ) -> Result<ExitCode> {
@@ -993,16 +1005,16 @@ fn main() -> Result<ExitCode> {
         Some(Command::Daemon(DaemonArgs { action: None })) => daemon(&plan, &app),
         Some(Command::Daemon(DaemonArgs {
             action: Some(DaemonAction::Stop),
-        })) => Ok(tidal_player::daemon::stop()),
+        })) => Ok(tidal_player::cli::daemon::stop()),
         Some(Command::Daemon(DaemonArgs {
             action: Some(DaemonAction::Unit),
         })) => {
             let exe = std::env::current_exe().context("cannot tell where this program is")?;
-            print!("{}", tidal_player::daemon::unit(&exe));
+            print!("{}", tidal_player::cli::daemon::unit(&exe));
             Ok(ExitCode::SUCCESS)
         }
-        Some(Command::Playback { command }) => Ok(tidal_player::oneshot::run(&command)),
-        Some(Command::Playlist { command }) => Ok(tidal_player::playlist_cli::run(&command)),
+        Some(Command::Playback { command }) => Ok(tidal_player::cli::oneshot::run(&command)),
+        Some(Command::Playlist { command }) => Ok(tidal_player::cli::playlist::run(&command)),
         Some(Command::Login) => {
             let outcome = login(plan.build_store().as_ref())?;
             Ok(ExitCode::from(outcome.exit_code()))
@@ -1092,7 +1104,7 @@ mod tests {
     /// requests with both resolved page sizes, and starts on the library.
     #[test]
     fn ac13_tui_state_page_sizes() {
-        let mut settings = tidal_player::play::PlayerSettings::default();
+        let mut settings = tidal_player::settings::PlayerSettings::default();
         settings.library.page_size = 33;
         settings.library.search_page_size = 7;
         let state = tui_state(&settings);
@@ -1105,7 +1117,7 @@ mod tests {
     #[test]
     fn ac7_tui_state_key_hints() {
         for on in [true, false] {
-            let settings = tidal_player::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 key_hints: on,
                 ..Default::default()
             };
@@ -1118,13 +1130,13 @@ mod tests {
     #[test]
     fn ac16_tui_state_hide_browse_pages() {
         let names = |list: &[&str]| list.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
-        let default = tidal_player::play::PlayerSettings::default();
+        let default = tidal_player::settings::PlayerSettings::default();
         assert_eq!(
             configured_tui_state(&default, Keymap::default()).hide_browse_pages,
             names(&["videos", "tidal_magazine"])
         );
         for hidden in [names(&[]), names(&["a", "b"])] {
-            let settings = tidal_player::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 hide_browse_pages: hidden.clone(),
                 ..Default::default()
             };
@@ -1137,7 +1149,7 @@ mod tests {
     #[test]
     fn ac7_tui_state_confirm_removals() {
         for on in [true, false] {
-            let settings = tidal_player::play::PlayerSettings {
+            let settings = tidal_player::settings::PlayerSettings {
                 confirm_removals: on,
                 ..Default::default()
             };

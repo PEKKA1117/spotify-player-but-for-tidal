@@ -238,7 +238,7 @@ Client model (`tidal_player_core::ui`, pure):
 TUI rendering and runtime (`tidal-player`):
 
 - **AC17** — Rendering (`insta`, 80×24, reviewed by eye, plus `contains` checks): library loaded (three windows, counts, focus, `♥`); library loading; favorite tracks with a non-streamable row dimmed and `Loading more…` as the last row; album page title row; artist page (both halves, `‹Tab›` titles, hidden count); a failed page; each empty-list message; the actions popup; *Add to playlist…*; a `y/n` question. 50×20: only the focused window with `‹Tab›`. No panic from 0×0 to 120×40 on every page and popup (table over sizes × pages)
-- **AC18** — Key decoding: `Tab`, `BackTab`, `Backspace`, `PageUp`/`PageDown`, `C-Space`, `C-f`/`C-b`/`C-q`/`C-z`/`C-c` decode to the model's keys (`crates/app/src/input.rs`, table)
+- **AC18** — Key decoding: `Tab`, `BackTab`, `Backspace`, `PageUp`/`PageDown`, `C-Space`, `C-f`/`C-b`/`C-q`/`C-z`/`C-c` decode to the model's keys (`crates/app/src/tui/input.rs`, table)
 - **AC19** — Wiring: the TUI client runtime sends `Effect::Library` as `ClientMessage::Library` and turns `LibraryReply` into `Action::LibraryReply`, both attached and standalone (in-process link, 0005); an attached client loading a page still opens no session store, keyring or passphrase source (0005 AC14's test, with a `g l` answered from the test player's wiremock API)
 
 Docs:
@@ -275,22 +275,22 @@ Each automated test is named after its criterion (`ac10_…`). Red is a failing 
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/protocol.rs` :: `ac11_round_trip` (extended) + `crates/app/src/ipc/codec.rs` :: `ac2_framing` (new rows) | round trip; decoding | new types' hand-written stub `Serialize` writes `null` |
 | AC2 | `crates/api/tests/metadata.rs` :: `ac2_track_refs` | IDs mapped; `album: null` → `None` | stub mapping leaves `id` 0 |
-| AC3 | `crates/core/src/library.rs` :: `ac3_hidden_version` (table) + `crates/app/src/play.rs` :: `ac25_player_config` (new rows) | hidden or kept per row; settings | stub hides nothing |
+| AC3 | `crates/core/src/library.rs` :: `ac3_hidden_version` (table) + `crates/app/src/settings.rs` :: `ac25_player_config` (new rows) | hidden or kept per row; settings | stub hides nothing |
 | AC4 | `crates/api/tests/library.rs` :: `ac4_lists` (table over `ListRef`) | path, params, clamped `limit`, unwrapping, `total` | stub ignores `offset` and the clamp |
 | AC5 | `crates/api/tests/library.rs` :: `ac5_pages` (table) | header + first pages; ETag; errors | stub returns an empty header |
 | AC6 | `crates/api/tests/library.rs` :: `ac6_credits` | first page and `dataApiPath` pages; filters; hidden count | stub keeps Atmos-only and instrumental rows |
 | AC7 | `crates/api/tests/library.rs` :: `ac7_writes` (table) | forms, paths, `If-None-Match`, retry once on add, no retry on remove | stub sends no ETag, so every edit is a `412` |
 | AC8 | `crates/app/src/ipc/server/tests.rs` :: `ac8_reply_to_sender`, `ac8_errors` (table), `ac8_does_not_block` | one reply, sender only, messages, latency, per-client order | stub runs the request on the player thread, so a held one blocks the `TogglePause` reply |
-| AC9 | `crates/core/src/ui.rs` :: `ac9_history` (table), `ac9_reply_by_id` (table), `ac9_start_on_library` | stack, effects, kept state, stale drop | stub replaces the page instead of pushing |
-| AC10 | `crates/core/src/ui.rs` :: `ac10_scroll_loads` (table) | `More` offsets, no duplicates, short pages, failures | stub never asks for a second page |
-| AC11 | `crates/core/src/ui.rs` :: `ac11_windows_and_cursors` (table) | focus cycle, cursor per window | stub moves every window's cursor |
-| AC12 | `crates/core/src/ui.rs` :: `ac12_play_and_queue` (table) | the exact command per row; whole-list load | stub `Enter` sends the loaded rows only |
-| AC13 | `crates/core/src/ui.rs` :: `ac13_actions_popup` (table) | actions per kind, effects, closing, key capture | stub popup lists *Add to queue* only |
-| AC14 | `crates/core/src/ui.rs` :: `ac14_playlist_editing` (table) | requests, questions, messages, re-fetches | stub adds duplicates without asking |
-| AC15 | `crates/core/src/ui.rs` :: `ac15_esc_and_quit` + 0004's `ac20_keys_to_commands` (row updated) | `Esc` → nothing; `q`/`C-c` → `Quit` | stub keeps `Esc` → `Quit` |
-| AC16 | `crates/core/src/ui.rs` :: `ac16_disconnected_and_login` (table) | no request while disconnected; one re-fetch | stub requests while disconnected |
-| AC17 | `crates/app/src/ui.rs` :: `ac17_pages_80x24` (one snapshot per row), `ac17_narrow_50x20`, `ac17_no_panic_any_size` | `contains` checks + snapshots | stub render draws the queue whatever the page |
-| AC18 | `crates/app/src/input.rs` :: `ac18_key_events` (table) | decoded keys | stub maps the new keys to nothing |
+| AC9 | `crates/core/src/ui/browse/tests.rs` :: `ac9_history` (table), `ac9_reply_by_id` (table), `ac9_start_on_library` | stack, effects, kept state, stale drop | stub replaces the page instead of pushing |
+| AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_scroll_loads` (table) | `More` offsets, no duplicates, short pages, failures | stub never asks for a second page |
+| AC11 | `crates/core/src/ui/browse/tests.rs` :: `ac11_windows_and_cursors` (table) | focus cycle, cursor per window | stub moves every window's cursor |
+| AC12 | `crates/core/src/ui/browse/tests.rs` :: `ac12_play_and_queue` (table) | the exact command per row; whole-list load | stub `Enter` sends the loaded rows only |
+| AC13 | `crates/core/src/ui/browse/tests.rs` :: `ac13_actions_popup` (table) | actions per kind, effects, closing, key capture | stub popup lists *Add to queue* only |
+| AC14 | `crates/core/src/ui/browse/tests.rs` :: `ac14_playlist_editing` (table) | requests, questions, messages, re-fetches | stub adds duplicates without asking |
+| AC15 | `crates/core/src/ui/browse/tests.rs` :: `ac15_esc_and_quit` + 0004's `ac20_keys_to_commands` (row updated) | `Esc` → nothing; `q`/`C-c` → `Quit` | stub keeps `Esc` → `Quit` |
+| AC16 | `crates/core/src/ui/browse/tests.rs` :: `ac16_disconnected_and_login` (table) | no request while disconnected; one re-fetch | stub requests while disconnected |
+| AC17 | `crates/app/src/tui/render.rs` :: `ac17_pages_80x24` (one snapshot per row), `ac17_narrow_50x20`, `ac17_no_panic_any_size` | `contains` checks + snapshots | stub render draws the queue whatever the page |
+| AC18 | `crates/app/src/tui/input.rs` :: `ac18_key_events` (table) | decoded keys | stub maps the new keys to nothing |
 | AC19 | `crates/app/src/client.rs` :: `ac19_library_round_trip` (attached and in-process) + `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` (extended) | messages both ways; no session opened | stub client drops `Effect::Library` |
 | AC20 | — reviewed at acceptance | docs match this spec, linked | — |
 
@@ -305,7 +305,7 @@ Not covered by automated tests, on purpose, and checked by hand at acceptance wi
 
 - `tidal-player-core`: `library` (summaries, refs, `ListPage`, requests and responses, `hidden_version`), `track` (`ArtistRef`, `AlbumRef`), `protocol` (`Library`, `LibraryReply`), `ui` (pages, history, windows, scrolling loads, popups, `Effect::Library`, `Action::LibraryReply`, the new keys). No I/O, no new dependency
 - `tidal-player-api::library`: the reads and writes and their DTO → core mapping; `MetadataError::NotFound` takes the new `Artist` kind; the ETag header read
-- `tidal-player`: `ipc::server` (`Library` → a job; `LibraryReply` to that client's outbox), `player_runtime` (a `Library` trait beside 0004's `Metadata`, implemented by the API client and faked in tests), `play.rs` settings, `client.rs` (the effect and the action), `ui.rs` (pages, windows, popups), `input.rs` (new keys)
+- `tidal-player`: `ipc::server` (`Library` → a job; `LibraryReply` to that client's outbox), `player::runtime` (a `Library` trait beside 0004's `Metadata`, implemented by the API client and faked in tests), `play.rs` settings, `client.rs` (the effect and the action), `ui.rs` (pages, windows, popups), `input.rs` (new keys)
 - `xtask layering`: no change
 
 ## Facts vs. assumptions
@@ -314,7 +314,7 @@ Verified (2026-10-07, from code and docs):
 
 - The session holds `user_id` and `country_code` (`crates/api/src/auth.rs`, `Session`)
 - The track DTO already deserialises from objects with `artists[].id` and `album.id` (0004 "Facts"; `crates/api/tests/fixtures/metadata/track.json`)
-- The player runtime already runs fetches as jobs beside its input loop (`RuntimeInput::Expanded`, `RuntimeInput::Suggestions` in `crates/app/src/player_runtime.rs`), and the server can send a message to one client (`Hub::reply`)
+- The player runtime already runs fetches as jobs beside its input loop (`RuntimeInput::Expanded`, `RuntimeInput::Suggestions` in `crates/app/src/player/runtime.rs`), and the server can send a message to one client (`Hub::reply`)
 - spotify-player's default keys (its `README.md` "Commands" table, read 2026-10-07): `g l` library, `g y` liked tracks, `z` queue, `Backspace`/`C-q` previous page, `Tab` next window, `g a`/`C-Space` actions on the selected item, `a` actions on the current track, `Z`/`C-z` add the selected item to the queue, `Esc` closes a popup, `q`/`C-c` quit; its library page has Playlists, Albums and Artists windows, in that order, at 40/40/20 % (`spotify_player/src/ui/page.rs` `render_library_page`, `docs/config.md` `library.*_percent`); its artist page has top tracks, albums and related artists
 
 Verified on 2026-10-07 against the **live API** by `scripts/tidal-library-probe.sh`, run by the user (same account and client as 0004's probes: 22 playlists, 362 favorite tracks, 14 albums, 196 artists). Fixtures under `crates/api/tests/fixtures/library/` are written from these shapes with IDs and names replaced:

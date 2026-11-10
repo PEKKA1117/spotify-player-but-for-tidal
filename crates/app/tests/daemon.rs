@@ -15,8 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tidal_player::client::NO_PLAYER;
 use tidal_player::ipc::client::{Connection, RecvError};
 use tidal_player::ipc::lock::{Probe, probe};
-use tidal_player::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
-use tidal_player::session_store::EncryptedFileStore;
+use tidal_player::session::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
+use tidal_player::session::store::EncryptedFileStore;
 use tidal_player_api::auth::{Session, SessionStore};
 use tidal_player_core::library::{LibraryRequest, PageRequest};
 use tidal_player_core::protocol::{

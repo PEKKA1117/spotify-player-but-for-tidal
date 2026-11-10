@@ -1,0 +1,600 @@
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::io;
+use std::rc::Rc;
+
+use clap::Parser;
+
+use super::*;
+use crate::ipc::client::RecvError;
+use tidal_player_core::protocol::{NowPlaying, QueueEntry};
+use tidal_player_core::{AlbumRef, ArtistRef, AudioQuality, EntryId, Item, Track, TrackId};
+
+#[derive(Debug, Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: PlaybackCommand,
+}
+
+fn parse(args: &[&str]) -> Result<Plan, String> {
+    let cli = Cli::try_parse_from(std::iter::once("playback").chain(args.iter().copied()))
+        .map_err(|e| e.kind().to_string())?;
+    plan(&cli.command).map_err(|e| e.to_string())
+}
+
+fn request(command: Command) -> Result<Plan, String> {
+    Ok(Plan::Request(command))
+}
+
+/// AC15: every row of the "One-shot commands" table maps to its
+/// message; bad numbers and items are refused (exit 2, nothing sent).
+#[test]
+fn ac15_parse() {
+    const ALBUM: &str = "https://tidal.com/browse/album/10";
+    let rows: Vec<(&[&str], Result<Plan, String>)> = vec![
+        (&["play-pause"], request(Command::TogglePause)),
+        (&["play"], request(Command::Play)),
+        (&["pause"], request(Command::Pause)),
+        (&["stop"], request(Command::Stop)),
+        (&["shuffle", "on"], request(Command::SetShuffle(true))),
+        (&["shuffle", "off"], request(Command::SetShuffle(false))),
+        (
+            &["repeat", "off"],
+            request(Command::SetRepeat(RepeatMode::Off)),
+        ),
+        (
+            &["repeat", "queue"],
+            request(Command::SetRepeat(RepeatMode::Queue)),
+        ),
+        (
+            &["repeat", "track"],
+            request(Command::SetRepeat(RepeatMode::Track)),
+        ),
+        (&["next"], request(Command::Next)),
+        (&["previous"], request(Command::Previous)),
+        (
+            &["seek", "90"],
+            request(Command::SeekTo(Duration::from_secs(90))),
+        ),
+        (
+            &["seek", "1.5"],
+            request(Command::SeekTo(Duration::from_millis(1500))),
+        ),
+        (&["seek", "+5"], request(Command::SeekBy(5000))),
+        (&["seek", "-2.5"], request(Command::SeekBy(-2500))),
+        (&["volume", "80"], request(Command::SetVolume(80))),
+        (&["volume", "0"], request(Command::SetVolume(0))),
+        (&["volume", "100"], request(Command::SetVolume(100))),
+        (&["volume", "+5"], request(Command::ChangeVolume(5))),
+        (&["volume", "-100"], request(Command::ChangeVolume(-100))),
+        (&["mute"], request(Command::ToggleMute)),
+        (&["shuffle"], request(Command::ToggleShuffle)),
+        (&["repeat"], request(Command::CycleRepeat)),
+        (&["autoplay"], request(Command::ToggleAutoplay)),
+        (
+            &["load", ALBUM, "3"],
+            request(Command::Open {
+                items: vec![Item::Album(10), Item::Track(TrackId(3))],
+                at: None,
+            }),
+        ),
+        (
+            &["add", "3"],
+            request(Command::Open {
+                items: vec![Item::Track(TrackId(3))],
+                at: Some(InsertAt::End),
+            }),
+        ),
+        (
+            &["add", "--next", ALBUM],
+            request(Command::Open {
+                items: vec![Item::Album(10)],
+                at: Some(InsertAt::Next),
+            }),
+        ),
+        (&["status"], Ok(Plan::Status { json: false })),
+        (&["status", "--json"], Ok(Plan::Status { json: true })),
+        // Refused.
+        (
+            &["shuffle", "maybe"],
+            Err("one of the values isn't valid for an argument".into()),
+        ),
+        (
+            &["repeat", "all"],
+            Err("one of the values isn't valid for an argument".into()),
+        ),
+        (
+            &["volume", "101"],
+            Err("Invalid volume \"101\": expected 0 to 100, +N or -N".into()),
+        ),
+        (
+            &["volume", "+101"],
+            Err("Invalid volume \"+101\": expected 0 to 100, +N or -N".into()),
+        ),
+        (
+            &["volume", "loud"],
+            Err("Invalid volume \"loud\": expected 0 to 100, +N or -N".into()),
+        ),
+        (
+            &["seek", "x"],
+            Err("Invalid seek \"x\": expected seconds, +S or -S".into()),
+        ),
+        (
+            &["seek", "-"],
+            Err("Invalid seek \"-\": expected seconds, +S or -S".into()),
+        ),
+        (
+            &["seek", "inf"],
+            Err("Invalid seek \"inf\": expected seconds, +S or -S".into()),
+        ),
+        (
+            &["load", "https://tidal.com/browse/artist/1"],
+            Err("Not a Tidal track, album or playlist: https://tidal.com/browse/artist/1".into()),
+        ),
+    ];
+    for (args, want) in rows {
+        assert_eq!(parse(args), want, "{args:?}");
+    }
+    // clap refuses these itself (exit 2): no item, an unknown command.
+    for args in [&["load"][..], &["add", "--next"], &["nope"], &["seek"]] {
+        assert!(parse(args).is_err(), "{args:?} accepted");
+    }
+}
+
+fn track(id: u64, title: &str, artists: &[&str], album: &str, secs: Option<u64>) -> Track {
+    Track {
+        id: TrackId(id),
+        title: title.into(),
+        version: None,
+        artists: artists
+            .iter()
+            .map(|a| ArtistRef {
+                id: 1,
+                name: (*a).into(),
+            })
+            .collect(),
+        album: Some(AlbumRef {
+            id: 1,
+            title: album.into(),
+            cover: None,
+        }),
+        duration: secs.map(Duration::from_secs),
+        streamable: true,
+    }
+}
+
+fn queue(n: u64) -> Vec<QueueEntry> {
+    (1..=n)
+        .map(|i| QueueEntry {
+            id: EntryId(i),
+            track: track(i, &format!("Track {i}"), &["Artist"], "Album", Some(200)),
+            suggested: false,
+        })
+        .collect()
+}
+
+fn playing() -> PlayerSnapshot {
+    let mut queue = queue(12);
+    queue[1].track = track(
+        2,
+        "Hell Above",
+        &["Pierce The Veil"],
+        "Collide With The Sky",
+        Some(212),
+    );
+    PlayerSnapshot {
+        queue,
+        current: Some(EntryId(2)),
+        state: PlaybackState::Playing,
+        position: Duration::from_secs(83),
+        shuffle: true,
+        repeat: RepeatMode::Queue,
+        autoplay: false,
+        volume: 80,
+        muted: false,
+        now_playing: Some(NowPlaying {
+            quality: AudioQuality::Lossless,
+            source: "FLAC 16-bit 44.1 kHz stereo".into(),
+            output: "hw:1,0 S32_LE 44.1 kHz".into(),
+            bit_perfect: false,
+            bit_perfect_reason: Some("volume below 100%".into()),
+            released: false,
+        }),
+        message: None,
+        device: "default".into(),
+    }
+}
+
+/// AC15: `status` prints the three lines (state symbol, indicators,
+/// queue position), `Nothing playing` alone without a current entry,
+/// and a fourth line for a message or an expired session.
+#[test]
+fn ac15_status_lines() {
+    let paused_released = {
+        let mut s = playing();
+        s.state = PlaybackState::Paused;
+        s.shuffle = false;
+        s.repeat = RepeatMode::Off;
+        s.autoplay = true;
+        s.muted = true;
+        if let Some(np) = s.now_playing.as_mut() {
+            np.released = true;
+        }
+        s
+    };
+    let failed = {
+        let mut s = paused_released.clone();
+        s.message = Some("Output hw:1,0 is busy (used by firefox)".into());
+        s
+    };
+    let empty = PlayerSnapshot {
+        queue: Vec::new(),
+        current: None,
+        state: PlaybackState::Stopped,
+        position: Duration::ZERO,
+        now_playing: None,
+        message: None,
+        ..playing()
+    };
+    let mut unknown = playing();
+    unknown.queue[1].track.duration = None;
+    let rows: Vec<(&str, PlayerSnapshot, bool, &str)> = vec![
+        (
+            "playing",
+            playing(),
+            false,
+            "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80% · default\n\
+                 Queue: 2 of 12\n",
+        ),
+        (
+            "paused, released",
+            paused_released,
+            false,
+            "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · autoplay · muted · default · device released\n\
+                 Queue: 2 of 12\n",
+        ),
+        (
+            "a message",
+            failed,
+            false,
+            "⏸ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · autoplay · muted · default · device released\n\
+                 Queue: 2 of 12\n\
+                 Output hw:1,0 is busy (used by firefox)\n",
+        ),
+        (
+            "unknown duration",
+            unknown,
+            false,
+            "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / ?:?? · shuffle · repeat: queue · 80% · default\n\
+                 Queue: 2 of 12\n",
+        ),
+        ("nothing playing", empty.clone(), false, "Nothing playing\n"),
+        (
+            "session expired",
+            empty,
+            true,
+            "Nothing playing\nSession expired: run \"tidal-player login\"\n",
+        ),
+        (
+            "session expired while playing",
+            playing(),
+            true,
+            "▶ Hell Above · Pierce The Veil · Collide With The Sky\n\
+                 1:23 / 3:32 · shuffle · repeat: queue · 80% · default\n\
+                 Queue: 2 of 12\n\
+                 Session expired: run \"tidal-player login\"\n",
+        ),
+    ];
+    for (name, snapshot, login_required, want) in rows {
+        assert_eq!(status_lines(&snapshot, login_required), want, "{name}");
+    }
+}
+
+/// A link that records what it was sent and answers from a script
+/// (then: nothing in time).
+struct Scripted {
+    sent: Rc<RefCell<Vec<ClientMessage>>>,
+    answers: VecDeque<Result<ServerMessage, RecvError>>,
+}
+
+impl Link for Scripted {
+    fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
+        self.sent.borrow_mut().push(message.clone());
+        Ok(())
+    }
+
+    fn recv(&mut self, _: Option<Duration>) -> Result<Option<ServerMessage>, RecvError> {
+        self.answers.pop_front().transpose()
+    }
+
+    fn close(&mut self) {}
+}
+
+fn exec(
+    plan: &Plan,
+    answers: Vec<Result<ServerMessage, RecvError>>,
+) -> (u8, String, String, Vec<ClientMessage>) {
+    let sent = Rc::default();
+    let mut link = Scripted {
+        sent: Rc::clone(&sent),
+        answers: answers.into(),
+    };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = execute(
+        &mut link,
+        plan,
+        Duration::from_millis(50),
+        &mut out,
+        &mut err,
+    );
+    let sent = sent.borrow().clone();
+    (
+        code,
+        String::from_utf8(out).unwrap(),
+        String::from_utf8(err).unwrap(),
+        sent,
+    )
+}
+
+/// AC15 (with a fake link; the binary's exit codes are in
+/// `tests/daemon.rs`): `Ok` → exit 0 and nothing printed; `Err` → its
+/// message on stderr, exit 1; no reply in time → exit 1; `status`
+/// subscribes and prints the `Welcome`, as lines or as one JSON line.
+#[test]
+fn ac15_execute() {
+    let next = Plan::Request(Command::Next);
+    let reply = |result| Ok(ServerMessage::Reply { id: 0, result });
+    let asked = vec![ClientMessage::Request {
+        id: 0,
+        command: Command::Next,
+    }];
+    assert_eq!(
+        exec(&next, vec![reply(Ok(()))]),
+        (0, String::new(), String::new(), asked.clone())
+    );
+    assert_eq!(
+        exec(&next, vec![reply(Err("Album 404 was not found".into()))]),
+        (
+            1,
+            String::new(),
+            "Album 404 was not found\n".into(),
+            asked.clone()
+        )
+    );
+    assert_eq!(
+        exec(&next, vec![]),
+        (1, String::new(), format!("{NO_ANSWER}\n"), asked.clone())
+    );
+    let (code, _, err, _) = exec(&next, vec![Err(RecvError::Closed)]);
+    assert_eq!((code, err.is_empty()), (1, false));
+
+    let welcome = ServerMessage::Welcome {
+        snapshot: playing(),
+        login_required: false,
+    };
+    let (code, out, err, sent) = exec(&Plan::Status { json: false }, vec![Ok(welcome.clone())]);
+    assert_eq!((code, err.as_str()), (0, ""));
+    assert_eq!(out, status_lines(&playing(), false));
+    assert_eq!(sent, vec![ClientMessage::Subscribe]);
+    let (code, out, _, _) = exec(&Plan::Status { json: true }, vec![Ok(welcome.clone())]);
+    assert_eq!(code, 0);
+    assert_eq!(out.lines().count(), 1, "{out}");
+    assert_eq!(
+        serde_json::from_str::<ServerMessage>(out.trim_end()).ok(),
+        Some(welcome)
+    );
+    assert_eq!(
+        exec(&Plan::Status { json: false }, vec![]),
+        (
+            1,
+            String::new(),
+            format!("{NO_ANSWER}\n"),
+            vec![ClientMessage::Subscribe]
+        )
+    );
+}
+
+/// 0014 AC10: `device` lists, `device NAME` sends `SetDevice(NAME)`,
+/// an empty name is refused before anything is sent (exit 2); the
+/// list is printed like `tidal-player devices` with `*` on the
+/// player's device, a player's error is exit 1.
+#[test]
+fn ac10_parse_device() {
+    use tidal_player_core::protocol::DeviceEntry;
+
+    assert_eq!(parse(&["device"]), Ok(Plan::Devices));
+    assert_eq!(
+        parse(&["device", "hw:1,0"]),
+        request(Command::SetDevice("hw:1,0".into()))
+    );
+    assert_eq!(
+        parse(&["device", "plughw:1,0"]),
+        request(Command::SetDevice("plughw:1,0".into()))
+    );
+    assert_eq!(parse(&["device", ""]), Err("Device name is empty".into()));
+    assert!(parse(&["device", "a", "b"]).is_err(), "two names accepted");
+
+    // Switching: the player's answer is the exit code.
+    let set = Plan::Request(Command::SetDevice("hw:9,0".into()));
+    let reply = |result| Ok(ServerMessage::Reply { id: 0, result });
+    let asked = vec![ClientMessage::Request {
+        id: 0,
+        command: Command::SetDevice("hw:9,0".into()),
+    }];
+    assert_eq!(
+        exec(&set, vec![reply(Ok(()))]),
+        (0, String::new(), String::new(), asked.clone())
+    );
+    assert_eq!(
+        exec(&set, vec![reply(Err("Device name is empty".into()))]),
+        (1, String::new(), "Device name is empty\n".into(), asked)
+    );
+
+    // Listing: `*` on the player's device (from its snapshot), the
+    // answer in either order, events before them skipped.
+    let entry = |name: &str, description: &str| DeviceEntry {
+        name: name.into(),
+        description: description.into(),
+    };
+    let list = vec![
+        entry("default", "shared, through the system mixer"),
+        entry("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+        entry("hw:1,0", "E30 II: USB Audio"),
+    ];
+    let mut snapshot = playing();
+    snapshot.device = "hw:1,0".into();
+    let welcome = ServerMessage::Welcome {
+        snapshot: snapshot.clone(),
+        login_required: false,
+    };
+    let devices = ServerMessage::DevicesReply {
+        id: 0,
+        result: Ok(list.clone()),
+    };
+    let want = "  default  shared, through the system mixer\n  \
+                    hw:0,0   HDA Intel PCH: ALC892 Analog\n\
+                    * hw:1,0   E30 II: USB Audio\n";
+    for answers in [
+        vec![Ok(welcome.clone()), Ok(devices.clone())],
+        vec![
+            Ok(devices.clone()),
+            Ok(ServerMessage::Event(
+                tidal_player_core::protocol::Event::Player(playing()),
+            )),
+            Ok(welcome.clone()),
+        ],
+    ] {
+        let (code, out, err, sent) = exec(&Plan::Devices, answers);
+        assert_eq!((code, out.as_str(), err.as_str()), (0, want, ""));
+        assert_eq!(
+            sent,
+            vec![ClientMessage::Devices { id: 0 }, ClientMessage::Subscribe]
+        );
+    }
+    // A selected device the list does not have: printed first, marked,
+    // `not found`.
+    let mut missing = snapshot;
+    missing.device = "plughw:1,0".into();
+    let (code, out, _, _) = exec(
+        &Plan::Devices,
+        vec![
+            Ok(ServerMessage::Welcome {
+                snapshot: missing,
+                login_required: false,
+            }),
+            Ok(devices),
+        ],
+    );
+    assert_eq!(code, 0);
+    assert_eq!(out.lines().next(), Some("* plughw:1,0  not found"), "{out}");
+    // The player cannot list: its message, exit 1.
+    let (code, out, err, _) = exec(
+        &Plan::Devices,
+        vec![
+            Ok(welcome),
+            Ok(ServerMessage::DevicesReply {
+                id: 0,
+                result: Err("cannot read /proc/asound/cards: denied".into()),
+            }),
+        ],
+    );
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (
+            1,
+            "",
+            "Cannot list devices: cannot read /proc/asound/cards: denied\n"
+        )
+    );
+    // No answer in time.
+    let (code, _, err, _) = exec(&Plan::Devices, vec![]);
+    assert_eq!((code, err), (1, format!("{NO_ANSWER}\n")));
+}
+
+/// 0014 AC10: `status`'s second line has the selected device after the
+/// volume (before `device released`).
+#[test]
+fn ac10_status_device_line() {
+    let second = |s: &PlayerSnapshot| status_lines(s, false).lines().nth(1).map(str::to_owned);
+    let mut dac = playing();
+    dac.device = "hw:1,0".into();
+    assert_eq!(
+        second(&dac).as_deref(),
+        Some("1:23 / 3:32 · shuffle · repeat: queue · 80% · hw:1,0")
+    );
+    dac.muted = true;
+    if let Some(np) = dac.now_playing.as_mut() {
+        np.released = true;
+    }
+    assert_eq!(
+        second(&dac).as_deref(),
+        Some("1:23 / 3:32 · shuffle · repeat: queue · muted · hw:1,0 · device released")
+    );
+    // Nothing playing: one line, as before.
+    let idle = PlayerSnapshot {
+        current: None,
+        ..playing()
+    };
+    assert_eq!(status_lines(&idle, false), "Nothing playing\n");
+}
+
+/// 0014 AC13: `devices` marks the running player's device `*` and the
+/// configured one, when different, `(configured)`.
+#[test]
+fn ac13_local_device_lines() {
+    let dev = |name: &str, description: &str| PlaybackDevice {
+        name: name.into(),
+        description: description.into(),
+    };
+    let list = vec![
+        dev("default", "shared, through the system mixer"),
+        dev("hw:0,0", "HDA Intel PCH: ALC892 Analog"),
+        dev("hw:1,0", "E30 II: USB Audio"),
+    ];
+    let cases: &[(&str, Option<&str>, &str, &str)] = &[
+        (
+            "no player: `*` on the configured device",
+            None,
+            "hw:0,0",
+            "  default  shared, through the system mixer\n\
+                 * hw:0,0   HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0   E30 II: USB Audio\n",
+        ),
+        (
+            "the player on the configured device",
+            Some("hw:0,0"),
+            "hw:0",
+            "  default  shared, through the system mixer\n\
+                 * hw:0,0   HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0   E30 II: USB Audio\n",
+        ),
+        (
+            "the player on another device",
+            Some("hw:1,0"),
+            "hw:0,0",
+            "  default  shared, through the system mixer\n  \
+                 hw:0,0   HDA Intel PCH: ALC892 Analog  (configured)\n\
+                 * hw:1,0   E30 II: USB Audio\n",
+        ),
+        (
+            "the player's device not in the list: first, `not found`",
+            Some("plughw:1,0"),
+            "default",
+            "* plughw:1,0  not found\n  \
+                 default     shared, through the system mixer  (configured)\n  \
+                 hw:0,0      HDA Intel PCH: ALC892 Analog\n  \
+                 hw:1,0      E30 II: USB Audio\n",
+        ),
+    ];
+    for (what, player, configured, want) in cases {
+        assert_eq!(
+            local_device_lines(&list, *player, configured),
+            *want,
+            "{what}"
+        );
+    }
+}

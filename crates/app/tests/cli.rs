@@ -30,8 +30,8 @@ fn ac4_help() {
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use tidal_player::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
-use tidal_player::session_store::EncryptedFileStore;
+use tidal_player::session::passphrase::{PassphraseEnv, ProcessPassphrase, Prompt};
+use tidal_player::session::store::EncryptedFileStore;
 use tidal_player_api::auth::{Session, SessionStore};
 use wiremock::MockServer;
 

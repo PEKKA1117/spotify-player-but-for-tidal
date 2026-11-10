@@ -302,17 +302,17 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC15 | `crates/audio/tests/engine.rs` :: `ac15_gain` (table: 1.0 on 16/24-bit, 0.5, 0, change mid-track, across transition/play/device) | bytes per row; latency in frames | stub ignores `SetGain` |
 | AC16 | `crates/core/src/item.rs` :: `ac16_parse_item` (table) | item or error per row | stub parses bare numbers only |
 | AC17 | `crates/api/tests/metadata.rs` :: `ac17_get_track`, `ac17_album_pages`, `ac17_playlist_pages_and_videos`, `ac17_errors` | request paths and params (`expect(n)`), mapped tracks, errors | stub reads the first page only and keeps videos |
-| AC18 | `crates/app/src/play.rs` :: `ac18_queue_exit_codes` (table, fake metadata + fake engine) + `crates/app/tests/cli.rs` :: `ac18_bad_item` | lines printed, exit codes; `Not a Tidal…` with exit 2 | stub plays the first item only |
-| AC19 | `crates/app/src/player_runtime.rs` :: `ac19_effects_and_mash`, `ac19_quit_stops_engine` | effect execution order; one `Play` after the mash; `Stop` before exit | stub runtime plays every resolution it receives |
-| AC20 | `crates/core/src/ui.rs` :: `ac20_keys_to_commands` (table) + `crates/app/src/input.rs` :: `ac20_key_events` | commands per key; entry ID for `Enter` | stub maps only `q`/`Esc` |
-| AC21 | `crates/core/src/ui.rs` :: `ac21_key_sequence` | `g g` → top; `g` `j` → down | stub treats `g` alone as top |
-| AC22 | `crates/core/src/ui.rs` :: `ac22_snapshot_applied_as_is` | displayed order equals the snapshot's; stale positions ignored; cursor follows entry ID | stub sorts the queue by original position |
-| AC23 | `crates/app/src/ui.rs` :: `ac23_playback_window_*`, `ac23_queue_scrolls`, `ac23_truncation_40x12`, `ac23_no_panic_any_size` | `contains` assertions per state (symbol, `?:??`, reason text) plus snapshots reviewed by eye at acceptance | stub `render` draws only the frame |
+| AC18 | `crates/app/src/cli/play.rs` :: `ac18_queue_exit_codes` (table, fake metadata + fake engine) + `crates/app/tests/cli.rs` :: `ac18_bad_item` | lines printed, exit codes; `Not a Tidal…` with exit 2 | stub plays the first item only |
+| AC19 | `crates/app/src/player/runtime.rs` :: `ac19_effects_and_mash`, `ac19_quit_stops_engine` | effect execution order; one `Play` after the mash; `Stop` before exit | stub runtime plays every resolution it receives |
+| AC20 | `crates/core/src/ui/mod.rs` :: `ac20_keys_to_commands` (table) + `crates/app/src/tui/input.rs` :: `ac18_key_events` (renamed by 0006 AC18, which added its keys to the table) | commands per key; entry ID for `Enter` | stub maps only `q`/`Esc` |
+| AC21 | `crates/core/src/ui/mod.rs` :: `ac21_key_sequence` | `g g` → top; `g` `j` → down | stub treats `g` alone as top |
+| AC22 | `crates/core/src/ui/mod.rs` :: `ac22_snapshot_applied_as_is` | displayed order equals the snapshot's; stale positions ignored; cursor follows entry ID | stub sorts the queue by original position |
+| AC23 | `crates/app/src/tui/render.rs` :: `ac23_playback_window_*`, `ac23_queue_scrolls`, `ac23_truncation_40x12`, `ac23_no_panic_any_size` | `contains` assertions per state (symbol, `?:??`, reason text) plus snapshots reviewed by eye at acceptance | stub `render` draws only the frame |
 | AC24 | — reviewed at acceptance | docs exist, match this spec, are linked | — |
-| AC25 | `crates/app/src/play.rs` :: `ac25_player_config` (table) + `crates/core/src/ui.rs` :: `ac25_steps_from_config` | values, errors and precedence; commands carry the configured steps | stub ignores the environment and returns the defaults |
+| AC25 | `crates/app/src/settings.rs` :: `ac25_player_config` (table) + `crates/core/src/ui/mod.rs` :: `ac25_steps_from_config` | values, errors and precedence; commands carry the configured steps | stub ignores the environment and returns the defaults |
 | AC26 | `crates/core/src/player.rs` :: `ac26_autoplay` (table: on/off × repeat × result ok/empty/duplicates/error/stale/after toggle-off) | `FetchSuggestions` once, appended entries and their mark, preload, message, stop | stub never fetches, so the queue stops at its end with autoplay on |
 | AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | path and params, mapped tracks, errors | stub returns an empty list without a request, so the `expect(1)` fails |
-| AC28 | `crates/core/src/ui.rs` :: `ac28_open_prompt` (table) + `crates/app/src/player_runtime.rs` :: `ac28_open_adds_and_starts` | prompt state and mode, effects; commands sent after expansion (`End` and `Next`) | stub `o`/`O` do nothing |
+| AC28 | `crates/core/src/ui/mod.rs` :: `ac28_open_prompt` (table) + `crates/app/src/player/runtime.rs` :: `ac28_open_adds_and_starts` | prompt state and mode, effects; commands sent after expansion (`End` and `Next`) | stub `o`/`O` do nothing |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance with a real account (results in the PR description):
 

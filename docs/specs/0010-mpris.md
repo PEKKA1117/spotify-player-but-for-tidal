@@ -226,24 +226,24 @@ Each test is named after its criterion (`ac3_…`). Red is a failing assertion a
 |----|---------------------|-----------------|--------------|
 | AC1 | `crates/core/src/player/tests/setters.rs` :: `ac1_play_pause_stop` (table) | effects and snapshot per state | stub `Play`/`Pause`/`Stop` do nothing |
 | AC2 | `crates/core/src/player/tests/setters.rs` :: `ac2_set_shuffle_repeat_position` (table); `crates/core/src/protocol.rs` :: `ac11_round_trip` (new rows) | equal to the toggles / `SeekTo`; round-trip | stub setters do nothing |
-| AC3 | `crates/app/src/mpris/model.rs` :: `ac3_player_properties` (table) | every property per snapshot | stub returns tidalt's constants (`Can*` true, `CanSeek` false) |
-| AC4 | `crates/app/src/mpris/model.rs` :: `ac4_metadata` (table) | keys and values | stub returns `NoTrack` only |
-| AC5 | `crates/app/src/mpris/model.rs` :: `ac5_changes` (table) | the changed set | stub returns no changes (tidalt) |
-| AC6 | `crates/app/src/mpris/model.rs` :: `ac6_seeked` (table) | when `Seeked` fires | stub never fires |
-| AC7 | `crates/app/src/mpris/model.rs` :: `ac7_position` (table, fake clock) | extrapolated position | stub returns the last report |
-| AC8 | `crates/app/src/mpris/model.rs` :: `ac8_command_for` (table) | command or error per call | stub maps `Play` and `Pause` to `TogglePause` (tidalt) |
-| AC9 | `crates/app/src/mpris/hub.rs` :: `ac9_calls_reach_player`, `ac9_error_and_timeout`, `ac9_burst_in_order` | replies, errors, nothing dropped | stub completes calls before the reply and drops on a full channel |
+| AC3 | `crates/app/src/player/mpris/model.rs` :: `ac3_player_properties` (table) | every property per snapshot | stub returns tidalt's constants (`Can*` true, `CanSeek` false) |
+| AC4 | `crates/app/src/player/mpris/model.rs` :: `ac4_metadata` (table) | keys and values | stub returns `NoTrack` only |
+| AC5 | `crates/app/src/player/mpris/model.rs` :: `ac5_changes` (table) | the changed set | stub returns no changes (tidalt) |
+| AC6 | `crates/app/src/player/mpris/model.rs` :: `ac6_seeked` (table) | when `Seeked` fires | stub never fires |
+| AC7 | `crates/app/src/player/mpris/model.rs` :: `ac7_position` (table, fake clock) | extrapolated position | stub returns the last report |
+| AC8 | `crates/app/src/player/mpris/model.rs` :: `ac8_command_for` (table) | command or error per call | stub maps `Play` and `Pause` to `TogglePause` (tidalt) |
+| AC9 | `crates/app/src/player/mpris/hub.rs` :: `ac9_calls_reach_player`, `ac9_error_and_timeout`, `ac9_burst_in_order` | replies, errors, nothing dropped | stub completes calls before the reply and drops on a full channel |
 | AC10 | `crates/app/tests/mpris.rs` :: `ac10_on_the_bus` | the bus scenario | stub adapter never connects |
 | AC11 | `crates/app/tests/mpris.rs` :: `ac11_no_bus`; the 0005 tests unchanged | runs, logs once, no message | stub exits when the bus is missing |
 | AC12 | `crates/app/tests/mpris.rs` :: `ac12_name_taken` | `.instance<pid>` | stub gives up when the name is taken |
 | AC13 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows); `crates/app/tests/mpris.rs` :: `ac13_mpris_off` | parsing, precedence, no connection | stub ignores the setting |
 | AC14 | `crates/app/tests/mpris.rs` :: `ac14_clients_stay_off_the_bus` | no new bus connection from clients | stub client publishes too |
-| AC15 | `crates/app/src/oneshot.rs` :: the 0005 argument table (new rows) | parsed commands, exit 2 | stub parses only the toggles |
-| AC16 | `crates/app/src/mpris/hub.rs` :: `ac16_shutdown_order` | refusal after `Shutdown`; close after `ShuttingDown` | stub closes first |
-| AC18 | `crates/api/src/metadata.rs`, `crates/api/src/library.rs` :: `ac18_cover` (table, fixtures); `crates/core/src/track.rs` :: `ac18_cover_url` (table) | parsed covers; URLs | stub DTOs drop the field; stub `cover_url` returns `""` |
-| AC19 | `crates/app/src/persist.rs` :: `ac6_load` (new row); `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_round_trip` (new row) | old file loads; covers survive | stub `cover` without `#[serde(default)]` fails the old file |
-| AC20 | `crates/app/src/mpris/covers.rs` :: `ac20_eviction`, `ac20_art_url`, `ac20_start_cleanup`, `ac20_cache_dir` (tables) | what is deleted; the URL per state; the directory | stub keeps every file and always gives `https://` |
-| AC21 | `crates/app/src/mpris/covers.rs` :: `ac21_download`, `ac21_download_failures`, `ac21_latest_wins`, `ac21_metadata_sequence`; `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows) | files, modes, failures, order, signals, settings | stub download writes in place and never fails |
+| AC15 | `crates/app/src/cli/oneshot.rs` :: the 0005 argument table (new rows) | parsed commands, exit 2 | stub parses only the toggles |
+| AC16 | `crates/app/src/player/mpris/hub.rs` :: `ac16_shutdown_order` | refusal after `Shutdown`; close after `ShuttingDown` | stub closes first |
+| AC18 | `crates/api/tests/metadata.rs` :: `ac18_cover` (table, fixtures); `crates/core/src/track.rs` :: `ac18_cover_url` (table) | parsed covers; URLs | stub DTOs drop the field; stub `cover_url` returns `""` |
+| AC19 | `crates/app/src/player/persist.rs` :: `ac6_load` (new row); `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_round_trip` (new row) | old file loads; covers survive | stub `cover` without `#[serde(default)]` fails the old file |
+| AC20 | `crates/app/src/player/cover_cache.rs` :: `ac20_eviction`, `ac20_art_url`, `ac20_start_cleanup`, `ac20_cache_dir` (tables) | what is deleted; the URL per state; the directory | stub keeps every file and always gives `https://` |
+| AC21 | `crates/app/src/player/cover_cache.rs` :: `ac21_download`, `ac21_download_failures`, `ac21_latest_wins`, `ac21_metadata_sequence`; `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows) | files, modes, failures, order, signals, settings | stub download writes in place and never fails |
 | AC17 | `crates/app/tests/docs.rs` :: `ac17_every_command_documented` (new rows) + reviewed at acceptance | docs | stub docs lack the rows |
 
 Checked by hand at acceptance on the user's machine (results in the PR description), because they need a real desktop: GNOME's (or KDE's) media widget shows the track, updates on track change, pause and seek without delay, and its buttons work, and it shows the album cover; the keyboard's play/pause, next and previous keys control the daemon with no TUI open; `playerctl -p tidal_player metadata --follow` follows track changes; a Bluetooth headset's buttons control playback; the device is released after pausing from the widget (0005).
@@ -254,7 +254,7 @@ CI: `dbus-daemon` comes with the `dbus` package; the CI job's `apt-get install` 
 
 - `tidal-player-core`: `AlbumRef::cover` (`#[serde(default)]`) and `track::cover_url`; the new `Command` variants (`Play`, `Pause`, `Stop`, `SetShuffle(bool)`, `SetRepeat(RepeatMode)`, `SetPosition { entry, position }`) and their handling in `player`. No D-Bus, no new dependency
 - `tidal-player-api`: the `cover` field in the metadata and library album DTOs, mapped into `AlbumRef`
-- `tidal-player` (binary): `mpris/model.rs` (pure: properties, metadata, changes, `Seeked`, position, call → command, with its own value type), `mpris/hub.rs` (the adapter as an in-process client of the hub: a `Peer` with no stream that subscribes and sends `Request`s with ids, waiting for each `Reply` with a deadline), `mpris/bus.rs` (the thin zbus layer: name, object, interfaces, signals; checked by AC10–AC14 and by hand), `mpris/covers.rs` (the cache: pure eviction and URL rules, the download over `reqwest` behind a seam), wired into the standalone, `daemon` and `play` players; `mpris`, `max_cover_arts` and the cache directory in `config`; the one-shot setters in `oneshot`. `zbus` is already a dependency (blocking API for 0003's reservation); the adapter may use its async API on the player's tokio runtime (a workspace feature change only)
+- `tidal-player` (binary): `mpris/model.rs` (pure: properties, metadata, changes, `Seeked`, position, call → command, with its own value type), `mpris/hub.rs` (the adapter as an in-process client of the hub: a `Peer` with no stream that subscribes and sends `Request`s with ids, waiting for each `Reply` with a deadline), `mpris/bus.rs` (the thin zbus layer: name, object, interfaces, signals; checked by AC10–AC14 and by hand), `mpris/covers.rs` (the cache: pure eviction and URL rules, the download over `reqwest` behind a seam), wired into the standalone, `daemon` and `play` players; `mpris`, `max_cover_arts` and the cache directory in `config`; the one-shot setters in `cli::oneshot`. `zbus` is already a dependency (blocking API for 0003's reservation); the adapter may use its async API on the player's tokio runtime (a workspace feature change only)
 - `xtask layering`: no change (core and audio still have no D-Bus)
 - Adding a field to `AlbumRef` touches every test that builds one with a struct literal; the slice that adds it updates them (or they use a helper)
 

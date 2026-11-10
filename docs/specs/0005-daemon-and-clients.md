@@ -283,23 +283,23 @@ Each automated test is named after its criterion (`ac5_…`). Red is a failing a
 | AC4 | `crates/app/src/ipc/server/tests.rs` :: `ac4_subscribe_ordering` (table), `ac4_clients_converge` (200 seeded runs) | client state after `Welcome` + events equals the runtime's snapshot; identical sequences; every client equals the player when idle | stub sends `Welcome` from a snapshot taken outside the runtime thread, so events in between are lost or doubled |
 | AC5 | `crates/app/src/ipc/server/tests.rs` :: `ac5_requests_replied_in_order`, `ac5_nothing_dropped` | one reply per id, after its events; counts | stub replies before applying and drops when the input channel is busy |
 | AC6 | `crates/app/src/ipc/server/tests.rs` :: `ac6_stalled_client_disconnected`, `ac6_bad_clients_dropped` (table) | disconnection at 1024; others unaffected; reply latency | stub writes to each client synchronously, so the stalled one blocks the player |
-| AC7 | `crates/app/src/player_runtime.rs` :: `ac7_open` (table), `ac7_open_errors_and_order` | commands applied, start rule, error reply, order | stub applies each `Open` when its expansion finishes |
+| AC7 | `crates/app/src/player/runtime.rs` :: `ac7_open` (table), `ac7_open_errors_and_order` | commands applied, start rule, error reply, order | stub applies each `Open` when its expansion finishes |
 | AC8 | `crates/app/src/ipc/server/tests.rs` :: `ac8_login_status` | events and `Welcome.login_required` | stub always sends `login_required: false` and no events |
 | AC9 | `crates/app/src/ipc/paths.rs` :: `ac9_runtime_dir` (table), `ac9_private_dir` | chosen path; created mode; refusals | stub returns `/tmp/tidal-player` for every input and never checks |
 | AC10 | `crates/app/tests/daemon.rs` :: `ac10_second_player_exits_3`, `ac10_stale_socket_removed`, `ac10_race_one_wins` | exit codes, messages, a client can connect afterwards | stub daemon never takes the lock, so the second one also starts |
 | AC11 | `crates/app/tests/daemon.rs` :: `ac11_tui_attaches` + `crates/app/src/client.rs` :: `ac11_startup_open`, `ac11_connect_retry` | attach without lock or engine; the `Open` sent; retry then message | stub starts a standalone player regardless |
-| AC12 | `crates/core/src/ui.rs` :: `ac12_client_connection_states` (table) | state, messages, no `Send` while disconnected, `q` | stub ignores `Welcome`/`Disconnected` |
+| AC12 | `crates/core/src/ui/mod.rs` :: `ac12_client_connection_states` (table) | state, messages, no `Send` while disconnected, `q` | stub ignores `Welcome`/`Disconnected` |
 | AC13 | `crates/app/src/client.rs` :: `ac13_reconnect`, `ac13_no_local_edits` | reconnect cadence, re-subscribe, state replaced; queue unchanged until the snapshot | stub gives up after the first failure |
 | AC14 | `crates/app/tests/daemon.rs` :: `ac14_client_needs_no_session` | exit 0 and output with an empty state dir | stub client loads the session first and says `Not logged in` |
-| AC15 | `crates/app/src/oneshot.rs` :: `ac15_parse` (table), `ac15_status_lines` (table), `ac15_execute` (fake link: `Ok`/`Err` replies, the 5 s timeout injected, `status`/`--json`) + `crates/app/tests/daemon.rs` :: `ac15_exit_codes` | messages per row; exit codes; printed lines | stub sends `TogglePause` for every command |
+| AC15 | `crates/app/src/cli/oneshot.rs` :: `ac15_parse` (table), `ac15_status_lines` (table), `ac15_execute` (fake link: `Ok`/`Err` replies, the 5 s timeout injected, `status`/`--json`) + `crates/app/tests/daemon.rs` :: `ac15_exit_codes` | messages per row; exit codes; printed lines | stub sends `TogglePause` for every command |
 | AC16 | `crates/app/tests/daemon.rs` :: `ac16_daemon_stop` | exit 0 and the lock free afterwards; 1 without a player | stub exits 0 without sending |
 | AC17 | `crates/app/tests/daemon.rs` :: `ac17_ready_and_sigterm` | `READY=1` received after the socket accepts; `ShuttingDown` seen by a client; socket gone; exit 0 | stub never notifies and leaves the socket file |
-| AC18 | `crates/app/src/daemon.rs` :: `ac18_unit` | snapshot + `contains` checks | stub prints an empty unit |
+| AC18 | `crates/app/src/cli/daemon.rs` :: `ac18_unit` | snapshot + `contains` checks | stub prints an empty unit |
 | AC19 | `crates/audio/tests/engine.rs` :: `ac19_release_while_paused` (table: 16/24-bit, delay 0/10 s/never, seek/play/stop/device while released) | close and release counts; frames byte for byte; positions | stub never releases (counts 0) |
 | AC20 | `crates/audio/tests/engine.rs` :: `ac20_request_release` (table over states) | answers, order of close / answer / release, latency | stub refuses always (0003's behaviour) |
-| AC21 | `crates/audio/tests/engine.rs` :: `ac21_resume_failure` + `crates/core/src/player/tests.rs` :: `ac21_resume_failed_stays_paused` (table) + `crates/app/src/player_runtime.rs` :: `ac21_runtime_maps_release_events` (the runtime's mapping of the engine's `Released`/`Resumed`/`ResumeFailed`) | event, nothing open, retry; player state, message, no skip | stub player handles `ResumeFailed` as a track failure and skips |
-| AC22 | `crates/core/src/player/tests.rs` :: `ac22_released_flag` + `crates/app/src/ui.rs` :: `ac22_released_row` | snapshot flag; ` · device released` in the buffer, snapshot reviewed by eye | stub never sets the flag |
-| AC23 | `crates/app/src/play.rs` :: `ac25_player_config` (extended rows) | values and errors | stub ignores the variable |
+| AC21 | `crates/audio/tests/engine.rs` :: `ac21_resume_failure` + `crates/core/src/player/tests.rs` :: `ac21_resume_failed_stays_paused` (table) + `crates/app/src/player/runtime.rs` :: `ac21_runtime_maps_release_events` (the runtime's mapping of the engine's `Released`/`Resumed`/`ResumeFailed`) | event, nothing open, retry; player state, message, no skip | stub player handles `ResumeFailed` as a track failure and skips |
+| AC22 | `crates/core/src/player/tests.rs` :: `ac22_released_flag` + `crates/app/src/tui/render.rs` :: `ac22_released_row` | snapshot flag; ` · device released` in the buffer, snapshot reviewed by eye | stub never sets the flag |
+| AC23 | `crates/app/src/settings.rs` :: `ac25_player_config` (extended rows) | values and errors | stub ignores the variable |
 | AC24 | — reviewed at acceptance | docs exist, match this spec, are linked | — |
 
 Not covered by automated tests, on purpose, and checked by hand at acceptance on the user's machine (results in the PR description):
@@ -321,7 +321,7 @@ Not covered by automated tests, on purpose, and checked by hand at acceptance on
 Verified (2026-10-07):
 
 - tidalt's design and bugs under "Context", from its source, history (`git log`, the commits named) and closed issues #3–#8 and #19–#21
-- 0004's runtime takes commands on one `mpsc` channel and has one event receiver, and the TUI expands items itself through `Expander` (`crates/app/src/player_runtime.rs`, `crates/app/src/main.rs`): hence the fan-out and `Open`
+- 0004's runtime takes commands on one `mpsc` channel and has one event receiver, and the TUI expands items itself through `Expander` (`crates/app/src/player/runtime.rs`, `crates/app/src/main.rs`): hence the fan-out and `Open`
 - `std::fs::File::try_lock` and `SocketAddr::from_abstract_name` (for an abstract `$NOTIFY_SOCKET`) compile and behave as expected on the pinned toolchain (rustc 1.97.1; a second `try_lock` on the same file fails)
 - `tidal_player_core::Item` already derives `Serialize`/`Deserialize`
 - `reserve.rs`'s exported object refuses every `RequestRelease` today

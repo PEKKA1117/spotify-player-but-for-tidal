@@ -33,7 +33,7 @@ use tidal_player_core::protocol::{
 use tokio::sync::watch;
 
 use super::codec::{Decoder, encode, greeting};
-use crate::player_runtime::RuntimeInput;
+use crate::player::runtime::RuntimeInput;
 
 /// The messages a client may have waiting before it is disconnected.
 pub const OUTBOX: usize = 1024;

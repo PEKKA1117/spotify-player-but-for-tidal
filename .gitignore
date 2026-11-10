@@ -1,2 +1,5 @@
 /target
 *.snap.new
+# Output of the live-API probe scripts: read into a spec's "Facts", never committed.
+*-probe-output.txt
+*-probe*-output.txt

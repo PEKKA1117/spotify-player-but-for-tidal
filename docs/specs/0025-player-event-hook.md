@@ -128,15 +128,15 @@ When the player shuts down with a track playing or paused, it sends `Stopped`, s
 | AC3 | `crates/core/src/hook/tests.rs` :: `ac3_stopped` (table) | each way of stopping; a track gone from the queue | no events derived |
 | AC4 | `crates/core/src/hook/tests.rs` :: `ac4_seeked` (table) | playing, paused, stopped, loading, same position, `Previous` both ways | no events derived |
 | AC5 | `crates/core/src/hook/tests.rs` :: `ac5_volume` (table) | volume, mute, no change | no events derived |
-| AC6 | `crates/core/src/hook/tests.rs` :: `ac6_device` + `crates/app/src/player_runtime.rs` :: `ac6_device_move_runs_only_device_changed` | the event; a move of a playing track through the runtime | no events derived; nothing recorded |
+| AC6 | `crates/core/src/hook/tests.rs` :: `ac6_device` + `crates/app/src/player/runtime.rs` :: `ac6_device_move_runs_only_device_changed` | the event; a move of a playing track through the runtime | no events derived; nothing recorded |
 | AC7 | `crates/core/src/hook/tests.rs` :: `ac7_silence` (table) | no events for each case | a stub deriving events for every change fails it |
 | AC8 | `crates/core/src/hook/tests.rs` :: `ac8_arguments_and_environment` (table) | argv and variables per event; absent album and duration | empty argv |
-| AC9 | `crates/core/src/hook/tests.rs` :: `ac9_queue` (table) + `crates/app/src/hook.rs` :: `ac9_one_at_a_time` | order, the limit, replacement of the last; never two commands at once | queue keeps nothing; nothing runs |
-| AC10 | `crates/app/src/player_runtime.rs` :: `ac10_real_sequences` (table) | recorded events for the four sequences | nothing recorded |
-| AC11 | `crates/app/src/hook.rs` :: `ac11_failures` (table, fake runner) | messages and their re-arming | no message reported |
-| AC12 | `crates/app/src/hook.rs` :: `ac12_never_blocks` | a runner held on a barrier; `send` returns at once | the send waits |
-| AC13 | `crates/app/src/config.rs` :: `ac13_hook_reaches_the_settings` + `crates/app/src/player_runtime.rs` :: `ac13_play_waits_for_the_hook` + `crates/app/src/play.rs` :: `ac13_play_asks_for_the_hooks_metadata` + hands-on check | `app.toml`'s command is in the settings all three players start from; `play` running out of queue finishes the hook; one track ID is fetched only with a hook; the check above runs it with a TUI attached, since `main` starts the players and has no seam | settings carry no hook; the hook is never finished; the track stays nameless |
-| AC14 | `crates/app/src/hook.rs` :: `ac14_shutting_down` + `crates/app/src/player_runtime.rs` :: `ac14_shutdown_sends_stopped` | the 2 s limit with a stuck runner; `Stopped` for playing and paused, none when stopped | no drain; nothing recorded |
+| AC9 | `crates/core/src/hook/tests.rs` :: `ac9_queue` (table) + `crates/app/src/player/hook.rs` :: `ac9_one_at_a_time` | order, the limit, replacement of the last; never two commands at once | queue keeps nothing; nothing runs |
+| AC10 | `crates/app/src/player/runtime.rs` :: `ac10_real_sequences` (table) | recorded events for the four sequences | nothing recorded |
+| AC11 | `crates/app/src/player/hook.rs` :: `ac11_failures` (table, fake runner) | messages and their re-arming | no message reported |
+| AC12 | `crates/app/src/player/hook.rs` :: `ac12_never_blocks` | a runner held on a barrier; `send` returns at once | the send waits |
+| AC13 | `crates/app/src/config.rs` :: `ac13_hook_reaches_the_settings` + `crates/app/src/player/runtime.rs` :: `ac13_play_waits_for_the_hook` + `crates/app/src/cli/play.rs` :: `ac13_play_asks_for_the_hooks_metadata` + hands-on check | `app.toml`'s command is in the settings all three players start from; `play` running out of queue finishes the hook; one track ID is fetched only with a hook; the check above runs it with a TUI attached, since `main` starts the players and has no seam | settings carry no hook; the hook is never finished; the track stays nameless |
+| AC14 | `crates/app/src/player/hook.rs` :: `ac14_shutting_down` + `crates/app/src/player/runtime.rs` :: `ac14_shutdown_sends_stopped` | the 2 s limit with a stuck runner; `Stopped` for playing and paused, none when stopped | no drain; nothing recorded |
 | AC15 | `crates/app/tests/examples.rs` (the example parses) + reviewed at acceptance | docs read by hand: prose has no automated check | the commented example is not found |
 | AC16 | `crates/app/tests/hook.rs` :: `ac16_real_process` | a `/bin/sh` script writes what it got to a file; a sleeping one is killed at a short limit | no process runs |
 
@@ -146,7 +146,7 @@ Checked by hand at acceptance, against the live API: the release build as a daem
 
 - `tidal-player-core`, new `hook` module: `HookEvent`, `HookTracker` (events from the snapshots around an input, remembering the track that last started), argv and environment of an event, the waiting queue. All pure
 - `tidal-player` (`crates/app`), new `hook` module: the worker thread, the failure reporting and the process behind a `Runner` seam
-- `crates/app/src/player_runtime.rs`: `handle` takes the snapshot before an input when a hook is set too, and hands the events to the hook. `Command`, `Event` and the socket protocol do not change
+- `crates/app/src/player/runtime.rs`: `handle` takes the snapshot before an input when a hook is set too, and hands the events to the hook. `Command`, `Event` and the socket protocol do not change
 - A failure reaches the player as a new `RuntimeInput::HookFailed(String)`, turned into `PlayerInput::Notice` as a failed save is
 
 ## Facts vs. assumptions

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
-use tidal_player::http_source::{HttpSource, HttpSourceConfig, Reresolve};
+use tidal_player::player::http_source::{HttpSource, HttpSourceConfig, Reresolve};
 use tidal_player_api::auth::ManualClock;
 use tidal_player_api::stream::{Codec, ResolvedStream, Segment, StreamError, StreamPlan};
 use tidal_player_audio::{ReadOutcome, SegmentSpan, SourceError, SourceLayout, TrackSource};

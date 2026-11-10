@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use tidal_player::hook::{Job, Outcome, ProcessRunner, Runner, Stderr};
+use tidal_player::player::hook::{Job, Outcome, ProcessRunner, Runner, Stderr};
 
 /// A job running `body` through `/bin/sh`: a script written here and
 /// executed directly can fail with `ETXTBSY` when another test forks.
