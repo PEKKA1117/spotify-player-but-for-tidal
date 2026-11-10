@@ -382,6 +382,12 @@ fn resolve_with(
                 ),
             })?;
     }
+    if let Some(value) = get(LOG_LEVEL_VAR) {
+        settings.log_level = value.parse().map_err(|_| SettingsError {
+            setting: LOG_LEVEL_VAR.into(),
+            message: format!("expected off, error, warn, info, debug or trace, got \"{value}\""),
+        })?;
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -435,6 +441,9 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(on) = file.confirm_removals {
         settings.confirm_removals = on;
+    }
+    if let Some(level) = file.log_level {
+        settings.log_level = level;
     }
     if let Some(ms) = file.key_hints_delay_ms {
         settings.key_hints_delay = Duration::from_millis(ms);

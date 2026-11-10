@@ -298,7 +298,21 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             "player_event_hook_command" => {
                 config.player_event_hook_command = Some(hook_command(path, key, value)?);
             }
-            "log_level" => {}
+            "log_level" => match value
+                .as_str()
+                .and_then(|text| text.parse::<tidal_player_core::log::LogSetting>().ok())
+            {
+                Some(level) => config.log_level = Some(level),
+                None => {
+                    return Err(invalid(
+                        key,
+                        format!(
+                            "expected off, error, warn, info, debug or trace, got {}",
+                            describe(value)
+                        ),
+                    ));
+                }
+            },
             "theme" => match value.as_str() {
                 Some(name) => config.theme = Some(name.to_owned()),
                 None => {
