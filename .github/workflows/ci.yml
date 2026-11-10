@@ -13,11 +13,11 @@ env:
   CARGO_TERM_COLOR: always
 
 # The jobs build and test code, so they run only where code changes: master,
-# and pull requests from feat/* and bugfix/* branches; docs/* and chore/* skip
-# them. `head_ref` is the PR's branch.
+# and pull requests from feat/*, bugfix/* and refactor/* branches (spec 0026);
+# docs/* and chore/* skip them. `head_ref` is the PR's branch.
 jobs:
   check:
-    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') }}
+    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') || startsWith(github.head_ref, 'refactor/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +33,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Layering
         run: cargo xtask layering
+      - name: Specs
+        run: cargo xtask specs
       - name: Build
         run: cargo build --workspace
       - name: Test
@@ -40,7 +42,7 @@ jobs:
 
   # AC7: the audio crate must build and test without the ALSA headers.
   audio-no-alsa:
-    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') }}
+    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'bugfix/') || startsWith(github.head_ref, 'refactor/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

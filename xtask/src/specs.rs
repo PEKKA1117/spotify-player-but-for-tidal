@@ -24,13 +24,190 @@ impl fmt::Display for Finding {
 
 /// The findings of one spec. `read` returns a workspace file's text, or
 /// `None` when there is no such file.
-pub fn check(_spec: &str, _text: &str, _read: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
-    Vec::new()
+pub fn check(spec: &str, text: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for (index, row) in text.lines().enumerate() {
+        if !row.trim_start().starts_with('|') {
+            continue;
+        }
+        for message in check_row(row, read) {
+            findings.push(Finding {
+                spec: spec.to_string(),
+                line: index + 1,
+                message,
+            });
+        }
+    }
+    findings
+}
+
+/// A piece of a table cell, outside parentheses.
+enum Piece {
+    /// Text in backticks.
+    Code(String),
+    /// Text between two backtick spans.
+    Text(String),
+    /// A `|`: the next cell starts.
+    Cell,
+}
+
+/// Splits a row into its pieces, dropping what is in parentheses.
+fn pieces(row: &str) -> Vec<Piece> {
+    let mut out = Vec::new();
+    let mut text = String::new();
+    let mut code: Option<String> = None;
+    let mut depth = 0usize;
+    let mut escaped = false;
+    for c in row.chars() {
+        if let Some(span) = code.as_mut() {
+            if c == '`' {
+                if depth == 0 {
+                    out.push(Piece::Code(std::mem::take(span)));
+                }
+                code = None;
+            } else {
+                span.push(c);
+            }
+            continue;
+        }
+        let was_escaped = std::mem::replace(&mut escaped, c == '\\');
+        match c {
+            '`' => {
+                if depth == 0 {
+                    out.push(Piece::Text(std::mem::take(&mut text)));
+                }
+                code = Some(String::new());
+            }
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            '|' if !was_escaped => {
+                out.push(Piece::Text(std::mem::take(&mut text)));
+                out.push(Piece::Cell);
+                depth = 0;
+            }
+            _ if depth == 0 => text.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// What one table row is missing.
+fn check_row(row: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+    let mut missing = Vec::new();
+    // The file the names after `::` belong to, with its text and its tests
+    // module's.
+    let mut file: Option<(String, String)> = None;
+    let mut names = false;
+    for piece in pieces(row) {
+        match piece {
+            Piece::Cell => {
+                file = None;
+                names = false;
+            }
+            Piece::Text(text) => {
+                let text = text.trim();
+                if text == "::" {
+                    names = file.is_some();
+                } else if !is_separator(text) {
+                    names = false;
+                }
+            }
+            Piece::Code(code) if is_workspace_file(&code) => {
+                names = false;
+                file = match read(&code) {
+                    Some(mut source) => {
+                        if let Some(tests) = tests_module(&code).and_then(|path| read(&path)) {
+                            source.push('\n');
+                            source.push_str(&tests);
+                        }
+                        Some((code, source))
+                    }
+                    None => {
+                        missing.push(format!("no file `{code}`"));
+                        None
+                    }
+                };
+            }
+            Piece::Code(code) if names && is_identifier(&code) => {
+                if let Some((path, source)) = &file
+                    && !has_function(source, &code)
+                {
+                    missing.push(format!("no test `{code}` in `{path}`"));
+                }
+            }
+            Piece::Code(_) => {
+                file = None;
+                names = false;
+            }
+        }
+    }
+    missing
+}
+
+/// Whether `text` only joins two test names (`,`, `;`, `+`, `and`).
+fn is_separator(text: &str) -> bool {
+    text.split_whitespace()
+        .all(|word| matches!(word, "," | ";" | "+" | "and" | "/"))
+}
+
+fn is_workspace_file(code: &str) -> bool {
+    (code.starts_with("crates/") || code.starts_with("xtask/"))
+        && code.ends_with(".rs")
+        && !code.contains(char::is_whitespace)
+}
+
+fn is_identifier(code: &str) -> bool {
+    !code.is_empty()
+        && code
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && !code.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// The tests module of a source file: `foo/tests.rs` for `foo.rs`,
+/// `tests.rs` beside a `mod.rs`.
+fn tests_module(path: &str) -> Option<String> {
+    let (dir, name) = path.rsplit_once('/')?;
+    match name {
+        "tests.rs" => None,
+        "mod.rs" => Some(format!("{dir}/tests.rs")),
+        _ => Some(format!("{dir}/{}/tests.rs", name.strip_suffix(".rs")?)),
+    }
+}
+
+/// Whether `source` defines a function called `name`.
+fn has_function(source: &str, name: &str) -> bool {
+    let needle = format!("fn {name}");
+    source
+        .match_indices(&needle)
+        .any(|(at, _)| matches!(source[at + needle.len()..].chars().next(), Some('(' | '<')))
 }
 
 /// Checks every `docs/specs/*.md` under `root`.
-pub fn check_workspace(_root: &Path) -> anyhow::Result<Vec<Finding>> {
-    anyhow::bail!("not implemented")
+pub fn check_workspace(root: &Path) -> anyhow::Result<Vec<Finding>> {
+    use anyhow::Context;
+
+    let dir = root.join("docs/specs");
+    let mut specs: Vec<_> = std::fs::read_dir(&dir)
+        .with_context(|| format!("cannot read {}", dir.display()))?
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| path.extension().is_some_and(|e| e == "md"))
+        .collect();
+    specs.sort();
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+    let mut findings = Vec::new();
+    for path in specs {
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("cannot read {}", path.display()))?;
+        let name = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        findings.extend(check(&name, &text, &read));
+    }
+    Ok(findings)
 }
 
 #[cfg(test)]
@@ -52,6 +229,9 @@ mod tests {
         }
     }
 
+    /// A row of a table: its name, the spec's text and the findings wanted.
+    type Case = (&'static str, &'static str, &'static [(usize, &'static str)]);
+
     fn messages(text: &str) -> Vec<(usize, String)> {
         check("docs/specs/0000-x.md", text, &read)
             .into_iter()
@@ -65,7 +245,7 @@ mod tests {
     /// Spec 0026 AC1.
     #[test]
     fn ac1_reports_missing_files_and_tests() {
-        let cases: &[(&str, &str, &[(usize, &str)])] = &[
+        let cases: &[Case] = &[
             (
                 "clean",
                 "| AC1 | `crates/a/src/foo.rs` :: `ac1_here` | x | y |\n",
@@ -116,7 +296,7 @@ mod tests {
     /// Spec 0026 AC2.
     #[test]
     fn ac2_what_is_read() {
-        let cases: &[(&str, &str, &[(usize, &str)])] = &[
+        let cases: &[Case] = &[
             (
                 "tests module of a file",
                 "| AC2 | `crates/a/src/foo.rs` :: `ac2_in_tests_file`, `ac2_async` | x | y |\n",
