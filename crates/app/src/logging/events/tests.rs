@@ -10,14 +10,14 @@ use tidal_player_core::log::LogLevel::{self, Debug, Info, Warn};
 use tidal_player_core::player::{PlayerConfig, PlayerState};
 
 /// What `f` logged at `setting`, as (level, text).
-fn lines(setting: LogSetting, f: impl FnOnce()) -> Vec<(LogLevel, String)> {
+fn lines(setting: LogSetting, f: impl FnOnce()) -> Captured {
     capture(setting, f)
         .into_iter()
         .map(|l| (l.level, l.text))
         .collect()
 }
 
-fn info(f: impl FnOnce()) -> Vec<(LogLevel, String)> {
+fn info(f: impl FnOnce()) -> Captured {
     lines(LogSetting::Info, f)
 }
 
@@ -48,12 +48,17 @@ fn snapshot(state: PlaybackState, message: Option<&str>) -> PlayerSnapshot {
     snapshot
 }
 
+/// What a row captured: (level, text) lines.
+type Captured = Vec<(LogLevel, String)>;
+/// What a row expects: (level, text) lines.
+type Expected = Vec<(LogLevel, &'static str)>;
+
 /// Every row of "A run's life": the seam's input, then the captured event.
 #[test]
 fn ac16_run_life() {
     let config = Path::new("/home/u/.config/tidal-player");
     let opened = "device opened device=hw:1,0 format=S32_LE rate=44100 channels=2 bit_perfect=true";
-    let rows: Vec<(&str, Vec<(LogLevel, String)>, Vec<(LogLevel, &str)>)> = vec![
+    let rows: Vec<(&str, Captured, Expected)> = vec![
         (
             "starting, a daemon",
             info(|| starting("1.4.6", Mode::Daemon, LogSetting::Info, config)),
@@ -415,7 +420,7 @@ fn ac17_message_once() {
 /// The TUI's rows, each at its level.
 #[test]
 fn ac17_tui_rows() {
-    let rows: Vec<(&str, Vec<(LogLevel, String)>, (LogLevel, &str))> = vec![
+    let rows: Vec<(&str, Captured, (LogLevel, &str))> = vec![
         (
             "connection lost",
             info(|| disconnected("Disconnected from the player: reconnecting…")),

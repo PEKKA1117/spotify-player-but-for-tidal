@@ -312,7 +312,9 @@ mod alsa_play {
         config.country = Some(country);
         // `request.player.device` is `request.settings.device` (spec 0014).
         let engine = spawn_output(&config.device, request.release_paused);
-        let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs).with_hook(hook);
+        let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs)
+            .with_requested(request.settings.quality)
+            .with_hook(hook);
         if let Some(logs) = request.logs.clone() {
             player = player.with_logs(logs);
         }

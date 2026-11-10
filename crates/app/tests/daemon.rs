@@ -966,6 +966,11 @@ fn ac17_ready_and_sigterm() {
     let machine = Machine::new();
     let (code, _, stderr) =
         Running(machine.client(&["daemon"]).spawn().unwrap()).output(Duration::from_secs(20));
+    // The daemon's own `starting` line (0027) is not what this checks.
+    let stderr: String = stderr
+        .split_inclusive('\n')
+        .filter(|line| !line.starts_with("INFO tidal_player::run: starting "))
+        .collect();
     assert_eq!(
         (code, stderr.as_str()),
         (Some(1), "Not logged in: run \"tidal-player login\"\n")

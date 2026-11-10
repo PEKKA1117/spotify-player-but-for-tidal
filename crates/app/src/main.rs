@@ -33,7 +33,10 @@ use tidal_player::{
         paths::current_uid,
         server,
     },
-    logging::{self, LogHandle, Mode as LogMode},
+    logging::{
+        self, LogHandle, Mode as LogMode,
+        events::{self, Shutdown},
+    },
     panic_hook::install_panic_hook,
     player::{
         hook, mpris,
@@ -229,6 +232,10 @@ fn run<C: Connector>(
     let mut own_seq = None;
     // Spec 0013: the hint shows once a sequence has been pending this long.
     let mut hint_timer = HintTimer::new(hint_delay);
+    // Spec 0027: what the start-up showed (skipped keymap and theme entries).
+    if let Some(text) = &state.notice {
+        events::notice(text);
+    }
     // A list window's height follows the terminal (spec 0006 "Lists load
     // as you scroll"): sent before the first frame and whenever the size
     // (or the session-expired line, which takes a row) changes, from the
@@ -257,9 +264,18 @@ fn run<C: Connector>(
         }
         let mut exported = Vec::new();
         for action in actions.drain(..) {
+            log_connection(&state, &action);
             for effect in update(&mut state, action) {
                 match effect {
-                    Effect::Quit => return Ok(None),
+                    Effect::Quit => {
+                        let gone = state.connection != tui_model::Connection::Connected;
+                        events::shutting_down(if gone {
+                            Shutdown::PlayerGone
+                        } else {
+                            Shutdown::Quit
+                        });
+                        return Ok(None);
+                    }
                     Effect::Send(command) => session.send(command),
                     Effect::Library { id, request } => session.send_library(id, request),
                     Effect::Devices { id } => session.send_devices(id),
@@ -272,6 +288,9 @@ fn run<C: Connector>(
                             SystemTime::now(),
                             &logging::Zone::system(),
                         );
+                        if let Err(reason) = &result {
+                            events::export_failed(reason);
+                        }
                         exported.push(Action::LogsExported(result));
                     }
                     Effect::Envy(envy) => return Ok(Some(envy)),
@@ -307,6 +326,21 @@ fn run<C: Connector>(
         } else {
             actions.push(Action::Tick);
         }
+    }
+}
+
+/// Spec 0027 "What the user was told": the connection's changes, as the
+/// TUI is about to show them.
+fn log_connection(state: &State, action: &Action) {
+    match action {
+        Action::Disconnected { shut_down } => events::disconnected(if *shut_down {
+            tidal_player_core::ui::SHUT_DOWN
+        } else {
+            tidal_player_core::ui::DISCONNECTED
+        }),
+        Action::Refused(message) => events::disconnected(message),
+        Action::Welcome { .. } if state.reconnecting() => events::reconnected(),
+        _ => {}
     }
 }
 
@@ -377,6 +411,25 @@ fn bind_player(lock: &PlayerLock) -> Result<(std::os::unix::net::UnixListener, P
     })
 }
 
+/// The config directory of this run, for the `starting` line.
+static CONFIG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// [`logging::install`], and the `starting` line of the log it installed.
+fn install_log(
+    mode: LogMode,
+    setting: tidal_player_core::log::LogSetting,
+    state_dir: &std::path::Path,
+) -> Option<LogHandle> {
+    let logs = logging::install(mode, setting, state_dir);
+    if logs.is_some() {
+        let config = CONFIG_DIR
+            .get()
+            .map_or(std::path::Path::new(""), PathBuf::as_path);
+        events::starting(env!("CARGO_PKG_VERSION"), mode, setting, config);
+    }
+    logs
+}
+
 /// The `log_level` this process keeps (spec 0027), read before the other
 /// settings so that what they log is kept. A bad value is the default
 /// here: the settings' own resolution reports it and exits 2.
@@ -395,7 +448,7 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         Err(code) => return Ok(code),
     };
     // Only the player writes the log file: from here, with the lock held.
-    let logs = logging::install(LogMode::Daemon, log_setting(app), &plan.state_dir);
+    let logs = install_log(LogMode::Daemon, log_setting(app), &plan.state_dir);
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -453,6 +506,7 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         engine,
         jobs,
     )
+    .with_requested(settings.quality)
     .with_hook(hook::start(
         player_settings.hook.as_ref(),
         results.clone(),
@@ -583,7 +637,7 @@ fn tui_main(
             state,
             player_settings.key_hints_delay,
             cover::Settings::from_player(&player_settings),
-            logging::install(
+            install_log(
                 LogMode::Attached,
                 player_settings.log_level,
                 &plan.state_dir,
@@ -712,7 +766,7 @@ fn standalone(
     state: State,
 ) -> Result<ExitCode> {
     // The lock is held: this process writes the log file (spec 0027).
-    let logs = logging::install(LogMode::Standalone, log_setting(app), &state_dir);
+    let logs = install_log(LogMode::Standalone, log_setting(app), &state_dir);
     let settings = match resolve_settings_with(app, None, None, env_var) {
         Ok(settings) => settings,
         Err(e) => {
@@ -770,6 +824,7 @@ fn standalone(
         engine,
         jobs,
     )
+    .with_requested(settings.quality)
     .with_hook(hook::start(
         player_settings.hook.as_ref(),
         results.clone(),
@@ -956,7 +1011,7 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
         Err(code) => return code,
     };
     // The lock is held: this process writes the log file (spec 0027).
-    let logs = logging::install(LogMode::Play, player.log_level, &plan.state_dir);
+    let logs = install_log(LogMode::Play, player.log_level, &plan.state_dir);
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -1042,6 +1097,7 @@ fn main() -> Result<ExitCode> {
             | Some(Command::Devices)
     );
     let config_dir = config::process_config_dir(config_folder.as_deref());
+    let _ = CONFIG_DIR.set(config_dir.clone());
     let app = if reads_config {
         match config::load_app_toml(&config_dir) {
             Ok(app) => app,

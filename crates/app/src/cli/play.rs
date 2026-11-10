@@ -22,6 +22,7 @@ use tidal_player_core::protocol::{
 };
 use tidal_player_core::{AudioQuality, Item, Track};
 
+use crate::logging::events::{self, Shutdown};
 use crate::player::runtime::{
     EngineControl, ExpandError, Handled, Jobs, Metadata, PlayerRuntime, RuntimeInput, expand_items,
 };
@@ -381,11 +382,13 @@ pub fn play_queue<E: EngineControl, J: Jobs>(
         let snapshot = runtime.snapshot();
         if snapshot.state == PlaybackState::Stopped && !runtime.suggestions_pending() {
             reporter.finish(output);
+            events::shutting_down(Shutdown::Quit);
             runtime.hook_shutdown();
             return reporter.exit_code(&snapshot);
         }
         let input = loop {
             if interrupted() {
+                events::shutting_down(Shutdown::Signal);
                 runtime.handle(RuntimeInput::Command(Command::Shutdown));
                 reporter.finish(output);
                 return 130;
