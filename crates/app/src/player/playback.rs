@@ -39,6 +39,9 @@ pub struct PlayRequest {
     pub mpris: crate::player::mpris::Settings,
     /// The command run on each player event (spec 0025).
     pub hook: Option<crate::config::HookCommand>,
+    /// The process's log buffer, which `Logs` requests are answered from
+    /// (spec 0027).
+    pub logs: Option<crate::logging::LogHandle>,
     pub options: PlayOptions,
 }
 
@@ -310,6 +313,9 @@ mod alsa_play {
         // `request.player.device` is `request.settings.device` (spec 0014).
         let engine = spawn_output(&config.device, request.release_paused);
         let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs).with_hook(hook);
+        if let Some(logs) = request.logs.clone() {
+            player = player.with_logs(logs);
+        }
         let stdout = io::stdout();
         let tty = stdout.is_terminal();
         let (mut out, mut err) = (stdout.lock(), io::stderr());

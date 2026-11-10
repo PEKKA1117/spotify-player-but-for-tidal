@@ -33,6 +33,7 @@ use tidal_player::{
         paths::current_uid,
         server,
     },
+    logging::{self, LogHandle, Mode as LogMode},
     panic_hook::install_panic_hook,
     player::{
         hook, mpris,
@@ -220,8 +221,12 @@ fn run<C: Connector>(
     mut state: State,
     hint_delay: Duration,
     mut cover: Option<TuiCover>,
+    own_logs: Option<LogHandle>,
 ) -> Result<Option<Envy>> {
     let mut actions = Vec::new();
+    // Spec 0027: the logs page's clock, and an attached TUI's own lines.
+    let started = Instant::now();
+    let mut own_seq = None;
     // Spec 0013: the hint shows once a sequence has been pending this long.
     let mut hint_timer = HintTimer::new(hint_delay);
     // A list window's height follows the terminal (spec 0006 "Lists load
@@ -241,6 +246,15 @@ fn run<C: Connector>(
             });
         }
         actions.extend(session.poll(Instant::now()));
+        // The clock first, so that what asks for the log lines is on time.
+        actions.insert(0, Action::Clock(started.elapsed()));
+        if let Some(own) = &own_logs {
+            let lines = own.lines_after(own_seq);
+            if let Some(last) = lines.last() {
+                own_seq = Some(last.seq);
+                actions.insert(1, Action::OwnLogs(lines));
+            }
+        }
         for action in actions.drain(..) {
             for effect in update(&mut state, action) {
                 match effect {
@@ -352,6 +366,15 @@ fn bind_player(lock: &PlayerLock) -> Result<(std::os::unix::net::UnixListener, P
     })
 }
 
+/// The `log_level` this process keeps (spec 0027), read before the other
+/// settings so that what they log is kept. A bad value is the default
+/// here: the settings' own resolution reports it and exits 2.
+fn log_setting(app: &AppConfig) -> tidal_player_core::log::LogSetting {
+    resolve_player_config_with(app, env_var)
+        .map(|settings| settings.log_level)
+        .unwrap_or_default()
+}
+
 /// `tidal-player daemon` (spec 0005 "The daemon"): the lock, the session,
 /// the settings, the socket; then the player serves its clients until one
 /// asks it to shut down.
@@ -360,6 +383,8 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         Ok(lock) => lock,
         Err(code) => return Ok(code),
     };
+    // Only the player writes the log file: from here, with the lock held.
+    let logs = logging::install(LogMode::Daemon, log_setting(app), &plan.state_dir);
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -422,6 +447,10 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         results.clone(),
         hook::Stderr::Inherit,
     ));
+    let player_runtime = match logs {
+        Some(logs) => player_runtime.with_logs(logs),
+        None => player_runtime,
+    };
     let (listener, socket) = match bind_player(&lock) {
         Ok(bound) => bound,
         Err(code) => return Ok(code),
@@ -543,6 +572,11 @@ fn tui_main(
             state,
             player_settings.key_hints_delay,
             cover::Settings::from_player(&player_settings),
+            logging::install(
+                LogMode::Attached,
+                player_settings.log_level,
+                &plan.state_dir,
+            ),
         ),
         Ok(Role::Player(lock)) => standalone(
             lock,
@@ -647,9 +681,10 @@ fn attached(
     state: State,
     hint_delay: Duration,
     cover: cover::Settings,
+    own_logs: Option<LogHandle>,
 ) -> Result<ExitCode> {
     let mut session = Session::new(SocketConnector::new(socket), connection, open);
-    let result = tui(&mut session, state, hint_delay, &cover);
+    let result = tui(&mut session, state, hint_delay, &cover, own_logs);
     restore_terminal();
     result.map(|envy| finish(envy.as_ref()))
 }
@@ -665,6 +700,8 @@ fn standalone(
     open: Option<tidal_player_core::protocol::Command>,
     state: State,
 ) -> Result<ExitCode> {
+    // The lock is held: this process writes the log file (spec 0027).
+    let logs = logging::install(LogMode::Standalone, log_setting(app), &state_dir);
     let settings = match resolve_settings_with(app, None, None, env_var) {
         Ok(settings) => settings,
         Err(e) => {
@@ -727,6 +764,10 @@ fn standalone(
         results.clone(),
         hook::Stderr::Drop,
     ));
+    let player_runtime = match logs {
+        Some(logs) => player_runtime.with_logs(logs),
+        None => player_runtime,
+    };
     let (listener, socket) = match bind_player(&lock) {
         Ok(bound) => bound,
         Err(code) => return Ok(code),
@@ -751,7 +792,14 @@ fn standalone(
     let mut session = Session::new(connector, link, open);
 
     let cover = cover::Settings::from_player(&player_settings);
-    let result = tui(&mut session, state, player_settings.key_hints_delay, &cover);
+    // One buffer, the player's: its lines reach the page through `Logs`.
+    let result = tui(
+        &mut session,
+        state,
+        player_settings.key_hints_delay,
+        &cover,
+        None,
+    );
     // Quit: the player stops and releases the device first; its other
     // clients are told it shut down.
     player.shutdown();
@@ -774,9 +822,10 @@ struct TuiCover {
 /// for the caller to restore.
 fn tui<C: Connector>(
     session: &mut Session<C>,
-    state: State,
+    mut state: State,
     hint_delay: Duration,
     cover: &cover::Settings,
+    own_logs: Option<LogHandle>,
 ) -> Result<Option<Envy>> {
     enable_raw_mode().context("cannot enable raw mode (is stdout a terminal?)")?;
     install_panic_hook(restore_terminal);
@@ -784,7 +833,8 @@ fn tui<C: Connector>(
         .context("cannot enter the alternate screen")?;
     let cover = start_cover(cover);
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    run(&mut terminal, session, state, hint_delay, cover)
+    state.logs.utc_offset_secs = logging::local_offset_secs();
+    run(&mut terminal, session, state, hint_delay, cover, own_logs)
 }
 
 /// Spec 0016 "Protocol": on the alternate screen and before the first
@@ -894,6 +944,8 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
         Ok(lock) => lock,
         Err(code) => return code,
     };
+    // The lock is held: this process writes the log file (spec 0027).
+    let logs = logging::install(LogMode::Play, player.log_level, &plan.state_dir);
     let store = plan.build_store();
     let session = match store.load() {
         Ok(Some(session)) => session,
@@ -929,6 +981,7 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
             release_paused: player.release_paused,
             mpris: mpris_settings,
             hook: player.hook,
+            logs,
             options: PlayOptions {
                 shuffle: args.shuffle,
                 repeat: args.repeat.into(),
