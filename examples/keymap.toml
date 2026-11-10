@@ -290,6 +290,11 @@ key_sequence = "g L"
 command = "OpenLogs"
 key_sequence = "g o"
 
+# ExportLogs: write the shown log lines to a file (the logs page)
+[[keymaps]]
+command = "ExportLogs"
+key_sequence = "e"
+
 # Search: back to the search input (the search page)
 [[keymaps]]
 command = "Search"

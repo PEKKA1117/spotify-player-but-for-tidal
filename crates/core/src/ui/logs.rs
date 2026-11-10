@@ -418,14 +418,36 @@ pub(super) fn command(state: &mut State, command: UiCommand) -> Vec<Effect> {
     Vec::new()
 }
 
-/// `ExportLogs` (`e`). Stub (red).
+/// What the message row says when there is nothing to export.
+pub const NOTHING_TO_EXPORT: &str = "No log lines to export";
+
+/// `ExportLogs` (`e`): one export of the lines held that the filter
+/// keeps, in page order, wherever the view is and connected or not; the
+/// message row says so when there are none. Nothing off the logs page.
 pub(super) fn export(state: &mut State) -> Vec<Effect> {
-    let lines = state.logs.entries.iter().map(|e| e.line.clone()).collect();
+    if state.page().kind != PageKind::Logs {
+        return Vec::new();
+    }
+    let lines: Vec<LogLine> = shown_indices(state)
+        .into_iter()
+        .map(|i| state.logs.entries[i].line.clone())
+        .collect();
+    if lines.is_empty() {
+        state.message = Some(NOTHING_TO_EXPORT.to_owned());
+        return Vec::new();
+    }
     vec![Effect::ExportLogs { lines }]
 }
 
-/// The result of an export. Stub (red).
-pub(super) fn exported(_state: &mut State, _result: Result<(usize, String), String>) {}
+/// The result of an export: the message row says what was written, or
+/// why not.
+pub(super) fn exported(state: &mut State, result: Result<(usize, String), String>) {
+    state.message = Some(match result {
+        Ok((1, path)) => format!("Exported 1 log line to {path}"),
+        Ok((count, path)) => format!("Exported {count} log lines to {path}"),
+        Err(reason) => format!("Could not export the log: {reason}"),
+    });
+}
 
 /// `Esc` on the logs page: a kept filter is cleared first; with none, the
 /// view follows again.

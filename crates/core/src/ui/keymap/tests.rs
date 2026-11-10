@@ -832,10 +832,32 @@ fn ac2_build_keymap() {
 
 // --- AC3 ---------------------------------------------------------------------
 
+/// `state` with the logs page open and one line on it.
+fn logs_page_with_a_line(mut state: State) -> State {
+    let effects = press(&mut state, &typed("go"));
+    let [Effect::Logs { id, .. }] = effects.as_slice() else {
+        panic!("{effects:?}");
+    };
+    let line = crate::log::LogLine {
+        seq: 1,
+        at: std::time::SystemTime::UNIX_EPOCH,
+        level: crate::log::LogLevel::Info,
+        target: "tidal_player".into(),
+        text: "hello".into(),
+    };
+    let result = Ok(crate::log::LogBatch {
+        lines: vec![line],
+        off: false,
+    });
+    update(&mut state, Action::LogsReply { id: *id, result });
+    state
+}
+
 /// A state in which `command` acts.
 fn acting(command: UiCommand) -> State {
     use UiCommand as C;
     match command {
+        C::ExportLogs => logs_page_with_a_line(queue()),
         C::ClosePopup => {
             let mut state = queue();
             press(&mut state, &[Key::Char('a')]);
@@ -2035,7 +2057,7 @@ fn ac14_export_key() {
     assert_eq!(bound(&built, "e"), None);
     assert_eq!(bound(&built, "M-e"), export);
     let mut state = with_keymap(queue(), built);
-    press(&mut state, &typed("go"));
+    state = logs_page_with_a_line(state);
     assert_eq!(press(&mut state, &typed("e")), vec![]);
     let sent = press(&mut state, &[Key::Alt(BaseKey::Char('e'))]);
     assert!(matches!(sent.as_slice(), [Effect::ExportLogs { .. }]));
