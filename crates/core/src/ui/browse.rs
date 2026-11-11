@@ -2,7 +2,6 @@
 //! window focus and cursors, scrolling loads, the whole-list load,
 //! playing and queueing from a page, the popups and the library writes.
 
-use crate::item::Item;
 use crate::library::{
     BrowseRef, BrowseSection, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListPage,
     ListRef, PageData, PageLink, PlaylistSummary,
@@ -562,10 +561,9 @@ fn continue_whole_list(state: &mut State, effects: &mut Vec<Effect>) {
     }
     match whole.purpose {
         Purpose::Queue { at } => {
-            effects.push(Effect::Send(Command::Open {
-                items: tracks.iter().map(|t| Item::Track(t.id)).collect(),
-                at: Some(at),
-            }));
+            // The loaded tracks, not their IDs: the player need not resolve
+            // each one again (spec 0028 Bugs).
+            effects.push(Effect::Send(Command::AddToQueue { tracks, at }));
         }
         Purpose::Play { start } => effects.extend(play(state, tracks, start)),
         Purpose::AddToPlaylist {
