@@ -98,7 +98,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `C-f`, `page_down` / `C-b`, `page_up` | `PageSelectNextOrScrollDown` / `PageSelectPreviousOrScrollUp` | move the cursor down, up by a window's height |
 | `enter` | `ChooseSelected` | on the queue: play the entry; on a page: play the track with its list, or open the album, playlist or artist (see [Playing and queueing](#playing-and-queueing-from-a-page)); in a popup: run the entry |
 | `Z`, `C-z` | `AddSelectedItemToQueue` | add the selected track, album or playlist to the end of the queue |
-| `d d` | `RemoveSelectedItem`* | remove the row under the cursor from its list (the queue, your playlists, your favorites), after a [`y/n` question](#confirming-removals); `RemoveFromQueue` does the same on the queue and has no key of its own |
+| `d d` | `RemoveSelectedItem`* | remove the row under the cursor from its list (the queue, your playlists, your collection), after a [`y/n` question](#confirming-removals); `RemoveFromQueue` does the same on the queue and has no key of its own |
 | `s c` | `SelectCurrent`* | [select](#selecting-rows) the row under the cursor, or unselect it |
 | `s j`, `s <N> j` / `s k`, `s <N> k` | `SelectDown`* / `SelectUp`* | select `N` rows (default 1) from the cursor down, up |
 | `s m` | `SelectMotion`* | motion mode on / off: the rows between where it started and the cursor are selected |
@@ -106,7 +106,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `d s` | `RemoveSelection`* | remove the selected rows from their list, after a [`y/n` question](#confirming-removals) that lists them |
 | `z` | `Queue` | open the queue page |
 | `g l` | `LibraryPage` | open the library |
-| `g y` | `LikedTrackPage` | open your favorite tracks |
+| `g y` | `LikedTrackPage` | open [Collected Tracks](#the-library-and-collected-tracks) |
 | `g s` | `SearchPage` | open the [search](#search) page (on a search page: back to its input) |
 | `g m` | `MixesPage` | open your [mixes](#mixes-and-radio) |
 | `g b` | `BrowsePage` | open the [browse](#browse) page: what Tidal picks (home, genres, moods, decades) |
@@ -161,7 +161,7 @@ When you press the first key of a sequence (`g`) and wait, a **hint** box opens 
 
 ```
 │┌g …─────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     y  favorite tracks                       ││
+││a  actions on the selected row     y  Collected Tracks                       ││
 ││g  move to the top                 s  the search page (on one: its…         ││
 ││l  the library                     m  your mixes                            ││
 │└────────────────────────────────────────────────────────────────────────────┘│
@@ -180,7 +180,7 @@ The area below the playback window shows one page at a time. Opening a page puts
 |---|---|---|
 | Queue | `z`; `Backspace` from the library at start | the queue |
 | Library | `g l`; the page at start | Playlists, Albums, Artists |
-| Favorite tracks | `g y` | the tracks |
+| Collected Tracks | `g y`; `Enter` on the pinned row of the library's Playlists | the tracks |
 | Search | `g s` | the input, the top hit, Tracks, Albums, Artists, Playlists (see [Search](#search)) |
 | Mixes | `g m` | your mixes (see [Mixes and radio](#mixes-and-radio)) |
 | Browse | `g b`; `Enter` on a link | what Tidal picks, and the pages it leads to (see [Browse](#browse)) |
@@ -192,7 +192,7 @@ The area below the playback window shows one page at a time. Opening a page puts
 | Playlist | `Enter` on a playlist | the playlist's tracks |
 | Artist | `Enter` on an artist; *Go to artist* | two panes of two tabs: Top tracks \| All tracks, and Albums \| Appears on (`[` `]` switch a pane's tab) |
 
-Each page has a title row above its windows: `Library`, `Favorite tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, `Mixes · 7 mixes`, `<mix> · 10 tracks`, `<track> Radio · <artists>`, `<artist> Radio`, `Lyrics · <track> · <artists>`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
+Each page has a title row above its windows: `Library`, `Collected Tracks · 362 tracks`, `<album> · <artists> · <year> · 17 tracks · 1:02:15`, `<playlist> · 39 tracks · 2:41:07`, `Mixes · 7 mixes`, `<mix> · 10 tracks`, `<track> Radio · <artists>`, `<artist> Radio`, `Lyrics · <track> · <artists>`, or the artist's name. The counts are Tidal's totals, shown as soon as the first rows arrive.
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -202,9 +202,9 @@ Each page has a title row above its windows: `Library`, `Favorite tracks · 362 
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Running                  42││Collide With Th…  Pierce The…││Pierce The Ve…││
-││♥ Late night               17││Misadventures     Pierce The…││Sleeping With…││
-││  Gym mix                   8││Hold On Till May  Pierce The…││Bring Me The… ││
+││  Collected Tracks        362││Collide With Th…  Pierce The…││Pierce The Ve…││
+││  Running                  42││Misadventures     Pierce The…││Sleeping With…││
+││♥ Late night               17││Hold On Till May  Pierce The…││Bring Me The… ││
 │…                                                                             │
 ```
 
@@ -217,13 +217,44 @@ A page with several windows draws them side by side when the frame is at least 6
 
 Below 60 columns only the focused window is drawn, its title followed by `‹Tab›` (on the artist page the tab list and `[ ]` come first, then `‹Tab›` for the other pane). `Tab` focuses the next pane and `Shift-Tab` the previous, wrapping, each on the tab it last showed; `[` and `]` switch the focused pane's tab (*All tracks* is fetched the first time it shows); they do nothing on pages whose panes have one tab. Every window keeps its own cursor; the focused window's is highlighted and the others' are dimmed. Playlist rows show the number of tracks and a `♥` for playlists you follow; album rows the artists and the year (and `EP` or `Single`, when the window has room); tracks that Tidal does not stream in your country are dimmed, as the player will skip them.
 
+### The library and Collected Tracks
+
+What you favorite on Tidal is your **collection**, and the player says *collection* where Tidal does: tracks go to *Collected Tracks*, albums, artists and playlists to your *collection* (the commands keep spotify-player's names, `AddToLiked`, `DeleteFromLiked`, `LikedTrackPage`).
+
+The library's Playlists window starts with a **pinned row**, *Collected Tracks*, with the number of tracks you collected, then your playlists. It is drawn as a playlist of yours (no `♥`), is always first whatever the order of the playlists, and the cursor starts on it:
+
+```
+┌Playlists (22)───────────────┐
+│  Collected Tracks        362│
+│  Running                  42│
+│♥ Late night               17│
+```
+
+The window's title counts the playlists only. A player that does not send the total (an older daemon) leaves the count off.
+
+| Key / action | On the pinned row |
+|---|---|
+| `Enter` | opens the Collected Tracks page (as `g y`) |
+| `Z`, `C-z`, *Add to queue* | adds every collected track at the end of the queue |
+| *Play next* | adds every collected track after the playing one |
+| *Add to playlist…* | adds every collected track to the chosen playlist, as for an album |
+| `a` (the actions popup) | *Open*, *Add to queue*, *Play next*, *Add to playlist…*: no collection, rename, description, public or delete actions |
+| `/` | matched by its name, `Collected Tracks`, like a playlist's title, and counted in the matches |
+| `s c`, `s <N> j`/`k`, `s m` | cannot be selected: `s c` on it does nothing, and a count or motion that covers it selects the playlists only |
+| `d d`, `d s` | do nothing to it |
+| `r`, *Go to radio* | nothing |
+
+*Add to queue*, `Z`, *Play next* and *Add to playlist…* need every track, so they fetch the remaining pages first (`Loading 300 of 1 234…`, `Esc` cancels with nothing sent; above 40 000 tracks they are refused, as in [Playing and queueing from a page](#playing-and-queueing-from-a-page)). With no collected tracks nothing is sent and the message row says `Collected Tracks is empty`.
+
+The Collected Tracks page (`g y`, or `Enter` on the pinned row) lists your collected tracks like any track list. Adding or removing a track's collection from anywhere fetches the library again when it is in the history, so the pinned row's count follows.
+
 ### Lists load as you scroll
 
-Every list is fetched a page at a time: the first page when the page opens, then the next when the cursor comes within one window height of the last loaded row. Meanwhile the last row says `Loading more…`; if that fails, the message takes its place, and the next cursor move near the end tries again. The total in a window's title is Tidal's, known from the start, so `Favorite tracks (362)` shows its size before the rows are all there. `G` goes to the last row loaded so far (and so loads the next page). A window's rows load while the music plays and never delay a key.
+Every list is fetched a page at a time: the first page when the page opens, then the next when the cursor comes within one window height of the last loaded row. Meanwhile the last row says `Loading more…`; if that fails, the message takes its place, and the next cursor move near the end tries again. The total in a window's title is Tidal's, known from the start, so `Collected Tracks (362)` shows its size before the rows are all there. `G` goes to the last row loaded so far (and so loads the next page). A window's rows load while the music plays and never delay a key.
 
 The page size is `page_size` in `app.toml` or `TIDAL_PLAYER_PAGE_SIZE` (1–10 000, default 100; the playlists and credits lists are fetched in pages of at most 50); see [Settings](playback.md#settings).
 
-While a page is being fetched its windows say `Loading…`. A failed fetch shows its message in the page (`Could not load the library: Could not reach Tidal: …`, `Album 123 was not found`, the session-expired message); `Backspace` goes back, and opening the page again tries again. An empty list says so: `No playlists yet`, `No favorite albums yet`, `No favorite artists yet`, `No favorite tracks yet`, `This album has no tracks`, `This playlist has no tracks`, `No top tracks`, `No albums`, `No credits` (`No credits (37 hidden)` when the filters left nothing).
+While a page is being fetched its windows say `Loading…`. A failed fetch shows its message in the page (`Could not load the library: Could not reach Tidal: …`, `Could not load Collected Tracks: <reason>`, `Album 123 was not found`, the session-expired message); `Backspace` goes back, and opening the page again tries again. An empty list says so: `No playlists yet`, `No albums in your collection yet`, `No artists in your collection yet`, `No collected tracks yet`, `This album has no tracks`, `This playlist has no tracks`, `No top tracks`, `No albums`, `No credits` (`No credits (37 hidden)` when the filters left nothing).
 
 While the player is unreachable (an attached TUI whose player went away) the loaded pages can still be browsed and the history used, but nothing new is fetched: a page opened then shows `Disconnected from the player: reconnecting…` and is fetched again when the player is back.
 
@@ -239,10 +270,10 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 ## Filtering a list
 
-`/` filters the focused window, or the queue: type, and the window keeps only the rows that contain what you typed, ignoring case. It works on every list: the library's windows, favorite tracks, an album's or a playlist's tracks, the artist page's four windows, the search page's results, mixes, a mix and a radio.
+`/` filters the focused window, or the queue: type, and the window keeps only the rows that contain what you typed, ignoring case. It works on every list: the library's windows, Collected Tracks, an album's or a playlist's tracks, the artist page's four windows, the search page's results, mixes, a mix and a radio.
 
 ```
-│┌Favorite tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
+│┌Collected Tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
 ││  1    Love Song               The Cure           Disintegration      3:29││
 ││  2    Lovely                  Billie Eilish      Lovely              3:20││
 │…                                                                           │
@@ -264,7 +295,7 @@ Left out, with the number hidden in the window's title (`All tracks (548 · 37 h
 
 **A kept filter.** After `enter` the keys work as usual on the rows shown: `enter` on a track plays **the matching tracks**, from that one (on a list not fully loaded, the whole list is loaded first, as without a filter); `Z`, `g a`, `r`, `d d` on the queue and on lists of yours, and the actions act on the selected row. `esc` clears the filter (and only the filter: a [selection](#selecting-rows) stays) and `/` edits it. Each window has its own filter, kept when you switch windows, go back through the history or the page is fetched again; a newly opened page and a new search start without one. In *All tracks* the role filter and the text filter both apply.
 
-**The title** shows the filter and how many rows match: `Favorite tracks (548 · /love · 12 matches)`, `Queue (40 · /veil · 9 matches)`; while you type, a cursor follows the text. When nothing matches, the window says `No rows match "xyz"`. On the queue the entries keep their queue positions, and `Suggested` shows only when a suggested entry matches.
+**The title** shows the filter and how many rows match: `Collected Tracks (548 · /love · 12 matches)`, `Queue (40 · /veil · 9 matches)`; while you type, a cursor follows the text. When nothing matches, the window says `No rows match "xyz"`. On the queue the entries keep their queue positions, and `Suggested` shows only when a suggested entry matches.
 
 **Lists that load as you scroll.** A filter looks at the rows loaded so far, and loads more on its own: while fewer matches than a window's height lie below the cursor, the next page is fetched, one at a time, until enough rows match or the list is complete (`Loading more…` under the matches meanwhile). `esc` stops it.
 
@@ -279,7 +310,7 @@ Every window that lists rows (a page's lists, the search page's four windows, th
 ││    3  A Match Into Water        Pierce The Veil    Collide With The Sky 4:22││
 ```
 
-A selected row has a `+ ` before it (the other rows get two spaces, so the columns stay where they are; a window with nothing selected has no marker column, and a window narrower than 10 columns shows the selection by its style alone) and is drawn in the theme's `selected_row` ([Components](config.md#components); `Bold` by default), under the cursor row's own `selection` style. The window's title counts them after the filter's parts: `Tracks (12 · 2 selected)`, `Favorite tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`, and `· motion` while motion mode is on. Each window keeps its own selection when you move the focus to another.
+A selected row has a `+ ` before it (the other rows get two spaces, so the columns stay where they are; a window with nothing selected has no marker column, and a window narrower than 10 columns shows the selection by its style alone) and is drawn in the theme's `selected_row` ([Components](config.md#components); `Bold` by default), under the cursor row's own `selection` style. The window's title counts them after the filter's parts: `Tracks (12 · 2 selected)`, `Collected Tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`, and `· motion` while motion mode is on. Each window keeps its own selection when you move the focus to another.
 
 | Keys | Command | Does |
 |---|---|---|
@@ -308,8 +339,10 @@ A selected row has a `+ ` before it (the other rows get two spaces, so the colum
 | *Play next* | `N` | always (not for artists) |
 | *Add to queue* | `a` | always (not for artists) |
 | *Add to playlist…* | | the rows are tracks |
-| *Add to favorites* | | some selected row is not a favorite, as far as the list knows |
-| *Remove from favorites* | | where `d s` removes from favorites |
+| *Add to Collected Tracks* | | every selected row is a track, and some is not collected, as far as the list knows |
+| *Remove from Collected Tracks* | | every selected row is a track, where `d s` removes from Collected Tracks |
+| *Add to collection* | | any other selection (albums, artists, playlists), some selected row not in your collection, as far as the list knows |
+| *Remove from collection* | | any other selection, where `d s` removes from your collection |
 | *Remove from this playlist* | | your playlist's tracks |
 | *Remove from queue* | | the queue |
 
@@ -447,7 +480,7 @@ What the log holds, by group (the text after the message is `name=value` fields)
 | `Z`, `Ctrl-z` | a track | Adds it to the end of the queue; with nothing playing it starts |
 | `Z`, `Ctrl-z` | an album or playlist | Adds all its tracks to the end of the queue |
 | `Z`, `Ctrl-z` | an artist or a mix | Nothing |
-| `d d` | a row of a list of yours | Asks first (see [Confirming removals](#confirming-removals)); `y` removes it from the queue (removing the playing one moves on), your playlist or your favorites |
+| `d d` | a row of a list of yours | Asks first (see [Confirming removals](#confirming-removals)); `y` removes it from the queue (removing the playing one moves on), your playlist or Collected Tracks |
 
 `Enter` on a track needs the whole list, so a list that is only partly loaded is first fetched to its end: the playback window's message row says `Loading 300 of 1 234…`, and `Esc` cancels it with nothing sent. A list of more than 40 000 tracks is refused (`Too many tracks to queue at once (N)`).
 
@@ -457,18 +490,19 @@ What the log holds, by group (the text after the message is `name=value` fields)
 
 | On | Actions, in this order |
 |---|---|
-| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Go to radio*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
-| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Go to radio*, *Play next* (not for the playing track), *Remove from queue*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
-| An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites*, *Add to playlist…* |
-| A playlist | *Open*, *Add to queue*, *Play next*, *Add to favorites*, *Remove from favorites* (not your own playlists), *Delete playlist* (your own only) |
-| An artist | *Open*, *Go to radio*, *Add to favorites*, *Remove from favorites* |
+| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Go to radio*, *Add to queue*, *Play next*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
+| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Go to radio*, *Play next* (not for the playing track), *Remove from queue*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…* |
+| An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection*, *Add to playlist…* |
+| A playlist | *Open*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection* (not your own playlists), *Delete playlist* (your own only) |
+| An artist | *Open*, *Go to radio*, *Add to collection*, *Remove from collection* |
 | A mix | *Open* |
+| The pinned *Collected Tracks* row of the library's Playlists | *Open*, *Add to queue*, *Play next*, *Add to playlist…* (the last three load every collected track first) |
 
-*Go to album* is left out for a track without an album. Tidal's favorites cannot be queried for one item yet, so both *Add to favorites* and *Remove from favorites* are offered; the one that does not apply is harmless.
+*Go to album* is left out for a track without an album. A track goes to *Collected Tracks*, an album, an artist or a playlist to your *collection* ([why](#the-library-and-collected-tracks)). Tidal's collection cannot be queried for one item yet, so both *Add to Collected Tracks* and *Remove from Collected Tracks* (or *Add to collection* and *Remove from collection*) are offered; the one that does not apply is harmless.
 
-### Favorites and playlists
+### Collection and playlists
 
-The result shows in the playback window's message row: `Added to favorites`, `Removed from favorites`, `Added 12 tracks to <playlist>`, `Removed from <playlist>`, `Created <playlist>`, `Deleted <playlist>`, or the error. A page that shows what changed (the favorites, the library, the playlist) is fetched again after a change.
+The result shows in the playback window's message row: `Added to Collected Tracks`, `Removed from Collected Tracks` (`Added to collection`, `Removed from collection` for an album, an artist or a playlist), `Added 12 tracks to <playlist>`, `Removed from <playlist>`, `Created <playlist>`, `Deleted <playlist>`, or the error. A page that shows what changed (Collected Tracks, the library, the playlist) is fetched again after a change.
 
 - **Add to playlist…** opens a second popup listing your own playlists (newest first) under *New playlist…*; `Enter` adds the track, or all the tracks of the album, at the end of the playlist. If a track is already in the playlist (as far as the loaded copy shows) it asks `Already in <playlist>: add again? (y/n)`
 - **New playlist…** asks `Playlist name: `, then `Description (optional): `, in the top row of the page; `Enter` goes on, then creates a private playlist and adds the tracks to it; `Esc` cancels; an empty name does nothing
@@ -493,7 +527,7 @@ A public playlist says `public` in the page's title, and a description shows on 
 
 ### Confirming removals
 
-*Remove from favorites*, *Remove from this playlist* and *Remove from queue* ask before they act, with the question of *Delete playlist*: `Remove <title> from favorites? (y/n)`, `Remove <title> from <playlist>? (y/n)` and `Remove <title> from the queue? (y/n)`. `y` does it; `n` or `Esc` closes the question and nothing is sent. The question is about the row you chose, even if the list moves while it is open.
+*Remove from Collected Tracks*, *Remove from collection*, *Remove from this playlist* and *Remove from queue* ask before they act, with the question of *Delete playlist*: `Remove <title> from Collected Tracks? (y/n)`, `Remove <title> from your collection? (y/n)`, `Remove <title> from <playlist>? (y/n)` and `Remove <title> from the queue? (y/n)`. `y` does it; `n` or `Esc` closes the question and nothing is sent. The question is about the row you chose, even if the list moves while it is open.
 
 `d d` (`RemoveSelectedItem`) removes the row under the cursor (the filtered row when a filter is kept) from the list it is in, through the same question:
 
@@ -501,9 +535,10 @@ A public playlist says `public` in the page's title, and a description shows on 
 |---|---|
 | The queue | *Remove from queue* |
 | Your playlist's tracks | *Remove from this playlist* |
-| Favorite tracks (`g y`) | *Remove from favorites* |
-| The library's Albums and Artists | *Remove from favorites* |
-| The library's Playlists: one you follow | *Remove from favorites* |
+| Collected Tracks (`g y`) | *Remove from Collected Tracks* |
+| The library's Albums and Artists | *Remove from collection* |
+| The library's Playlists: one you follow | *Remove from collection* |
+| The library's Playlists: the pinned *Collected Tracks* row | nothing |
 | The library's Playlists: one of yours | *Delete playlist*: `Delete <playlist>? (y/n)`, asked even with `confirm_removals` off |
 | Any other list (an album's or a followed playlist's tracks, an artist page, search results, mixes, a mix, a radio) | nothing: the list is not yours |
 
@@ -516,7 +551,7 @@ A public playlist says `public` in the page's title, and a description shows on 
     Holocene
   ```
 
-  `y` removes them (from your playlist in one write), and the message says how many: `Removed 3 tracks from Road trip`; if some of several writes fail it says so (`Removed 2 albums from favorites; 1 failed`) and keeps those rows selected, also after the list is fetched again, so `d s` tries them again. In the library's Playlists, your own playlists among the selection are deleted and the followed ones removed from favorites, in one question (`Delete 2 playlists and remove 1 from favorites? (y/n)`, with the two lists under `Delete:` and `Remove from favorites:`) that is asked even with `confirm_removals` off. With nothing selected, or in another window, `d s` does nothing
+  `y` removes them (from your playlist in one write), and the message says how many: `Removed 3 tracks from Road trip`; if some of several writes fail it says so (`Removed 2 albums from collection; 1 failed`) and keeps those rows selected, also after the list is fetched again, so `d s` tries them again. In the library's Playlists, your own playlists among the selection are deleted and the followed ones removed from your collection, in one question (`Delete 2 playlists and remove 1 from your collection? (y/n)`, with the two lists under `Delete:` and `Remove from your collection:`) that is asked even with `confirm_removals` off. With nothing selected, or in another window, `d s` does nothing
 - It asks the same from the actions popup, from an [`[[actions]]` binding](config.md#actions) (`DeleteFromLiked`, `DeleteFromPlaylist`, `RemoveFromQueue`) and from `d d`
 - `d` alone does nothing; with [key hints](#key-hints) a `d` held for the delay shows the box `d …` with `d  remove from the list` where `d d` acts
 - `confirm_removals = false` in `app.toml` (or `TIDAL_PLAYER_CONFIRM_REMOVALS=off`) makes the three act at once; *Delete playlist* and the *add again?* question still ask. It does not change the keys: `RemoveSelectedItem` stays on `d d`. An attached TUI uses its own setting; see [`app.toml`](config.md#apptoml)

@@ -295,8 +295,8 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `SelectionActions`* | `s a` | lists, the queue | actions on the selected rows |
 | `ChooseSelected` | `enter` | lists, popups | play the track with its list / open / run |
 | `AddSelectedItemToQueue` | `Z`, `C-z` | lists | add to the end of the queue |
-| `RemoveSelectedItem`* | `d d` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove from the list (asks `y/n` first; [what it removes](tui.md#confirming-removals)) |
-| `RemoveSelection`* | `d s` | the queue, your playlists' tracks, favorite tracks, the library's lists | remove the selected rows from the list (asks `y/n` first, listing them; [what it removes](tui.md#confirming-removals)) |
+| `RemoveSelectedItem`* | `d d` | the queue, your playlists' tracks, Collected Tracks, the library's lists | remove from the list (asks `y/n` first; [what it removes](tui.md#confirming-removals)) |
+| `RemoveSelection`* | `d s` | the queue, your playlists' tracks, Collected Tracks, the library's lists | remove the selected rows from the list (asks `y/n` first, listing them; [what it removes](tui.md#confirming-removals)) |
 | `RemoveFromQueue` | | the queue | remove from the queue (asks `y/n` first; no default key; `RemoveSelectedItem` does it) |
 | `ShowActionsOnSelectedItem` | `g a`, `C-space` | lists | actions on the selected row |
 | `ShowActionsOnCurrentTrack` | `a` | everywhere | actions on the playing track |
@@ -310,7 +310,7 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `MovePlaylistItemDown` | `C-j` | your own playlist's page | move the track down |
 | `Queue` | `z` | everywhere | the queue page |
 | `LibraryPage` | `g l` | everywhere | the library |
-| `LikedTrackPage` | `g y` | everywhere | favorite tracks |
+| `LikedTrackPage` | `g y` | everywhere | Collected Tracks |
 | `SearchPage` | `g s` | everywhere | the search page (on one: its input) |
 | `MixesPage` | `g m` | everywhere | your mixes |
 | `BrowsePage` | `g b` | everywhere | browse what Tidal picks (see [Browse](tui.md#browse)) |
@@ -338,8 +338,8 @@ For `[[actions]]`; only `GoToRadio` has a default key (`r`, on the selected row)
 | `GoToRadio` | go to the radio (a page; nothing plays until `Enter`) | tracks, artists |
 | `AddToQueue` | add to the end of the queue | tracks, albums, playlists |
 | `PlayNext` | play next | tracks (not the playing one), albums, playlists |
-| `AddToLiked` | add to favorites | tracks, albums, artists, playlists you follow |
-| `DeleteFromLiked` | remove from favorites (asks `y/n` first) | tracks, albums, artists, playlists you follow |
+| `AddToLiked` | add to collection | tracks, albums, artists, playlists you follow |
+| `DeleteFromLiked` | remove from collection (asks `y/n` first) | tracks, albums, artists, playlists you follow |
 | `AddToPlaylist` | add to a playlist… (opens the playlist picker) | tracks, albums |
 | `DeleteFromPlaylist` | remove from this playlist (asks `y/n` first) | tracks on your own playlist's page |
 | `RemoveFromQueue` | remove from the queue (asks `y/n` first) | queue entries, the playing track |
