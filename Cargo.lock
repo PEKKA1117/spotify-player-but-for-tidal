@@ -4549,7 +4549,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "age",
  "anyhow",
@@ -4586,7 +4586,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-api"
-version = "1.3.5"
+version = "1.3.6"
 dependencies = [
  "base64 0.23.1",
  "quick-xml",
@@ -4612,7 +4612,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-core"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "serde",
  "serde_json",
