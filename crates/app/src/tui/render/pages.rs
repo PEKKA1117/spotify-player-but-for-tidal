@@ -946,6 +946,7 @@ fn window_lines(
                         playlist_row(playlist, width, hearts)
                     }
                 }
+                Row::Collected(_) => String::new(),
                 Row::Artist(artist) => fit(&artist.name, width),
                 Row::Link(link) => fit(&link.title, width),
                 // `title  subtitle` (spec 0011 "Rendering").

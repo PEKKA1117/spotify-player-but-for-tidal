@@ -660,7 +660,7 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
                 Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
                 Row::Mix(mix) => (mix.title.clone(), popup::mix_actions(mix)),
                 // A link has no actions (spec 0024 AC10).
-                Row::Link(_) => return None,
+                Row::Link(_) | Row::Collected(_) => return None,
             })
         })
     }

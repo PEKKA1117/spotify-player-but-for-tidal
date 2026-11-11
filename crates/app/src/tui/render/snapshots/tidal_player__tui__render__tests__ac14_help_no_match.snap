@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/tui/render/tests.rs
-assertion_line: 2140
 expression: text
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -10,10 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Runni┌Keys────────────────────────────────────────────────────────┐The Ve…││
-││♥ Late │ No keys match "xyz"                                        │g With…││
-││  Gym m│                                                            │e The… ││
-││       │                                                            │       ││
+││  Colle┌Keys────────────────────────────────────────────────────────┐The Ve…││
+││  Runni│ No keys match "xyz"                                        │g With…││
+││♥ Late │                                                            │e The… ││
+││  Gym m│                                                            │       ││
 ││       │                                                            │       ││
 ││       │                                                            │       ││
 ││       │                                                            │       ││

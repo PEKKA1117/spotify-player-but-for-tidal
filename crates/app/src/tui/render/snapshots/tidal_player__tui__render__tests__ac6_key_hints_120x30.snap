@@ -9,10 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━───────────────────────────────────────────────────────────────  1:23 / 3:32│
 │Library                                                                                                               │
 │┌Playlists (22)───────────────────────────────┐┌Albums (14)──────────────────────────────────┐┌Artists (196)─────────┐│
-││  Running                                  42││Collide With The…   Pierce The…          2012││Pierce The Veil       ││
-││♥ Late night                               17││Misadventures       Pierce The…          2016││Sleeping With Sirens  ││
-││  Gym mix                                   8││Hold On Till May    Pierce The…       2010 EP││Bring Me The Horizon  ││
-││                                             ││                                             ││                      ││
+││  Collected Tracks                        362││Collide With The…   Pierce The…          2012││Pierce The Veil       ││
+││  Running                                  42││Misadventures       Pierce The…          2016││Sleeping With Sirens  ││
+││♥ Late night                               17││Hold On Till May    Pierce The…       2010 EP││Bring Me The Horizon  ││
+││  Gym mix                                   8││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
@@ -27,7 +27,7 @@ expression: text
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 │┌g …─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     y  favorite tracks                 b  browse what Tidal picks                    ││
+││a  actions on the selected row     y  Collected Tracks                b  browse what Tidal picks                    ││
 ││g  move to the top                 s  the search page (on one: its…   L  lyrics of the playing track                ││
 ││l  the library                     m  your mixes                      o  open the logs page                         ││
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│

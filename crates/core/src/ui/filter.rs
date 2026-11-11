@@ -101,6 +101,7 @@ pub fn matches(row: Row<'_>, filter: &str) -> bool {
         Row::Mix(mix) => has(&mix.title) || mix.subtitle.as_deref().is_some_and(has),
         // A link by its title (spec 0024 AC11).
         Row::Link(link) => has(&link.title),
+        Row::Collected(_) => false,
     }
 }
 

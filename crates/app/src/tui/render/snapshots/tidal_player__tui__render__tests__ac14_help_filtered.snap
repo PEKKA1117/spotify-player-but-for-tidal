@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/tui/render/tests.rs
-assertion_line: 2135
 expression: text
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -10,9 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Runni┌Keys────────────────────────────────────────────────────────┐The Ve…││
-││♥ Late │ Pages                                                      │g With…││
-││  Gym m│   g y  favorite tracks                                     │e The… ││
+││  Colle┌Keys────────────────────────────────────────────────────────┐The Ve…││
+││  Runni│ Pages                                                      │g With…││
+││♥ Late │   g y  Collected Tracks                                    │e The… ││
+││  Gym m│                                                            │       ││
 ││       │                                                            │       ││
 ││       │                                                            │       ││
 ││       │                                                            │       ││
@@ -21,8 +21,7 @@ expression: text
 ││       │                                                            │       ││
 ││       │                                                            │       ││
 ││       │                                                            │       ││
-││       │                                                            │       ││
-││       │ /fav▏ · enter keep · esc clear                             │       ││
+││       │ /coll▏ · enter keep · esc clear                            │       ││
 ││       └────────────────────────────────────────────────────────────┘       ││
 ││                             ││                             ││              ││
 │└─────────────────────────────┘└─────────────────────────────┘└──────────────┘│

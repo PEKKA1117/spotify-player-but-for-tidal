@@ -338,9 +338,9 @@ fn ac7_help_sections() {
             ),
         ),
         (
-            "favorite tracks".into(),
+            "Collected Tracks".into(),
             on_page(PageKind::FavoriteTracks, |_| {}),
-            page_sections(("Favorite tracks", browse_rm.clone()), false, false),
+            page_sections(("Collected Tracks", browse_rm.clone()), false, false),
         ),
         (
             "album".into(),
@@ -646,7 +646,7 @@ fn ac8_filter_in_help() {
     let mut states: Vec<(String, State)> = vec![
         ("queue".into(), with_queue()),
         (
-            "favorite tracks".into(),
+            "Collected Tracks".into(),
             on_page(PageKind::FavoriteTracks, |_| {}),
         ),
         ("album".into(), on_page(PageKind::Album(10), |_| {})),
@@ -729,7 +729,7 @@ fn ac8_filter_in_help() {
     };
     assert_eq!(
         typing(on_page(PageKind::FavoriteTracks, |_| {})),
-        fixed("Favorite tracks")
+        fixed("Collected Tracks")
     );
     assert_eq!(typing(with_queue()), fixed("Queue"));
     assert_eq!(
@@ -1111,7 +1111,7 @@ fn ac1_hints_entries() {
             a,
             entry("g", "move to the top", false),
             entry("l", "the library", false),
-            entry("y", "favorite tracks", false),
+            entry("y", "Collected Tracks", false),
             entry("s", "the search page (on one: its input)", false),
             entry("m", "your mixes", false),
             entry("b", "browse what Tidal picks", false),
@@ -1153,7 +1153,7 @@ fn ac1_hints_entries() {
             vec![
                 entry("a", "actions on the entry", false),
                 entry("g", "move to the top", false),
-                entry("y", "favorite tracks", false),
+                entry("y", "Collected Tracks", false),
                 entry("s", "the search page (on one: its input)", false),
                 entry("m", "your mixes", false),
                 entry("b", "browse what Tidal picks", false),
@@ -1220,7 +1220,7 @@ fn ac2_hints_nested_prefix() {
         Some(Hints {
             prefix: "x l".into(),
             entries: vec![
-                entry("a", "favorite tracks", false),
+                entry("a", "Collected Tracks", false),
                 // Empty queue: next track does nothing.
                 entry("b", "next track", true),
             ],
@@ -1433,7 +1433,7 @@ fn ac6_d_d_listed_where_it_acts() {
     let cases: Vec<(&str, State, bool)> = vec![
         ("queue", with_queue(), true),
         (
-            "favorite tracks",
+            "Collected Tracks",
             on_page(PageKind::FavoriteTracks, |_| {}),
             true,
         ),
@@ -1625,5 +1625,56 @@ fn ac13_keys_help_lists_them() {
         assert!(listed(&playlist_page(true), command), "{command}");
         assert!(!listed(&playlist_page(false), command), "{command}");
         assert!(!listed(&library, command), "{command}");
+    }
+}
+
+// --- spec 0028: Collected Tracks ----------------------------------------------
+
+/// 0028 AC8: the keys help says *Collected Tracks* for `g y` and its
+/// heading, *collection* for `AddToLiked` and `DeleteFromLiked`, and the
+/// key hint after `g` has the same words; none says *favorite*.
+#[test]
+fn ac8_collection_help_texts() {
+    let state = keyed(
+        library_with_row(),
+        &[],
+        &[("x a", "AddToLiked"), ("x d", "DeleteFromLiked")],
+    );
+    let sections = help(&state);
+    let text = |command: &str| row(&sections, command).map(|r| r.text.clone());
+    assert_eq!(text("LikedTrackPage").as_deref(), Some("Collected Tracks"));
+    // The row adds the target of the binding (`(playing track)`).
+    assert_eq!(
+        text("AddToLiked").as_deref(),
+        Some("add to collection (playing track)")
+    );
+    assert_eq!(
+        text("DeleteFromLiked").as_deref(),
+        Some("remove from collection (asks y/n first) (playing track)")
+    );
+    // The window's heading on the page itself.
+    let page = on_page(PageKind::FavoriteTracks, |_| {});
+    assert_eq!(titles(&help(&page))[0], "Collected Tracks");
+    // The hint after `g`.
+    let hint = hints(&pressed(library_with_row(), &[Key::Char('g')])).expect("hints after g");
+    let y = hint.entries.iter().find(|e| e.key == "y").expect("g y");
+    assert_eq!(y.text, "Collected Tracks");
+    // Nothing the help says is about *favorites*.
+    for state in [state, page, library_with_row(), with_queue()] {
+        for section in help(&state) {
+            assert!(
+                !section.title.to_lowercase().contains("favorite"),
+                "{}",
+                section.title
+            );
+            for row in section.rows {
+                assert!(
+                    !row.text.to_lowercase().contains("favorite"),
+                    "{}: {}",
+                    row.command,
+                    row.text
+                );
+            }
+        }
     }
 }

@@ -9,10 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Running                  42││Collide With Th…  Pierce The…││Pierce The Ve…││
-││♥ Late night               17││Misadventures     Pierce The…││Sleeping With…││
-││  Gym mix                   8││Hold On Till May  Pierce The…││Bring Me The… ││
-││                             ││                             ││              ││
+││  Collected Tracks        362││Collide With Th…  Pierce The…││Pierce The Ve…││
+││  Running                  42││Misadventures     Pierce The…││Sleeping With…││
+││♥ Late night               17││Hold On Till May  Pierce The…││Bring Me The… ││
+││  Gym mix                   8││                             ││              ││
 ││                             ││                             ││              ││
 ││                             ││                             ││              ││
 ││                             ││                             ││              ││
@@ -22,7 +22,7 @@ expression: text
 ││a  actions on the selected row     m  your mixes                            ││
 ││g  move to the top                 b  browse what Tidal picks               ││
 ││l  the library                     L  lyrics of the playing track           ││
-││y  favorite tracks                 o  open the logs page                    ││
+││y  Collected Tracks                o  open the logs page                    ││
 ││s  the search page (on one: its…                                            ││
 │└────────────────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────────────┘

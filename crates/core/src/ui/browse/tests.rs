@@ -109,6 +109,7 @@ fn library_data() -> PageData {
         ),
         albums: list(vec![album(10), album(11), album(12)], 0, 3),
         artists: list(vec![artist(20), artist(21), artist(22)], 0, 3),
+        collected_tracks: Some(362),
     }
 }
 
@@ -284,10 +285,12 @@ fn open_items(item: Item, at: InsertAt) -> Command {
     }
 }
 
-/// The library page, loaded, on top of the queue.
+/// The library page, loaded, on top of the queue, the cursor on the first
+/// playlist (row 1: row 0 is the pinned *Collected Tracks*, spec 0028).
 fn library() -> State {
     let mut state = State::default();
     open(&mut state, &GL, library_data());
+    press(&mut state, &[Key::Char('j')]);
     state
 }
 
@@ -451,7 +454,8 @@ fn ac9_reply_by_id() {
             Ok(LibraryResponse::Page(library_data())),
             |s| {
                 assert_eq!(s.history[1].load, Load::Idle);
-                assert_eq!(s.history[1].windows[0].rows.len(), 3);
+                // The pinned row and the three playlists.
+                assert_eq!(s.history[1].windows[0].rows.len(), 4);
                 assert!(matches!(s.page().load, Load::Loading { .. }));
                 assert!(s.page().windows[0].rows.is_empty());
             },
@@ -481,14 +485,14 @@ fn ac9_reply_by_id() {
             },
         ),
         (
-            "the favorite tracks' error",
+            "the Collected Tracks' error",
             Who::Top,
             Err("Tidal answered 429: try again in a moment".into()),
             |s| {
                 assert_eq!(
                     s.page().load,
                     Load::Failed(
-                        "Could not load the favorite tracks: Tidal answered 429: try again in a moment"
+                        "Could not load Collected Tracks: Tidal answered 429: try again in a moment"
                             .into()
                     )
                 )
@@ -540,6 +544,7 @@ fn ac9_reply_by_id() {
             playlists: list(vec![], 0, 0),
             albums: list(vec![], 0, 0),
             artists: list(vec![], 0, 0),
+            collected_tracks: Some(362),
         }),
     );
     assert_eq!(state, before);
@@ -553,6 +558,7 @@ fn ac9_reply_by_id() {
             playlists: list(playlists(0..50), 0, 120),
             albums: list(vec![album(10)], 0, 1),
             artists: list(vec![artist(20)], 0, 1),
+            collected_tracks: Some(362),
         },
     );
     let (id, _) = one_request(&press(&mut state, &[Key::Char('G')]));
@@ -563,7 +569,8 @@ fn ac9_reply_by_id() {
         LibraryResponse::Items(ListItems::Playlists(list(playlists(50..100), 50, 120))),
     );
     let library = &state.history[1];
-    assert_eq!(library.windows[0].rows.len(), 100);
+    // The pinned row and 100 playlists.
+    assert_eq!(library.windows[0].rows.len(), 101);
     assert_eq!(library.windows[0].load, Load::Idle);
     assert_eq!(library.windows[1].rows.len(), 1);
     assert!(state.page().windows[0].rows.is_empty());
@@ -634,6 +641,7 @@ fn ac10_scroll_loads() {
         playlists: list(playlists(0..n), 0, total),
         albums: list(vec![], 0, 0),
         artists: list(vec![], 0, 0),
+        collected_tracks: Some(362),
     };
     let cases: Vec<(u32, [Key; 2], PageData, Option<LibraryRequest>)> = vec![
         (100, GY, fav(100, 362), Some(more_tracks(100))),
@@ -793,7 +801,14 @@ fn ac11_artist_panes_and_tabs() {
 #[test]
 fn ac11_windows_and_cursors() {
     use Key::{BackTab, Backspace, Char, Ctrl, Down, Enter, PageDown, PageUp, Tab, Up};
-    let mut state = library();
+    // Three rows in every window: the pinned row and two playlists.
+    let mut data = library_data();
+    if let PageData::Library { playlists, .. } = &mut data {
+        playlists.items.truncate(2);
+        playlists.total = 2;
+    }
+    let mut state = State::default();
+    open(&mut state, &GL, data);
     for (key, focus) in [
         (Tab, 1),
         (Tab, 2),
@@ -856,7 +871,7 @@ fn ac11_windows_and_cursors() {
     open(&mut empty, &GY, fav_data(vec![], 0));
     assert_eq!(press(&mut empty, &keys), vec![]);
     assert_eq!(window(&empty, 0).cursor, 0);
-    assert_eq!(window(&empty, 0).empty_message(), "No favorite tracks yet");
+    assert_eq!(window(&empty, 0).empty_message(), "No collected tracks yet");
 }
 
 // --- AC12 -----------------------------------------------------------------------
@@ -1252,7 +1267,7 @@ fn ac13_actions_popup() {
         (
             fav_page,
             GA.to_vec(),
-            "Add to favorites",
+            "Add to Collected Tracks",
             vec![Out::Library(LibraryRequest::AddFavorite(
                 FavoriteKind::Track,
                 "1".into(),
@@ -1262,7 +1277,7 @@ fn ac13_actions_popup() {
         (
             fav_page,
             GA.to_vec(),
-            "Remove from favorites",
+            "Remove from Collected Tracks",
             vec![Out::Library(LibraryRequest::RemoveFavorite(
                 FavoriteKind::Track,
                 "1".into(),
@@ -1272,7 +1287,7 @@ fn ac13_actions_popup() {
         (
             library,
             vec![Tab, Ctrl(' ')],
-            "Add to favorites",
+            "Add to collection",
             vec![Out::Library(LibraryRequest::AddFavorite(
                 FavoriteKind::Album,
                 "10".into(),
@@ -1566,21 +1581,29 @@ fn ac14_playlist_editing() {
         }),
         ("favorites: messages and re-fetches", || {
             let mut state = editing();
-            let effects = run_action(&mut state, &GA, "Add to favorites");
+            let effects = run_action(&mut state, &GA, "Add to Collected Tracks");
             let effects = answer(&mut state, &effects, LibraryResponse::Done);
-            assert_eq!(state.message(), Some("Added to favorites"));
-            assert_eq!(outs(&effects), vec![page(PageRequest::FavoriteTracks)]);
+            assert_eq!(state.message(), Some("Added to Collected Tracks"));
+            // The library is in the history: its pinned count follows
+            // (spec 0028 AC9).
+            assert_eq!(
+                outs(&effects),
+                vec![
+                    page(PageRequest::FavoriteTracks),
+                    page(PageRequest::Library)
+                ]
+            );
             let mut state = library();
-            let asked = run_action(&mut state, &[Tab, Ctrl(' ')], "Remove from favorites");
+            let asked = run_action(&mut state, &[Tab, Ctrl(' ')], "Remove from collection");
             assert_eq!(asked, vec![], "asks first (spec 0019)");
             let effects = press(&mut state, &[Char('y')]);
             let effects = answer(&mut state, &effects, LibraryResponse::Done);
-            assert_eq!(state.message(), Some("Removed from favorites"));
+            assert_eq!(state.message(), Some("Removed from collection"));
             assert_eq!(outs(&effects), vec![page(PageRequest::Library)]);
         }),
         ("an error sets the message and changes nothing", || {
             let mut state = editing();
-            let effects = run_action(&mut state, &GA, "Add to favorites");
+            let effects = run_action(&mut state, &GA, "Add to Collected Tracks");
             let (id, _) = one_request(&effects);
             let before = state.history.clone();
             assert_eq!(fail(&mut state, id, "Could not reach Tidal: down"), vec![]);
@@ -1686,7 +1709,7 @@ fn ac16_disconnected_and_login() {
         assert!(asked(&state).is_some(), "d d asks");
         assert_eq!(press(&mut state, &[Char('y')]), vec![]);
         assert!(state.writes.is_empty());
-        for label in ["Add to queue", "Add to favorites", "Go to album"] {
+        for label in ["Add to queue", "Add to Collected Tracks", "Go to album"] {
             assert_eq!(run_action(&mut state, &GA, label), vec![], "{label}");
             if label == "Go to album" {
                 assert_eq!(state.page().load, Load::Failed(message.into()));
@@ -2108,7 +2131,7 @@ fn ac8_go_to_radio() {
             "artist",
             library(),
             vec![Tab, Tab, Ctrl(' ')],
-            vec!["Open", "Go to radio", "Add to favorites"],
+            vec!["Open", "Go to radio", "Add to collection"],
         ),
     ];
     for (name, mut state, keys, want) in listed {
@@ -2599,28 +2622,28 @@ fn ac1_confirm_remove_favorite() {
             "track",
             fav_page,
             vec![],
-            "Remove T1 from favorites? (y/n)",
+            "Remove T1 from Collected Tracks? (y/n)",
             LibraryRequest::RemoveFavorite(FavoriteKind::Track, "1".into()),
         ),
         (
             "album",
             library,
             vec![Tab],
-            "Remove Al10 from favorites? (y/n)",
+            "Remove Al10 from your collection? (y/n)",
             LibraryRequest::RemoveFavorite(FavoriteKind::Album, "10".into()),
         ),
         (
             "artist",
             library,
             vec![Tab, Tab],
-            "Remove Ar20 from favorites? (y/n)",
+            "Remove Ar20 from your collection? (y/n)",
             LibraryRequest::RemoveFavorite(FavoriteKind::Artist, "20".into()),
         ),
         (
             "followed playlist",
             library,
             vec![Char('j')],
-            "Remove Theirs from favorites? (y/n)",
+            "Remove Theirs from your collection? (y/n)",
             LibraryRequest::RemoveFavorite(FavoriteKind::Playlist, "p2".into()),
         ),
     ];
@@ -2628,13 +2651,21 @@ fn ac1_confirm_remove_favorite() {
         for via_binding in [false, true] {
             for key in [Char('y'), Char('n'), Esc] {
                 let context = format!("{name}, binding {via_binding}, {key:?}");
+                let (label, removed) = if name == "track" {
+                    (
+                        "Remove from Collected Tracks",
+                        "Removed from Collected Tracks",
+                    )
+                } else {
+                    ("Remove from collection", "Removed from collection")
+                };
                 let mut state = setup();
                 let effects = if via_binding {
                     bind(&mut state, ActionKind::DeleteFromLiked);
                     press(&mut state, &[select.clone(), vec![MX]].concat())
                 } else {
                     let keys = [select.clone(), GA.to_vec()].concat();
-                    run_action(&mut state, &keys, "Remove from favorites")
+                    run_action(&mut state, &keys, label)
                 };
                 assert_eq!(effects, vec![], "{context}: nothing before y");
                 assert_eq!(asked(&state).as_deref(), Some(question), "{context}");
@@ -2646,7 +2677,7 @@ fn ac1_confirm_remove_favorite() {
                     assert_eq!(got, request, "{context}");
                     assert_eq!(state.writes.len(), 1, "{context}");
                     reply(&mut state, id, LibraryResponse::Done);
-                    assert_eq!(state.message(), Some("Removed from favorites"), "{context}");
+                    assert_eq!(state.message(), Some(removed), "{context}");
                 } else {
                     assert_eq!(effects, vec![], "{context}");
                     assert!(state.writes.is_empty(), "{context}");
@@ -2849,13 +2880,13 @@ fn ac4_confirm_removals_off() {
     );
     let rows: Vec<Row> = vec![
         (
-            "remove from favorites",
+            "remove from Collected Tracks",
             fav_page,
-            |s| run_action(s, &GA, "Remove from favorites"),
+            |s| run_action(s, &GA, "Remove from Collected Tracks"),
             false,
         ),
         (
-            "remove from favorites, bound",
+            "remove from Collected Tracks, bound",
             || {
                 let mut state = fav_page();
                 bind(&mut state, ActionKind::DeleteFromLiked);
@@ -2966,7 +2997,7 @@ fn ac10_remove_selected_item() {
             "favorite tracks",
             fav_page,
             vec![],
-            "Remove T1 from favorites? (y/n)",
+            "Remove T1 from Collected Tracks? (y/n)",
             Out::Library(LibraryRequest::RemoveFavorite(
                 FavoriteKind::Track,
                 "1".into(),
@@ -2976,7 +3007,7 @@ fn ac10_remove_selected_item() {
             "library albums",
             library,
             vec![Tab],
-            "Remove Al10 from favorites? (y/n)",
+            "Remove Al10 from your collection? (y/n)",
             Out::Library(LibraryRequest::RemoveFavorite(
                 FavoriteKind::Album,
                 "10".into(),
@@ -2986,7 +3017,7 @@ fn ac10_remove_selected_item() {
             "library artists",
             library,
             vec![Tab, Tab],
-            "Remove Ar20 from favorites? (y/n)",
+            "Remove Ar20 from your collection? (y/n)",
             Out::Library(LibraryRequest::RemoveFavorite(
                 FavoriteKind::Artist,
                 "20".into(),
@@ -2996,7 +3027,7 @@ fn ac10_remove_selected_item() {
             "library, a followed playlist",
             library,
             vec![Char('j')],
-            "Remove Theirs from favorites? (y/n)",
+            "Remove Theirs from your collection? (y/n)",
             Out::Library(LibraryRequest::RemoveFavorite(
                 FavoriteKind::Playlist,
                 "p2".into(),
@@ -3122,8 +3153,11 @@ fn library_followed() -> State {
             ),
             albums: list(vec![album(10), album(11), album(12)], 0, 3),
             artists: list(vec![artist(20), artist(21), artist(22)], 0, 3),
+            collected_tracks: Some(362),
         },
     );
+    // On F1: row 0 is the pinned *Collected Tracks* (spec 0028).
+    press(&mut state, &[Key::Char('j')]);
     state
 }
 
@@ -3194,53 +3228,53 @@ fn ac10_remove_selection() {
                 state
             },
             typed("js3j"),
-            "Remove 3 tracks from favorites? (y/n)",
+            "Remove 3 tracks from Collected Tracks? (y/n)",
             vec!["T2", "T3", "T4"],
             vec![
                 fav(FavoriteKind::Track, "2"),
                 fav(FavoriteKind::Track, "3"),
                 fav(FavoriteKind::Track, "4"),
             ],
-            "Removed 3 tracks from favorites",
+            "Removed 3 tracks from Collected Tracks",
         ),
         (
             "library albums",
             library,
             [vec![Tab], typed("s3j")].concat(),
-            "Remove 3 albums from favorites? (y/n)",
+            "Remove 3 albums from your collection? (y/n)",
             vec!["Al10", "Al11", "Al12"],
             vec![
                 fav(FavoriteKind::Album, "10"),
                 fav(FavoriteKind::Album, "11"),
                 fav(FavoriteKind::Album, "12"),
             ],
-            "Removed 3 albums from favorites",
+            "Removed 3 albums from collection",
         ),
         (
             "library artists",
             library,
             [vec![Tab, Tab], typed("s3j")].concat(),
-            "Remove 3 artists from favorites? (y/n)",
+            "Remove 3 artists from your collection? (y/n)",
             vec!["Ar20", "Ar21", "Ar22"],
             vec![
                 fav(FavoriteKind::Artist, "20"),
                 fav(FavoriteKind::Artist, "21"),
                 fav(FavoriteKind::Artist, "22"),
             ],
-            "Removed 3 artists from favorites",
+            "Removed 3 artists from collection",
         ),
         (
             "followed playlists",
             library_followed,
             typed("s3j"),
-            "Remove 3 playlists from favorites? (y/n)",
+            "Remove 3 playlists from your collection? (y/n)",
             vec!["F1", "F2", "F3"],
             vec![
                 fav(FavoriteKind::Playlist, "f1"),
                 fav(FavoriteKind::Playlist, "f2"),
                 fav(FavoriteKind::Playlist, "f3"),
             ],
-            "Removed 3 playlists from favorites",
+            "Removed 3 playlists from collection",
         ),
     ];
     for (name, setup, select, question, titles, sent, message) in cases {
@@ -3321,12 +3355,12 @@ fn ac10_remove_selection() {
     press(&mut state, &ds);
     assert_eq!(
         asked(&state).as_deref(),
-        Some("Remove T2 from favorites? (y/n)")
+        Some("Remove T2 from Collected Tracks? (y/n)")
     );
     assert_eq!(targets(&state), vec!["T2"]);
     let effects = press(&mut state, &[Char('y')]);
     reply(&mut state, requests(&effects)[0].0, LibraryResponse::Done);
-    assert_eq!(state.message(), Some("Removed from favorites"));
+    assert_eq!(state.message(), Some("Removed from Collected Tracks"));
 
     // A playlist that changed: 0006's message, the selection kept.
     let mut state = own_playlist_of_four();
@@ -3403,7 +3437,7 @@ fn ac11_remove_selected_playlists() {
         assert_eq!(press(&mut state, &typed("ds")), vec![], "{confirm}");
         assert_eq!(
             asked(&state).as_deref(),
-            Some("Delete 2 playlists and remove 1 from favorites? (y/n)"),
+            Some("Delete 2 playlists and remove 1 from your collection? (y/n)"),
             "{confirm}"
         );
         assert_eq!(
@@ -3412,7 +3446,7 @@ fn ac11_remove_selected_playlists() {
                 "Delete:",
                 "Mine",
                 "Other",
-                "Remove from favorites:",
+                "Remove from your collection:",
                 "Theirs"
             ]
         );
@@ -3428,7 +3462,7 @@ fn ac11_remove_selected_playlists() {
     }
     assert_eq!(
         state.message(),
-        Some("Deleted 2 playlists and removed 1 from favorites")
+        Some("Deleted 2 playlists and removed 1 from collection")
     );
     assert_eq!(selected_rows(&state), Vec::<usize>::new());
 
@@ -3442,9 +3476,9 @@ fn ac11_remove_selected_playlists() {
     reply(&mut state, asked_for[2].0, LibraryResponse::Done);
     assert_eq!(
         state.message(),
-        Some("Deleted 1 playlist and removed 1 from favorites; 1 failed")
+        Some("Deleted 1 playlist and removed 1 from collection; 1 failed")
     );
-    assert_eq!(selected_rows(&state), vec![2]);
+    assert_eq!(selected_rows(&state), vec![3]);
 
     // The followed one fails.
     let mut state = selected();
@@ -3454,7 +3488,7 @@ fn ac11_remove_selected_playlists() {
     reply(&mut state, asked_for[1].0, LibraryResponse::Done);
     fail(&mut state, asked_for[2].0, "Network error");
     assert_eq!(state.message(), Some("Deleted 2 playlists; 1 failed"));
-    assert_eq!(selected_rows(&state), vec![1]);
+    assert_eq!(selected_rows(&state), vec![2]);
 
     // Only own playlists: `Delete N playlists?`, asked with the setting off.
     let mut state = library();
@@ -3526,8 +3560,11 @@ fn library_with(first: PlaylistSummary) -> State {
         playlists: list(vec![first], 0, 1),
         albums: list(vec![album(10)], 0, 1),
         artists: list(vec![artist(20)], 0, 1),
+        collected_tracks: Some(362),
     };
     open(&mut state, &GL, data);
+    // Row 0 is the pinned *Collected Tracks* (spec 0028).
+    press(&mut state, &[Key::Char('j')]);
     state
 }
 
@@ -3653,8 +3690,8 @@ fn ac6_actions_of_a_playlist() {
             "Open",
             "Add to queue",
             "Play next",
-            "Add to favorites",
-            "Remove from favorites"
+            "Add to collection",
+            "Remove from collection"
         ]
     );
 }
@@ -3778,6 +3815,7 @@ fn ac7_success_messages_and_refetch() {
     for (label, keys, message) in rows {
         let mut state = playlist_page(true);
         open(&mut state, &GL, library_data());
+        press(&mut state, &[Key::Char('j')]);
         run_action(&mut state, &[ACTIONS], label);
         press(&mut state, &keys);
         let effects = press(&mut state, &[Key::Enter]);
@@ -4633,4 +4671,486 @@ fn ac16_hidden_links() {
         reply(&mut state, id, LibraryResponse::Page(root_data()));
         assert_eq!(tab_names(&state), tabs, "{name}: below the root");
     }
+}
+
+// --- spec 0028: Collected Tracks ------------------------------------------------
+
+/// The library with the cursor on the pinned *Collected Tracks* row
+/// (collected tracks: 362).
+fn pinned() -> State {
+    let mut state = State::default();
+    open(&mut state, &GL, library_data());
+    state
+}
+
+fn library_collected(count: Option<u32>, playlists_total: u32, rows: u32) -> PageData {
+    PageData::Library {
+        playlists: list(playlists(0..rows), 0, playlists_total),
+        albums: list(vec![album(10)], 0, 1),
+        artists: list(vec![artist(20)], 0, 1),
+        collected_tracks: count,
+    }
+}
+
+/// 0028 AC2: the library's Playlists start with the pinned row and its
+/// count, then the playlists; the total, the next offset and `Loading
+/// more…` count playlists only; a reload keeps the row first; no other
+/// window or page has it.
+#[test]
+fn ac2_collected_tracks_row() {
+    // (name, count) -> the first row and the playlists after it
+    let cases = [
+        ("a total", Some(362)),
+        ("none", Some(0)),
+        ("an older player", None),
+    ];
+    for (name, count) in cases {
+        let mut state = State::default();
+        open(&mut state, &GL, library_collected(count, 3, 3));
+        let w = window(&state, 0);
+        assert_eq!(w.row(0), Some(Row::Collected(count)), "{name}");
+        let titles: Vec<String> = (1..w.len())
+            .map(|i| match w.row(i) {
+                Some(Row::Playlist(p)) => p.title.clone(),
+                other => panic!("{name}: row {i}: {other:?}"),
+            })
+            .collect();
+        assert_eq!(titles, ["P0", "P1", "P2"], "{name}");
+        assert_eq!(w.len(), 4, "{name}");
+        assert_eq!(w.total, Some(3), "{name}: playlists only");
+        assert_eq!(w.title(), "Playlists (3)", "{name}");
+        assert_eq!(w.cursor, 0, "{name}: the cursor starts on it");
+        assert!(matches!(window(&state, 1).row(0), Some(Row::Album(_))));
+        assert!(matches!(window(&state, 2).row(0), Some(Row::Artist(_))));
+    }
+
+    // Paging counts playlists: 50 loaded of 120, the next page from 50.
+    let mut state = State::default();
+    open(&mut state, &GL, library_collected(Some(362), 120, 50));
+    assert_eq!(window(&state, 0).rows.len(), 51);
+    assert_eq!(window(&state, 0).next_offset, 50);
+    let (id, request) = one_request(&press(&mut state, &[Key::Char('G')]));
+    assert_eq!(request, more(ListRef::Playlists, 50, 50));
+    assert_eq!(window(&state, 0).load, Load::Loading { id });
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Items(ListItems::Playlists(list(playlists(50..100), 50, 120))),
+    );
+    let w = window(&state, 0);
+    assert_eq!((w.rows.len(), w.next_offset), (101, 100));
+    assert_eq!(w.row(0), Some(Row::Collected(Some(362))));
+    assert_eq!(w.total, Some(120));
+    assert!(!w.complete());
+
+    // A reload keeps it first, with the new count.
+    let mut state = library();
+    let effects = run_action(&mut state, &[Key::Tab, Key::Ctrl(' ')], "Add to collection");
+    let effects = answer(&mut state, &effects, LibraryResponse::Done);
+    let (id, request) = one_request(&effects);
+    assert_eq!(request, LibraryRequest::Page(PageRequest::Library));
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Page(library_collected(Some(363), 3, 3)),
+    );
+    assert_eq!(
+        window(&state, 0).row(0),
+        Some(Row::Collected(Some(363))),
+        "a reload"
+    );
+    assert_eq!(window(&state, 0).rows.len(), 4);
+
+    // No other page has the row.
+    let mut state = State::default();
+    open(&mut state, &GY, fav_data(tracks(1..4), 3));
+    assert!(matches!(window(&state, 0).row(0), Some(Row::Track(_))));
+}
+
+/// 0028 AC3: `Enter` on the pinned row opens the Collected Tracks page, as
+/// `g y` does; `g y` with that page on top does nothing.
+#[test]
+fn ac3_collected_tracks_row_opens_page() {
+    let mut state = pinned();
+    let (id, request) = one_request(&press(&mut state, &[Key::Enter]));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::FavoriteTracks));
+    assert_eq!(
+        kinds(&state),
+        vec![PageKind::Queue, PageKind::Library, PageKind::FavoriteTracks]
+    );
+    reply(
+        &mut state,
+        id,
+        LibraryResponse::Page(fav_data(tracks(1..4), 3)),
+    );
+    assert_eq!(press(&mut state, &GY), vec![]);
+    assert_eq!(kinds(&state).len(), 3, "g y on top does nothing");
+    // `g y` from the library pushes the same page.
+    let mut state = pinned();
+    let (_, request) = one_request(&press(&mut state, &GY));
+    assert_eq!(request, LibraryRequest::Page(PageRequest::FavoriteTracks));
+    assert_eq!(state.page().kind, PageKind::FavoriteTracks);
+}
+
+/// 0028 AC4: `Z`, `C-z` and the popup's *Add to queue*, *Play next* and
+/// *Add to playlist…* on the pinned row load every favorite track, then
+/// send one command; `Esc` cancels, above 40 000 is refused, none says so.
+#[test]
+fn ac4_collected_tracks_row_whole_list() {
+    use Key::{Char, Ctrl, Esc};
+    type Start = fn(&mut State) -> Vec<Effect>;
+    // (name, how it starts, what is sent for the tracks)
+    let open_at = |at: InsertAt| {
+        move |tracks: std::ops::Range<u64>| {
+            send(Command::Open {
+                items: tracks.map(|n| Item::Track(TrackId(n))).collect(),
+                at: Some(at),
+            })
+        }
+    };
+    type Sent = Box<dyn Fn(std::ops::Range<u64>) -> Vec<Out>>;
+    let cases: Vec<(&str, Start, Sent)> = vec![
+        (
+            "Z",
+            |s| press(s, &[Char('Z')]),
+            Box::new(open_at(InsertAt::End)),
+        ),
+        (
+            "C-z",
+            |s| press(s, &[Ctrl('z')]),
+            Box::new(open_at(InsertAt::End)),
+        ),
+        (
+            "Add to queue",
+            |s| run_action(s, &GA, "Add to queue"),
+            Box::new(open_at(InsertAt::End)),
+        ),
+        (
+            "Play next",
+            |s| run_action(s, &GA, "Play next"),
+            Box::new(open_at(InsertAt::Next)),
+        ),
+        (
+            "Add to playlist…",
+            |s| {
+                add_to_playlist(s, &GA);
+                press(s, &[Char('j'), Key::Enter])
+            },
+            Box::new(|tracks| {
+                let ids: Vec<u64> = tracks.collect();
+                vec![add("p1", &ids, false)]
+            }),
+        ),
+    ];
+    let first = more(ListRef::FavoriteTracks, 0, 100);
+    for (name, start, sent) in &cases {
+        // Whole: three pages, then one command in list order.
+        let mut state = pinned();
+        let (id, request) = one_request(&start(&mut state));
+        assert_eq!(request, first, "{name}");
+        assert_eq!(state.message(), Some("Loading…"), "{name}");
+        let effects = reply(&mut state, id, items_tracks(tracks(0..100), 0, 250));
+        let (id, request) = one_request(&effects);
+        assert_eq!(request, more(ListRef::FavoriteTracks, 100, 100), "{name}");
+        assert_eq!(state.message(), Some("Loading 100 of 250…"), "{name}");
+        let effects = reply(&mut state, id, items_tracks(tracks(100..200), 100, 250));
+        let (id, request) = one_request(&effects);
+        assert_eq!(request, more(ListRef::FavoriteTracks, 200, 100), "{name}");
+        assert_eq!(state.message(), Some("Loading 200 of 250…"), "{name}");
+        let effects = reply(&mut state, id, items_tracks(tracks(200..250), 200, 250));
+        assert_eq!(outs(&effects), sent(0..250), "{name}");
+        assert_eq!((state.whole_list.clone(), state.message()), (None, None));
+        assert_eq!(kinds(&state).len(), 2, "{name}: no page opened");
+
+        // `Esc` cancels: nothing is sent, the late answer is dropped.
+        let mut state = pinned();
+        let (id, _) = one_request(&start(&mut state));
+        assert_eq!(press(&mut state, &[Esc]), vec![], "{name}");
+        assert_eq!((state.whole_list.clone(), state.message()), (None, None));
+        let effects = reply(&mut state, id, items_tracks(tracks(0..100), 0, 250));
+        assert_eq!(effects, vec![], "{name}: after Esc");
+
+        // Above 40 000: refused with 0006's message, nothing more asked.
+        let mut state = pinned();
+        let (id, _) = one_request(&start(&mut state));
+        let effects = reply(&mut state, id, items_tracks(tracks(0..100), 0, 40_001));
+        assert_eq!(effects, vec![], "{name}: refused");
+        assert_eq!(
+            state.message(),
+            Some("Too many tracks to queue at once (40 001)"),
+            "{name}"
+        );
+        assert_eq!(state.whole_list, None, "{name}");
+
+        // None: nothing is sent.
+        let mut state = pinned();
+        let (id, _) = one_request(&start(&mut state));
+        let effects = reply(&mut state, id, items_tracks(vec![], 0, 0));
+        assert_eq!(effects, vec![], "{name}: empty");
+        assert_eq!(state.message(), Some("Collected Tracks is empty"), "{name}");
+        assert_eq!(state.whole_list, None, "{name}");
+    }
+
+    // *Add to playlist…* keeps 0006's duplicate check: track 4 is in the
+    // loaded copy of Mine.
+    let mut state = playlist_page(true);
+    open(&mut state, &GL, library_data());
+    add_to_playlist(&mut state, &GA);
+    let (id, _) = one_request(&press(&mut state, &[Char('j'), Key::Enter]));
+    let effects = reply(&mut state, id, items_tracks(tracks(1..8), 0, 7));
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::Confirm {
+            question: "Already in Mine: add again? (y/n)".into(),
+            on_yes: Confirmed::AddToPlaylist {
+                uuid: "p1".into(),
+                title: "Mine".into(),
+                tracks: tracks(1..8),
+            },
+            scroll: 0,
+        })
+    );
+
+    // Disconnected: nothing is asked or sent.
+    let mut state = pinned();
+    update(&mut state, Action::Disconnected { shut_down: false });
+    assert_eq!(press(&mut state, &[Char('Z')]), vec![]);
+    assert_eq!(state.whole_list, None);
+}
+
+/// 0028 AC5: the actions popup on the pinned row, and the keys that do
+/// nothing on it.
+#[test]
+fn ac5_collected_tracks_row_actions() {
+    use Key::{Char, Esc};
+    let mut state = pinned();
+    assert_eq!(press(&mut state, &GA), vec![]);
+    assert_eq!(
+        labels(&state),
+        ["Open", "Add to queue", "Play next", "Add to playlist…"]
+    );
+    press(&mut state, &[Esc]);
+    // *Open* opens the page.
+    let effects = run_action(&mut state, &GA, "Open");
+    assert_eq!(
+        outs(&effects),
+        vec![page(PageRequest::FavoriteTracks)],
+        "Open"
+    );
+
+    // `r`, *Go to radio* and `d d`: nothing, no popup.
+    let before = pinned();
+    let mut state = before.clone();
+    assert_eq!(press(&mut state, &[Char('r')]), vec![]);
+    assert_eq!(press(&mut state, &[Char('d'), Char('d')]), vec![]);
+    assert_eq!(state, before);
+    // Bound `[[actions]]` find no such entry on the row either.
+    for kind in [
+        ActionKind::GoToRadio,
+        ActionKind::DeleteFromLiked,
+        ActionKind::AddToLiked,
+        ActionKind::DeletePlaylist,
+    ] {
+        let mut state = before.clone();
+        bind(&mut state, kind);
+        assert_eq!(press(&mut state, &[MX]), vec![], "{kind:?}");
+        assert_eq!(state.history, before.history, "{kind:?}");
+        assert_eq!(state.popup, None, "{kind:?}");
+    }
+    // The bound *Add to queue* and *Play next* load the tracks.
+    for kind in [ActionKind::AddToQueue, ActionKind::PlayNext] {
+        let mut state = before.clone();
+        bind(&mut state, kind);
+        let (_, request) = one_request(&press(&mut state, &[MX]));
+        assert_eq!(request, more(ListRef::FavoriteTracks, 0, 100), "{kind:?}");
+    }
+}
+
+/// 0028 AC8: the Collected Tracks page's texts, the library's empty lists
+/// and the favorite messages and questions per kind.
+#[test]
+fn ac8_collected_tracks_texts() {
+    use Key::{Char, Tab};
+    // The title row, the window name and title, the empty message.
+    let mut state = State::default();
+    open(&mut state, &GY, fav_data(tracks(1..4), 362));
+    assert_eq!(state.page().title(), "Collected Tracks · 362 tracks");
+    assert_eq!(window(&state, 0).kind.name(), "Collected Tracks");
+    assert_eq!(window(&state, 0).title(), "Collected Tracks (362)");
+    let mut empty = State::default();
+    open(&mut empty, &GY, fav_data(vec![], 0));
+    assert_eq!(window(&empty, 0).empty_message(), "No collected tracks yet");
+    // The failure.
+    let mut state = State::default();
+    let (id, _) = one_request(&press(&mut state, &GY));
+    fail(&mut state, id, "Could not reach Tidal: down");
+    assert_eq!(
+        state.page().load,
+        Load::Failed("Could not load Collected Tracks: Could not reach Tidal: down".into())
+    );
+    // The library's empty Albums and Artists.
+    let mut state = State::default();
+    open(
+        &mut state,
+        &GL,
+        PageData::Library {
+            playlists: list(vec![], 0, 0),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+            collected_tracks: Some(0),
+        },
+    );
+    assert_eq!(
+        window(&state, 1).empty_message(),
+        "No albums in your collection yet"
+    );
+    assert_eq!(
+        window(&state, 2).empty_message(),
+        "No artists in your collection yet"
+    );
+
+    // Per kind: the popup labels, the messages, the questions.
+    type Setup = fn() -> State;
+    // (kind, setup, keys to the row, add label, added, remove label,
+    // removed, question)
+    type Kind = (&'static str, Setup, Vec<Key>, [&'static str; 5]);
+    let kinds: Vec<Kind> = vec![
+        (
+            "track",
+            fav_page,
+            vec![],
+            [
+                "Add to Collected Tracks",
+                "Added to Collected Tracks",
+                "Remove from Collected Tracks",
+                "Removed from Collected Tracks",
+                "Remove T1 from Collected Tracks? (y/n)",
+            ],
+        ),
+        (
+            "album",
+            library,
+            vec![Tab],
+            [
+                "Add to collection",
+                "Added to collection",
+                "Remove from collection",
+                "Removed from collection",
+                "Remove Al10 from your collection? (y/n)",
+            ],
+        ),
+        (
+            "artist",
+            library,
+            vec![Tab, Tab],
+            [
+                "Add to collection",
+                "Added to collection",
+                "Remove from collection",
+                "Removed from collection",
+                "Remove Ar20 from your collection? (y/n)",
+            ],
+        ),
+        (
+            "playlist",
+            library,
+            vec![Char('j')],
+            [
+                "Add to collection",
+                "Added to collection",
+                "Remove from collection",
+                "Removed from collection",
+                "Remove Theirs from your collection? (y/n)",
+            ],
+        ),
+    ];
+    for (kind, setup, to_row, [add_label, added, remove_label, removed, question]) in kinds {
+        let keys = [to_row.clone(), GA.to_vec()].concat();
+        let mut state = setup();
+        let effects = run_action(&mut state, &keys, add_label);
+        answer(&mut state, &effects, LibraryResponse::Done);
+        assert_eq!(state.message(), Some(added), "{kind}");
+        let mut state = setup();
+        assert_eq!(run_action(&mut state, &keys, remove_label), vec![]);
+        assert_eq!(asked(&state).as_deref(), Some(question), "{kind}");
+        let effects = press(&mut state, &[Char('y')]);
+        answer(&mut state, &effects, LibraryResponse::Done);
+        assert_eq!(state.message(), Some(removed), "{kind}");
+        for text in [add_label, added, remove_label, removed, question] {
+            assert!(!text.contains("favorite"), "{kind}: {text}");
+        }
+    }
+}
+
+/// 0028 AC9: a successful change of a track's favorite fetches the
+/// library page again when it is in the history, else only the Collected
+/// Tracks page.
+#[test]
+fn ac9_track_favorite_refetches_library() {
+    use Key::Char;
+    // The Collected Tracks page opened from the library, or by `g y`
+    // alone.
+    let with_library = || {
+        let mut state = library();
+        open(&mut state, &GY, fav_data(tracks([1, 2]), 2));
+        state
+    };
+    let without_library = fav_page;
+    let both = vec![
+        page(PageRequest::FavoriteTracks),
+        page(PageRequest::Library),
+    ];
+    type Setup = fn() -> State;
+    let cases: Vec<(&str, Setup, &str, Vec<Out>)> = vec![
+        (
+            "add, library in the history",
+            with_library,
+            "Add to Collected Tracks",
+            both.clone(),
+        ),
+        (
+            "remove, library in the history",
+            with_library,
+            "Remove from Collected Tracks",
+            both,
+        ),
+        (
+            "add, no library",
+            without_library,
+            "Add to Collected Tracks",
+            vec![page(PageRequest::FavoriteTracks)],
+        ),
+        (
+            "remove, no library",
+            without_library,
+            "Remove from Collected Tracks",
+            vec![page(PageRequest::FavoriteTracks)],
+        ),
+    ];
+    for (name, setup, label, want) in cases {
+        let mut state = setup();
+        let mut effects = run_action(&mut state, &GA, label);
+        if label.starts_with("Remove") {
+            effects = press(&mut state, &[Char('y')]);
+        }
+        let effects = answer(&mut state, &effects, LibraryResponse::Done);
+        assert_eq!(outs(&effects), want, "{name}");
+    }
+
+    // A selection's writes: the library is fetched again too.
+    let mut state = with_library();
+    press(&mut state, &typed("s2jds"));
+    let effects = press(&mut state, &[Char('y')]);
+    let writes = requests(&effects);
+    assert!(!writes.is_empty(), "{effects:?}");
+    let mut fetched = Vec::new();
+    for (id, _) in writes {
+        fetched.extend(outs(&reply(&mut state, id, LibraryResponse::Done)));
+    }
+    assert!(fetched.contains(&page(PageRequest::Library)), "{fetched:?}");
+    assert!(
+        fetched.contains(&page(PageRequest::FavoriteTracks)),
+        "{fetched:?}"
+    );
 }

@@ -316,6 +316,8 @@ pub enum Row<'a> {
     Mix(&'a MixSummary),
     /// A row that opens a browse page (spec 0024).
     Link(&'a PageLink),
+    /// The pinned *Collected Tracks* row (spec 0028); stub: never made.
+    Collected(Option<u32>),
 }
 
 impl<'a> Row<'a> {
@@ -347,7 +349,7 @@ impl<'a> Row<'a> {
             Self::Credit(c) => Some(Item::Track(c.track.id)),
             Self::Album(a) => Some(Item::Album(a.id)),
             Self::Playlist(p) => Some(Item::Playlist(p.uuid.clone())),
-            Self::Artist(_) | Self::Mix(_) | Self::Link(_) => None,
+            Self::Artist(_) | Self::Mix(_) | Self::Link(_) | Self::Collected(_) => None,
         }
     }
 
@@ -360,6 +362,7 @@ impl<'a> Row<'a> {
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
             Self::Mix(m) => Some(PageKind::Mix(m.id.clone())),
             Self::Link(l) => Some(PageKind::Browse(l.target.clone())),
+            Self::Collected(_) => None,
         }
     }
 
@@ -374,6 +377,7 @@ impl<'a> Row<'a> {
             Self::Playlist(p) => RowKey::Uuid(p.uuid.clone()),
             Self::Mix(m) => RowKey::Uuid(m.id.clone()),
             Self::Link(l) => RowKey::Uuid(format!("{:?}", l.target)),
+            Self::Collected(_) => RowKey::Uuid(String::new()),
         }
     }
 }
@@ -1291,6 +1295,7 @@ impl Page {
                     playlists,
                     albums,
                     artists,
+                    collected_tracks: _,
                 },
             ) => vec![
                 ListItems::Playlists(playlists),

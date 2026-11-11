@@ -298,6 +298,7 @@ fn ac5_search_page_history() {
             playlists: list(vec![], 0, 0),
             albums: list(vec![], 0, 0),
             artists: list(vec![], 0, 0),
+            collected_tracks: Some(362),
         }),
     );
     for (mut state, below) in [(State::default(), 1), (library, 2)] {
@@ -1002,7 +1003,7 @@ fn ac9_rows_act() {
     }
     let playlist_labels = actions(None, vec![Tab, Tab, Tab]);
     assert!(!playlist_labels.contains(&"Delete playlist".to_owned()));
-    for label in ["Add to favorites", "Remove from favorites"] {
+    for label in ["Add to collection", "Remove from collection"] {
         assert!(playlist_labels.contains(&label.to_owned()), "{label}");
     }
 }

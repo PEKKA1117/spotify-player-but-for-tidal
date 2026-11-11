@@ -587,6 +587,7 @@ impl<'a> Picked<'a> {
             Row::Artist(a) => a.name.clone(),
             Row::Mix(m) => m.title.clone(),
             Row::Link(l) => l.title.clone(),
+            Row::Collected(_) => "Collected Tracks".to_owned(),
         }
     }
 }
@@ -653,7 +654,7 @@ fn favorite(row: Row<'_>, at: Option<(&Page, &Window)>) -> Option<(FavoriteKind,
             p.uuid.clone(),
             kind == Some(WindowKind::Playlists),
         ),
-        Row::Mix(_) | Row::Link(_) => return None,
+        Row::Mix(_) | Row::Link(_) | Row::Collected(_) => return None,
     })
 }
 
@@ -681,14 +682,22 @@ fn actions(state: &State, origin: Origin) -> Vec<SelectionAction> {
         .iter()
         .map(|r| favorite(r.row(), at).map(|(kind, id, known)| (kind, id, known, r.held())))
         .collect();
+    // Every selected row a track: the words are *Collected Tracks*'
+    // (spec 0028), else the collection's.
+    let tracks_only = favorites
+        .as_ref()
+        .is_some_and(|f| f.iter().all(|(kind, ..)| *kind == FavoriteKind::Track));
     if let Some(favorites) = &favorites {
-        let unknown: Vec<(Held, String)> = favorites
+        let unknown: Vec<(FavoriteKind, Held, String)> = favorites
             .iter()
             .filter(|(_, _, known, _)| !known)
-            .map(|(_, id, _, held)| (*held, id.clone()))
+            .map(|(kind, id, _, held)| (*kind, *held, id.clone()))
             .collect();
-        if let (Some((kind, ..)), false) = (favorites.first(), unknown.is_empty()) {
-            actions.push(SelectionAction::AddFavorites(*kind, unknown));
+        if !unknown.is_empty() {
+            actions.push(SelectionAction::AddFavorites {
+                tracks_only,
+                rows: unknown,
+            });
         }
     }
     match at {
@@ -701,7 +710,7 @@ fn actions(state: &State, origin: Origin) -> Vec<SelectionAction> {
                 if favorites
                     .as_ref()
                     .is_none_or(|f| f.iter().any(|(_, _, known, _)| !known)) => {}
-            _ => actions.push(SelectionAction::RemoveFavorites),
+            _ => actions.push(SelectionAction::RemoveFavorites { tracks_only }),
         },
         Some(_) => {}
     }
@@ -753,10 +762,10 @@ pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) ->
             state.selection_add = Some((origin, held(state, origin)));
             effects
         }
-        SelectionAction::AddFavorites(kind, rows) => {
+        SelectionAction::AddFavorites { rows, .. } => {
             let mut effects = Vec::new();
             let mut requests = Vec::new();
-            for (held, id) in rows {
+            for (kind, held, id) in rows {
                 let (sent, request) = browse::write_id(
                     state,
                     LibraryRequest::AddFavorite(kind, id),
@@ -770,7 +779,7 @@ pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) ->
             remember(state, origin, requests);
             effects
         }
-        SelectionAction::RemoveFavorites
+        SelectionAction::RemoveFavorites { .. }
         | SelectionAction::RemoveFromPlaylist
         | SelectionAction::RemoveFromQueue => remove_selection(state, origin),
     }

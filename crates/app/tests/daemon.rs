@@ -995,7 +995,8 @@ fn ac15_daemon_reads_app_toml() {
     let mut daemon = machine.spawn(&["daemon", "-c", dir]);
     let mut watcher = attach(&machine.socket());
 
-    // The page size: the library's first requests ask for 7 rows.
+    // The page size: the library's first requests ask for 7 rows (the
+    // favorite tracks' total, spec 0028, asks for 1).
     watcher
         .send(&ClientMessage::Library {
             id: 5,
@@ -1008,6 +1009,7 @@ fn ac15_daemon_reads_app_toml() {
     let limits: Vec<String> = machine
         .requests()
         .iter()
+        .filter(|r| !r.url.path().ends_with("/favorites/tracks"))
         .flat_map(|r| {
             r.url
                 .query_pairs()

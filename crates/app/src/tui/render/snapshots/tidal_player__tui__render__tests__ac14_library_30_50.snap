@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/tui/render/tests.rs
-assertion_line: 2215
 expression: text
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -10,10 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────┐┌Albums (14)──────────────────────────┐┌Artists (196)─┐│
-││  Running          42││Collide With The…  Pierce The…   2012││Pierce The Ve…││
-││♥ Late night       17││Misadventures      Pierce The…   2016││Sleeping With…││
-││  Gym mix           8││Hold On Till May   Pierce The…   2010││Bring Me The… ││
-││                     ││                                     ││              ││
+││  Collected Tr…   362││Collide With The…  Pierce The…   2012││Pierce The Ve…││
+││  Running          42││Misadventures      Pierce The…   2016││Sleeping With…││
+││♥ Late night       17││Hold On Till May   Pierce The…   2010││Bring Me The… ││
+││  Gym mix           8││                                     ││              ││
 ││                     ││                                     ││              ││
 ││                     ││                                     ││              ││
 ││                     ││                                     ││              ││

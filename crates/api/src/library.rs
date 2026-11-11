@@ -270,6 +270,7 @@ impl LibraryClient {
                     playlists,
                     albums,
                     artists,
+                    collected_tracks: None,
                 })
             }
             PageRequest::FavoriteTracks => Ok(PageData::FavoriteTracks {

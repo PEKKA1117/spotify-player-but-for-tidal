@@ -724,6 +724,60 @@ async fn ac4_list_errors() {
     assert!(matches!(got, Err(LibraryError::Malformed(_))), "{got:?}");
 }
 
+/// 0028 AC1: the library page also asks the favorite tracks for their
+/// total with `limit=1` and carries it; a failing request fails the page.
+#[tokio::test]
+async fn ac1_library_page_counts_collected_tracks() {
+    let cases: [(&str, u16, String, Option<u32>); 3] = [
+        ("a total", 200, tracks_body(362, &[1001], "item"), Some(362)),
+        ("none", 200, tracks_body(0, &[], "item"), Some(0)),
+        ("failing", 500, SERVER_500.to_owned(), None),
+    ];
+    for (name, status, body, want) in cases {
+        let s = Setup::new().await;
+        s.get(
+            "/v1/users/1/playlistsAndFavoritePlaylists",
+            None,
+            200,
+            PLAYLISTS,
+        )
+        .await;
+        s.get("/v1/users/1/favorites/albums", None, 200, FAVORITE_ALBUMS)
+            .await;
+        s.get("/v1/users/1/favorites/artists", None, 200, FAVORITE_ARTISTS)
+            .await;
+        s.get("/v1/users/1/favorites/tracks", None, status, &body)
+            .await;
+        let got = s.ask(LibraryRequest::Page(PageRequest::Library)).await;
+        let Some(total) = want else {
+            assert!(got.is_err(), "{name}: the page fails: {got:?}");
+            continue;
+        };
+        let Ok(LibraryResponse::Page(PageData::Library {
+            collected_tracks, ..
+        })) = got
+        else {
+            panic!("{name}: not a library page: {got:?}");
+        };
+        assert_eq!(collected_tracks, Some(total), "{name}");
+        let limits: Vec<String> = s
+            .seen()
+            .await
+            .iter()
+            .filter(|r| r.path == "/v1/users/1/favorites/tracks")
+            .map(|r| {
+                r.query
+                    .iter()
+                    .find(|(k, _)| k == "limit")
+                    .unwrap()
+                    .1
+                    .clone()
+            })
+            .collect();
+        assert_eq!(limits, ["1"], "{name}: one request for the total");
+    }
+}
+
 /// AC5: a page is its header and the first page of each list, from
 /// parallel requests; the playlist's `ETag` is kept; the first page asks
 /// `min(page size, largest)`.
@@ -742,6 +796,13 @@ async fn ac5_pages() {
         .await;
     s.get("/v1/users/1/favorites/artists", None, 200, FAVORITE_ARTISTS)
         .await;
+    s.get(
+        "/v1/users/1/favorites/tracks",
+        None,
+        200,
+        &tracks_body(362, &[1001], "item"),
+    )
+    .await;
     let got = s
         .client
         .request(LibraryRequest::Page(PageRequest::Library), 100, &words())
@@ -751,6 +812,7 @@ async fn ac5_pages() {
         playlists,
         albums,
         artists,
+        ..
     }) = got
     else {
         panic!("not a library page: {got:?}");
@@ -782,12 +844,13 @@ async fn ac5_pages() {
         [
             ("/v1/users/1/favorites/albums".to_owned(), "100".to_owned()),
             ("/v1/users/1/favorites/artists".to_owned(), "100".to_owned()),
+            ("/v1/users/1/favorites/tracks".to_owned(), "1".to_owned()),
             (
                 "/v1/users/1/playlistsAndFavoritePlaylists".to_owned(),
                 "50".to_owned()
             ),
         ],
-        "page size 100, 50 for playlists"
+        "page size 100, 50 for playlists, 1 for the collected tracks' total"
     );
 
     // Favorite tracks: the first page at the page size.

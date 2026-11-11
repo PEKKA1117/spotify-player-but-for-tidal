@@ -97,6 +97,7 @@ fn library_data() -> PageData {
         ),
         albums: list(vec![album(10), album(11)], 2),
         artists: list(vec![artist(20), artist(21)], 2),
+        collected_tracks: Some(362),
     }
 }
 
@@ -179,7 +180,9 @@ fn open(state: &mut State, keys: &[Key], data: PageData) {
 }
 
 /// The queue state under the library page, with the window `tabs` presses
-/// of `Tab` from *Playlists* focused and `down` rows down.
+/// of `Tab` from *Playlists* focused and `down` rows down (in *Playlists*
+/// from the first playlist: row 0 is the pinned *Collected Tracks*, spec
+/// 0028).
 fn library(tabs: usize, down: usize) -> State {
     let mut state = queue();
     open(
@@ -187,6 +190,7 @@ fn library(tabs: usize, down: usize) -> State {
         &[Key::Char('g'), Key::Char('l')],
         library_data(),
     );
+    press(&mut state, &vec![Key::Down; usize::from(tabs == 0)]);
     press(&mut state, &vec![Key::Tab; tabs]);
     press(&mut state, &vec![Key::Down; down]);
     state
@@ -1028,20 +1032,21 @@ fn ac4_rebinding() {
 
 // --- AC5 ---------------------------------------------------------------------
 
-/// The start of the popup row an action runs.
-fn label_of(action: ActionKind) -> &'static str {
+/// The starts of the popup rows an action runs (a track's favorite action
+/// and an album's say different words, spec 0028).
+fn label_of(action: ActionKind) -> &'static [&'static str] {
     match action {
-        ActionKind::GoToAlbum => "Go to album",
-        ActionKind::GoToArtist => "Go to artist",
-        ActionKind::GoToRadio => "Go to radio",
-        ActionKind::AddToQueue => "Add to queue",
-        ActionKind::PlayNext => "Play next",
-        ActionKind::AddToLiked => "Add to favorites",
-        ActionKind::DeleteFromLiked => "Remove from favorites",
-        ActionKind::AddToPlaylist => "Add to playlist…",
-        ActionKind::DeleteFromPlaylist => "Remove from this playlist",
-        ActionKind::RemoveFromQueue => "Remove from queue",
-        ActionKind::DeletePlaylist => "Delete playlist",
+        ActionKind::GoToAlbum => &["Go to album"],
+        ActionKind::GoToArtist => &["Go to artist"],
+        ActionKind::GoToRadio => &["Go to radio"],
+        ActionKind::AddToQueue => &["Add to queue"],
+        ActionKind::PlayNext => &["Play next"],
+        ActionKind::AddToLiked => &["Add to Collected Tracks", "Add to collection"],
+        ActionKind::DeleteFromLiked => &["Remove from Collected Tracks", "Remove from collection"],
+        ActionKind::AddToPlaylist => &["Add to playlist…"],
+        ActionKind::DeleteFromPlaylist => &["Remove from this playlist"],
+        ActionKind::RemoveFromQueue => &["Remove from queue"],
+        ActionKind::DeletePlaylist => &["Delete playlist"],
     }
 }
 
@@ -1078,9 +1083,11 @@ fn ac5_action_bindings() {
                 let Some(Popup::Actions { actions: menu, .. }) = &by_popup.popup else {
                     panic!("{row}: no popup");
                 };
-                let index = menu
-                    .iter()
-                    .position(|a| a.label().starts_with(label_of(kind)));
+                let index = menu.iter().position(|a| {
+                    label_of(kind)
+                        .iter()
+                        .any(|label| a.label().starts_with(label))
+                });
                 let context = format!("{row}, {target:?}, {kind:?}");
                 match index {
                     Some(index) => {

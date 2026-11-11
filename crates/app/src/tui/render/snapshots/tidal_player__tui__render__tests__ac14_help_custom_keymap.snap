@@ -9,10 +9,10 @@ expression: text
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Runni┌Keys────────────────────────────────────────────────────────┐The Ve…││
-││♥ Late │ Library · Playlists                                        │g With…││
-││  Gym m│   enter           open the playlist                        │e The… ││
-││       │   Z  C-z          add to the end of the queue              │       ││
+││  Colle┌Keys────────────────────────────────────────────────────────┐The Ve…││
+││  Runni│ Library · Playlists                                        │g With…││
+││♥ Late │   enter           open the playlist                        │e The… ││
+││  Gym m│   Z  C-z          add to the end of the queue              │       ││
 ││       │   d d             remove from the list                     │       ││
 ││       │   g a  C-space    actions on the selected row              │       ││
 ││       │   N               new playlist                             │       ││
