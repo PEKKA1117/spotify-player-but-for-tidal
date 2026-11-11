@@ -184,7 +184,7 @@ command = "AddSelectedItemToQueue"
 key_sequence = "C-z"
 
 # RemoveSelectedItem: remove the row from its list: the queue, your playlists,
-# your favorites (lists of yours)
+# your collection (lists of yours)
 [[keymaps]]
 command = "RemoveSelectedItem"
 key_sequence = "d d"
@@ -257,7 +257,7 @@ key_sequence = "z"
 command = "LibraryPage"
 key_sequence = "g l"
 
-# LikedTrackPage: favorite tracks (everywhere)
+# LikedTrackPage: Collected Tracks (everywhere)
 [[keymaps]]
 command = "LikedTrackPage"
 key_sequence = "g y"
