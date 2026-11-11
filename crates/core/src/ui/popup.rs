@@ -5,7 +5,7 @@
 
 use crate::item::Item;
 use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
-use crate::protocol::DeviceEntry;
+use crate::protocol::{DeviceEntry, InsertAt};
 use crate::track::{ArtistRef, EntryId, Track};
 
 use super::page::{PageKind, Rows, Window};
@@ -27,6 +27,9 @@ pub enum TrackSource {
     Tracks(Vec<Track>),
     /// An album's tracks, fetched whole first.
     Album(u64),
+    /// The favorite tracks (the pinned *Collected Tracks* row, spec 0028),
+    /// fetched whole first.
+    Collected,
 }
 
 /// What [`Popup::EditPlaylist`] edits.
@@ -51,10 +54,14 @@ pub enum MenuAction {
     AddToQueue(Item),
     /// *Play next*: `Open { [item], Some(Next) }`.
     PlayNext(Item),
-    /// *Add to favorites* (the ID as [`crate::library::LibraryRequest`]
-    /// takes it).
+    /// *Add to queue* (`End`) or *Play next* (`Next`) on the pinned
+    /// *Collected Tracks* row (spec 0028): every favorite track, fetched
+    /// whole first.
+    QueueCollected(InsertAt),
+    /// *Add to Collected Tracks* (a track) or *Add to collection* (the
+    /// ID as [`crate::library::LibraryRequest`] takes it).
     AddFavorite(FavoriteKind, String),
-    /// *Remove from favorites*.
+    /// *Remove from Collected Tracks* or *Remove from collection*.
     RemoveFavorite(FavoriteKind, String),
     /// *Add to playlist…*: opens [`Popup::AddToPlaylist`].
     AddToPlaylist(TrackSource),
@@ -96,8 +103,10 @@ impl MenuAction {
             Self::GoToRadio(_) => "Go to radio".into(),
             Self::AddToQueue(_) => "Add to queue".into(),
             Self::PlayNext(_) => "Play next".into(),
-            Self::AddFavorite(..) => "Add to favorites".into(),
-            Self::RemoveFavorite(..) => "Remove from favorites".into(),
+            Self::QueueCollected(InsertAt::Next) => "Play next".into(),
+            Self::QueueCollected(_) => "Add to queue".into(),
+            Self::AddFavorite(kind, _) => format!("Add to {}", collection(*kind)),
+            Self::RemoveFavorite(kind, _) => format!("Remove from {}", collection(*kind)),
             Self::AddToPlaylist(_) => "Add to playlist…".into(),
             Self::RemoveFromPlaylist { .. } => "Remove from this playlist".into(),
             Self::RemoveFromQueue(_) => "Remove from queue".into(),
@@ -107,6 +116,15 @@ impl MenuAction {
             Self::SetPublic { public: true, .. } => "Make public".into(),
             Self::SetPublic { public: false, .. } => "Make private".into(),
         }
+    }
+}
+
+/// Where a favorite of `kind` is kept, in the TUI's words (spec 0028):
+/// Tidal calls it the collection; a track's is *Collected Tracks*.
+pub fn collection(kind: FavoriteKind) -> &'static str {
+    match kind {
+        FavoriteKind::Track => "Collected Tracks",
+        _ => "collection",
     }
 }
 
@@ -149,7 +167,7 @@ pub struct SelectionPart {
 }
 
 /// The question `d s` asks (spec 0020): 0019's text for one list
-/// ([`question`]), `Delete N playlists and remove M from favorites? (y/n)`
+/// ([`question`]), `Delete N playlists and remove M from your collection? (y/n)`
 /// for own and followed playlists together.
 pub fn selection_question(removal: &SelectionRemoval) -> String {
     match removal.parts.as_slice() {
@@ -165,7 +183,9 @@ pub fn selection_question(removal: &SelectionRemoval) -> String {
             let deleted = count(|f| *f == RemoveFrom::OwnPlaylists);
             let removed = count(|f| matches!(f, RemoveFrom::Favorites(_)));
             let plural = if deleted == 1 { "" } else { "s" };
-            format!("Delete {deleted} playlist{plural} and remove {removed} from favorites? (y/n)")
+            format!(
+                "Delete {deleted} playlist{plural} and remove {removed} from your collection? (y/n)"
+            )
         }
     }
 }
@@ -191,11 +211,14 @@ pub fn target_lines(on_yes: &Confirmed) -> Vec<TargetLine> {
     for part in &removal.parts {
         if headed {
             let heading = match part.removal.from {
-                RemoveFrom::OwnPlaylists => "Delete:",
-                _ => "Remove from favorites:",
+                RemoveFrom::OwnPlaylists => "Delete:".to_owned(),
+                RemoveFrom::Favorites(FavoriteKind::Track) => {
+                    "Remove from Collected Tracks:".to_owned()
+                }
+                _ => "Remove from your collection:".to_owned(),
             };
             lines.push(TargetLine {
-                text: heading.to_owned(),
+                text: heading,
                 heading: true,
             });
         }
@@ -275,7 +298,11 @@ pub fn question(removal: &Removal) -> String {
                 FavoriteKind::Artist => "artists",
                 FavoriteKind::Playlist => "playlists",
             };
-            format!("Remove {} from favorites? (y/n)", what(things))
+            let from = match kind {
+                FavoriteKind::Track => "Collected Tracks",
+                _ => "your collection",
+            };
+            format!("Remove {} from {from}? (y/n)", what(things))
         }
         RemoveFrom::Playlist {
             title: playlist, ..
@@ -360,12 +387,14 @@ pub enum SelectionAction {
     AddToQueue(Vec<Item>),
     /// *Add to playlist…*: the picker for these tracks.
     AddToPlaylist(Vec<Track>),
-    /// *Add to favorites*: the rows not known to be favorites, by ID.
+    /// *Add to Collected Tracks* (every selected row a track) or *Add to
+    /// collection*: the rows not known to be favorites, by kind and ID.
     AddFavorites {
         tracks_only: bool,
         rows: Vec<(FavoriteKind, Held, String)>,
     },
-    /// *Remove from favorites*, as `d s`.
+    /// *Remove from Collected Tracks* (every selected row a track) or
+    /// *Remove from collection*, as `d s`.
     RemoveFavorites { tracks_only: bool },
     /// *Remove from this playlist*, as `d s`.
     RemoveFromPlaylist,
@@ -381,8 +410,12 @@ impl SelectionAction {
             Self::PlayNext(_) => "Play next",
             Self::AddToQueue(_) => "Add to queue",
             Self::AddToPlaylist(_) => "Add to playlist…",
-            Self::AddFavorites { .. } => "Add to favorites",
-            Self::RemoveFavorites { .. } => "Remove from favorites",
+            Self::AddFavorites {
+                tracks_only: true, ..
+            } => "Add to Collected Tracks",
+            Self::AddFavorites { .. } => "Add to collection",
+            Self::RemoveFavorites { tracks_only: true } => "Remove from Collected Tracks",
+            Self::RemoveFavorites { .. } => "Remove from collection",
             Self::RemoveFromPlaylist => "Remove from this playlist",
             Self::RemoveFromQueue => "Remove from queue",
         }
@@ -532,6 +565,17 @@ pub fn album_actions(album: &AlbumSummary) -> Vec<MenuAction> {
     actions.extend(favorites(FavoriteKind::Album, album.id.to_string()));
     actions.push(MenuAction::AddToPlaylist(TrackSource::Album(album.id)));
     actions
+}
+
+/// The actions on the pinned *Collected Tracks* row (spec 0028): the list
+/// actions of a playlist, none of its favorite or edit ones.
+pub fn collected_actions() -> Vec<MenuAction> {
+    vec![
+        MenuAction::Open(PageKind::FavoriteTracks),
+        MenuAction::QueueCollected(InsertAt::End),
+        MenuAction::QueueCollected(InsertAt::Next),
+        MenuAction::AddToPlaylist(TrackSource::Collected),
+    ]
 }
 
 /// The actions on a playlist row.

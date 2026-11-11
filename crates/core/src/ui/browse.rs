@@ -2,6 +2,7 @@
 //! window focus and cursors, scrolling loads, the whole-list load,
 //! playing and queueing from a page, the popups and the library writes.
 
+use crate::item::Item;
 use crate::library::{
     BrowseRef, BrowseSection, FavoriteKind, LibraryRequest, LibraryResponse, ListItems, ListPage,
     ListRef, PageData, PageLink, PlaylistSummary,
@@ -47,6 +48,9 @@ pub enum WholeListSource {
 pub enum Purpose {
     /// `LoadQueue` from the visible row `start`.
     Play { start: usize },
+    /// `Open` of every track at `at` (spec 0028: *Collected Tracks*'
+    /// *Add to queue* and *Play next*).
+    Queue { at: InsertAt },
     /// `AddToPlaylist` to `uuid`, asking first when a track is in a loaded
     /// copy of it (`check_duplicates`).
     AddToPlaylist {
@@ -512,6 +516,16 @@ fn continue_whole_list(state: &mut State, effects: &mut Vec<Effect>) {
     if matches!(window.load, Load::Loading { .. }) {
         return;
     }
+    // Spec 0028: a collection above the limit is refused as soon as its
+    // total is known, as `play_from` refuses.
+    if let (Some(total), Some(WholeListSource::Detached(_))) =
+        (window.total, state.whole_list.as_ref().map(|w| &w.source))
+        && total > MAX_WHOLE_LIST
+    {
+        cancel_whole_list(state);
+        state.message = Some(too_many(total as usize));
+        return;
+    }
     if !window.complete() {
         let asked = match state.whole_list.as_ref().map(|w| &w.source) {
             Some(WholeListSource::Window { page, window }) => {
@@ -532,11 +546,27 @@ fn continue_whole_list(state: &mut State, effects: &mut Vec<Effect>) {
         return;
     }
     let tracks = window.tracks();
+    let collected = window.kind == WindowKind::FavoriteTracks
+        && matches!(
+            state.whole_list.as_ref().map(|w| &w.source),
+            Some(WholeListSource::Detached(_))
+        );
     let Some(whole) = state.whole_list.take() else {
         return;
     };
     state.message = None;
+    // Spec 0028: nothing to send for an empty *Collected Tracks*.
+    if collected && tracks.is_empty() {
+        state.message = Some("Collected Tracks is empty".to_owned());
+        return;
+    }
     match whole.purpose {
+        Purpose::Queue { at } => {
+            effects.push(Effect::Send(Command::Open {
+                items: tracks.iter().map(|t| Item::Track(t.id)).collect(),
+                at: Some(at),
+            }));
+        }
         Purpose::Play { start } => effects.extend(play(state, tracks, start)),
         Purpose::AddToPlaylist {
             uuid,
@@ -582,6 +612,9 @@ fn cancel_whole_list(state: &mut State) {
 /// `Z`/`C-z`: the selected track, album or playlist at the end of the
 /// queue (`Open`, the player expands it); nothing for an artist.
 fn queue_selected(state: &mut State) -> Vec<Effect> {
+    if matches!(selected(state), Some(Row::Collected(_))) {
+        return load_collected(state, Purpose::Queue { at: InsertAt::End });
+    }
     match selected(state).and_then(Row::item) {
         Some(item) => vec![Effect::Send(Command::Open {
             items: vec![item],
@@ -660,7 +693,11 @@ fn selected_actions(state: &State) -> Option<(String, Vec<MenuAction>)> {
                 Row::Artist(artist) => (artist.name.clone(), popup::artist_actions(artist)),
                 Row::Mix(mix) => (mix.title.clone(), popup::mix_actions(mix)),
                 // A link has no actions (spec 0024 AC10).
-                Row::Link(_) | Row::Collected(_) => return None,
+                Row::Link(_) => return None,
+                Row::Collected(_) => (
+                    super::page::COLLECTED_TRACKS.to_owned(),
+                    popup::collected_actions(),
+                ),
             })
         })
     }
@@ -716,7 +753,15 @@ fn names(kind: ActionKind, action: &MenuAction) -> bool {
             | (ActionKind::GoToArtist, MenuAction::GoToArtist(_))
             | (ActionKind::GoToRadio, MenuAction::GoToRadio(_))
             | (ActionKind::AddToQueue, MenuAction::AddToQueue(_))
+            | (
+                ActionKind::AddToQueue,
+                MenuAction::QueueCollected(InsertAt::End)
+            )
             | (ActionKind::PlayNext, MenuAction::PlayNext(_))
+            | (
+                ActionKind::PlayNext,
+                MenuAction::QueueCollected(InsertAt::Next)
+            )
             | (ActionKind::AddToLiked, MenuAction::AddFavorite(..))
             | (ActionKind::DeleteFromLiked, MenuAction::RemoveFavorite(..))
             | (ActionKind::AddToPlaylist, MenuAction::AddToPlaylist(_))
@@ -1249,6 +1294,7 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
         MenuAction::GoToRadio(kind) => open(state, kind),
         MenuAction::AddToQueue(item) => queue(item, InsertAt::End),
         MenuAction::PlayNext(item) => queue(item, InsertAt::Next),
+        MenuAction::QueueCollected(at) => load_collected(state, Purpose::Queue { at }),
         MenuAction::AddFavorite(kind, id) => write(
             state,
             LibraryRequest::AddFavorite(kind, id),
@@ -1482,30 +1528,52 @@ fn add_source(
 ) -> Vec<Effect> {
     match source {
         TrackSource::Tracks(tracks) => add_tracks(state, uuid, title, tracks, check_duplicates),
-        TrackSource::Album(id) => {
-            if !connected(state) {
-                return Vec::new();
-            }
-            state.whole_list = Some(WholeList {
-                source: WholeListSource::Detached(Box::new(Window::new(
-                    WindowKind::AlbumTracks,
-                    ListRef::AlbumTracks(id),
-                ))),
-                purpose: Purpose::AddToPlaylist {
-                    uuid,
-                    title,
-                    check_duplicates,
-                },
-            });
-            let mut effects = Vec::new();
-            if ask_detached(state, &mut effects) {
-                progress(state);
-            } else {
-                cancel_whole_list(state);
-            }
-            effects
-        }
+        TrackSource::Album(id) => load_detached(
+            state,
+            Window::new(WindowKind::AlbumTracks, ListRef::AlbumTracks(id)),
+            Purpose::AddToPlaylist {
+                uuid,
+                title,
+                check_duplicates,
+            },
+        ),
+        TrackSource::Collected => load_collected(
+            state,
+            Purpose::AddToPlaylist {
+                uuid,
+                title,
+                check_duplicates,
+            },
+        ),
     }
+}
+
+/// Loads every favorite track (the pinned row's list, spec 0028) and then
+/// does `purpose` with them.
+fn load_collected(state: &mut State, purpose: Purpose) -> Vec<Effect> {
+    load_detached(
+        state,
+        Window::new(WindowKind::FavoriteTracks, ListRef::FavoriteTracks),
+        purpose,
+    )
+}
+
+/// Starts a whole-list load of `window`, a list no page shows.
+fn load_detached(state: &mut State, window: Window, purpose: Purpose) -> Vec<Effect> {
+    if !connected(state) {
+        return Vec::new();
+    }
+    state.whole_list = Some(WholeList {
+        source: WholeListSource::Detached(Box::new(window)),
+        purpose,
+    });
+    let mut effects = Vec::new();
+    if ask_detached(state, &mut effects) {
+        progress(state);
+    } else {
+        cancel_whole_list(state);
+    }
+    effects
 }
 
 /// Adds `tracks`, asking first when one is in a loaded copy of the
@@ -1587,7 +1655,7 @@ pub(super) fn whole_list_command(state: &mut State, command: UiCommand) -> Vec<E
 fn page_error(kind: &PageKind, message: String) -> String {
     match kind {
         PageKind::Library => format!("Could not load the library: {message}"),
-        PageKind::FavoriteTracks => format!("Could not load the favorite tracks: {message}"),
+        PageKind::FavoriteTracks => format!("Could not load Collected Tracks: {message}"),
         PageKind::Search(_) => format!("Could not search: {message}"),
         PageKind::Mixes => format!("Could not load the mixes: {message}"),
         PageKind::Lyrics => format!("Could not load the lyrics: {message}"),
@@ -1773,13 +1841,16 @@ fn written(
         |uuid: String| move |k: &PageKind| matches!(k, PageKind::Playlist(u) if *u == uuid);
     match write {
         Write::Favorite { add, kind } => {
+            let to = popup::collection(kind);
             state.message = Some(if add {
-                "Added to favorites".into()
+                format!("Added to {to}")
             } else {
-                "Removed from favorites".into()
+                format!("Removed from {to}")
             });
             if kind == FavoriteKind::Track {
                 refetch(state, |k| *k == PageKind::FavoriteTracks, effects);
+                // The pinned row's count follows (spec 0028).
+                refetch(state, |k| *k == PageKind::Library, effects);
             } else {
                 refetch(state, |k| *k == PageKind::Library, effects);
             }

@@ -499,7 +499,7 @@ fn window_title(at: Where) -> String {
             WindowKind::Playlists | WindowKind::Albums | WindowKind::Artists => {
                 format!("Library · {}", kind.name())
             }
-            WindowKind::FavoriteTracks => "Favorite tracks".into(),
+            WindowKind::FavoriteTracks => "Collected Tracks".into(),
             WindowKind::AlbumTracks => "Album".into(),
             WindowKind::PlaylistTracks => "Playlist".into(),
             WindowKind::TopTracks
@@ -681,8 +681,8 @@ fn action_text(action: ActionKind) -> &'static str {
         ActionKind::GoToRadio => "the radio of the selected track or artist",
         ActionKind::AddToQueue => "add to the end of the queue",
         ActionKind::PlayNext => "play next",
-        ActionKind::AddToLiked => "add to favorites",
-        ActionKind::DeleteFromLiked => "remove from favorites",
+        ActionKind::AddToLiked => "add to collection",
+        ActionKind::DeleteFromLiked => "remove from collection (asks y/n first)",
         ActionKind::AddToPlaylist => "add to a playlist…",
         ActionKind::DeleteFromPlaylist => "remove from this playlist",
         ActionKind::RemoveFromQueue => "remove from the queue",
@@ -763,7 +763,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::PreviousTab => owned("previous tab"),
         C::Queue => owned("the queue page"),
         C::LibraryPage => owned("the library"),
-        C::LikedTrackPage => owned("favorite tracks"),
+        C::LikedTrackPage => owned("Collected Tracks"),
         C::SearchPage => owned("the search page (on one: its input)"),
         C::MixesPage => owned("your mixes"),
         C::BrowsePage => owned("browse what Tidal picks"),

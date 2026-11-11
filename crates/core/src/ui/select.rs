@@ -150,9 +150,12 @@ impl Marks {
 // --- reading a selection ---------------------------------------------------------
 
 /// Whether row `index` of `window` can be selected: every row but a link
-/// (spec 0024 AC10).
+/// (spec 0024 AC10) and the pinned *Collected Tracks* (spec 0028 AC6).
 fn selectable(window: &Window, index: usize) -> bool {
-    !matches!(window.rows.get(index), Some(Row::Link(_)))
+    !matches!(
+        window.rows.get(index),
+        Some(Row::Link(_) | Row::Collected(_))
+    )
 }
 
 /// The motion range of `window`: the rows shown between the anchor and
@@ -587,7 +590,7 @@ impl<'a> Picked<'a> {
             Row::Artist(a) => a.name.clone(),
             Row::Mix(m) => m.title.clone(),
             Row::Link(l) => l.title.clone(),
-            Row::Collected(_) => "Collected Tracks".to_owned(),
+            Row::Collected(_) => super::page::COLLECTED_TRACKS.to_owned(),
         }
     }
 }
@@ -1181,24 +1184,48 @@ fn message(requests: &[Request]) -> Option<String> {
             things(deleted, FavoriteKind::Playlist)
         ));
     }
-    let kind_of = |add: bool| {
-        ok.iter().find_map(|r| match r.part {
-            Part::Favorite(kind) if !add => Some(kind),
-            Part::AddFavorite(kind) if add => Some(kind),
-            _ => None,
+    // One clause per kind, each with its own word (spec 0028): a track
+    // goes to *Collected Tracks*, the rest to the collection.
+    let per_kind = |add: bool, to: &str| -> Vec<String> {
+        [
+            FavoriteKind::Track,
+            FavoriteKind::Album,
+            FavoriteKind::Artist,
+            FavoriteKind::Playlist,
+        ]
+        .into_iter()
+        .filter_map(|kind| {
+            let n: usize = ok
+                .iter()
+                .filter(|r| match r.part {
+                    Part::Favorite(k) => !add && k == kind,
+                    Part::AddFavorite(k) => add && k == kind,
+                    _ => false,
+                })
+                .map(|r| rows(r))
+                .sum();
+            (n > 0).then(|| {
+                format!(
+                    "{} {to} {}",
+                    things(n, kind),
+                    super::popup::collection(kind)
+                )
+            })
         })
+        .collect()
     };
-    if let Some(kind) = kind_of(false) {
-        let n = count(|p| matches!(p, Part::Favorite(_)));
+    let removed = per_kind(false, "from");
+    if !removed.is_empty() {
         clauses.push(if deleted > 0 {
-            format!("removed {n} from favorites")
+            let n = count(|p| matches!(p, Part::Favorite(_)));
+            format!("removed {n} from collection")
         } else {
-            format!("Removed {} from favorites", things(n, kind))
+            format!("Removed {}", removed.join(", "))
         });
     }
-    if let Some(kind) = kind_of(true) {
-        let n = count(|p| matches!(p, Part::AddFavorite(_)));
-        clauses.push(format!("Added {} to favorites", things(n, kind)));
+    let added = per_kind(true, "to");
+    if !added.is_empty() {
+        clauses.push(format!("Added {}", added.join(", ")));
     }
     let mut message = clauses.join(" and ");
     if failed > 0 {
