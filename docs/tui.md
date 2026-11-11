@@ -480,7 +480,7 @@ What the log holds, by group (the text after the message is `name=value` fields)
 | `Z`, `Ctrl-z` | a track | Adds it to the end of the queue; with nothing playing it starts |
 | `Z`, `Ctrl-z` | an album or playlist | Adds all its tracks to the end of the queue |
 | `Z`, `Ctrl-z` | an artist or a mix | Nothing |
-| `d d` | a row of a list of yours | Asks first (see [Confirming removals](#confirming-removals)); `y` removes it from the queue (removing the playing one moves on), your playlist or Collected Tracks |
+| `d d` | a row of a list of yours | Asks first (see [Confirming removals](#confirming-removals)); `y` removes it from the queue (removing the playing one moves on), your playlist, Collected Tracks or your collection |
 
 `Enter` on a track needs the whole list, so a list that is only partly loaded is first fetched to its end: the playback window's message row says `Loading 300 of 1 234…`, and `Esc` cancels it with nothing sent. A list of more than 40 000 tracks is refused (`Too many tracks to queue at once (N)`).
 

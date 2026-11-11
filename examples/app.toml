@@ -46,8 +46,8 @@ key_hints = true
 # 10000; 0 shows it at once. (TIDAL_PLAYER_KEY_HINTS_DELAY_MS)
 key_hints_delay_ms = 1000
 
-# In the TUI, ask y/n before removing from your collection, from a playlist or from
-# the queue: true or false. (TIDAL_PLAYER_CONFIRM_REMOVALS, on/off)
+# In the TUI, ask y/n before removing from your collection, from a playlist or
+# from the queue: true or false. (TIDAL_PLAYER_CONFIRM_REMOVALS, on/off)
 confirm_removals = true
 
 # The lowest level the log keeps (the log file, and the logs page `g o`):

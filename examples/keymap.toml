@@ -184,7 +184,7 @@ command = "AddSelectedItemToQueue"
 key_sequence = "C-z"
 
 # RemoveSelectedItem: remove the row from its list: the queue, your playlists,
-# Collected Tracks (lists of yours)
+# your collection (lists of yours)
 [[keymaps]]
 command = "RemoveSelectedItem"
 key_sequence = "d d"
