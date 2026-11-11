@@ -249,7 +249,7 @@
 | `Z`、`C-z`、*Add to queue* | 把所有收藏的曲目加到佇列尾端 |
 | *Play next* | 把所有收藏的曲目加到正在播放的曲目之後 |
 | *Add to playlist…* | 把所有收藏的曲目加到選擇的播放清單，與專輯相同 |
-| `a`（動作選單） | *Open*、*Add to queue*、*Play next*、*Add to playlist…*：沒有收藏、改名、描述、公開或刪除的動作 |
+| `g a`、`C-space`（動作選單） | *Open*、*Add to queue*、*Play next*、*Add to playlist…*：沒有收藏、改名、描述、公開或刪除的動作 |
 | `/` | 以名稱 `Collected Tracks` 比對，如同播放清單的標題，並計入符合數 |
 | `s c`、`s <N> j`/`k`、`s m` | 無法被選取：在它上面按 `s c` 沒有作用，涵蓋到它的數量或動作模式只會選取播放清單 |
 | `d d`、`d s` | 對它沒有作用 |

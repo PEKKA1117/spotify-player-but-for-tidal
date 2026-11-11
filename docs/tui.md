@@ -238,7 +238,7 @@ The window's title counts the playlists only. A player that does not send the to
 | `Z`, `C-z`, *Add to queue* | adds every collected track at the end of the queue |
 | *Play next* | adds every collected track after the playing one |
 | *Add to playlist…* | adds every collected track to the chosen playlist, as for an album |
-| `a` (the actions popup) | *Open*, *Add to queue*, *Play next*, *Add to playlist…*: no collection, rename, description, public or delete actions |
+| `g a`, `C-space` (the actions popup) | *Open*, *Add to queue*, *Play next*, *Add to playlist…*: no collection, rename, description, public or delete actions |
 | `/` | matched by its name, `Collected Tracks`, like a playlist's title, and counted in the matches |
 | `s c`, `s <N> j`/`k`, `s m` | cannot be selected: `s c` on it does nothing, and a count or motion that covers it selects the playlists only |
 | `d d`, `d s` | do nothing to it |

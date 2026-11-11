@@ -38,7 +38,7 @@ The library's Playlists window starts with one row that is not a playlist: **Col
 | `Z`, `C-z`, *Add to queue* | adds every collected track at the end of the queue |
 | *Play next* | adds every collected track after the playing one |
 | *Add to playlist…* | adds every collected track to the chosen playlist, as for an album |
-| `a` (actions popup) | *Open*, *Add to queue*, *Play next*, *Add to playlist…*: no favorite, rename, description, public or delete actions |
+| `g a`, `C-space` (actions popup) | *Open*, *Add to queue*, *Play next*, *Add to playlist…*: no favorite, rename, description, public or delete actions |
 | `/` | matched by its name, `Collected Tracks`, like a playlist's title; counted in the matches |
 | `s c`, `s <N> j`/`k`, `s m` | cannot be selected: `s c` on it does nothing, a count or motion that covers it selects the playlists only |
 | `d d`, `d s` | do nothing to it (`d d` on it sends nothing and opens nothing) |
@@ -85,7 +85,7 @@ A successful change of a track's favorite (add or remove, one or a selection) fe
 - **AC1** — Fetching the library: `Page(Library)` also asks `users/{user}/favorites/tracks` with `limit=1`, alongside the three lists, and `PageData::Library` carries its `totalNumberOfItems` as `collected_tracks: Option<u32>` (`Some(0)` for none); a failure of that request fails the page as a failure of the other three does. A `PageData::Library` without the field (an older player) deserializes with `collected_tracks: None`
 - **AC2** — The pinned row (table): applying `PageData::Library` gives the Playlists window a first row *Collected Tracks* with the count (`Some(n)`, `Some(0)`, `None` → no count), then the playlists; the window's `total` is the playlists' total; the next `More` asks `Playlists` from offset = page size, and `Loading more…` shows while loaded playlists < total; a reload keeps it first. Other windows and pages have no such row
 - **AC3** — `Enter` on the pinned row opens the Collected Tracks page (`Page(FavoriteTracks)`, pushed as `g y` pushes it); `g y` with that page on top does nothing
-- **AC4** — `Z`/`C-z` and the popup's *Add to queue*, *Play next* and *Add to playlist…* on the pinned row load the favorite tracks whole (`More { FavoriteTracks, … }` until the total, the `Loading N of M…` message, `Esc` cancels with nothing sent, above 40 000 refused), then send one command: `Open { items: <the tracks>, at: Some(End) }`, `Open { items: <the tracks>, at: Some(Next) }`, or `AddToPlaylist`; with no favorite tracks nothing is sent and the message row says `Collected Tracks is empty` with 0006's duplicate check (table over the four)
+- **AC4** — `Z`/`C-z` and the popup's *Add to queue*, *Play next* and *Add to playlist…* on the pinned row load the favorite tracks whole (`More { FavoriteTracks, … }` until the total, the `Loading N of M…` message, `Esc` cancels with nothing sent, above 40 000 refused), then send one command: `AddToQueue { tracks: <the tracks>, at: End }`, `AddToQueue { tracks: <the tracks>, at: Next }` (the tracks as loaded, so the player looks none of them up), or `AddToPlaylist`; with no favorite tracks nothing is sent and the message row says `Collected Tracks is empty` with 0006's duplicate check (table over the four)
 - **AC5** — The actions popup on the pinned row lists exactly *Open*, *Add to queue*, *Play next*, *Add to playlist…*; `r` and *Go to radio* do nothing on it; `d d` on it sends nothing and opens nothing
 - **AC6** — Selecting (0020): `s c` on the pinned row selects nothing; `s 3 j` from it selects the two playlists among the three rows it covers; motion mode over it selects only the playlists; `s a` and `d s` never act on it (table)
 - **AC7** — Filtering (0012): `/coll` in the library's Playlists keeps the pinned row (and any playlist whose title has `coll`) and counts it in the matches; `/run` hides it; `Enter` keeps the filter and `Esc` clears it with the row back first
@@ -174,3 +174,12 @@ Assumptions, checked at acceptance:
 - **API labels**: the `Malformed` error labels that reach the message row (`malformed … response from Tidal`) say `collected tracks`, `collection albums`, `collection artists` and `collection`
 - **AC1's protocol test** cannot be red: serde reads a missing `Option` as `None` whatever the stub does; it guards the field's `#[serde(default)]` from here on
 - **`crates/app/tests/daemon.rs`** (`ac15_daemon_reads_app_toml`): leaves out the `limit=1` request when it checks the page size of the library's requests
+
+## Bugs
+
+### `Z` on the pinned row queues nothing when one collected track is gone (found at the hands-on check, 2026-11-12)
+
+- **Expected**: `Z` (and *Add to queue*, *Play next*) on *Collected Tracks* adds every collected track to the queue, as AC4 says
+- **Actual**: with 373 collected tracks, one of them no longer on Tidal, nothing is added and the message row says `Track 256746446 was not found`
+- **Root cause**: AC4 had the client send `Open { items: [Item::Track(id), …] }`, which the player resolves one ID at a time and fails as a whole on the first missing track. The tracks are already loaded with everything the queue needs, so `AddToQueue { tracks, at }` (0004) carries them as they are, as 0006's `LoadQueue` does for playing a list. The spec was wrong, not the code
+- **New criterion**: AC4 now names `AddToQueue { tracks, at }`; its test asserts that command, and a row whose list holds a track Tidal no longer has still sends every track. Tracks that are not streamable are queued and skipped by the player, as on any list (0004 AC7)
