@@ -1,6 +1,6 @@
 # 0028 — Collected Tracks: favorite tracks as a pinned playlist
 
-- **Status**: approved (2026-11-12; draft 2026-11-12)
+- **Status**: implemented (2026-11-12; approved 2026-11-12)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#103](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/103)
 - **Depends on**: 0006 (implemented: the library page, the favorite tracks page, whole-list loads, the actions popup, favorites), 0012 (implemented: `/` and its title), 0019 (implemented: the removal questions, `d d`), 0020 (implemented: the selection, `d s`, `s a`)
@@ -163,3 +163,14 @@ Assumptions, checked at acceptance:
 - Videos and the profile from Tidal's *My Collection*
 - Your favorite tracks on an artist's page (#63)
 - Renaming the commands (`LikedTrackPage`, `AddToLiked`, `DeleteFromLiked`) in `keymap.toml`: they are spotify-player's names
+
+## Implementation notes (choices made where the spec was silent, 2026-11-12)
+
+- **The pinned row**: a stand-in `PlaylistSummary` (uuid `collected-tracks`, which no Tidal playlist has; `own: false`, so the *Add to playlist…* list never offers it; `tracks` holds the count) at index 0 of the library's Playlists `rows` and `positions`, inserted by `Window::pin_collected` on every fill of a library page; `Rows::get` reads it as `Row::Collected(Option<u32>)`. `total`, `next_offset` and `complete()` stay the playlists', so the cursor, the filter and the selection need no index mapping
+- **Whole-list loads from the row**: `Purpose::Queue { at }` beside `Play` and `AddToPlaylist`, `MenuAction::QueueCollected(InsertAt)` and `TrackSource::Collected`, all through one `load_detached` helper that the album row's *Add to playlist…* now uses too. Above 40 000 is refused as soon as the first page gives the total; disconnected, it does nothing, as the album path does. `[[actions]]` bindings of `AddToQueue` and `PlayNext` act on the row through `QueueCollected`
+- **Selection**: *Add to/Remove from Collected Tracks* when every selected row is a track (`tracks_only`), *collection* otherwise. `AddFavorites` now carries each row's own kind (it sent every row with the first row's kind, wrong for a browse section of several kinds). The list question's heading is per kind (`Remove from Collected Tracks:`, `Remove from your collection:`); own and followed playlists together end with `Deleted 2 playlists and removed 1 from collection`
+- **Refetch order**: a track's favorite change fetches the Collected Tracks page again, then the library page
+- **An empty library**: the Playlists window always holds the pinned row, so it no longer says `No playlists yet` (0006's empty-list message stays for a library with no row, which cannot happen now)
+- **API labels**: the `Malformed` error labels that reach the message row (`malformed … response from Tidal`) say `collected tracks`, `collection albums`, `collection artists` and `collection`
+- **AC1's protocol test** cannot be red: serde reads a missing `Option` as `None` whatever the stub does; it guards the field's `#[serde(default)]` from here on
+- **`crates/app/tests/daemon.rs`** (`ac15_daemon_reads_app_toml`): leaves out the `limit=1` request when it checks the page size of the library's requests
