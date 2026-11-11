@@ -4802,9 +4802,10 @@ fn ac4_collected_tracks_row_whole_list() {
     // (name, how it starts, what is sent for the tracks)
     let open_at = |at: InsertAt| {
         move |tracks: std::ops::Range<u64>| {
-            send(Command::Open {
-                items: tracks.map(|n| Item::Track(TrackId(n))).collect(),
-                at: Some(at),
+            // The loaded tracks themselves, not their IDs (0028 Bugs).
+            send(Command::AddToQueue {
+                tracks: self::tracks(tracks),
+                at,
             })
         }
     };
