@@ -9,7 +9,7 @@
 - Read it before slicing, implementing or accepting anything the spec covers; its criteria are owned by slices and accepted like the spec's
 - Where it and the spec disagree, it wins: the tracked spec keeps its text (so it gives nothing away) and the implementation, tests and examples follow the Easter-egg file. The file lists the parts of the spec it replaces
 - Briefs quote it as they quote the spec
-- Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text); the tracked spec only names the file
+- Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text, release notes, PR diagrams, and the zh-TW copies of all of them); the tracked spec only names the file, and its zh-TW copy starts with the same `@docs/Eastereggs/<hash>.md` line
 - A spec naming a file that is missing (another clone, CI): say so and stop rather than guessing
 
 ## Status
@@ -78,7 +78,8 @@ It combines with SDD + TDD below as follows:
 Every feature and every bug fix, however small, follows spec-driven development (SDD) and then test-driven development (TDD), in this order:
 
 1. **Spec first (SDD)** — before touching code, write or update the spec:
-   - Features: a numbered spec in `docs/specs/` (`NNNN-short-slug.md`), with the sections in "Spec format" below
+   - Features: a numbered spec in `docs/specs/` (`NNNN-short-slug.md`), with the sections in "Spec format" below, and its zh-TW copy (see "Chinese copies for review")
+   - Every spec change (a new spec, a "Bugs" entry, a correction, a status change) updates the spec's zh-TW copy in the same commit, so the user can review and approve it in either language
    - Bug fixes: add a "Bugs" entry to the spec that covers the area — expected vs. actual behaviour, root cause, and the new acceptance criterion — and correct the spec if it was wrong or silent on the case. No covering spec means the area was never specified: write one
    - User-facing behaviour (keys, config, layout) is also documented in `docs/` pages for users; the spec links to them rather than duplicating them
 2. **Red (TDD)** — write the failing tests named in the spec's test plan (for a bug: a test that reproduces it). Run it and confirm it fails **for the expected reason**, not on a compile error or a missing fixture. Commit the red state on its own (`test: …`) so acceptance can check it out
@@ -96,7 +97,7 @@ Rules:
 
 ### Spec format
 
-Each `docs/specs/NNNN-*.md` starts with a list of **Status** (`draft` → `approved` by the user → `implemented`, each with its date; only `approved` specs are sliced), **Owner**, **Issue** (the GitHub issue, when it has one), **Depends on** (the specs it builds on) and **User docs** (the pages it adds or changes), and has these sections, in this order:
+Each `docs/specs/NNNN-*.md` starts with a list of **Status** (`draft` → `approved` by the user → `implemented`, each with its date; only `approved` specs are sliced), **Owner**, **Issue** (the GitHub issue, when it has one), **Depends on** (the specs it builds on) and **User docs** (the pages it adds or changes), and has these sections, in this order (its zh-TW copy, `docs/specs/zh-TW/NNNN-*.md`, has the same list and sections, translated):
 
 - **Context**: what problem this solves; what tidalt did here and what went wrong, if relevant
 - **Behaviour**: what the user sees and does — inputs/outputs, keys, config, states
@@ -112,7 +113,33 @@ Each `docs/specs/NNNN-*.md` starts with a list of **Status** (`draft` → `appro
 
 ## Definition of done
 
-A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md` and the zh-TW copies are up to date (see "Conventions"); a PR that changes what the TUI shows carries its hands-on check (below); and the commit history shows the red commit before the green one.
+A change is done when: the spec is `approved` (or `implemented`) and matches the code; every acceptance criterion it touches has a passing test; every "Build & tooling" check is clean; the feature has its entry under "Features" (an introduction, not a change log); `README.md`, the specs it touches and the zh-TW copies of both are up to date (see "Chinese copies for review"); the PR description has its zh-TW translation and its PlantUML diagram (see "PR description"); a PR that changes what the TUI shows carries its hands-on check (below); and the commit history shows the red commit before the green one.
+
+## Chinese copies for review
+
+The user reviews in Traditional Chinese (Taiwan) as well as English, so every document written for a reader has a 正體中文 copy, made in the same change as the English and kept in step with it. English stays the source: where the two disagree, the English is right and the copy is fixed.
+
+| English | 正體中文 copy |
+|---|---|
+| `README.md` | `README.zh-TW.md` |
+| `docs/<page>.md` (user docs) | `docs/zh-TW/<page>.md` |
+| `docs/specs/NNNN-*.md` | `docs/specs/zh-TW/NNNN-*.md` |
+| a release's `## New in vX.Y.Z` | `## vX.Y.Z 新功能` on the same release (see "Release notes" under "Conventions") |
+| a PR description | its `## 正體中文` section (see "PR description") |
+
+- A spec's copy follows the user docs' rules (see "Conventions"): a language switcher line (`[English](../NNNN-*.md) | 正體中文`, and `English | [正體中文](zh-TW/NNNN-*.md)` under the English spec's title), code, keys, commands, paths, config names, AC numbers and test names untranslated, and `<a id="english-slug"></a>` before each heading. It is written with the spec, before the user is asked to approve it, and changes with it
+- A spec written before this rule gets its copy the first time it changes; until then, links go to the English spec
+- `cargo xtask specs` reads only `docs/specs/*.md`, so the test plan is checked in the English spec; the copy's test plan is a translation of it, not a second source
+- Not translated: this file, commit messages, code comments, issue text and the `.github/release-notes.md` install steps
+
+## PR description
+
+Every PR description has, in this order:
+
+1. The English description: the spec and acceptance criteria it covers, what changed, `Closes #N`, the README check, and the hands-on check where one is due (below)
+2. `## Architecture`: a PlantUML diagram of how the change is done, for every PR that changes Rust code or a spec (one that changes neither says so in a line). It shows the crates and modules the change adds or touches (`tidal-player-core`, `-api`, `-audio`, the binary's `player/`, `tui/`, `cli/`, `session/`, `ipc/`), the new or changed types and traits with their seams and fakes, and how the work flows between them (key → action → `Command` → player → Tidal API / audio → `Event` → clients), with what is new or changed set apart (a colour or `<<new>>`/`<<changed>>` stereotypes) from the unchanged context drawn for orientation. Labels are code names, so the one diagram serves both languages. The source goes in a ```` ```plantuml ```` block; a PNG rendered locally (`plantuml -tpng`, never a public PlantUML server: the diagram describes unreleased code) goes on the PR's orphan `chore/pr-screenshots-<slug>` branch (beside the screenshots, or on a branch made the same way when the PR has none) and is linked the same way, pinned to its commit. With no `plantuml` on the machine, the source alone is given and the PR says so
+3. `## 正體中文`: the whole description above in 正體中文 (the hands-on check's lines included, its screenshots linked again, and the diagram referred to, not copied), so the user can review the PR in either language
+4. The attribution lines
 
 ## Hands-on check (PR screenshots)
 
@@ -131,11 +158,11 @@ A `feat/*` or `bugfix/*` PR that changes what the TUI shows carries a `## Hands-
 - Branches are named `<kind>/<slug>`, the kind one of `feat` (a feature), `bugfix` (a bug fix), `refactor` (Rust code moved or reshaped with no change in behaviour), `docs` (documentation, specs, this file) or `chore` (CI, tooling, dependencies, anything else). Only pull requests from `feat/*`, `bugfix/*` and `refactor/*` and pushes to `master` run the CI build and tests, once per commit (spec 0001 AC9); a pushed branch gets CI once its PR is open, and a release tag none (the release waits for `master`'s run). A change to Rust code goes on one of those three
 - Every feature and bug fix has a GitHub issue. Starting one that has none, open it first (`gh issue create`): what the feature does, or the bug's expected vs. actual behaviour, and the spec it touches, so PRs, commits and specs can link to it
 - Working on a GitHub issue: label it `whipping` when work starts (`gh issue edit N --add-label whipping`). The PR's description has `Closes #N` for each issue it resolves. When the PR is merged, swap the issue's label for `whipped` (`gh issue edit N --remove-label whipping --add-label whipped`)
-- One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers
+- One spec → one PR where practical; a PR description lists the spec and the acceptance criteria it covers, and follows "PR description" below
 - Versions: a `refactor/*` PR is not a release (no bump, no tag: its crates go out with the next release, whose bump covers every crate changed since the last one). Every `feat/*` and `bugfix/*` PR is a release, without anyone asking: its last commit, `chore: release tidal-player X.Y.Z`, bumps the `tidal-player` binary and the other crates whose code changed since the last release, and once the PR is merged its merge commit is tagged `vX.Y.Z`, which runs the `Release` workflow. A fix or a feature bumps the patch version (`1.2.0` → `1.2.1`); a feature the maintainer calls major bumps the minor version (`1.2.1` → `1.3.0`); the major version stays `1`. A crate whose version leaves the shared one sets `version = "x.y.z"` in its own `Cargo.toml` instead of `version.workspace = true`; `[workspace.package] version` stays the version of the crates not bumped, and a bumped library crate's entry in `[workspace.dependencies]` gets its new version, pinned exactly (`version = "=x.y.z"`, spec 0018 AC6): a patch release may change a library's API, so a published crate must need the crates it was released with. So a crate that depends on a bumped library crate is bumped too, changed or not (`tidal-player-api` whenever `tidal-player-core` is): its published version needs the old one. `cargo xtask publish --dry-run` fails on a release that forgets it, and CI runs it (spec 0018 AC10, AC11). `Cargo.lock` follows through `cargo update --workspace`. The release tag `vX.Y.Z` is the `tidal-player` binary's version
-- Release notes: every tagged release gets a `## New in vX.Y.Z` section on its GitHub release, written fresh for that release. The `Release` workflow creates the release with the install steps (`.github/release-notes.md`) and GitHub's generated PR list; once it has, add the section above `## Install` (`gh release edit vX.Y.Z --notes-file …`, keeping the rest). One bullet per user-visible feature or fix since the previous tag: its name in bold, what it does for the user in a sentence or two, and a link to its wiki page. Write it for users, like the "Features" introductions, not a copy of commit or PR titles
+- Release notes: every tagged release gets a `## New in vX.Y.Z` section on its GitHub release, written fresh for that release. The `Release` workflow creates the release with the install steps (`.github/release-notes.md`) and GitHub's generated PR list; once it has, add the section above `## Install` (`gh release edit vX.Y.Z --notes-file …`, keeping the rest). One bullet per user-visible feature or fix since the previous tag: its name in bold, what it does for the user in a sentence or two, and a link to its wiki page. Write it for users, like the "Features" introductions, not a copy of commit or PR titles. Below it (still above `## Install`) goes `## vX.Y.Z 新功能`: the same bullets in 正體中文, each linking the wiki page's zh-TW copy (`<Page>-zh-TW`)
 - Every PR updates `README.md` so it matches the PR's result: what works, how to use it, links to the user docs. A PR that changes nothing user-visible still checks it and says so in its description
-- User docs have a Traditional Chinese (Taiwan) translation: `README.zh-TW.md` and `docs/zh-TW/<page>.md`, one per `docs/<page>.md`. English is the source; a PR that changes `README.md` or a user doc updates its zh-TW copy in the same PR, and a new user doc gets its zh-TW copy at once. Each copy starts with a language switcher line (`English | [正體中文](…)`; the language is called 正體中文, never 繁體中文), keeps code, keys, commands, paths and config names untranslated, puts `<a id="english-slug"></a>` before each heading so English anchors keep working, and links to specs (English only) and examples by their real paths. Specs and this file are English only
+- User docs have a Traditional Chinese (Taiwan) translation: `README.zh-TW.md` and `docs/zh-TW/<page>.md`, one per `docs/<page>.md`. English is the source; a PR that changes `README.md` or a user doc updates its zh-TW copy in the same PR, and a new user doc gets its zh-TW copy at once. Each copy starts with a language switcher line (`English | [正體中文](…)`; the language is called 正體中文, never 繁體中文), keeps code, keys, commands, paths and config names untranslated, puts `<a id="english-slug"></a>` before each heading so English anchors keep working, and links to specs (their zh-TW copies, `../specs/zh-TW/NNNN-*.md`, where one exists) and examples by their real paths. This file is English only (it is the agents' instructions); everything else written for a reader has a zh-TW copy, see "Chinese copies for review"
 - `docs/` (minus `docs/specs/`) is the source of the GitHub wiki (spec 0015): edit the docs there, never on the wiki, which every publish overwrites. A new user doc gets a row in `PAGES` (`xtask/src/wiki.rs`), or `cargo xtask wiki` fails. Where the program or README sends a user to the docs, link the wiki page, not `docs/`
 - Keep this file for rules, stable facts and the "Features" introductions. Implementation detail belongs in specs and code comments — tidalt's CLAUDE.md turned into a per-file changelog that went stale
 
