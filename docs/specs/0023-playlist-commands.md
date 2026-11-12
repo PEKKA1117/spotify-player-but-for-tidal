@@ -1,5 +1,7 @@
 # 0023 — Playlist commands
 
+English | [正體中文](zh-TW/0023-playlist-commands.md)
+
 - **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#88](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/88)

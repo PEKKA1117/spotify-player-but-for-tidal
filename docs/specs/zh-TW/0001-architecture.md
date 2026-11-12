@@ -134,25 +134,25 @@ xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces t
 <a id="test-plan"></a>
 ## 測試計畫
 
-每個自動化測試都以它所證明的條件命名（`ac5_…`）。「Red」是實作者在寫程式碼之前必須展示的失敗：是失敗的斷言，絕不是編譯錯誤。因此 red commit 已包含測試所呼叫的 stub 型別與函式，其本體為 stub（不允許使用 `todo!()`：它會 panic，而不是讓斷言失敗）。
+每個自動化測試都以它所證明的條件命名（`ac5_…`）。「Red」是實作者在寫程式碼之前必須展示的失敗：是失敗的斷言，絕不是編譯錯誤。因此紅燈 commit 已包含測試所呼叫的存根型別與函式，其本體為存根（不允許使用 `todo!()`：它會 panic，而不是讓斷言失敗）。
 
-| AC | 測試（file :: name） | 斷言內容 | 預期的 red |
+| AC | 測試（file :: name） | 斷言內容 | 預期的紅燈 |
 |----|---------------------|-----------------|--------------|
 | AC1 | — command check | `cargo build --workspace` 在 CI 中以 0 結束，且 AC4 的測試會執行建出來的 `tidal-player` 執行檔 | — |
 | AC2 | — command check | `cargo fmt --all --check`、clippy（`-D warnings`）與 `cargo test --workspace` 以 0 結束 | — |
-| AC3 | `xtask/src/layering.rs` :: `ac3_rules`（表格驅動，針對手工建構的相依圖） | 允許的圖 → 無違規；`core → tokio` → 違規 `tidal-player-core -> tokio`；`core → serde_x → tokio`（遞移）→ 違規；`audio → core`、`api → audio`、`core → api` → 各一條違規，並指出該邊；`core` 僅以 dev 相依取得 `tokio` → 無違規 | stub `check()` 不回傳任何違規，所以每個違規的列都失敗 |
-| AC3 | `xtask/tests/workspace.rs` :: `ac3_real_workspace_is_clean` | 在真實 workspace 上執行 `cargo xtask layering` 以 0 結束 | stub 指令以 1 結束 |
-| AC4 | `crates/app/tests/cli.rs` :: `ac4_version` | `tidal-player --version` 的 stdout 恰為 `tidal-player <CARGO_PKG_VERSION>\n`，結束碼 0 | stub `main` 什麼都不印 |
-| AC4 | `crates/app/tests/cli.rs` :: `ac4_help` | `tidal-player --help` 以 0 結束，且 stdout 含有 `Usage:` | stub `main` 什麼都不印 |
-| AC5 | `crates/core/src/ui/mod.rs` :: `ac5_quit_emits_quit` | `update(&mut State::default(), Action::Quit) == vec![Effect::Quit]` | stub `update` 回傳 `vec![]` |
-| AC5 | `crates/core/src/ui/mod.rs` :: `ac5_other_actions_emit_nothing`（表格涵蓋每個非 `Quit` 的變體，至少含 `Action::Tick`） | 每個都回傳 `vec![]`，且 `State` 仍等於預設值 | 在 `ac5_quit_emits_quit` 轉綠之後的第二輪 red/green：讓第一個測試通過的最簡單程式碼（對每個 action 都回傳 `vec![Effect::Quit]`）會讓這個測試失敗 |
-| AC6 | `crates/app/src/tui/render.rs` :: `ac6_empty_state_80x24` | 80×24 `TestBackend` 緩衝區含有 `tidal-player`，**而且**與已提交的 `insta` 快照相符。tech-lead 在驗收時以肉眼審閱快照 | stub `render` 什麼都不畫，所以 `contains` 斷言失敗（只是缺少快照不算 red） |
-| AC7 | `crates/audio/src/sink.rs` :: `ac7_memory_sink_records_samples` | 在 `open(format)` 與兩次 `write` 之後，`MemorySink` 回報該格式，以及依序串接的兩個緩衝區 | stub `write` 是空操作 |
+| AC3 | `xtask/src/layering.rs` :: `ac3_rules`（表格驅動，針對手工建構的相依圖） | 允許的圖 → 無違規；`core → tokio` → 違規 `tidal-player-core -> tokio`；`core → serde_x → tokio`（遞移）→ 違規；`audio → core`、`api → audio`、`core → api` → 各一條違規，並指出該邊；`core` 僅以 dev 相依取得 `tokio` → 無違規 | 存根 `check()` 不回傳任何違規，所以每個違規的列都失敗 |
+| AC3 | `xtask/tests/workspace.rs` :: `ac3_real_workspace_is_clean` | 在真實 workspace 上執行 `cargo xtask layering` 以 0 結束 | 存根指令以 1 結束 |
+| AC4 | `crates/app/tests/cli.rs` :: `ac4_version` | `tidal-player --version` 的 stdout 恰為 `tidal-player <CARGO_PKG_VERSION>\n`，結束碼 0 | 存根 `main` 什麼都不印 |
+| AC4 | `crates/app/tests/cli.rs` :: `ac4_help` | `tidal-player --help` 以 0 結束，且 stdout 含有 `Usage:` | 存根 `main` 什麼都不印 |
+| AC5 | `crates/core/src/ui/mod.rs` :: `ac5_quit_emits_quit` | `update(&mut State::default(), Action::Quit) == vec![Effect::Quit]` | 存根 `update` 回傳 `vec![]` |
+| AC5 | `crates/core/src/ui/mod.rs` :: `ac5_other_actions_emit_nothing`（表格涵蓋每個非 `Quit` 的變體，至少含 `Action::Tick`） | 每個都回傳 `vec![]`，且 `State` 仍等於預設值 | 在 `ac5_quit_emits_quit` 轉綠之後的第二輪紅燈/綠燈：讓第一個測試通過的最簡單程式碼（對每個 action 都回傳 `vec![Effect::Quit]`）會讓這個測試失敗 |
+| AC6 | `crates/app/src/tui/render.rs` :: `ac6_empty_state_80x24` | 80×24 `TestBackend` 緩衝區含有 `tidal-player`，**而且**與已提交的 `insta` 快照相符。tech-lead 在驗收時以肉眼審閱快照 | 存根 `render` 什麼都不畫，所以 `contains` 斷言失敗（只是缺少快照不算紅燈） |
+| AC7 | `crates/audio/src/sink.rs` :: `ac7_memory_sink_records_samples` | 在 `open(format)` 與兩次 `write` 之後，`MemorySink` 回報該格式，以及依序串接的兩個緩衝區 | 存根 `write` 是空操作 |
 | AC7 | — CI job `audio-no-alsa` | `cargo test -p tidal-player-audio --no-default-features` 在**沒有** `libasound2-dev` 的 runner 上通過 | — |
-| AC8 | `crates/api/tests/metadata.rs` :: `ac17_get_track`（0004 的；骨架的 `ac8_get_json_from_fixture` 已隨它的 `Client` 一併移除，0026） | `wiremock` 在曲目的路徑上提供錄製好的測試資料；以 mock 伺服器 URL 建立的客戶端回傳解析後的 `Track` | —（骨架的 red 是 stub `get_json` 回傳錯誤） |
+| AC8 | `crates/api/tests/metadata.rs` :: `ac17_get_track`（0004 的；骨架的 `ac8_get_json_from_fixture` 已隨它的 `Client` 一併移除，0026） | `wiremock` 在曲目的路徑上提供錄製好的測試資料；以 mock 伺服器 URL 建立的客戶端回傳解析後的 `Track` | —（骨架的紅燈是存根 `get_json` 回傳錯誤） |
 | AC9 | — 驗收時審閱；觸發條件與 job 的 `if` 由 spec 0018 AC8 測試（`xtask/tests/release_workflow.rs` :: `ac8_ci_runs_once_per_commit`） | workflow 檔案含有 AC2 的步驟、`cargo xtask layering` 與 `audio-no-alsa` job，且 PR 自己的 CI 執行是綠的 | — |
-| AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report`（自己的測試執行檔，因為 panic hook 是行程全域的） | 以一個假的 `restore` 與一個假的前一個 hook（各自附加到共用記錄），`catch_unwind(\|\| panic!())` 之後，記錄為 `["restore", "report"]` | stub `install_panic_hook` 什麼都不做，所以只有假的前一個 hook 會執行，記錄為 `["report"]` |
-| AC11 | `crates/core/src/protocol.rs` :: `ac11_round_trip`（表格涵蓋每個 `Command` 與 `Event` 變體；`serde_json` 僅作為 dev 相依） | 每個都滿足 `from_str(&to_string(&v)) == v` | stub `Serialize` 實作寫出 `null`（手寫，在 green 時以 `#[derive]` 取代），所以反序列化回來會失敗 |
+| AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report`（自己的測試執行檔，因為 panic hook 是行程全域的） | 以一個假的 `restore` 與一個假的前一個 hook（各自附加到共用記錄），`catch_unwind(\|\| panic!())` 之後，記錄為 `["restore", "report"]` | 存根 `install_panic_hook` 什麼都不做，所以只有假的前一個 hook 會執行，記錄為 `["report"]` |
+| AC11 | `crates/core/src/protocol.rs` :: `ac11_round_trip`（表格涵蓋每個 `Command` 與 `Event` 變體；`serde_json` 僅作為 dev 相依） | 每個都滿足 `from_str(&to_string(&v)) == v` | 存根 `Serialize` 實作寫出 `null`（手寫，在綠燈時以 `#[derive]` 取代），所以反序列化回來會失敗 |
 | AC12 | — 驗收時審閱 | `CLAUDE.md` 與本規格相符；狀態為 `implemented` | — |
 
 刻意不由自動化測試涵蓋的：真正的終端機 raw mode 處理與真正的 ALSA 輸出。它們位於上述的 `restore` 與 `Sink` 接縫（seam）之後，只有當之後的規格加入依賴它們的行為時，才會以手動方式演練。
@@ -184,4 +184,4 @@ xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces t
 <a id="bugs"></a>
 ## 錯誤
 
-- **測試計畫錯誤，AC10 的 red（驗收時發現）。** 計畫寫的是 stub hook 會讓記錄為 `[]`。實際上假的前一個 hook 仍會執行，所以記錄是 `["report"]`。測試是對的；計畫的該列已更正。
+- **測試計畫錯誤，AC10 的紅燈（驗收時發現）。** 計畫寫的是存根 hook 會讓記錄為 `[]`。實際上假的前一個 hook 仍會執行，所以記錄是 `["report"]`。測試是對的；計畫的該列已更正。

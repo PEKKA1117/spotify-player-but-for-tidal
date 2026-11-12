@@ -3,7 +3,7 @@
 <a id="logging-in"></a>
 # 登入
 
-`tidal-player` 以 OAuth2 裝置流程（device flow）登入 Tidal：你在 Tidal 網頁上核准一組短代碼，播放器從不會看到你的密碼。設計：[spec 0002](../specs/0002-auth.md)。
+`tidal-player` 以 OAuth2 裝置流程（device flow）登入 Tidal：你在 Tidal 網頁上核准一組短代碼，播放器從不會看到你的密碼。設計：[spec 0002](../specs/zh-TW/0002-auth.md)。
 
 <a id="commands"></a>
 ## 指令

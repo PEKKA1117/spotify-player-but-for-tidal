@@ -1,5 +1,7 @@
 # 0022 — Editing your playlists
 
+English | [正體中文](zh-TW/0022-playlist-editing.md)
+
 - **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#66](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/66) (folders moved to [#87](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/87), the CLI to [#88](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/88))

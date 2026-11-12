@@ -1,5 +1,7 @@
 # 0026 — Realignment: the code, the specs and the rules say the same thing
 
+English | [正體中文](zh-TW/0026-realignment.md)
+
 - **Status**: implemented (2026-11-10; approved the same day: the user asked for a review of the whole project, with leave to revisit any spec or decision)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented: the crates and their rules), 0018 (implemented: CI and releases)

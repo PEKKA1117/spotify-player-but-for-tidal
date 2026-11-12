@@ -1,5 +1,7 @@
 # 0025 — Player event hook
 
+English | [正體中文](zh-TW/0025-player-event-hook.md)
+
 - **Status**: implemented (2026-11-05)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#56](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/56)

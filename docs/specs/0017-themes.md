@@ -2,6 +2,8 @@
 
 # 0017 — Themes and colours
 
+English | [正體中文](zh-TW/0017-themes.md)
+
 - **Status**: implemented (2026-10-24; approved 2026-10-24; amended 2026-10-24 by the user: AC16–AC20, decisions 8–16 and parts of AC14 are in the file named on the first line, kept out of the repository)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#20](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/20)

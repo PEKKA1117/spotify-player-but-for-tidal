@@ -1,5 +1,7 @@
 # 0007 — Search
 
+English | [正體中文](zh-TW/0007-search.md)
+
 - **Status**: implemented (2026-10-08; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-10-08, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0006 (implemented: pages, the history, windows that load as you scroll, `Enter`/`Z`/actions on rows, `Library`/`LibraryReply`)

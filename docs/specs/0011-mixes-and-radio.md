@@ -1,5 +1,7 @@
 # 0011 — Mixes and radio
 
+English | [正體中文](zh-TW/0011-mixes-and-radio.md)
+
 - **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-10-09, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0004 (implemented: the queue, autoplay's track radio), 0006 (implemented: pages, the history, lists that load as you scroll, the actions popup, `Library`/`LibraryReply`), 0008 (implemented: the keymap, `[[actions]]`, the keys help)

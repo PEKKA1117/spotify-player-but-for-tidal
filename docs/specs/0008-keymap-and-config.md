@@ -1,5 +1,7 @@
 # 0008 — Keymap, config files and the keys help
 
+English | [正體中文](zh-TW/0008-keymap-and-config.md)
+
 - **Status**: implemented (2026-10-08; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0003–0007 (implemented: every setting and key this spec moves into files)

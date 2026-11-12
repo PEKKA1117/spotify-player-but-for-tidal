@@ -3,7 +3,7 @@
 <a id="the-tui"></a>
 # 終端介面（TUI）
 
-直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/0004-queue-and-controls.md)、[spec 0005](../specs/0005-daemon-and-clients.md) 與 [spec 0006](../specs/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/0007-search.md)（搜尋）、[spec 0011](../specs/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/0014-device-selection.md)（輸出裝置），[spec 0016](../specs/0016-cover-art.md)（專輯封面），[spec 0021](../specs/0021-lyrics.md)（歌詞），以及 [spec 0027](../specs/0027-logs-page.md)（記錄頁）。
+直接執行 `tidal-player`（可加上[項目](playback.md#items)）即開啟終端介面。若沒有正在執行的播放器，播放器與畫面在同一個行程中執行（獨立模式）：離開時會停止播放並釋放音訊裝置。若已有播放器在執行（[常駐程式](daemon.md)，或另一個 TUI），TUI 會改為連上它：畫面與按鍵完全相同，離開時音樂會繼續播放（見[連上 TUI](daemon.md#attaching-a-tui)）。設計文件：[spec 0004](../specs/zh-TW/0004-queue-and-controls.md)、[spec 0005](../specs/zh-TW/0005-daemon-and-clients.md) 與 [spec 0006](../specs/zh-TW/0006-library.md)（頁面與音樂庫）、[spec 0007](../specs/zh-TW/0007-search.md)（搜尋）、[spec 0011](../specs/zh-TW/0011-mixes-and-radio.md)（mix 與電台），[spec 0008](../specs/zh-TW/0008-keymap-and-config.md)（按鍵對應、設定檔與按鍵說明），[spec 0013](../specs/zh-TW/0013-key-hints.md)（按鍵提示），[spec 0014](../specs/zh-TW/0014-device-selection.md)（輸出裝置），[spec 0016](../specs/zh-TW/0016-cover-art.md)（專輯封面），[spec 0021](../specs/zh-TW/0021-lyrics.md)（歌詞），以及 [spec 0027](../specs/zh-TW/0027-logs-page.md)（記錄頁）。
 
 <a id="the-screen"></a>
 ## 畫面
@@ -433,7 +433,7 @@ Collected Tracks 頁面（`g y`，或在釘選列上按 `Enter`）像其他曲�
 - 影片一律不顯示：影片清單、影片 mix 與只由影片組成的播放清單都會被略過，非立體聲的曲目也是。內容全被略過的頁面會顯示 `Nothing to show here`
 - *Home* 來自 Tidal 一個沒有公開文件的來源；若它失敗，頁面會顯示 `Home is not available: Tidal answered <status>`，瀏覽的其餘部分仍可使用。Tidal 不認得的頁面會顯示 `Page <path> was not found`
 
-[`app.toml`](config.md#apptoml) 的 `hide_browse_pages` 列出不顯示連結的頁面，以 `pages/` 之後的名稱表示；預設值 `["videos", "tidal_magazine"]` 會隱藏依上述規則後沒有內容可顯示的那兩個頁面。規格：[0024](../specs/0024-browse.md)。
+[`app.toml`](config.md#apptoml) 的 `hide_browse_pages` 列出不顯示連結的頁面，以 `pages/` 之後的名稱表示；預設值 `["videos", "tidal_magazine"]` 會隱藏依上述規則後沒有內容可顯示的那兩個頁面。規格：[0024](../specs/zh-TW/0024-browse.md)。
 
 <a id="lyrics"></a>
 ## 歌詞
@@ -462,7 +462,7 @@ Collected Tracks 頁面（`g y`，或在釘選列上按 `Enter`）像其他曲�
 <a id="logs"></a>
 ## 記錄
 
-`g o` 開啟**記錄**頁：播放器與這個 TUI 本身的記錄行，最舊的在最上面、最新的在最下面，放在一個標題為 `Logs` 的視窗中。當發生訊息列說明不了的問題時，就來這裡看：被拒絕的更新權杖、無法保留的音效卡、重新連線的串流、損毀的狀態檔。設計文件：[spec 0027](../specs/0027-logs-page.md)。
+`g o` 開啟**記錄**頁：播放器與這個 TUI 本身的記錄行，最舊的在最上面、最新的在最下面，放在一個標題為 `Logs` 的視窗中。當發生訊息列說明不了的問題時，就來這裡看：被拒絕的更新權杖、無法保留的音效卡、重新連線的串流、損毀的狀態檔。設計文件：[spec 0027](../specs/zh-TW/0027-logs-page.md)。
 
 ```
 ┌Logs──────────────────────────────────────────────────────────────────────────┐

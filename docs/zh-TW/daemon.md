@@ -3,7 +3,7 @@
 <a id="the-daemon-and-clients"></a>
 # 常駐程式 (daemon) 與客戶端
 
-`tidal-player` 可以作為**播放器**單獨執行（`tidal-player daemon`，例如作為 systemd 使用者服務），並由任意數量的**客戶端**控制：TUI、一次性指令（例如 `tidal-player playback next`），或是第二個 `tidal-player --add-to-queue <link>`。設計：[spec 0005](../specs/0005-daemon-and-clients.md)。
+`tidal-player` 可以作為**播放器**單獨執行（`tidal-player daemon`，例如作為 systemd 使用者服務），並由任意數量的**客戶端**控制：TUI、一次性指令（例如 `tidal-player playback next`），或是第二個 `tidal-player --add-to-queue <link>`。設計：[spec 0005](../specs/zh-TW/0005-daemon-and-clients.md)。
 
 <a id="players-and-clients"></a>
 ## 播放器與客戶端
@@ -215,7 +215,7 @@ edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
 |---|---|
 | `Another player is running (pid N)` | `daemon` 或 `play` 發現已有播放器在執行（TUI、另一個常駐程式、`play`）。將它當作客戶端使用（`tidal-player`、`tidal-player playback …`），或先停止它（`tidal-player daemon stop`，或退出它的 TUI）。以 3 結束 |
 | `The running player is tidal-player X, this is Y: restart it ("tidal-player daemon stop", or "systemctl --user restart tidal-player")` | 播放器是此程式的另一個版本，通常是升級後仍在執行的舊常駐程式。重新啟動它，讓兩者版本相同。TUI 會顯示此訊息且不會重試 |
-| `A player is running (pid N) but not answering on <socket>` | 有程序持有鎖定檔，但 2 秒內 socket 上沒有回應：可能是播放器仍在啟動中（請再試一次），或是已卡住（`kill N`）。以 1 結束 |
+| `A player is running (pid N) but not answering on <socket>` | 有行程持有鎖定檔，但 2 秒內 socket 上沒有回應：可能是播放器仍在啟動中（請再試一次），或是已卡住（`kill N`）。以 1 結束 |
 | `Runtime directory <path> is not private: …` | 執行期資料夾不是資料夾、屬於其他使用者，或其他人可以存取。程式從不會替你修改它：請將它刪除，或修正它的擁有者與權限模式（`chmod 700`）。以 1 結束 |
 | `No player is running: start "tidal-player" or "tidal-player daemon"` | `playback` 或 `daemon stop` 找不到播放器。若確實有播放器在執行，請檢查它是否使用相同的執行期資料夾（見上文） |
 | `Disconnected from the player: reconnecting…` | 附加的 TUI 失去了它的播放器（播放器當掉或被重新啟動）；它會自行重新連線 |

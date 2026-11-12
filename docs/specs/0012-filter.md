@@ -1,5 +1,7 @@
 # 0012 — Filter the focused window
 
+English | [正體中文](zh-TW/0012-filter.md)
+
 - **Status**: implemented (2026-10-10); approved 2026-10-10 (the user answered every decision below and asked to implement)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#18](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/18)

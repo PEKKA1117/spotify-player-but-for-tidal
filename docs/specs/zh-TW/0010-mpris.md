@@ -240,7 +240,7 @@ MPRIS 模型（`tidal-player::mpris::model`，純邏輯，沒有 D-Bus 型別：
 <a id="test-plan"></a>
 ## 測試計畫
 
-每個測試都以它的驗收條件命名（`ac3_…`）。紅燈是針對存根（stub）型別與函式、其本體為存根（沒有 `todo!()`、沒有編譯錯誤）的斷言失敗，如 0001–0009。
+每個測試都以它的驗收條件命名（`ac3_…`）。紅燈是針對存根型別與函式、其本體為存根（沒有 `todo!()`、沒有編譯錯誤）的斷言失敗，如 0001–0009。
 
 | AC | 測試（檔案 :: 名稱） | 斷言內容 | 預期的紅燈 |
 |----|---------------------|-----------------|--------------|
@@ -300,9 +300,9 @@ CI：`dbus-daemon` 隨 `dbus` 套件而來；CI 工作的 `apt-get install` 新�
 ## 實作備註（規格沒有說明之處所做的選擇，2026-10-09）
 
 - **函式庫**：純 `zbus` 5（`#[zbus::interface]`，在它自己的 `async-io` 執行器上用非同步 API，訊號用阻塞式 API）；不使用 `mpris-server`，workspace 的 `zbus` 功能不變。執行檔的 dev-dependencies 啟用 tokio 的 `test-util`（暫停的時鐘），只供測試使用
-- **執行緒**：轉接器在自己的執行緒（`mpris`）上清空它的 outbox，因此 hub 絕不會發現它滿了。呼叫從 zbus 的執行器橋接到播放器的 tokio 執行期（`spawn`，再等待 `JoinHandle`），5 秒期限在那裡執行。訊號由看到變更的執行緒（轉接器的執行緒，或封面 worker 的任務）以阻塞式 API 在轉接器的鎖之下發出，因此依序送出
+- **執行緒**：轉接器在自己的執行緒（`mpris`）上清空它的發送佇列，因此 hub 絕不會發現它滿了。呼叫從 zbus 的執行器橋接到播放器的 tokio 執行期（`spawn`，再等待 `JoinHandle`），5 秒期限在那裡執行。訊號由看到變更的執行緒（轉接器的執行緒，或封面 worker 的任務）以阻塞式 API 在轉接器的鎖之下發出，因此依序送出
 - **啟動**：`mpris::start` 在 `spawn_runtime` 之後、socket 開始服務之前執行（常駐程式、獨立模式）；在 `play` 中，則在 socket 開始服務之前、`play_queue` 執行播放器之前，播放器隨後在它的迴圈中處理轉接器的 `Attach`/`Subscribe`。轉接器不等待 `Welcome`：在它到達之前，屬性是空播放器的，然後一個 `PropertiesChanged` 把它們更新到最新。封面快取的啟動清理只在匯流排連上之後執行
-- **關閉**：轉接器從看到 `ShuttingDown` 的那一刻起，或它的 outbox 關閉時（`play` 沒有 `Shutdown` 就結束）拒絕呼叫；等待中的呼叫以 `The player is shutting down` 失敗。`Mpris::close`（離開 hub、關閉連線）在 socket 伺服器被釋放之後呼叫，也就是在 socket 客戶端收到它們最後的訊息之後
+- **關閉**：轉接器從看到 `ShuttingDown` 的那一刻起，或它的發送佇列關閉時（`play` 沒有 `Shutdown` 就結束）拒絕呼叫；等待中的呼叫以 `The player is shutting down` 失敗。`Mpris::close`（離開 hub、關閉連線）在 socket 伺服器被釋放之後呼叫，也就是在 socket 客戶端收到它們最後的訊息之後
 - **記錄**：執行檔不安裝 `tracing` subscriber。常駐程式把轉接器的行（`MPRIS is not available: …`、`Cannot cache the cover …`、`MPRIS stopped working: …`）寫到 stderr，也就是它的記錄（journal）；獨立模式的 TUI（擁有終端機）與 `play`（它的 stderr 帶有自己的訊息）則把它們送到 `tracing`
 - **錯誤**：方法透過手寫的 `DBusError` 回答我們自己的名稱。屬性寫入（`Volume`、`Shuffle`、`LoopStatus`）在 zbus 中只能回答標準錯誤：`InvalidArgs`、`Failed`，以及逾時的 `NoReply`。無法解析的 URI 或藝人連結的 `OpenUri` 是帶有解析器訊息的 `InvalidArgs`（錯誤的引數）。不是物件路徑的 `trackid` 在轉接器看到之前就被 D-Bus 的型別檢查拒絕（`InvalidArgs`）；模型也會檢查
 - **自我描述（introspection）**：`LoopStatus`、`Shuffle`、`Volume`、`Rate` 與 `Position` 帶有 `EmitsChangedSignal=false`。否則 zbus 會在每次寫入之後送出它自己的 `PropertiesChanged`，在轉接器的那個旁邊多一個（轉接器的在播放器套用寫入、帶有每個變更的屬性之後才來）；`Position` 從不發出訊號（MPRIS）。常數（`CanControl`、速率、根介面的）是 `const`

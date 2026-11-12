@@ -3,7 +3,7 @@
 <a id="configuration"></a>
 # 設定
 
-tidal-player 由三個選用檔案設定：**`app.toml`** 存放設定，**`keymap.toml`** 存放按鍵，**`theme.toml`** 存放顏色，都採用 [spotify-player](https://github.com/aome510/spotify-player) 的格式，因此可以直接複製它的 `[[keymaps]]` 與 `[[themes]]` 區塊過來。設計：[spec 0008](../specs/0008-keymap-and-config.md) 與 [spec 0017](../specs/0017-themes.md)（佈景主題）。只有 TUI 會讀取 `theme.toml`；播放器和常駐程式從不讀取它。
+tidal-player 由三個選用檔案設定：**`app.toml`** 存放設定，**`keymap.toml`** 存放按鍵，**`theme.toml`** 存放顏色，都採用 [spotify-player](https://github.com/aome510/spotify-player) 的格式，因此可以直接複製它的 `[[keymaps]]` 與 `[[themes]]` 區塊過來。設計：[spec 0008](../specs/zh-TW/0008-keymap-and-config.md) 與 [spec 0017](../specs/zh-TW/0017-themes.md)（佈景主題）。只有 TUI 會讀取 `theme.toml`；播放器和常駐程式從不讀取它。
 
 <a id="where-the-files-are"></a>
 ## 檔案位置
@@ -140,7 +140,7 @@ Player event hook is too slow: events were dropped
 <a id="themetoml"></a>
 ## `theme.toml`
 
-TUI 的顏色，採用 spotify-player 的格式：任意數量的 `[[themes]]`，每個有 `name`、選用的 `[themes.palette]` 和選用的 `[themes.component_style]`。spotify-player 的 `theme.toml` 可以原封不動複製過來。只有 TUI 會讀取它，因此顏色上的拼字錯誤會讓 `tidal-player` 無法啟動，但不會影響常駐程式或 `play`。設計：[spec 0017](../specs/0017-themes.md)。
+TUI 的顏色，採用 spotify-player 的格式：任意數量的 `[[themes]]`，每個有 `name`、選用的 `[themes.palette]` 和選用的 `[themes.component_style]`。spotify-player 的 `theme.toml` 可以原封不動複製過來。只有 TUI 會讀取它，因此顏色上的拼字錯誤會讓 `tidal-player` 無法啟動，但不會影響常駐程式或 `play`。設計：[spec 0017](../specs/zh-TW/0017-themes.md)。
 
 ```toml
 # ~/.config/tidal-player/theme.toml

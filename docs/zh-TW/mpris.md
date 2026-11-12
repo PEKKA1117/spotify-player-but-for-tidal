@@ -11,7 +11,7 @@
 - 藍牙耳機的按鈕（透過 BlueZ）
 - `playerctl`
 
-每個播放器都會發布自己：獨立模式的 TUI、`tidal-player daemon` 與 `tidal-player play`。附加的 TUI 與 `tidal-player playback …` 是該播放器的客戶端，從不使用匯流排。設計：[spec 0010](../specs/0010-mpris.md)。
+每個播放器都會發布自己：獨立模式的 TUI、`tidal-player daemon` 與 `tidal-player play`。附加的 TUI 與 `tidal-player playback …` 是該播放器的客戶端，從不使用匯流排。設計：[spec 0010](../specs/zh-TW/0010-mpris.md)。
 
 <a id="the-bus-name"></a>
 ## 匯流排名稱
@@ -69,7 +69,7 @@ playerctl -p tidal_player metadata --follow
 <a id="album-covers"></a>
 ## 專輯封面
 
-播放器會將目前曲目的專輯封面下載到它的**快取目錄**，並將檔案交給桌面，因此每個小工具與通知都能顯示它。TUI 的[專輯封面](tui.md#album-cover)也從同樣的檔案繪製。不論 MPRIS 是否開啟，播放器都會維護這個快取：即使 `mpris = false` 或沒有工作階段匯流排，它仍會下載目前的封面，因此連上任何常駐程式的 TUI 都能顯示封面（[spec 0016](../specs/0016-cover-art.md)）：
+播放器會將目前曲目的專輯封面下載到它的**快取目錄**，並將檔案交給桌面，因此每個小工具與通知都能顯示它。TUI 的[專輯封面](tui.md#album-cover)也從同樣的檔案繪製。不論 MPRIS 是否開啟，播放器都會維護這個快取：即使 `mpris = false` 或沒有工作階段匯流排，它仍會下載目前的封面，因此連上任何常駐程式的 TUI 都能顯示封面（[spec 0016](../specs/zh-TW/0016-cover-art.md)）：
 
 - **位置**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`；封面位於 `covers/`，每個一個 `<cover>.jpg`（640×640）
 - **數量**：最多 `max_cover_arts` 個（在 [`app.toml`](config.md#apptoml) 中，預設 `20`，`0` 到 `1000`），或 `TIDAL_PLAYER_MAX_COVER_ARTS`；最久未使用的先刪除。調低的上限於下次啟動時生效

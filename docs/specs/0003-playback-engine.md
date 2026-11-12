@@ -1,5 +1,7 @@
 # 0003 — Playback engine: stream resolution, decode, ALSA output
 
+English | [正體中文](zh-TW/0003-playback-engine.md)
+
 - **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented), 0002 (implemented; AC18 and AC19 are added by this work, see 0002 "Bugs")

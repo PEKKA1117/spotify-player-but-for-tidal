@@ -1,5 +1,7 @@
 # 0014 — Choosing the output device while the player runs
 
+English | [正體中文](zh-TW/0014-device-selection.md)
+
 - **Status**: implemented (2026-10-10; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0003 (implemented: the engine's `SetDevice`, `tidal-player devices`), 0004 (implemented: the player and its effects), 0005 (implemented: the protocol, clients, `playback`, releasing while paused), 0008 (implemented: `output_device`, the keymap, the keys help)

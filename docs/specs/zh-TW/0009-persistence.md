@@ -178,24 +178,24 @@ TUI 與文件：
 <a id="test-plan"></a>
 ## 測試計畫
 
-每個測試都以它的條件命名（`ac4_…`）。紅燈是對樁（stub）型別與函式本體樁的斷言失敗（沒有 `todo!()`、沒有編譯錯誤），如同 0001–0008。
+每個測試都以它的條件命名（`ac4_…`）。紅燈是對存根型別與函式本體存根的斷言失敗（沒有 `todo!()`、沒有編譯錯誤），如同 0001–0008。
 
 | AC | 測試（檔案 :: 名稱） | 驗證內容 | 預期的紅燈 |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_fields` (table), `ac1_saved_round_trip` | 擷取的欄位；JSON 來回轉換 | 樁 `saved()` 回傳空的 `SavedPlayback` |
-| AC2 | `crates/core/src/player/tests/persistence.rs` :: `ac2_restore` (table), `ac2_restore_saved_identity` | 還原的快照、ID、修復、限制；restore∘saved 恆等 | 樁 `restore` 回傳 `PlayerState::new` |
-| AC3 | `crates/core/src/player/tests/persistence.rs` :: `ac3_play_restored`, `ac3_restored_equals_reached` (table) | 在該位置的 `EnginePlay`，沒有跳轉；與抵達的狀態有相同的效果 | 樁 restore 丟掉位置，所以 `start_at` 是 0 |
-| AC4 | `crates/app/src/player/persist.rs` :: `ac4_save_schedule` (table, fake clock) | 每個輸入序列的寫入時間 | 樁排程器在每次變動都寫入 |
-| AC5 | `crates/app/src/player/persist.rs` :: `ac5_write_file`, `ac5_write_is_atomic` | 路徑、模式、暫存檔 + 重新命名、重新命名失敗時舊檔案完好 | 樁就地寫入 `playback.json` |
-| AC6 | `crates/app/src/player/persist.rs` :: `ac6_load` (table) | 結果、`.bad` 的重新命名、訊息 | 樁回傳空白，且不重新命名任何東西 |
-| AC7 | `crates/app/src/player/persist.rs` :: `ac7_write_failure` | 訊息一次、重試、播放不受影響 | 樁忽略寫入錯誤（tidalt 的 `_ =`） |
-| AC8 | `crates/app/tests/daemon.rs` :: `ac8_daemon_resumes` | 重新啟動後的 `Welcome`、播放之前沒有請求、`Play` 在該位置 | 樁 runtime 從不載入檔案 |
-| AC9 | `crates/app/src/player/runtime.rs` :: `ac9_standalone_restores`, `ac9_items_replace_queue`; `crates/app/tests/cli.rs` :: `ac9_play_leaves_state_alone` | 在第一個畫面之前還原；項目取代佇列；`play` 不寫入任何東西 | 樁什麼都不還原；樁 `play` 在結束時儲存 |
-| AC10 | `crates/app/tests/daemon.rs` :: the 0005 `ac14` test (unchanged) + `ac10_client_leaves_playback_file` | 檔案位元組不被客戶端改變 | —現有的測試是安全網；新增的列會對一個會儲存的樁客戶端失敗 |
-| AC11 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows) + `crates/app/src/player/persist.rs` :: `ac11_remember_off` | 解析、優先順序、關閉時沒有 I/O | 樁忽略這個設定 |
-| AC12 | `crates/app/src/settings.rs` :: `ac12_autoplay_precedence` (table) | 每個來源勝出的自動播放 | 樁讓 `app.toml` 勝過記住的模式 |
-| AC13 | `crates/app/tests/cli.rs` :: the 0002 `logout` tests (unchanged) + `ac13_logout_forgets_playback` | 檔案消失、輸出不變 | 樁 `logout` 留下檔案 |
-| AC14 | `crates/app/src/tui/render.rs` :: `ac14_restored_80x24`, `ac14_restore_message_80x24`; `crates/app/tests/docs.rs` :: `ac17_every_command_documented` (new row) + reviewed at acceptance | `contains` + 快照；文件 | 樁快照沒有目前項目 |
+| AC1 | `crates/core/src/player/tests/persistence.rs` :: `ac1_saved_fields` (table), `ac1_saved_round_trip` | 擷取的欄位；JSON 來回轉換 | 存根 `saved()` 回傳空的 `SavedPlayback` |
+| AC2 | `crates/core/src/player/tests/persistence.rs` :: `ac2_restore` (table), `ac2_restore_saved_identity` | 還原的快照、ID、修復、限制；restore∘saved 恆等 | 存根 `restore` 回傳 `PlayerState::new` |
+| AC3 | `crates/core/src/player/tests/persistence.rs` :: `ac3_play_restored`, `ac3_restored_equals_reached` (table) | 在該位置的 `EnginePlay`，沒有跳轉；與抵達的狀態有相同的效果 | 存根 restore 丟掉位置，所以 `start_at` 是 0 |
+| AC4 | `crates/app/src/player/persist.rs` :: `ac4_save_schedule` (table, fake clock) | 每個輸入序列的寫入時間 | 存根排程器在每次變動都寫入 |
+| AC5 | `crates/app/src/player/persist.rs` :: `ac5_write_file`, `ac5_write_is_atomic` | 路徑、模式、暫存檔 + 重新命名、重新命名失敗時舊檔案完好 | 存根就地寫入 `playback.json` |
+| AC6 | `crates/app/src/player/persist.rs` :: `ac6_load` (table) | 結果、`.bad` 的重新命名、訊息 | 存根回傳空白，且不重新命名任何東西 |
+| AC7 | `crates/app/src/player/persist.rs` :: `ac7_write_failure` | 訊息一次、重試、播放不受影響 | 存根忽略寫入錯誤（tidalt 的 `_ =`） |
+| AC8 | `crates/app/tests/daemon.rs` :: `ac8_daemon_resumes` | 重新啟動後的 `Welcome`、播放之前沒有請求、`Play` 在該位置 | 存根 runtime 從不載入檔案 |
+| AC9 | `crates/app/src/player/runtime.rs` :: `ac9_standalone_restores`, `ac9_items_replace_queue`; `crates/app/tests/cli.rs` :: `ac9_play_leaves_state_alone` | 在第一個畫面之前還原；項目取代佇列；`play` 不寫入任何東西 | 存根什麼都不還原；存根 `play` 在結束時儲存 |
+| AC10 | `crates/app/tests/daemon.rs` :: the 0005 `ac14` test (unchanged) + `ac10_client_leaves_playback_file` | 檔案位元組不被客戶端改變 | —現有的測試是安全網；新增的列會對一個會儲存的存根客戶端失敗 |
+| AC11 | `crates/app/src/config.rs` :: `ac10_app_toml`, `ac11_precedence` (new rows) + `crates/app/src/player/persist.rs` :: `ac11_remember_off` | 解析、優先順序、關閉時沒有 I/O | 存根忽略這個設定 |
+| AC12 | `crates/app/src/settings.rs` :: `ac12_autoplay_precedence` (table) | 每個來源勝出的自動播放 | 存根讓 `app.toml` 勝過記住的模式 |
+| AC13 | `crates/app/tests/cli.rs` :: the 0002 `logout` tests (unchanged) + `ac13_logout_forgets_playback` | 檔案消失、輸出不變 | 存根 `logout` 留下檔案 |
+| AC14 | `crates/app/src/tui/render.rs` :: `ac14_restored_80x24`, `ac14_restore_message_80x24`; `crates/app/tests/docs.rs` :: `ac17_every_command_documented` (new row) + reviewed at acceptance | `contains` + 快照；文件 | 存根快照沒有目前項目 |
 | AC15 | `crates/app/src/player/runtime.rs` :: `ac15_restored_gain_reaches_engine` (table) | 假引擎的第一個指令是在還原的增益下的 `SetGain`，在 `Play` 之前 | 沒有送出 `SetGain`：引擎維持在 1.0 |
 
 驗收時在使用者的機器上親手檢查（結果寫在 PR 說明中）：`systemctl --user restart tidal-player` 會接續佇列，暫停在該位置，而 `space` 從那裡在 DAC 上播放，聽不到從 0:00 跳過來的聲音；離開並重新啟動獨立模式的 TUI 也一樣；重新開機後接續，常駐程式在播放之前都是安靜的。

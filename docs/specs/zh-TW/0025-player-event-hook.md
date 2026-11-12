@@ -143,7 +143,7 @@ Player event hook is too slow: events were dropped
 | AC4 | `crates/core/src/hook/tests.rs` :: `ac4_seeked`（表格） | 播放中、暫停中、停止中、載入中、相同位置、`Previous` 的兩種情況 | 沒有推導出任何事件 |
 | AC5 | `crates/core/src/hook/tests.rs` :: `ac5_volume`（表格） | 音量、靜音、沒有變化 | 沒有推導出任何事件 |
 | AC6 | `crates/core/src/hook/tests.rs` :: `ac6_device` + `crates/app/src/player/runtime.rs` :: `ac6_device_move_runs_only_device_changed` | 該事件；透過 runtime 移動播放中的曲目 | 沒有推導出任何事件；沒有記錄到任何東西 |
-| AC7 | `crates/core/src/hook/tests.rs` :: `ac7_silence`（表格） | 每一種情況都沒有事件 | 對每個變化都推導事件的樁（stub）會讓它失敗 |
+| AC7 | `crates/core/src/hook/tests.rs` :: `ac7_silence`（表格） | 每一種情況都沒有事件 | 對每個變化都推導事件的存根會讓它失敗 |
 | AC8 | `crates/core/src/hook/tests.rs` :: `ac8_arguments_and_environment`（表格） | 每個事件的 argv 與變數；缺少專輯與長度 | 空的 argv |
 | AC9 | `crates/core/src/hook/tests.rs` :: `ac9_queue`（表格） + `crates/app/src/player/hook.rs` :: `ac9_one_at_a_time` | 順序、上限、取代最後一個；絕不同時執行兩個指令 | 佇列什麼都沒留下；沒有東西執行 |
 | AC10 | `crates/app/src/player/runtime.rs` :: `ac10_real_sequences`（表格） | 四種序列記錄到的事件 | 沒有記錄到任何東西 |

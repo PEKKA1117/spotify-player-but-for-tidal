@@ -1,5 +1,7 @@
 # 0019 — Confirming removals
 
+English | [正體中文](zh-TW/0019-confirm-removals.md)
+
 - **Status**: implemented (2026-10-25; amended the same day: `d d` removes the row from any list of yours, AC10; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#61](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/61)

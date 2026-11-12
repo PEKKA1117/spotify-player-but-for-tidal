@@ -1,5 +1,7 @@
 # 0001 — Architecture & project scaffold
 
+English | [正體中文](zh-TW/0001-architecture.md)
+
 - **Status**: implemented (2026-10-06; amended 2026-11-10 by [0026](0026-realignment.md): the platform rule, the binary's layout and role, logging, AC8 and AC9 now describe the program as built)
 - **Owner**: tech-lead (primary session)
 

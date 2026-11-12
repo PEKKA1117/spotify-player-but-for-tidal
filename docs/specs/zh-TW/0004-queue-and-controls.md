@@ -239,7 +239,7 @@
 - **AC5** — 預先載入：`Position` 剩 30 秒或更少（或長度未知時的 `Started`）時，依重複播放表為下一個項目發出一次 `Resolve { purpose: Preload }`；其結果發出帶有其標記的 `EnginePreload`；帶有該標記的 `Transitioned` 使它成為目前項目，不發出任何 `EnginePlay`。之後若佇列編輯、隨機播放或重複播放的變更改變了下一個項目，就發出新的 `Resolve`/`EnginePreload`，沒有下一個項目時發出 `EngineCancelPreload`；沒有改變它的則什麼都不發出。沒有下一個項目時不請求預先載入
 - **AC6** — 過時的輸入什麼都不改變也不發出任何效果：標記既不是目前曲目的、也不是等待中的預先載入的解析結果、`Started`、`Transitioned`、`TrackEnded` 或 `Error`（表格測試；tidalt 錯誤 1 的情形：`Next`，然後是被取代曲目的 `TrackEnded`，結果恰好只前進一次）
 - **AC7** — 失敗遵循「失敗處理」下的表格（針對每種錯誤種類 × 解析／引擎的表格測試）：只涉及該曲目的失敗會前進並顯示訊息；暫時性、輸出或工作階段的失敗停在該項目上、顯示訊息，且不為其他項目發出 `Resolve`；連續 5 次只涉及該曲目的失敗（或佇列長度，若較小；包括重複播放 `queue` 與 `track`）會以 `N tracks in a row could not be played` 停止；`Started` 重設計數；曲目不可串流的項目是只涉及該曲目的失敗，且不為它送出 `Resolve`。`Error` 絕不被當成 `TrackEnded` 處理，反之亦然
-- **AC8** — `TogglePause` 與跳轉遵循「播放狀態」：Playing ⇄ Paused 發出 `EnginePause`/`EngineResume`；在 `Loading` 時切換，成功的解析在再次切換之前不發出 `EnginePlay`；在 0:03 的 `SeekBy(-5000)` 跳轉到 0:00（客戶端送出 `SeekBy(±跳轉間隔)`；AC20 檢查它使用設定的間隔）；`Loading` 時的 `SeekBy`/`SeekTo` 改變即將發出的 `EnginePlay` 的 `start_at`；`Stopped` 時它們不發出任何東西
+- **AC8** — `TogglePause` 與跳轉遵循「播放狀態」：Playing ⇄ Paused 發出 `EnginePause`/`EngineResume`；在 `Loading` 時切換，成功的解析在再次切換之前不發出 `EnginePlay`；在 0:03 的 `SeekBy(-5000)` 跳轉到 0:00（客戶端送出 `SeekBy(±seek step)`；AC20 檢查它使用設定的間隔）；`Loading` 時的 `SeekBy`/`SeekTo` 改變即將發出的 `EnginePlay` 的 `start_at`；`Stopped` 時它們不發出任何東西
 - **AC9** — 音量：預設 100，未靜音；`ChangeVolume(±n)` 限制在 0–100（n = 1、5 與 25）；`SetVolume` 設定它；每次改變發出 `EngineSetGain((v/100)³)`（靜音時為 0）；`ToggleMute` 兩次會還原先前的增益；改變音量會取消靜音。快照的 `bit_perfect` 在音量 100 且未靜音時是引擎的，否則為 `false`，原因為 `volume below 100%` / `muted`
 - **AC10** — 佇列編輯遵循「佇列」下的表格（針對每種操作 × 目前項目在編輯之前／位置上／之後 × 隨機播放關／開的表格測試）：項目 ID 絕不重複使用，同一首曲目可以排入兩次，播放中移除目前項目會前進（沒有下一個時停止），`ClearQueue` 只保留目前項目且不打斷它，編輯空佇列不會啟動任何東西
 - **AC11** — 每個改變了位置以外任何東西的輸入，恰好發出一個 `Broadcast(Event::Player(snapshot))`，作為最後一個效果，內含新的狀態；引擎的 `Position` 只發出 `Broadcast(Event::Position { entry, position })`；什麼都沒改變的輸入什麼都不發出
@@ -301,38 +301,38 @@ CLI 與執行階段（`tidal-player`）：
 <a id="test-plan"></a>
 ## 測試計畫
 
-每個自動化測試以其條件命名（`ac5_…`）。紅燈（red）是對 stub 型別與函式（stub 本體，沒有 `todo!()`，沒有編譯錯誤）的失敗斷言，如 0001–0003。播放器測試以手工建立輸入，從不執行執行緒；時間只是 `Position` 輸入所說的。API 測試使用 `wiremock`，測試資料在 `crates/api/tests/fixtures/metadata/` 之下，依探測記錄的形狀撰寫（ID 與名稱換成假的）。引擎測試重用 0003 的測試資料與假實作。
+每個自動化測試以其條件命名（`ac5_…`）。紅燈是對存根型別與函式（存根本體，沒有 `todo!()`，沒有編譯錯誤）的失敗斷言，如 0001–0003。播放器測試以手工建立輸入，從不執行執行緒；時間只是 `Position` 輸入所說的。API 測試使用 `wiremock`，測試資料在 `crates/api/tests/fixtures/metadata/` 之下，依探測記錄的形狀撰寫（ID 與名稱換成假的）。引擎測試重用 0003 的測試資料與假實作。
 
 | AC | 測試（檔案 :: 名稱） | 驗證內容 | 預期的紅燈 |
 |----|---------------------|-----------------|--------------|
-| AC1 | `crates/core/src/player.rs` :: `ac1_load_and_skip_paths`（表格：載入、下一首、上一首、播放項目、自動前進；從每個狀態出發） | 效果 `Resolve` → `EnginePlay` → 狀態 `Playing`；每次都是新的標記 | stub 的 `update` 不回傳任何效果 |
-| AC2 | `crates/core/src/player.rs` :: `ac2_next_previous_end`（表格，如 AC2） | 接下來播放的項目，或停止狀態 | stub 一律播放索引 + 1，從不停止也不繞回 |
-| AC3 | `crates/core/src/player.rs` :: `ac3_shuffle` | 第一個項目、排列、與種子的相依性、沒有引擎效果、還原原順序 | stub 不改變順序 |
-| AC4 | `crates/core/src/player.rs` :: `ac4_repeat_cycle` | 循環與快照欄位 | stub 維持 `off` |
-| AC5 | `crates/core/src/player.rs` :: `ac5_preload`（表格：31 秒 → 剩 30 秒、長度未知、沒有下一個、每種編輯／模式改變了下一個、下一個沒變） | 一次 `Resolve{Preload}`、`EnginePreload`、`Transitioned` 的處理、`EngineCancelPreload` | stub 從不預先載入，所以 `Transitioned` 是未知的，曲目結束時有空隙 |
-| AC6 | `crates/core/src/player.rs` :: `ac6_stale_inputs_ignored`（表格） | 沒有效果，狀態不變；tidalt 的順序中恰好前進一次 | stub 比對事件時不看標記，所以過時的 `TrackEnded` 前進了兩次 |
-| AC7 | `crates/core/src/player.rs` :: `ac7_failure_policy`（針對錯誤種類 × 來源的表格）+ `ac7_failure_run_stops` | 每一列依規則跳過或停止；訊息；佇列長度 3 與 20 的連續失敗上限 | stub 每次錯誤都跳過（tidalt 的迴圈） |
-| AC8 | `crates/core/src/player.rs` :: `ac8_pause_and_seek`（表格） | 各狀態的效果；保留的播放；夾限；`start_at` | stub 忽略狀態，一律送出 `EnginePause` |
-| AC9 | `crates/core/src/player.rs` :: `ac9_volume`（表格） | 音量、增益值、靜音往返、`bit_perfect` 與原因 | stub 從不發出 `EngineSetGain`，並保留引擎的 `bit_perfect` |
-| AC10 | `crates/core/src/player.rs` :: `ac10_queue_edits`（表格） | 順序、目前項目、ID、效果 | stub 把所有東西都附加在尾端 |
-| AC11 | `crates/core/src/player.rs` :: `ac11_one_snapshot_per_change`（涵蓋 AC1–AC10 表格的每一列） | 恰好一個 `Broadcast(Player)`，在最後；位置只有 `Position` 事件；沒有改變就什麼都不發 | stub 每次輸入後都廣播 |
-| AC12 | `crates/core/src/protocol.rs` :: `ac11_round_trip`（0001 的，已擴充；`all_commands`/`all_events` 列出新的變體） | 往返 | 新變體手寫的 stub `Serialize` 寫出 `null` |
-| AC13 | `crates/audio/tests/engine.rs` :: `ac13_events_carry_tags` | 每個事件上的標記，包括取代與失敗的預先載入 | stub 引擎送出標記 0 |
-| AC14 | `crates/audio/tests/engine.rs` :: `ac14_cancel_preload` | 排空、`TrackEnded`、被取消來源沒有任何影格、來源已關閉 | stub 忽略 `CancelPreload`，所以 sink 收到第二首曲目 |
-| AC15 | `crates/audio/tests/engine.rs` :: `ac15_gain`（表格：16/24 位元的 1.0、0.5、0、曲目途中改變、跨轉換／播放／裝置） | 每一列的位元組；以影格計的延遲 | stub 忽略 `SetGain` |
-| AC16 | `crates/core/src/item.rs` :: `ac16_parse_item`（表格） | 每一列的項目或錯誤 | stub 只解析純數字 |
-| AC17 | `crates/api/tests/metadata.rs` :: `ac17_get_track`、`ac17_album_pages`、`ac17_playlist_pages_and_videos`、`ac17_errors` | 請求路徑與參數（`expect(n)`）、對應的曲目、錯誤 | stub 只讀第一頁並保留影片 |
-| AC18 | `crates/app/src/cli/play.rs` :: `ac18_queue_exit_codes`（表格，假的中繼資料 + 假的引擎）+ `crates/app/tests/cli.rs` :: `ac18_bad_item` | 印出的行、結束碼；結束碼 2 搭配 `Not a Tidal…` | stub 只播放第一個項目 |
-| AC19 | `crates/app/src/player/runtime.rs` :: `ac19_effects_and_mash`、`ac19_quit_stops_engine` | 效果執行順序；連按之後只有一次 `Play`；離開前有 `Stop` | stub 執行階段播放它收到的每個解析結果 |
-| AC20 | `crates/core/src/ui/mod.rs` :: `ac20_keys_to_commands`（表格）+ `crates/app/src/tui/input.rs` :: `ac18_key_events`（由 0006 AC18 改名，它把自己的按鍵加進了表格） | 每個按鍵的指令；`Enter` 的項目 ID | stub 只對應 `q`/`Esc` |
-| AC21 | `crates/core/src/ui/mod.rs` :: `ac21_key_sequence` | `g g` → 最上；`g` `j` → 下 | stub 把單獨的 `g` 當成最上 |
-| AC22 | `crates/core/src/ui/mod.rs` :: `ac22_snapshot_applied_as_is` | 顯示的順序等於快照的；過時的位置被忽略；游標跟隨項目 ID | stub 依原始位置排序佇列 |
-| AC23 | `crates/app/src/tui/render.rs` :: `ac23_playback_window_*`、`ac23_queue_scrolls`、`ac23_truncation_40x12`、`ac23_no_panic_any_size` | 每個狀態的 `contains` 斷言（符號、`?:??`、原因文字），以及驗收時人工檢視的快照 | stub 的 `render` 只畫外框 |
+| AC1 | `crates/core/src/player.rs` :: `ac1_load_and_skip_paths`（表格：載入、下一首、上一首、播放項目、自動前進；從每個狀態出發） | 效果 `Resolve` → `EnginePlay` → 狀態 `Playing`；每次都是新的標記 | 存根的 `update` 不回傳任何效果 |
+| AC2 | `crates/core/src/player.rs` :: `ac2_next_previous_end`（表格，如 AC2） | 接下來播放的項目，或停止狀態 | 存根一律播放索引 + 1，從不停止也不繞回 |
+| AC3 | `crates/core/src/player.rs` :: `ac3_shuffle` | 第一個項目、排列、與種子的相依性、沒有引擎效果、還原原順序 | 存根不改變順序 |
+| AC4 | `crates/core/src/player.rs` :: `ac4_repeat_cycle` | 循環與快照欄位 | 存根維持 `off` |
+| AC5 | `crates/core/src/player.rs` :: `ac5_preload`（表格：31 秒 → 剩 30 秒、長度未知、沒有下一個、每種編輯／模式改變了下一個、下一個沒變） | 一次 `Resolve{Preload}`、`EnginePreload`、`Transitioned` 的處理、`EngineCancelPreload` | 存根從不預先載入，所以 `Transitioned` 是未知的，曲目結束時有空隙 |
+| AC6 | `crates/core/src/player.rs` :: `ac6_stale_inputs_ignored`（表格） | 沒有效果，狀態不變；tidalt 的順序中恰好前進一次 | 存根比對事件時不看標記，所以過時的 `TrackEnded` 前進了兩次 |
+| AC7 | `crates/core/src/player.rs` :: `ac7_failure_policy`（針對錯誤種類 × 來源的表格）+ `ac7_failure_run_stops` | 每一列依規則跳過或停止；訊息；佇列長度 3 與 20 的連續失敗上限 | 存根每次錯誤都跳過（tidalt 的迴圈） |
+| AC8 | `crates/core/src/player.rs` :: `ac8_pause_and_seek`（表格） | 各狀態的效果；保留的播放；夾限；`start_at` | 存根忽略狀態，一律送出 `EnginePause` |
+| AC9 | `crates/core/src/player.rs` :: `ac9_volume`（表格） | 音量、增益值、靜音往返、`bit_perfect` 與原因 | 存根從不發出 `EngineSetGain`，並保留引擎的 `bit_perfect` |
+| AC10 | `crates/core/src/player.rs` :: `ac10_queue_edits`（表格） | 順序、目前項目、ID、效果 | 存根把所有東西都附加在尾端 |
+| AC11 | `crates/core/src/player.rs` :: `ac11_one_snapshot_per_change`（涵蓋 AC1–AC10 表格的每一列） | 恰好一個 `Broadcast(Player)`，在最後；位置只有 `Position` 事件；沒有改變就什麼都不發 | 存根每次輸入後都廣播 |
+| AC12 | `crates/core/src/protocol.rs` :: `ac11_round_trip`（0001 的，已擴充；`all_commands`/`all_events` 列出新的變體） | 往返 | 新變體手寫的存根 `Serialize` 寫出 `null` |
+| AC13 | `crates/audio/tests/engine.rs` :: `ac13_events_carry_tags` | 每個事件上的標記，包括取代與失敗的預先載入 | 存根引擎送出標記 0 |
+| AC14 | `crates/audio/tests/engine.rs` :: `ac14_cancel_preload` | 排空、`TrackEnded`、被取消來源沒有任何影格、來源已關閉 | 存根忽略 `CancelPreload`，所以 sink 收到第二首曲目 |
+| AC15 | `crates/audio/tests/engine.rs` :: `ac15_gain`（表格：16/24 位元的 1.0、0.5、0、曲目途中改變、跨轉換／播放／裝置） | 每一列的位元組；以影格計的延遲 | 存根忽略 `SetGain` |
+| AC16 | `crates/core/src/item.rs` :: `ac16_parse_item`（表格） | 每一列的項目或錯誤 | 存根只解析純數字 |
+| AC17 | `crates/api/tests/metadata.rs` :: `ac17_get_track`、`ac17_album_pages`、`ac17_playlist_pages_and_videos`、`ac17_errors` | 請求路徑與參數（`expect(n)`）、對應的曲目、錯誤 | 存根只讀第一頁並保留影片 |
+| AC18 | `crates/app/src/cli/play.rs` :: `ac18_queue_exit_codes`（表格，假的中繼資料 + 假的引擎）+ `crates/app/tests/cli.rs` :: `ac18_bad_item` | 印出的行、結束碼；結束碼 2 搭配 `Not a Tidal…` | 存根只播放第一個項目 |
+| AC19 | `crates/app/src/player/runtime.rs` :: `ac19_effects_and_mash`、`ac19_quit_stops_engine` | 效果執行順序；連按之後只有一次 `Play`；離開前有 `Stop` | 存根執行階段播放它收到的每個解析結果 |
+| AC20 | `crates/core/src/ui/mod.rs` :: `ac20_keys_to_commands`（表格）+ `crates/app/src/tui/input.rs` :: `ac18_key_events`（由 0006 AC18 改名，它把自己的按鍵加進了表格） | 每個按鍵的指令；`Enter` 的項目 ID | 存根只對應 `q`/`Esc` |
+| AC21 | `crates/core/src/ui/mod.rs` :: `ac21_key_sequence` | `g g` → 最上；`g` `j` → 下 | 存根把單獨的 `g` 當成最上 |
+| AC22 | `crates/core/src/ui/mod.rs` :: `ac22_snapshot_applied_as_is` | 顯示的順序等於快照的；過時的位置被忽略；游標跟隨項目 ID | 存根依原始位置排序佇列 |
+| AC23 | `crates/app/src/tui/render.rs` :: `ac23_playback_window_*`、`ac23_queue_scrolls`、`ac23_truncation_40x12`、`ac23_no_panic_any_size` | 每個狀態的 `contains` 斷言（符號、`?:??`、原因文字），以及驗收時人工檢視的快照 | 存根的 `render` 只畫外框 |
 | AC24 | — 驗收時檢視 | 文件存在、與本規格相符、已連結 | — |
-| AC25 | `crates/app/src/settings.rs` :: `ac25_player_config`（表格）+ `crates/core/src/ui/mod.rs` :: `ac25_steps_from_config` | 值、錯誤與優先順序；指令攜帶設定的間隔 | stub 忽略環境變數並回傳預設值 |
-| AC26 | `crates/core/src/player.rs` :: `ac26_autoplay`（表格：開／關 × 重複播放 × 結果 ok/空/重複/錯誤/過時/關閉之後） | 一次 `FetchSuggestions`、附加的項目及其標記、預先載入、訊息、停止 | stub 從不取得，所以自動播放開啟時佇列停在尾端 |
-| AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | 路徑與參數、對應的曲目、錯誤 | stub 不發請求就回傳空清單，所以 `expect(1)` 失敗 |
-| AC28 | `crates/core/src/ui/mod.rs` :: `ac28_open_prompt`（表格）+ `crates/app/src/player/runtime.rs` :: `ac28_open_adds_and_starts` | 輸入提示的狀態與模式、效果；展開之後送出的指令（`End` 與 `Next`） | stub 的 `o`/`O` 什麼都不做 |
+| AC25 | `crates/app/src/settings.rs` :: `ac25_player_config`（表格）+ `crates/core/src/ui/mod.rs` :: `ac25_steps_from_config` | 值、錯誤與優先順序；指令攜帶設定的間隔 | 存根忽略環境變數並回傳預設值 |
+| AC26 | `crates/core/src/player.rs` :: `ac26_autoplay`（表格：開／關 × 重複播放 × 結果 ok/空/重複/錯誤/過時/關閉之後） | 一次 `FetchSuggestions`、附加的項目及其標記、預先載入、訊息、停止 | 存根從不取得，所以自動播放開啟時佇列停在尾端 |
+| AC27 | `crates/api/tests/metadata.rs` :: `ac27_suggestions` | 路徑與參數、對應的曲目、錯誤 | 存根不發請求就回傳空清單，所以 `expect(1)` 失敗 |
+| AC28 | `crates/core/src/ui/mod.rs` :: `ac28_open_prompt`（表格）+ `crates/app/src/player/runtime.rs` :: `ac28_open_adds_and_starts` | 輸入提示的狀態與模式、效果；展開之後送出的指令（`End` 與 `Next`） | 存根的 `o`/`O` 什麼都不做 |
 
 刻意不由自動化測試涵蓋，驗收時以真實帳號手動檢查（結果寫在 PR 說明中）：
 
@@ -408,5 +408,5 @@ CLI 與執行階段（`tidal-player`）：
 <a id="bugs"></a>
 ## 錯誤
 
-- **只有一首失敗曲目的佇列，結尾是 `Stopped: 1 tracks in a row could not be played`（於切片 D 驗收時發現，2026-10-07）。** 預期：對無法播放的曲目執行 `play <id>`，印出的恰好是 0003 的訊息（`Track 404 is not available in NO`），如「指令」對單一曲目形式的要求；TUI 同樣顯示該曲目為什麼失敗。實際：連續失敗上限是 `min(5, 佇列長度)` = 1，所以第一次失敗就達到上限，播放器把失敗的訊息換成連續失敗的摘要，而它沒有指出任何原因（還寫成「1 tracks」）。根本原因：「失敗處理」沒有說明只有一次的情況下摘要是什麼。修正：只有在 N > 1 時，摘要才取代訊息；N = 1 時保留失敗本身的訊息（表格列已更正）。AC7 新增一列：只有 1 個項目的佇列（重複播放 `off` 與 `queue`）在 1 次失敗之後停止，並帶有該次失敗的訊息。測試：`crates/core/src/player/tests.rs` :: `ac7_failure_run_stops`（列 `(1, 0, 1)` 與 `(1, 1, 1)`；紅燈：訊息是連續失敗的摘要）。移除了 `play` 的 reporter 針對此情況的變通做法
+- **只有一首失敗曲目的佇列，結尾是 `Stopped: 1 tracks in a row could not be played`（於切片 D 驗收時發現，2026-10-07）。** 預期：對無法播放的曲目執行 `play <id>`，印出的恰好是 0003 的訊息（`Track 404 is not available in NO`），如「指令」對單一曲目形式的要求；TUI 同樣顯示該曲目為什麼失敗。實際：連續失敗上限是 `min(5, queue length)` = 1，所以第一次失敗就達到上限，播放器把失敗的訊息換成連續失敗的摘要，而它沒有指出任何原因（還寫成「1 tracks」）。根本原因：「失敗處理」沒有說明只有一次的情況下摘要是什麼。修正：只有在 N > 1 時，摘要才取代訊息；N = 1 時保留失敗本身的訊息（表格列已更正）。AC7 新增一列：只有 1 個項目的佇列（重複播放 `off` 與 `queue`）在 1 次失敗之後停止，並帶有該次失敗的訊息。測試：`crates/core/src/player/tests.rs` :: `ac7_failure_run_stops`（列 `(1, 0, 1)` 與 `(1, 1, 1)`；紅燈：訊息是連續失敗的摘要）。移除了 `play` 的 reporter 針對此情況的變通做法
 - **分享選單的連結被拒絕（使用者回報，2026-10-07）。** 預期：Tidal 應用程式分享選單複製的連結可以播放，例如 `https://tidal.com/track/145060431/u` 與 `https://tidal.com/album/145060429/u`。實際：`Not a Tidal track, album or playlist: …`。根本原因：規格的表格說分享連結帶有 `?u` 查詢字串；它們帶的其實是 `/u` 路徑區段（使用者的回報；從網址列複製的連結沒有後綴），而 `parse_item` 恰好只接受兩個路徑區段。表格與 AC16 已更正：曲目、專輯或播放清單 ID 之後接受結尾的 `/u` 區段（之後可再接 `/`、查詢字串或片段）；任何其他多出來的區段仍被拒絕。測試：`crates/core/src/item.rs` :: `ac16_parse_item`，新增的列包括曲目、專輯與播放清單上的 `/u`、`/u/`、`/u?x`、`/browse/…/u`，以及對 `/x` 與 `/u/u` 的拒絕（紅燈：`/u` 的列被拒絕）

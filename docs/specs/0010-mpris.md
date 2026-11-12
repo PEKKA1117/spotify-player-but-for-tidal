@@ -1,5 +1,7 @@
 # 0010 — MPRIS2 and media keys
 
+English | [正體中文](zh-TW/0010-mpris.md)
+
 - **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002/0006 (implemented: the metadata and library clients that parse tracks), 0004 (implemented: the player and its protocol), 0005 (implemented: one player per user, the hub of clients, one-shot commands), 0008 (implemented: `app.toml` and its precedence), 0009 (implemented: a restored player is stopped)

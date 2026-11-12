@@ -1,5 +1,7 @@
 # 0009 — Persistence: resume where you left off
 
+English | [正體中文](zh-TW/0009-persistence.md)
+
 - **Status**: implemented (2026-10-08; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0002 (implemented: the state directory, `logout`), 0004 (implemented: the player state), 0005 (implemented: one player per user, clients own nothing on disk), 0008 (implemented: `app.toml` and its precedence)

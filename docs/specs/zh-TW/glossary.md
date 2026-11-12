@@ -80,11 +80,38 @@
 | state directory | 狀態目錄 |
 | stream | 串流 |
 | test plan | 測試計畫 |
-| theme | 主題 |
+| theme | 佈景主題 |
 | thread | 執行緒 |
 | token | 權杖 |
 | implement / implementation | 實作 |
 | verify / verified | 驗證 |
+| attach / detach (a client) | 連上／中斷連線 |
+| batch | 批次 |
+| bus / session bus | 匯流排／工作階段匯流排 |
+| codec | 編解碼器 |
+| fan-out | 扇出 |
+| follow (lyrics, logs) | 跟隨 |
+| harness (test) | 測試架構 |
+| instance | 執行個體 |
+| manual check / hands-on check | 手動檢查 |
+| one-shot command | 一次性指令 |
+| outbox | 發送佇列 |
+| passphrase | 通關密語 |
+| prefix / nested prefix | 前綴／巢狀前綴 |
+| prompt (input) | 輸入提示 |
+| red / green (TDD) | 紅燈／綠燈 |
+| render | 繪製 |
+| reply / response / request | 回覆／回應／請求 |
+| reserve / release (device) | 保留／釋放 |
+| rotation (log) | 輪替 |
+| runtime / runtime directory | 執行期／執行期目錄 |
+| slice | 切片 |
+| snapshot (state) | 快照 |
+| stub | 存根 |
+| subscribe / subscriber | 訂閱／訂閱者 |
+| synced / plain lyrics | 同步歌詞／純文字歌詞 |
+| top hit | 最佳結果（視窗標題 `Top hit` 不譯） |
+| unit (systemd) | 單元 |
 | worktree / branch / commit | worktree／分支／commit |
 
 ## 臺式用法（不要用左欄）
@@ -133,6 +160,8 @@
 | 過濾 | 篩選 |
 | 標籤頁 | 分頁 |
 | 彈窗 | 彈出視窗 |
+| 算繪 | 繪製 |
+| 樁（stub） | 存根 |
 | 快捷鍵 | 快速鍵（本專案多用「按鍵」） |
 | 計劃 | 計畫 |
 | 刷新 | 更新、重新整理 |

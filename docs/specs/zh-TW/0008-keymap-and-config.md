@@ -335,7 +335,7 @@ TUI（`tidal-player`）：
 
 - 頁內篩選（搜尋以外的頁面上的 `/`）與排序（決策 1）。篩選是 [0012](0012-filter.md)（implemented）；排序仍然不在範圍內
 - 任一檔案的即時重新載入；印出實際生效設定的指令
-- 主題與顏色（spotify-player 的 `theme.toml`）、圖示、邊框與進度條樣式、`playback_format`
+- 佈景主題與顏色（spotify-player 的 `theme.toml`）、圖示、邊框與進度條樣式、`playback_format`
 - 播放視窗的位置與高度（spotify-player 其餘的 `[layout]`）、藝人頁面的分割
 - spotify-player 的數量前綴（`5j`）與滑鼠支援
 - 可設定的客戶端憑證（決策 8）

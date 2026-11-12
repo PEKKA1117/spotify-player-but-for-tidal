@@ -1,5 +1,7 @@
 # 0004 — Queue & playback controls
 
+English | [正體中文](zh-TW/0004-queue-and-controls.md)
+
 - **Status**: implemented (2026-10-07)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented), 0002 (implemented), 0003 (approved; its engine is extended here, see "Engine additions")
