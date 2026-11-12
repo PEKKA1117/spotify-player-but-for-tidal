@@ -9,7 +9,7 @@
 - Read it before slicing, implementing or accepting anything the spec covers; its criteria are owned by slices and accepted like the spec's
 - Where it and the spec disagree, it wins: the tracked spec keeps its text (so it gives nothing away) and the implementation, tests and examples follow the Easter-egg file. The file lists the parts of the spec it replaces
 - Briefs quote it as they quote the spec
-- Never describe what it says in tracked prose (specs, user docs, `README.md`, this file, commit messages, PR and issue text, release notes, PR diagrams, and the zh-TW copies of all of them); the tracked spec only names the file, and its zh-TW copy starts with the same `@docs/Eastereggs/<hash>.md` line
+- Never mention or explain an Easter egg in anything that reaches any remote: tracked files (specs, user docs, `README.md`, this file, and the zh-TW copies of all of them), commit messages, branch names, PR and issue text, review comments, release notes, PR diagrams and screenshots, the wiki. The only trace is the `@docs/Eastereggs/<hash>.md` line a tracked spec (and its zh-TW copy) starts with, and the spec's references to that path; a translator copies them verbatim and never opens the file
 - A spec naming a file that is missing (another clone, CI): say so and stop rather than guessing
 
 ## Status
@@ -128,8 +128,8 @@ The user reviews in Traditional Chinese (Taiwan) as well as English, so every do
 | a PR description | its `## 正體中文` section (see "PR description") |
 
 - A spec's copy follows the user docs' rules (see "Conventions"): a language switcher line (`[English](../NNNN-*.md) | 正體中文`, and `English | [正體中文](zh-TW/NNNN-*.md)` under the English spec's title), code, keys, commands, paths, config names, AC numbers and test names untranslated, and `<a id="english-slug"></a>` before each heading. It is written with the spec, before the user is asked to approve it, and changes with it
-- A spec written before this rule gets its copy the first time it changes; until then, links go to the English spec
 - `cargo xtask specs` reads only `docs/specs/*.md`, so the test plan is checked in the English spec; the copy's test plan is a translation of it, not a second source
+- **Translating**: fan the work out to Sonnet subagents (`model: sonnet`), a few documents each, never two on one file. Every translator follows `docs/specs/zh-TW/glossary.md`: the fixed spec headings, the term list, and 臺式用法 (Taiwan usage: 預設, 檔案, 程式, 網路, 資料, 佇列, never 默認, 文件 for a file, 程序, 網絡, 數據, 隊列), and matches the tone and spacing of the existing `docs/zh-TW/`. Each reports the terms the glossary lacked; the primary session aligns them across the copies (one translation per term), adds them to the glossary, and greps every copy for the glossary's forbidden words before committing
 - Not translated: this file, commit messages, code comments, issue text and the `.github/release-notes.md` install steps
 
 ## PR description
