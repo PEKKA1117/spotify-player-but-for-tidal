@@ -11,7 +11,7 @@
 - 藍牙耳機的按鈕（透過 BlueZ）
 - `playerctl`
 
-每個播放器都會發布自己：獨立模式的 TUI、`tidal-player daemon` 與 `tidal-player play`。附加的 TUI 與 `tidal-player playback …` 是該播放器的用戶端，從不使用匯流排。設計：[spec 0010](../specs/0010-mpris.md)。
+每個播放器都會發布自己：獨立模式的 TUI、`tidal-player daemon` 與 `tidal-player play`。附加的 TUI 與 `tidal-player playback …` 是該播放器的客戶端，從不使用匯流排。設計：[spec 0010](../specs/0010-mpris.md)。
 
 <a id="the-bus-name"></a>
 ## 匯流排名稱
@@ -107,7 +107,7 @@ bindl = , XF86AudioPrev, exec, playerctl -p tidal_player previous
 <a id="turning-it-off"></a>
 ## 關閉
 
-在 [`app.toml`](config.md#apptoml) 中設定 `mpris = false`，或 `TIDAL_PLAYER_MPRIS=off`：播放器不會為 MPRIS 連線到工作階段匯流排；它仍會為 TUI 維護[封面快取](#album-covers)（`max_cover_arts = 0` 會關閉它）。播放、TUI 與常駐程式的用戶端都不受影響。
+在 [`app.toml`](config.md#apptoml) 中設定 `mpris = false`，或 `TIDAL_PLAYER_MPRIS=off`：播放器不會為 MPRIS 連線到工作階段匯流排；它仍會為 TUI 維護[封面快取](#album-covers)（`max_cover_arts = 0` 會關閉它）。播放、TUI 與常駐程式的客戶端都不受影響。
 
 <a id="no-session-bus"></a>
 ## 沒有工作階段匯流排

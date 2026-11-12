@@ -126,7 +126,7 @@ esac
 - 執行超過 30 秒的指令會被終止，然後執行下一個
 - stdin 與 stdout 是 `/dev/null`。stderr 在常駐程式與 `play` 下是播放器的 stderr（在 systemd 下即 journal），在 standalone 下是 `/dev/null`，否則會畫到 TUI 上
 
-指令無法啟動、失敗或被終止都不影響播放。播放器會在每個用戶端的訊息列說明一次（和其他訊息一樣，留到下一首開始為止），在常駐程式與 `play` 下也會寫到 stderr；之後要等到有指令成功，才會再次提示：
+指令無法啟動、失敗或被終止都不影響播放。播放器會在每個客戶端的訊息列說明一次（和其他訊息一樣，留到下一首開始為止），在常駐程式與 `play` 下也會寫到 stderr；之後要等到有指令成功，才會再次提示：
 
 ```
 Player event hook failed: on-player-event: No such file or directory (os error 2)

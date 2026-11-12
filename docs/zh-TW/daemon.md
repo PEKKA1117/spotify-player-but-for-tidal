@@ -1,14 +1,14 @@
 [English](../daemon.md) | 正體中文
 
 <a id="the-daemon-and-clients"></a>
-# 常駐程式 (daemon) 與用戶端
+# 常駐程式 (daemon) 與客戶端
 
-`tidal-player` 可以作為**播放器**單獨執行（`tidal-player daemon`，例如作為 systemd 使用者服務），並由任意數量的**用戶端**控制：TUI、一次性指令（例如 `tidal-player playback next`），或是第二個 `tidal-player --add-to-queue <link>`。設計：[spec 0005](../specs/0005-daemon-and-clients.md)。
+`tidal-player` 可以作為**播放器**單獨執行（`tidal-player daemon`，例如作為 systemd 使用者服務），並由任意數量的**客戶端**控制：TUI、一次性指令（例如 `tidal-player playback next`），或是第二個 `tidal-player --add-to-queue <link>`。設計：[spec 0005](../specs/0005-daemon-and-clients.md)。
 
 <a id="players-and-clients"></a>
-## 播放器與用戶端
+## 播放器與客戶端
 
-**播放器**負責播放：它持有佇列、模式、工作階段與音訊裝置。**用戶端**只會將指令傳送給播放器，並顯示播放器回傳的內容。每位使用者同一時間最多只有一個播放器。
+**播放器**負責播放：它持有佇列、模式、工作階段與音訊裝置。**客戶端**只會將指令傳送給播放器，並顯示播放器回傳的內容。每位使用者同一時間最多只有一個播放器。
 
 | 你執行 | 沒有播放器在執行 | 有播放器在執行 |
 |---|---|---|
@@ -18,9 +18,9 @@
 | `tidal-player playback …` | 以 1 結束：`No player is running: start "tidal-player" or "tidal-player daemon"` | 傳送一個指令，印出回應後結束 |
 | `tidal-player daemon stop` | 以 1 結束，訊息相同 | 要求播放器關閉，並等到它結束（最多 5 秒） |
 
-每個播放器（獨立模式的 TUI、`daemon` 與 `play`）都接受用戶端連線，因此 `playback` 與附加的 TUI 對它們任何一個都能運作。
+每個播放器（獨立模式的 TUI、`daemon` 與 `play`）都接受客戶端連線，因此 `playback` 與附加的 TUI 對它們任何一個都能運作。
 
-**退出**（`q`）附加的 TUI 只會將它卸離：播放器會繼續播放。退出獨立播放器的 TUI 則會停止該播放器，與先前相同；它的其他用戶端會顯示 `The player shut down: waiting for it to come back…`，並附加到下一個啟動的播放器。
+**退出**（`q`）附加的 TUI 只會將它卸離：播放器會繼續播放。退出獨立播放器的 TUI 則會停止該播放器，與先前相同；它的其他客戶端會顯示 `The player shut down: waiting for it to come back…`，並附加到下一個啟動的播放器。
 
 <a id="attaching-a-tui"></a>
 ### 附加 TUI
@@ -33,7 +33,7 @@
 | `tidal-player --add-to-queue ITEM...` | 將它們加到佇列的最後 |
 | `tidal-player --play-next ITEM...` | 將它們加在目前曲目的正後方 |
 
-當播放器原本沒有在播放任何東西（佇列為空，或已停止且沒有目前曲目）時，第一個加入的曲目會開始播放。由播放器取得這些項目（`Album 123 was not found` 會顯示在播放視窗中）；用戶端不需要自己登入：它從不讀取工作階段、金鑰圈 (keyring) 或密語，也從不開啟音訊裝置。
+當播放器原本沒有在播放任何東西（佇列為空，或已停止且沒有目前曲目）時，第一個加入的曲目會開始播放。由播放器取得這些項目（`Album 123 was not found` 會顯示在播放視窗中）；客戶端不需要自己登入：它從不讀取工作階段、金鑰圈 (keyring) 或密語，也從不開啟音訊裝置。
 
 附加的 TUI 外觀與操作都和獨立模式的 TUI 相同（[TUI](tui.md)），並有自己的按鍵與 TUI 設定：它讀取自己的 `keymap.toml` 與 `app.toml`（音量與跳轉幅度、頁面大小、音樂庫版面），而不是常駐程式的（見[設定](config.md)）。它只顯示播放器傳來的內容：用 `o` 加入的項目，要等播放器加入之後才會出現在佇列中。若連線中斷，最後的畫面會保留，訊息列顯示 `Disconnected from the player: reconnecting…`（或 `The player shut down: waiting for it to come back…`），播放按鍵不會有作用，TUI 每秒重試一次。重新連上後，畫面會顯示播放器目前的狀態。游標按鍵與 `q` 在此期間都能使用。
 
@@ -81,7 +81,7 @@ WantedBy=default.target
 - **結束代碼 1、2 與 3 不會重新啟動**：未登入或工作階段儲存區無法使用（1）、設定錯誤（2）、已有其他播放器在執行（3）。每隔幾秒重試也無法解決其中任何一個，因此 systemd 會讓單元維持失敗狀態。修正原因（`systemctl --user status tidal-player` 與 `journalctl --user -u tidal-player` 會顯示訊息），然後執行 `systemctl --user restart tidal-player`。其他任何失敗會在 5 秒後重新啟動，5 分鐘內最多 5 次
 - 開著獨立模式的 TUI 時，服務無法啟動（以 3 結束，不會重新啟動）。請先退出 TUI，或改為將 TUI 附加到常駐程式（常駐程式執行後，`tidal-player` 就會這麼做）
 
-常駐程式在用戶端可以連線後通知 systemd 它已就緒（`Type=notify`）。收到 `systemctl --user stop`（`SIGTERM`）、`SIGINT` 或 `tidal-player daemon stop` 時，它會通知用戶端、停止播放、釋放裝置並以 0 結束。訊息輸出到 stderr，在 systemd 下即為 journal。重新啟動的常駐程式會接續先前的佇列，停止在相同的位置，並保持靜音直到有東西播放它（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
+常駐程式在客戶端可以連線後通知 systemd 它已就緒（`Type=notify`）。收到 `systemctl --user stop`（`SIGTERM`）、`SIGINT` 或 `tidal-player daemon stop` 時，它會通知客戶端、停止播放、釋放裝置並以 0 結束。訊息輸出到 stderr，在 systemd 下即為 journal。重新啟動的常駐程式會接續先前的佇列，停止在相同的位置，並保持靜音直到有東西播放它（見[接續上次的工作階段](playback.md#resuming-the-last-session)）。
 
 在任一終端機執行 `tidal-player login` 之後，正在執行的常駐程式會在幾秒內取得新的工作階段（見[「Session expired」](login.md#session-expired)）。
 
@@ -202,9 +202,9 @@ edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
 `0` 會在暫停時立即釋放；`never` 會在暫停期間保持裝置開啟（其他應用程式要求使用時仍會讓出）。此設定適用於每個播放器：TUI、`play` 與常駐程式（在 `app.toml` 中設 `release_paused_secs = 0`，或在單元中設 `Environment=TIDAL_PLAYER_RELEASE_PAUSED=0`）。
 
 <a id="where-clients-find-the-player"></a>
-## 用戶端如何找到播放器
+## 客戶端如何找到播放器
 
-播放器與用戶端在**執行期資料夾**中會合：若有設定則為 `$TIDAL_PLAYER_RUNTIME_DIR`，否則為 `$XDG_RUNTIME_DIR/tidal-player`，再否則為 `/tmp/tidal-player-<uid>`。其中存放播放器的 socket（`player.sock`）與它的鎖定檔（`player.lock`，內含播放器的 pid）。這個資料夾建立時為私有（模式 `0700`）；若資料夾屬於其他使用者或其他人可以讀取，就會被拒絕，因此其他人無法連到你的播放器。
+播放器與客戶端在**執行期資料夾**中會合：若有設定則為 `$TIDAL_PLAYER_RUNTIME_DIR`，否則為 `$XDG_RUNTIME_DIR/tidal-player`，再否則為 `/tmp/tidal-player-<uid>`。其中存放播放器的 socket（`player.sock`）與它的鎖定檔（`player.lock`，內含播放器的 pid）。這個資料夾建立時為私有（模式 `0700`）；若資料夾屬於其他使用者或其他人可以讀取，就會被拒絕，因此其他人無法連到你的播放器。
 
 `XDG_RUNTIME_DIR` 由你的登入工作階段設定。在沒有設定的情況下（某些 SSH 工作階段、沒有 logind），shell 與 systemd 下的常駐程式可能會到不同的位置尋找而找不到彼此：請在兩者中都設定 `XDG_RUNTIME_DIR=/run/user/$(id -u)`（或相同的 `TIDAL_PLAYER_RUNTIME_DIR`）。
 
@@ -213,7 +213,7 @@ edad2071-060a-4392-870b-4dc9c5c6ac66	followed	25	Linkin Park Essentials
 
 | 訊息 | 意義 |
 |---|---|
-| `Another player is running (pid N)` | `daemon` 或 `play` 發現已有播放器在執行（TUI、另一個常駐程式、`play`）。將它當作用戶端使用（`tidal-player`、`tidal-player playback …`），或先停止它（`tidal-player daemon stop`，或退出它的 TUI）。以 3 結束 |
+| `Another player is running (pid N)` | `daemon` 或 `play` 發現已有播放器在執行（TUI、另一個常駐程式、`play`）。將它當作客戶端使用（`tidal-player`、`tidal-player playback …`），或先停止它（`tidal-player daemon stop`，或退出它的 TUI）。以 3 結束 |
 | `The running player is tidal-player X, this is Y: restart it ("tidal-player daemon stop", or "systemctl --user restart tidal-player")` | 播放器是此程式的另一個版本，通常是升級後仍在執行的舊常駐程式。重新啟動它，讓兩者版本相同。TUI 會顯示此訊息且不會重試 |
 | `A player is running (pid N) but not answering on <socket>` | 有程序持有鎖定檔，但 2 秒內 socket 上沒有回應：可能是播放器仍在啟動中（請再試一次），或是已卡住（`kill N`）。以 1 結束 |
 | `Runtime directory <path> is not private: …` | 執行期資料夾不是資料夾、屬於其他使用者，或其他人可以存取。程式從不會替你修改它：請將它刪除，或修正它的擁有者與權限模式（`chmod 700`）。以 1 結束 |

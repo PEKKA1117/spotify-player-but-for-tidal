@@ -28,7 +28,7 @@ player_event_hook_command = { command = "/home/me/bin/on-player-event", args = [
 
 `command` 是路徑，或在 `PATH` 中找得到的名稱，直接執行，不經過 shell：不會展開 `~`。`args` 為選用，排在事件的引數之前。這個設定只存在於 `app.toml`：帶引數的指令沒有合理的環境變數形式。沒有設定時什麼都不會執行，也不會為它啟動執行緒。
 
-不論是哪一種播放器，都由播放器執行 hook：獨立模式、常駐程式或 `play`。連上常駐程式的 TUI 不執行任何東西，所以不論連了多少個用戶端，一個事件只會執行一次指令。
+不論是哪一種播放器，都由播放器執行 hook：獨立模式、常駐程式或 `play`。連上常駐程式的 TUI 不執行任何東西，所以不論連了多少個客戶端，一個事件只會執行一次指令。
 
 <a id="events"></a>
 ### 事件
@@ -44,7 +44,7 @@ player_event_hook_command = { command = "/home/me/bin/on-player-event", args = [
 | `EndOfTrack` | `TRACK_ID` | 曲目播到結尾，無縫與否皆然。跳過或停止不算結尾 |
 | `Seeked` | `TRACK_ID POSITION_MS` | 播放中或暫停中的曲目，其位置被手動改變 |
 | `VolumeChanged` | `PERCENT` | 聽到的音量改變：`0` 到 `100`，靜音時為 `0` |
-| `DeviceChanged` | `NAME` | 選取的輸出裝置改變（0014），由用戶端或由後備機制造成 |
+| `DeviceChanged` | `NAME` | 選取的輸出裝置改變（0014），由客戶端或由後備機制造成 |
 
 `POSITION_MS` 是事件之後的位置，所以 `Changed` 之後的 `Playing` 不一定是 `0`。`Buffering` 在這裡不是狀態變化：停頓與其恢復都不執行任何東西。曲目只是在載入時也不執行任何東西，所以在佇列中快速跳過時，只有真正開始的那首曲目會執行 `Changed`。
 
@@ -78,7 +78,7 @@ player_event_hook_command = { command = "/home/me/bin/on-player-event", args = [
 <a id="failures"></a>
 ### 失敗
 
-指令無法啟動、以非零狀態結束，或因超過時間限制被終止，都不影響播放。播放器會說一次，作為每個用戶端都會顯示的播放器訊息（和任何訊息一樣，保留到下一首曲目開始），在常駐程式與 `play` 下也會寫到 stderr：
+指令無法啟動、以非零狀態結束，或因超過時間限制被終止，都不影響播放。播放器會說一次，作為每個客戶端都會顯示的播放器訊息（和任何訊息一樣，保留到下一首曲目開始），在常駐程式與 `play` 下也會寫到 stderr：
 
 ```
 Player event hook failed: on-player-event: No such file or directory (os error 2)
@@ -194,7 +194,7 @@ Player event hook is too slow: events were dropped
 
 - 記錄檔或 `tracing` subscriber（這要由記錄頁 #64 來決定）
 - 指令的 shell 形式、`~` 展開
-- shuffle、repeat、autoplay、佇列或登入的事件
+- 隨機播放、重複播放、自動播放、佇列或登入的事件
 - 透過旗標或環境變數設定 hook（`-o`、#65 會涵蓋）
 - 讓 30 秒的限制或 64 個事件的上限可設定
 - 終止指令留在背景的東西

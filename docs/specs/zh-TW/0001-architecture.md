@@ -29,7 +29,7 @@ tidalt（Go + CGO + FFmpeg + ALSA）變得太多錯誤，無法再繼續修補�
 ### 語言與工具鏈
 
 - Rust，edition 2024，穩定版工具鏈固定在 `rust-toolchain.toml`（目前為 1.97），並附有 `rustfmt` 與 `clippy` 元件
-- **僅支援 Linux**，與 tidalt 相同：ALSA 輸出、播放器與用戶端之間的 Unix socket 與鎖定檔（0005）、供常駐程式使用的 systemd、供 MPRIS（0010）使用的 session bus，以及裝置保留（0003）。只有 ALSA 後端需要 ALSA 函式庫，且位於 `alsa` feature 之後（AC7）；其餘部分在任何 Unix 上都能建置。Windows 是 issue #21，不是對現有程式碼的限制
+- **僅支援 Linux**，與 tidalt 相同：ALSA 輸出、播放器與客戶端之間的 Unix socket 與鎖定檔（0005）、供常駐程式使用的 systemd、供 MPRIS（0010）使用的 session bus，以及裝置保留（0003）。只有 ALSA 後端需要 ALSA 函式庫，且位於 `alsa` feature 之後（AC7）；其餘部分在任何 Unix 上都能建置。Windows 是 issue #21，不是對現有程式碼的限制
 
 <a id="workspace-layout"></a>
 ### Workspace 配置
@@ -62,26 +62,26 @@ xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces t
 <a id="application-pattern-the-main-testability-fix"></a>
 ### 應用程式模式（可測試性的主要修正）
 
-採用 Elm 風格：純粹的核心加上命令式的外殼，並沿著**播放器／用戶端的邊界**切分，讓承襲自 tidalt 的常駐程式－用戶端模式從一開始就內建，而不是事後硬加上去：
+採用 Elm 風格：純粹的核心加上命令式的外殼，並沿著**播放器／客戶端的邊界**切分，讓承襲自 tidalt 的常駐程式－客戶端模式從一開始就內建，而不是事後硬加上去：
 
-- **播放器端** — `tidal_player_core::player`：`PlayerState`（佇列、目前曲目、位置、音量、隨機播放／重複播放、輸出裝置）、`PlayerInput`（用戶端的 `Command`、音訊引擎事件、API 結果、tick）與 `PlayerEffect`（解析串流、啟動／停止／跳轉引擎、持久化、廣播 `Event`）。`fn update(&mut PlayerState, PlayerInput) -> Vec<PlayerEffect>`
-- **用戶端** — `tidal_player_core::ui`：`State`（頁面、游標、覆蓋層、用戶端最後得知的播放器狀態副本）、`Action`（已透過按鍵對應解析的按鍵、來自播放器的 `Event`、瀏覽用的 API 結果、tick）與 `Effect`（送出 `Command`、取得一頁資料、結束用戶端）。`fn update(&mut State, Action) -> Vec<Effect>`
-- **協定** — `tidal_player_core::protocol`：`Command`（用戶端 → 播放器：播放、暫停、下一首、跳轉、佇列編輯、音量……）與 `Event`（播放器 → 用戶端：狀態快照與變更）。兩者都衍生 `Serialize`/`Deserialize`，因為在常駐程式模式中它們會跨越行程邊界。用戶端絕不直接碰播放器的狀態：一切都經由 `Command`/`Event`
+- **播放器端** — `tidal_player_core::player`：`PlayerState`（佇列、目前曲目、位置、音量、隨機播放／重複播放、輸出裝置）、`PlayerInput`（客戶端的 `Command`、音訊引擎事件、API 結果、tick）與 `PlayerEffect`（解析串流、啟動／停止／跳轉引擎、持久化、廣播 `Event`）。`fn update(&mut PlayerState, PlayerInput) -> Vec<PlayerEffect>`
+- **客戶端** — `tidal_player_core::ui`：`State`（頁面、游標、覆蓋層、客戶端最後得知的播放器狀態副本）、`Action`（已透過按鍵對應解析的按鍵、來自播放器的 `Event`、瀏覽用的 API 結果、tick）與 `Effect`（送出 `Command`、取得一頁資料、結束客戶端）。`fn update(&mut State, Action) -> Vec<Effect>`
+- **協定** — `tidal_player_core::protocol`：`Command`（客戶端 → 播放器：播放、暫停、下一首、跳轉、佇列編輯、音量……）與 `Event`（播放器 → 客戶端：狀態快照與變更）。兩者都衍生 `Serialize`/`Deserialize`，因為在常駐程式模式中它們會跨越行程邊界。客戶端絕不直接碰播放器的狀態：一切都經由 `Command`/`Event`
 - 兩個 `update` 函式都是純函式且為同步。所有不需要 I/O 就能決定的行為，都在那裡決定，也在那裡做單元測試
 - 執行檔的各個 runtime 把終端機事件、socket 訊息、API 結果與引擎事件轉成 input，呼叫 `update`，再執行它回傳的 effect
-- 只有單一行程才決定的事，仍留在執行檔中，並採用相同的模式：決定是一個純函式（哪些設定優先、何時儲存、MPRIS 顯示什麼、要刪除哪些封面檔案），它所需的 I/O 則位於一個附有假實作（fake）的小型 trait 之後。`tidal-player-core` 放的是跨越播放器／用戶端邊界的東西（協定、兩個狀態機、領域型別）；它不是放所有純函式的地方（0026，決策 5）
-- 繪製是 `fn render(&State, &mut Frame)`：用戶端狀態的純函式，以 ratatui 的 `TestBackend` 加上 `insta` 快照在固定尺寸下測試
+- 只有單一行程才決定的事，仍留在執行檔中，並採用相同的模式：決定是一個純函式（哪些設定優先、何時儲存、MPRIS 顯示什麼、要刪除哪些封面檔案），它所需的 I/O 則位於一個附有假實作（fake）的小型 trait 之後。`tidal-player-core` 放的是跨越播放器／客戶端邊界的東西（協定、兩個狀態機、領域型別）；它不是放所有純函式的地方（0026，決策 5）
+- 繪製是 `fn render(&State, &mut Frame)`：客戶端狀態的純函式，以 ratatui 的 `TestBackend` 加上 `insta` 快照在固定尺寸下測試
 
 <a id="run-modes"></a>
 ### 執行模式
 
 一個執行檔、三種模式，每種模式使用相同的播放器程式碼（與 tidalt 相同）：
 
-- **獨立模式**（`tidal-player`，沒有常駐程式在執行）— 播放器 runtime 與 TUI 用戶端在同一個行程中，以傳送 `Command`/`Event` 的記憶體內 channel 相連
-- **常駐程式**（`tidal-player daemon`）— 只有播放器 runtime，無畫面，透過本機傳輸接受用戶端連線；設計上作為 systemd 使用者服務執行
-- **用戶端**（有常駐程式在執行時的 `tidal-player`）— 只有 TUI 用戶端，透過傳輸連上常駐程式
+- **獨立模式**（`tidal-player`，沒有常駐程式在執行）— 播放器 runtime 與 TUI 客戶端在同一個行程中，以傳送 `Command`/`Event` 的記憶體內 channel 相連
+- **常駐程式**（`tidal-player daemon`）— 只有播放器 runtime，無畫面，透過本機傳輸接受客戶端連線；設計上作為 systemd 使用者服務執行
+- **客戶端**（有常駐程式在執行時的 `tidal-player`）— 只有 TUI 客戶端，透過傳輸連上常駐程式
 
-傳輸（承載 JSON 行的 Unix socket；tidalt 用的是 D-Bus）、連上／中斷連線的行為、多個用戶端、一次性的 CLI 指令（`tidal-player playback next`，如 spotify-player 所有）以及暫停時釋放音訊裝置，都在 [0005](0005-daemon-and-clients.md) 中決定。本規格只固定邊界：`Command`/`Event` 型別，以及用戶端只能透過它們到達播放器的規則。
+傳輸（承載 JSON 行的 Unix socket；tidalt 用的是 D-Bus）、連上／中斷連線的行為、多個客戶端、一次性的 CLI 指令（`tidal-player playback next`，如 spotify-player 所有）以及暫停時釋放音訊裝置，都在 [0005](0005-daemon-and-clients.md) 中決定。本規格只固定邊界：`Command`/`Event` 型別，以及客戶端只能透過它們到達播放器的規則。
 
 <a id="concurrency"></a>
 ### 並行
@@ -149,7 +149,7 @@ xtask/     -> xtask        # dev-only tooling; `cargo xtask layering` enforces t
 | AC6 | `crates/app/src/tui/render.rs` :: `ac6_empty_state_80x24` | 80×24 `TestBackend` 緩衝區含有 `tidal-player`，**而且**與已提交的 `insta` 快照相符。tech-lead 在驗收時以肉眼審閱快照 | stub `render` 什麼都不畫，所以 `contains` 斷言失敗（只是缺少快照不算 red） |
 | AC7 | `crates/audio/src/sink.rs` :: `ac7_memory_sink_records_samples` | 在 `open(format)` 與兩次 `write` 之後，`MemorySink` 回報該格式，以及依序串接的兩個緩衝區 | stub `write` 是空操作 |
 | AC7 | — CI job `audio-no-alsa` | `cargo test -p tidal-player-audio --no-default-features` 在**沒有** `libasound2-dev` 的 runner 上通過 | — |
-| AC8 | `crates/api/tests/metadata.rs` :: `ac17_get_track`（0004 的；骨架的 `ac8_get_json_from_fixture` 已隨它的 `Client` 一併移除，0026） | `wiremock` 在曲目的路徑上提供錄製好的測試資料；以 mock 伺服器 URL 建立的用戶端回傳解析後的 `Track` | —（骨架的 red 是 stub `get_json` 回傳錯誤） |
+| AC8 | `crates/api/tests/metadata.rs` :: `ac17_get_track`（0004 的；骨架的 `ac8_get_json_from_fixture` 已隨它的 `Client` 一併移除，0026） | `wiremock` 在曲目的路徑上提供錄製好的測試資料；以 mock 伺服器 URL 建立的客戶端回傳解析後的 `Track` | —（骨架的 red 是 stub `get_json` 回傳錯誤） |
 | AC9 | — 驗收時審閱；觸發條件與 job 的 `if` 由 spec 0018 AC8 測試（`xtask/tests/release_workflow.rs` :: `ac8_ci_runs_once_per_commit`） | workflow 檔案含有 AC2 的步驟、`cargo xtask layering` 與 `audio-no-alsa` job，且 PR 自己的 CI 執行是綠的 | — |
 | AC10 | `crates/app/tests/panic_hook.rs` :: `ac10_restore_runs_before_report`（自己的測試執行檔，因為 panic hook 是行程全域的） | 以一個假的 `restore` 與一個假的前一個 hook（各自附加到共用記錄），`catch_unwind(\|\| panic!())` 之後，記錄為 `["restore", "report"]` | stub `install_panic_hook` 什麼都不做，所以只有假的前一個 hook 會執行，記錄為 `["report"]` |
 | AC11 | `crates/core/src/protocol.rs` :: `ac11_round_trip`（表格涵蓋每個 `Command` 與 `Event` 變體；`serde_json` 僅作為 dev 相依） | 每個都滿足 `from_str(&to_string(&v)) == v` | stub `Serialize` 實作寫出 `null`（手寫，在 green 時以 `#[derive]` 取代），所以反序列化回來會失敗 |

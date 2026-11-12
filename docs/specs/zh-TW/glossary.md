@@ -36,7 +36,7 @@
 | bit-perfect | 位元完美 |
 | browse | 瀏覽 |
 | cache | 快取 |
-| client | 用戶端 |
+| client | 客戶端 |
 | collection, favorites, Collected Tracks | 收藏（`Collected Tracks` 不譯） |
 | config / settings / config file | 設定／設定檔 |
 | cover / album cover | 封面／專輯封面 |
@@ -93,7 +93,8 @@
 |---|---|
 | 默認 | 預設 |
 | 信息 | 資訊、訊息 |
-| 用戶 | 使用者（「用戶端」除外） |
+| 用戶 | 使用者 |
+| 客戶端 | 客戶端 |
 | 軟件／硬件 | 軟體／硬體 |
 | 文件（指 file） | 檔案 |
 | 文檔 | 文件 |

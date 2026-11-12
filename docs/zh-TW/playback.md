@@ -5,7 +5,7 @@
 
 `tidal-player` 自行解碼 Tidal 的串流（FLAC 與 AAC，以純 Rust 實作），並寫入 ALSA 裝置：預設經由系統混音器，或在你要求時直接送到你的 DAC，位元完美（bit-perfect）。設計：[spec 0003](../specs/0003-playback-engine.md)（播放引擎）與 [spec 0004](../specs/0004-queue-and-controls.md)（佇列與控制）。
 
-三種播放方式：TUI（`tidal-player [ITEM]...`，見 [TUI](tui.md)）、從命令列以無介面方式播放（`tidal-player play <ITEM>...`，見下文），或常駐程式（daemon）（`tidal-player daemon`，以 `tidal-player playback …` 及連接上的 TUI 控制，見 [常駐程式與用戶端](daemon.md)）。三者都播放一個由[項目](#items)填入的**佇列**。每個播放器也會回應桌面的媒體控制、多媒體鍵與 `playerctl`：見[桌面控制與多媒體鍵](mpris.md)。
+三種播放方式：TUI（`tidal-player [ITEM]...`，見 [TUI](tui.md)）、從命令列以無介面方式播放（`tidal-player play <ITEM>...`，見下文），或常駐程式（daemon）（`tidal-player daemon`，以 `tidal-player playback …` 及連接上的 TUI 控制，見 [常駐程式與客戶端](daemon.md)）。三者都播放一個由[項目](#items)填入的**佇列**。每個播放器也會回應桌面的媒體控制、多媒體鍵與 `playerctl`：見[桌面控制與多媒體鍵](mpris.md)。
 
 <a id="items"></a>
 ## 項目
@@ -117,7 +117,7 @@ $ tidal-player devices
 <a id="choosing-the-output-device"></a>
 ### 選擇輸出裝置
 
-播放器（獨立模式的 TUI、常駐程式、`play`）會從**設定的裝置**開始：`--device`（僅限 `play`），否則 `TIDAL_PLAYER_DEVICE`，否則 `app.toml` 中的 `output_device`，否則 `default`。執行期間可以從任何用戶端把它移到另一個裝置：在 TUI 中按 `D`（[Devices 彈出視窗](tui.md#output-device)），或在 shell 中執行 `tidal-player playback device hw:1,0`。正在播放的曲目會在原位置移到新裝置，不會遺失或重複；無法開啟的裝置會讓播放器留在原本使用的裝置，並顯示訊息。設計文件：[spec 0014](../specs/0014-device-selection.md)。
+播放器（獨立模式的 TUI、常駐程式、`play`）會從**設定的裝置**開始：`--device`（僅限 `play`），否則 `TIDAL_PLAYER_DEVICE`，否則 `app.toml` 中的 `output_device`，否則 `default`。執行期間可以從任何客戶端把它移到另一個裝置：在 TUI 中按 `D`（[Devices 彈出視窗](tui.md#output-device)），或在 shell 中執行 `tidal-player playback device hw:1,0`。正在播放的曲目會在原位置移到新裝置，不會遺失或重複；無法開啟的裝置會讓播放器留在原本使用的裝置，並顯示訊息。設計文件：[spec 0014](../specs/0014-device-selection.md)。
 
 | 指令 | 列出 | `*` 標示 |
 |---|---|---|
