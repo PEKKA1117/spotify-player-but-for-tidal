@@ -161,7 +161,7 @@ impl WindowKind {
             Self::Playlists | Self::SearchPlaylists => "Playlists",
             Self::Albums | Self::ArtistAlbums | Self::SearchAlbums => "Albums",
             Self::Artists | Self::SearchArtists => "Artists",
-            Self::FavoriteTracks => "Favorite tracks",
+            Self::FavoriteTracks => COLLECTED_TRACKS,
             Self::AlbumTracks
             | Self::PlaylistTracks
             | Self::SearchTracks
@@ -180,9 +180,9 @@ impl WindowKind {
     pub fn empty_message(self) -> &'static str {
         match self {
             Self::Playlists => "No playlists yet",
-            Self::Albums => "No favorite albums yet",
-            Self::Artists => "No favorite artists yet",
-            Self::FavoriteTracks => "No favorite tracks yet",
+            Self::Albums => "No albums in your collection yet",
+            Self::Artists => "No artists in your collection yet",
+            Self::FavoriteTracks => "No collected tracks yet",
             Self::AlbumTracks => "This album has no tracks",
             Self::PlaylistTracks => "This playlist has no tracks",
             Self::TopTracks => "No top tracks",
@@ -240,7 +240,10 @@ impl Rows {
         Some(match self {
             Self::Tracks(v) => Row::Track(v.get(index)?),
             Self::Albums(v) => Row::Album(v.get(index)?),
-            Self::Playlists(v) => Row::Playlist(v.get(index)?),
+            Self::Playlists(v) => match v.get(index)? {
+                p if p.uuid == COLLECTED_UUID => Row::Collected(p.tracks),
+                p => Row::Playlist(p),
+            },
             Self::Artists(v) => Row::Artist(v.get(index)?),
             Self::Credits(v) => Row::Credit(v.get(index)?),
             Self::Mixes(v) => Row::Mix(v.get(index)?),
@@ -305,6 +308,14 @@ impl Rows {
     }
 }
 
+/// The name of the favorite tracks (spec 0028): the pinned row's and the
+/// page's.
+pub const COLLECTED_TRACKS: &str = "Collected Tracks";
+
+/// The UUID of the pinned row's stand-in in the library's Playlists rows
+/// (spec 0028): not a UUID, so no playlist has it.
+const COLLECTED_UUID: &str = "collected-tracks";
+
 /// One row, borrowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row<'a> {
@@ -316,6 +327,9 @@ pub enum Row<'a> {
     Mix(&'a MixSummary),
     /// A row that opens a browse page (spec 0024).
     Link(&'a PageLink),
+    /// The pinned *Collected Tracks* row of the library's Playlists (spec
+    /// 0028) with Tidal's number of favorite tracks.
+    Collected(Option<u32>),
 }
 
 impl<'a> Row<'a> {
@@ -347,7 +361,7 @@ impl<'a> Row<'a> {
             Self::Credit(c) => Some(Item::Track(c.track.id)),
             Self::Album(a) => Some(Item::Album(a.id)),
             Self::Playlist(p) => Some(Item::Playlist(p.uuid.clone())),
-            Self::Artist(_) | Self::Mix(_) | Self::Link(_) => None,
+            Self::Artist(_) | Self::Mix(_) | Self::Link(_) | Self::Collected(_) => None,
         }
     }
 
@@ -360,6 +374,7 @@ impl<'a> Row<'a> {
             Self::Artist(a) => Some(PageKind::Artist(a.id)),
             Self::Mix(m) => Some(PageKind::Mix(m.id.clone())),
             Self::Link(l) => Some(PageKind::Browse(l.target.clone())),
+            Self::Collected(_) => Some(PageKind::FavoriteTracks),
         }
     }
 
@@ -374,6 +389,7 @@ impl<'a> Row<'a> {
             Self::Playlist(p) => RowKey::Uuid(p.uuid.clone()),
             Self::Mix(m) => RowKey::Uuid(m.id.clone()),
             Self::Link(l) => RowKey::Uuid(format!("{:?}", l.target)),
+            Self::Collected(_) => RowKey::Uuid(COLLECTED_UUID.to_owned()),
         }
     }
 }
@@ -671,7 +687,7 @@ impl Window {
     /// The window's title: its name and Tidal's total, for *All tracks*
     /// the role filter and the hidden count (`All tracks (548 · Performer,
     /// Songwriter · 37 hidden)`), and the text filter with its match count
-    /// (`Favorite tracks (548 · /love · 12 matches)`, spec 0012).
+    /// (`Collected Tracks (548 · /love · 12 matches)`, spec 0012).
     pub fn title(&self) -> String {
         let name = &self.tab_name();
         let filter = self.filter.title_parts(self.len());
@@ -707,6 +723,28 @@ impl Window {
             format!("{message} ({} hidden)", group(self.hidden))
         } else {
             message.to_owned()
+        }
+    }
+
+    /// Puts the pinned *Collected Tracks* row first (spec 0028), before
+    /// the playlists load: a stand-in playlist that [`Rows::get`] reads
+    /// as [`Row::Collected`]. `rows` and `positions` hold it, `total` and
+    /// `next_offset` count the playlists only.
+    fn pin_collected(&mut self, count: Option<u32>) {
+        if let Rows::Playlists(rows) = &mut self.rows {
+            rows.insert(
+                0,
+                PlaylistSummary {
+                    uuid: COLLECTED_UUID.to_owned(),
+                    title: COLLECTED_TRACKS.to_owned(),
+                    tracks: count,
+                    duration: None,
+                    own: false,
+                    description: None,
+                    public: false,
+                },
+            );
+            self.positions.insert(0, 0);
         }
     }
 
@@ -1202,7 +1240,7 @@ impl Page {
         }
     }
 
-    /// The title row (spec 0006 "Pages"): `Library`, `Favorite tracks ·
+    /// The title row (spec 0006 "Pages"): `Library`, `Collected Tracks ·
     /// 362 tracks`, `<title> · <artists> · <year> · 17 tracks · 1:02:15`,
     /// `<title> · 39 tracks · 2:41:07`, `<name>`; the parts not known yet
     /// are left out.
@@ -1230,7 +1268,7 @@ impl Page {
                 .collect(),
             (PageKind::Logs, _) => vec!["Logs".into()],
             (PageKind::Library, _) => vec!["Library".into()],
-            (PageKind::FavoriteTracks, _) => std::iter::once("Favorite tracks".into())
+            (PageKind::FavoriteTracks, _) => std::iter::once(COLLECTED_TRACKS.into())
                 .chain(tracks)
                 .collect(),
             (_, Some(Header::Album(album))) => {
@@ -1284,6 +1322,7 @@ impl Page {
     /// Applies a fetched page: header and first list pages. Data of
     /// another page kind is ignored.
     pub(super) fn apply(&mut self, data: PageData, page_size: u32) {
+        let mut pinned = None;
         let lists: Vec<ListItems> = match (&self.kind, data) {
             (
                 PageKind::Library,
@@ -1291,12 +1330,16 @@ impl Page {
                     playlists,
                     albums,
                     artists,
+                    collected_tracks,
                 },
-            ) => vec![
-                ListItems::Playlists(playlists),
-                ListItems::Albums(albums),
-                ListItems::Artists(artists),
-            ],
+            ) => {
+                pinned = Some(collected_tracks);
+                vec![
+                    ListItems::Playlists(playlists),
+                    ListItems::Albums(albums),
+                    ListItems::Artists(artists),
+                ]
+            }
             (PageKind::FavoriteTracks, PageData::FavoriteTracks { tracks }) => {
                 vec![ListItems::Tracks(tracks)]
             }
@@ -1398,6 +1441,11 @@ impl Page {
         self.load = Load::Idle;
         for window in &mut self.windows {
             window.reset();
+        }
+        if let Some(count) = pinned
+            && let Some(window) = self.windows.first_mut()
+        {
+            window.pin_collected(count);
         }
         for (window, items) in self.windows.iter_mut().zip(lists) {
             let limit = page_size.min(largest_page(&window.list));

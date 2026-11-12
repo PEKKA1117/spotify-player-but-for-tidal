@@ -150,9 +150,12 @@ impl Marks {
 // --- reading a selection ---------------------------------------------------------
 
 /// Whether row `index` of `window` can be selected: every row but a link
-/// (spec 0024 AC10).
+/// (spec 0024 AC10) and the pinned *Collected Tracks* (spec 0028 AC6).
 fn selectable(window: &Window, index: usize) -> bool {
-    !matches!(window.rows.get(index), Some(Row::Link(_)))
+    !matches!(
+        window.rows.get(index),
+        Some(Row::Link(_) | Row::Collected(_))
+    )
 }
 
 /// The motion range of `window`: the rows shown between the anchor and
@@ -587,6 +590,7 @@ impl<'a> Picked<'a> {
             Row::Artist(a) => a.name.clone(),
             Row::Mix(m) => m.title.clone(),
             Row::Link(l) => l.title.clone(),
+            Row::Collected(_) => super::page::COLLECTED_TRACKS.to_owned(),
         }
     }
 }
@@ -653,7 +657,7 @@ fn favorite(row: Row<'_>, at: Option<(&Page, &Window)>) -> Option<(FavoriteKind,
             p.uuid.clone(),
             kind == Some(WindowKind::Playlists),
         ),
-        Row::Mix(_) | Row::Link(_) => return None,
+        Row::Mix(_) | Row::Link(_) | Row::Collected(_) => return None,
     })
 }
 
@@ -681,14 +685,22 @@ fn actions(state: &State, origin: Origin) -> Vec<SelectionAction> {
         .iter()
         .map(|r| favorite(r.row(), at).map(|(kind, id, known)| (kind, id, known, r.held())))
         .collect();
+    // Every selected row a track: the words are *Collected Tracks*'
+    // (spec 0028), else the collection's.
+    let tracks_only = favorites
+        .as_ref()
+        .is_some_and(|f| f.iter().all(|(kind, ..)| *kind == FavoriteKind::Track));
     if let Some(favorites) = &favorites {
-        let unknown: Vec<(Held, String)> = favorites
+        let unknown: Vec<(FavoriteKind, Held, String)> = favorites
             .iter()
             .filter(|(_, _, known, _)| !known)
-            .map(|(_, id, _, held)| (*held, id.clone()))
+            .map(|(kind, id, _, held)| (*kind, *held, id.clone()))
             .collect();
-        if let (Some((kind, ..)), false) = (favorites.first(), unknown.is_empty()) {
-            actions.push(SelectionAction::AddFavorites(*kind, unknown));
+        if !unknown.is_empty() {
+            actions.push(SelectionAction::AddFavorites {
+                tracks_only,
+                rows: unknown,
+            });
         }
     }
     match at {
@@ -701,7 +713,7 @@ fn actions(state: &State, origin: Origin) -> Vec<SelectionAction> {
                 if favorites
                     .as_ref()
                     .is_none_or(|f| f.iter().any(|(_, _, known, _)| !known)) => {}
-            _ => actions.push(SelectionAction::RemoveFavorites),
+            _ => actions.push(SelectionAction::RemoveFavorites { tracks_only }),
         },
         Some(_) => {}
     }
@@ -753,10 +765,10 @@ pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) ->
             state.selection_add = Some((origin, held(state, origin)));
             effects
         }
-        SelectionAction::AddFavorites(kind, rows) => {
+        SelectionAction::AddFavorites { rows, .. } => {
             let mut effects = Vec::new();
             let mut requests = Vec::new();
-            for (held, id) in rows {
+            for (kind, held, id) in rows {
                 let (sent, request) = browse::write_id(
                     state,
                     LibraryRequest::AddFavorite(kind, id),
@@ -770,7 +782,7 @@ pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) ->
             remember(state, origin, requests);
             effects
         }
-        SelectionAction::RemoveFavorites
+        SelectionAction::RemoveFavorites { .. }
         | SelectionAction::RemoveFromPlaylist
         | SelectionAction::RemoveFromQueue => remove_selection(state, origin),
     }
@@ -1172,24 +1184,48 @@ fn message(requests: &[Request]) -> Option<String> {
             things(deleted, FavoriteKind::Playlist)
         ));
     }
-    let kind_of = |add: bool| {
-        ok.iter().find_map(|r| match r.part {
-            Part::Favorite(kind) if !add => Some(kind),
-            Part::AddFavorite(kind) if add => Some(kind),
-            _ => None,
+    // One clause per kind, each with its own word (spec 0028): a track
+    // goes to *Collected Tracks*, the rest to the collection.
+    let per_kind = |add: bool, to: &str| -> Vec<String> {
+        [
+            FavoriteKind::Track,
+            FavoriteKind::Album,
+            FavoriteKind::Artist,
+            FavoriteKind::Playlist,
+        ]
+        .into_iter()
+        .filter_map(|kind| {
+            let n: usize = ok
+                .iter()
+                .filter(|r| match r.part {
+                    Part::Favorite(k) => !add && k == kind,
+                    Part::AddFavorite(k) => add && k == kind,
+                    _ => false,
+                })
+                .map(|r| rows(r))
+                .sum();
+            (n > 0).then(|| {
+                format!(
+                    "{} {to} {}",
+                    things(n, kind),
+                    super::popup::collection(kind)
+                )
+            })
         })
+        .collect()
     };
-    if let Some(kind) = kind_of(false) {
-        let n = count(|p| matches!(p, Part::Favorite(_)));
+    let removed = per_kind(false, "from");
+    if !removed.is_empty() {
         clauses.push(if deleted > 0 {
-            format!("removed {n} from favorites")
+            let n = count(|p| matches!(p, Part::Favorite(_)));
+            format!("removed {n} from collection")
         } else {
-            format!("Removed {} from favorites", things(n, kind))
+            format!("Removed {}", removed.join(", "))
         });
     }
-    if let Some(kind) = kind_of(true) {
-        let n = count(|p| matches!(p, Part::AddFavorite(_)));
-        clauses.push(format!("Added {} to favorites", things(n, kind)));
+    let added = per_kind(true, "to");
+    if !added.is_empty() {
+        clauses.push(format!("Added {}", added.join(", ")));
     }
     let mut message = clauses.join(" and ");
     if failed > 0 {

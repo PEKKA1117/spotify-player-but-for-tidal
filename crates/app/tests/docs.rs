@@ -460,3 +460,46 @@ fn ac13_selection_documented() {
         "CLAUDE.md: Features entry"
     );
 }
+
+/// Spec 0028 AC10: the user docs name Collected Tracks, the pinned row of
+/// the library's Playlists window and the collection wording, in English
+/// and in the zh-TW copies, and no longer say "Add to favorites",
+/// "Remove from favorites" or "Favorite tracks".
+#[test]
+fn ac10_collected_tracks_documented() {
+    for name in ["tui.md", "zh-TW/tui.md"] {
+        let tui = doc(name);
+        for needed in [
+            "Collected Tracks",
+            "pinned",
+            "Add to Collected Tracks",
+            "Add to collection",
+            "No collected tracks yet",
+        ] {
+            assert!(tui.contains(needed), "docs/{name}: {needed}");
+        }
+    }
+    for name in ["config.md", "zh-TW/config.md"] {
+        let config = doc(name);
+        assert!(
+            config.contains("add to collection"),
+            "docs/{name}: add to collection"
+        );
+    }
+    for name in ["tui.md", "config.md", "zh-TW/tui.md", "zh-TW/config.md"] {
+        let text = doc(name);
+        for old in [
+            "Add to favorites",
+            "Remove from favorites",
+            "Favorite tracks",
+        ] {
+            assert!(!text.contains(old), "docs/{name}: still says {old}");
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let claude = std::fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+    assert!(
+        claude.contains("0028-collected-tracks.md"),
+        "CLAUDE.md: Library entry links spec 0028"
+    );
+}

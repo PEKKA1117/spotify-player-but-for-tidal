@@ -106,6 +106,7 @@ fn library_data() -> PageData {
         ),
         albums: list(vec![album(10), album(11), album(12)], 0, 3),
         artists: list(vec![artist(20), artist(21), artist(22)], 0, 3),
+        collected_tracks: Some(362),
     }
 }
 
@@ -215,10 +216,13 @@ fn favorites(ids: impl IntoIterator<Item = u64>) -> State {
     state
 }
 
-/// The library page, loaded, the Playlists window focused.
+/// The library page, loaded, the Playlists window focused with the cursor
+/// on the first playlist (row 0 is the pinned *Collected Tracks*, spec
+/// 0028).
 fn library() -> State {
     let mut state = queue_of(&[1, 2, 3]);
     open(&mut state, &GL, library_data());
+    press(&mut state, &keys("j"));
     state
 }
 
@@ -577,7 +581,7 @@ fn ac4_motion_mode() {
     press(&mut state, &keys("ds"));
     match &state.popup {
         Some(Popup::Confirm { question, .. }) => {
-            assert_eq!(question, "Remove 2 tracks from favorites? (y/n)")
+            assert_eq!(question, "Remove 2 tracks from Collected Tracks? (y/n)")
         }
         other => panic!("no question: {other:?}"),
     }
@@ -609,7 +613,7 @@ fn ac5_clearing() {
     press(&mut state, &[Tab]);
     press(&mut state, &keys("sc"));
     press(&mut state, &[Esc]);
-    assert_eq!(rows_of(&state, 0), vec![0], "Esc: the other window");
+    assert_eq!(rows_of(&state, 0), vec![1], "Esc: the other window");
     assert_eq!(rows_of(&state, 1), Vec::<usize>::new(), "Esc: focused");
 
     // `Esc` closing a popup, the help or a filter input clears nothing.
@@ -659,7 +663,7 @@ fn ac5_clearing() {
     press(&mut state, &keys("sc"));
     press(&mut state, &[Tab, Tab, Tab, BackTab, BackTab]);
     press(&mut state, &keys("jsc"));
-    assert_eq!(rows_of(&state, 0), vec![0]);
+    assert_eq!(rows_of(&state, 0), vec![1]);
     assert_eq!(rows_of(&state, 1), vec![1]);
 
     // A page change clears every window of the page left, for good.
@@ -881,7 +885,7 @@ fn ac7_selection_actions_listed() {
     use Key::Tab;
     let play = vec!["Play", "Play next", "Add to queue"];
     let with = |more: &[&'static str]| [&play[..], more].concat();
-    let track_rows = with(&["Add to playlist…", "Add to favorites"]);
+    let track_rows = with(&["Add to playlist…", "Add to Collected Tracks"]);
     // (name, state, keys selecting the rows, title, labels)
     type Case = (
         &'static str,
@@ -924,28 +928,28 @@ fn ac7_selection_actions_listed() {
             || favorites(1..4),
             keys("s2j"),
             "2 selected",
-            with(&["Add to playlist…", "Remove from favorites"]),
+            with(&["Add to playlist…", "Remove from Collected Tracks"]),
         ),
         (
             "library albums",
             library,
             [vec![Tab], keys("s2j")].concat(),
             "2 selected",
-            with(&["Remove from favorites"]),
+            with(&["Remove from collection"]),
         ),
         (
             "library artists",
             library,
             [vec![Tab, Tab], keys("s2j")].concat(),
             "2 selected",
-            vec!["Remove from favorites"],
+            vec!["Remove from collection"],
         ),
         (
             "library playlists, followed only",
             library,
             keys("jsc"),
             "1 selected",
-            with(&["Remove from favorites"]),
+            with(&["Remove from collection"]),
         ),
         (
             "library playlists, own and followed",
@@ -966,21 +970,21 @@ fn ac7_selection_actions_listed() {
             || searched(1),
             keys("s2j"),
             "2 selected",
-            with(&["Add to favorites"]),
+            with(&["Add to collection"]),
         ),
         (
             "search artists",
             || searched(2),
             keys("s2j"),
             "2 selected",
-            vec!["Add to favorites"],
+            vec!["Add to collection"],
         ),
         (
             "search playlists",
             || searched(3),
             keys("s2j"),
             "2 selected",
-            with(&["Add to favorites"]),
+            with(&["Add to collection"]),
         ),
         (
             "a mix",
@@ -1046,7 +1050,7 @@ fn ac8_selection_actions_send() {
             open_items(track_items(&[1, 3]), Some(InsertAt::End)),
         ),
         (
-            "Add to favorites",
+            "Add to Collected Tracks",
             vec![Char('G'), Enter],
             vec![
                 Out::Library(LibraryRequest::AddFavorite(FavoriteKind::Track, "1".into())),
@@ -1061,7 +1065,7 @@ fn ac8_selection_actions_send() {
         let effects = press(&mut state, &after);
         assert_eq!(outs(&effects), sent, "{name}");
         assert_eq!(state.popup, None, "{name}: the popup stayed");
-        if name == "Add to favorites" {
+        if name == "Add to Collected Tracks" {
             // Cleared once the writes succeed.
             assert_eq!(rows(&state), vec![0, 2], "{name}: before the replies");
             for (id, _) in requests(&effects) {
@@ -1152,7 +1156,7 @@ fn ac8_selection_actions_send() {
     // *Add to favorites* on the queue: one per entry, in the queue's order.
     let mut state = queue_of(&[7, 3]);
     press(&mut state, &keys("s2jsa"));
-    to_label(&mut state, "Add to favorites");
+    to_label(&mut state, "Add to Collected Tracks");
     assert_eq!(
         outs(&press(&mut state, &[Enter])),
         vec![
@@ -1277,4 +1281,171 @@ fn ac10_links_not_selected() {
     open(&mut state, &gb, data(mixed));
     press(&mut state, &keys("s3j"));
     assert_eq!(marked(&state), vec![0, 1, 2]);
+}
+
+// --- spec 0028: Collected Tracks ----------------------------------------------
+
+/// 0028 AC6: the pinned *Collected Tracks* row cannot be selected: `s c`
+/// on it does nothing, a count or a motion range over it selects the
+/// playlists only, and `s a` and `d s` never act on it.
+#[test]
+fn ac6_collected_tracks_row_not_selectable() {
+    // The library with the cursor on the pinned row.
+    let pinned = || {
+        let mut state = queue_of(&[1, 2, 3]);
+        open(&mut state, &GL, library_data());
+        state
+    };
+    let covered = |state: &State| rows_of(state, 0);
+    // (name, keys, the rows selected in the Playlists)
+    let cases: Vec<(&str, Vec<Key>, Vec<usize>)> = vec![
+        ("s c", keys("sc"), vec![]),
+        ("s 3 j", keys("s3j"), vec![1, 2]),
+        ("s 2 j", keys("s2j"), vec![1]),
+        ("motion", keys("smjjsm"), vec![1, 2]),
+        ("motion, only the row", keys("smsm"), vec![]),
+        ("s 2 k from the first playlist", keys("jjs2k"), vec![1, 2]),
+    ];
+    for (name, typed, want) in cases {
+        let mut state = pinned();
+        press(&mut state, &typed);
+        assert_eq!(covered(&state), want, "{name}");
+    }
+    // `s a` with only the pinned row covered opens nothing; with a
+    // playlist too, the popup is for that playlist.
+    let mut state = pinned();
+    press(&mut state, &keys("sc"));
+    assert_eq!(press(&mut state, &keys("sa")), vec![]);
+    assert_eq!(state.popup, None, "s a on the row alone");
+    assert_eq!(press(&mut state, &keys("ds")), vec![]);
+    assert_eq!(state.popup, None, "d s on the row alone");
+    let mut state = pinned();
+    press(&mut state, &keys("s2j"));
+    press(&mut state, &keys("sa"));
+    assert_eq!(popup(&state).map(|p| p.0), Some("1 selected".to_owned()));
+    // `d s` lists the playlists only.
+    let mut state = pinned();
+    press(&mut state, &keys("s3j"));
+    press(&mut state, &keys("ds"));
+    let Some(Popup::Confirm { on_yes, .. }) = &state.popup else {
+        panic!("no question: {:?}", state.popup);
+    };
+    let titles: Vec<String> = super::super::popup::target_lines(on_yes)
+        .into_iter()
+        .map(|l| l.text)
+        .collect();
+    assert!(
+        !titles.iter().any(|t| t == "Collected Tracks"),
+        "{titles:?}"
+    );
+    assert!(titles.contains(&"Mine".to_owned()), "{titles:?}");
+}
+
+/// 0028 AC8: the selection's labels and result clauses: a selection of
+/// tracks says *Collected Tracks*, anything else the collection, several
+/// kinds each their own.
+#[test]
+fn ac8_selection_collection_clauses() {
+    use Key::Char;
+    // Added: (name, state, keys, the label, the message)
+    type Setup = fn() -> State;
+    let mixed = || {
+        let mut state = State::default();
+        open(
+            &mut state,
+            &[Char('g'), Char('b')],
+            PageData::Browse {
+                title: "Browse".into(),
+                sections: vec![BrowseSection {
+                    title: "S".into(),
+                    rows: ListItems::Mixed(list(
+                        vec![
+                            MixedRow::Album(album(10)),
+                            MixedRow::Track(track(1)),
+                            MixedRow::Album(album(11)),
+                        ],
+                        0,
+                        3,
+                    )),
+                    more: BrowseMore::None,
+                }],
+            },
+        );
+        state
+    };
+    let added: Vec<(&str, Setup, &str, &str)> = vec![
+        (
+            "tracks",
+            || searched(0),
+            "Add to Collected Tracks",
+            "Added 3 tracks to Collected Tracks",
+        ),
+        (
+            "albums",
+            || searched(1),
+            "Add to collection",
+            "Added 2 albums to collection",
+        ),
+        (
+            "artists",
+            || searched(2),
+            "Add to collection",
+            "Added 2 artists to collection",
+        ),
+        (
+            "tracks with albums",
+            mixed,
+            "Add to collection",
+            "Added 1 track to Collected Tracks, 2 albums to collection",
+        ),
+    ];
+    for (name, setup, label, message) in added {
+        let mut state = setup();
+        press(&mut state, &keys("s3j"));
+        press(&mut state, &keys("sa"));
+        let labels = popup(&state).expect("the popup").1;
+        assert!(labels.contains(&label), "{name}: {labels:?}");
+        assert!(
+            !labels.iter().any(|l| l.contains("favorite")),
+            "{name}: {labels:?}"
+        );
+        to_label(&mut state, label);
+        let effects = press(&mut state, &[Key::Enter]);
+        for (id, _) in requests(&effects) {
+            reply(&mut state, id, Ok(LibraryResponse::Done));
+        }
+        assert_eq!(state.message(), Some(message), "{name}");
+    }
+
+    // Removed: favorite tracks, the library's albums.
+    let removed: Vec<(&str, Setup, Vec<Key>, &str, &str)> = vec![
+        (
+            "tracks",
+            || favorites(1..5),
+            keys("s3j"),
+            "Remove from Collected Tracks",
+            "Removed 3 tracks from Collected Tracks",
+        ),
+        (
+            "albums",
+            library,
+            [vec![Key::Tab], keys("s3j")].concat(),
+            "Remove from collection",
+            "Removed 3 albums from collection",
+        ),
+    ];
+    for (name, setup, select, label, message) in removed {
+        let mut state = setup();
+        press(&mut state, &select);
+        press(&mut state, &keys("sa"));
+        let labels = popup(&state).expect("the popup").1;
+        assert!(labels.contains(&label), "{name}: {labels:?}");
+        press(&mut state, &[Key::Esc]);
+        press(&mut state, &keys("ds"));
+        let effects = press(&mut state, &[Char('y')]);
+        for (id, _) in requests(&effects) {
+            reply(&mut state, id, Ok(LibraryResponse::Done));
+        }
+        assert_eq!(state.message(), Some(message), "{name}");
+    }
 }

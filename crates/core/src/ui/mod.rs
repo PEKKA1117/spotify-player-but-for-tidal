@@ -70,8 +70,8 @@ pub use help::{
 pub use keymap::{BaseKey, Keymap};
 pub use lyrics::{LyricsContent, LyricsView};
 pub use page::{
-    DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind, ROLE_CATEGORIES,
-    Row, Rows, ViewAll, Window, WindowKind, clock, group, largest_page,
+    COLLECTED_TRACKS, DEFAULT_PAGE_SIZE, Header, Load, MAX_HISTORY, MAX_WHOLE_LIST, Page, PageKind,
+    ROLE_CATEGORIES, Row, Rows, ViewAll, Window, WindowKind, clock, group, largest_page,
 };
 pub use popup::{
     Confirmed, DEVICE_NOT_FOUND, DeviceList, DeviceRow, LOADING_DEVICES, MenuAction, NEW_PLAYLIST,

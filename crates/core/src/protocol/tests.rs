@@ -215,11 +215,13 @@ fn all_library_responses() -> Vec<LibraryResponse> {
             playlists: list(vec![playlist(true), playlist(false)], 0, 22),
             albums: list(vec![album(1, AlbumKind::Album)], 0, 14),
             artists: list(vec![artist(10, "A")], 0, 196),
+            collected_tracks: Some(362),
         },
         PageData::Library {
             playlists: list(vec![], 0, 0),
             albums: list(vec![], 0, 0),
             artists: list(vec![], 0, 0),
+            collected_tracks: Some(362),
         },
         PageData::FavoriteTracks {
             tracks: list(vec![track(1), track(2)], 0, 362),
@@ -779,4 +781,31 @@ fn ac11_round_trip() {
     let (client, server) = all_messages();
     client.iter().for_each(round_trip);
     server.iter().for_each(round_trip);
+}
+
+/// 0028 AC1: a library page from a player that does not send the total of
+/// collected tracks reads it as `None`.
+#[test]
+fn ac1_library_page_without_collected_tracks() {
+    let old = PageData::Library {
+        playlists: list(vec![], 0, 0),
+        albums: list(vec![], 0, 0),
+        artists: list(vec![], 0, 0),
+        collected_tracks: None,
+    };
+    let mut json = serde_json::to_value(&old).unwrap();
+    json["Library"]
+        .as_object_mut()
+        .unwrap()
+        .remove("collected_tracks");
+    let got: PageData = serde_json::from_value(json).unwrap();
+    assert_eq!(got, old);
+    let with = PageData::Library {
+        playlists: list(vec![], 0, 0),
+        albums: list(vec![], 0, 0),
+        artists: list(vec![], 0, 0),
+        collected_tracks: Some(0),
+    };
+    let back: PageData = serde_json::from_value(serde_json::to_value(&with).unwrap()).unwrap();
+    assert_eq!(back, with);
 }

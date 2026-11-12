@@ -998,6 +998,7 @@ fn library_data() -> PageData {
             196,
             0,
         ),
+        collected_tracks: Some(362),
     }
 }
 
@@ -1006,6 +1007,7 @@ fn empty_library() -> PageData {
         playlists: list(vec![], 0, 0),
         albums: list(vec![], 0, 0),
         artists: list(vec![], 0, 0),
+        collected_tracks: Some(362),
     }
 }
 
@@ -1080,7 +1082,8 @@ fn album_page(tracks: Vec<Track>) -> State {
 fn playlist_page(tracks: Vec<Track>) -> State {
     let mut state = library();
     let n = tracks.len() as u32;
-    let id = ask(&mut state, &[Key::Enter]);
+    // Row 0 is the pinned *Collected Tracks* (spec 0028): down to Running.
+    let id = ask(&mut state, &[Key::Char('j'), Key::Enter]);
     answer(
         &mut state,
         id,
@@ -1209,8 +1212,8 @@ fn actions_popup() -> State {
 /// *Add to playlist…* from an album's actions, its playlists in.
 fn add_to_playlist_popup() -> State {
     let mut state = actions_popup();
-    // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
-    // Remove from favorites, Add to playlist…
+    // Open, Go to artist: …, Add to queue, Play next, Add to collection,
+    // Remove from collection, Add to playlist…
     let keys = [Key::Char('j'); 6];
     press(&mut state, &keys);
     let id = ask(&mut state, &[Key::Enter]);
@@ -1222,18 +1225,18 @@ fn confirm_popup() -> State {
     let mut state = library();
     // Open, Add to queue, Play next, Rename…, Edit description…, Make
     // public, Delete playlist.
-    let mut keys = vec![Key::Ctrl(' ')];
+    let mut keys = vec![Key::Char('j'), Key::Ctrl(' ')];
     keys.extend([Key::Char('j'); 6]);
     press(&mut state, &keys);
     press(&mut state, &[Key::Enter]);
     state
 }
 
-/// *Remove from favorites* on an album, asking (spec 0019).
+/// *Remove from collection* on an album, asking (spec 0019).
 fn remove_favorite_popup() -> State {
     let mut state = actions_popup();
-    // Open, Go to artist: …, Add to queue, Play next, Add to favorites,
-    // Remove from favorites.
+    // Open, Go to artist: …, Add to queue, Play next, Add to collection,
+    // Remove from collection.
     press(&mut state, &[Key::Char('j'); 5]);
     press(&mut state, &[Key::Enter]);
     state
@@ -1298,7 +1301,7 @@ fn ac17_pages_80x24() {
     assert_contains(
         &text,
         &[
-            "Favorite tracks · 362 tracks",
+            "Collected Tracks · 362 tracks",
             "Song 1",
             "Not Streamable Here",
             "Loading more…",
@@ -1411,7 +1414,7 @@ fn ac17_pages_80x24() {
         }),
     );
     let text = draw(&state, 80, 24);
-    assert_contains(&text, &["No favorite tracks yet"]);
+    assert_contains(&text, &["No collected tracks yet"]);
     insta::assert_snapshot!("ac17_empty_favorite_tracks", text);
 
     // The actions popup (an album), *Add to playlist…*, a `y/n`
@@ -1455,7 +1458,7 @@ fn ac8_confirm_removal() {
     let text = draw(&remove_favorite_popup(), 80, 24);
     assert_contains(
         &text,
-        &["Remove Collide With The Sky from favorites?", "(y/n)"],
+        &["Remove Collide With The Sky from your", "collection? (y/n)"],
     );
     insta::assert_snapshot!("ac8_confirm_removal", text);
 }
@@ -1466,10 +1469,14 @@ fn ac17_empty_messages() {
     let mut state = state_of(playing());
     let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
     answer(&mut state, id, LibraryResponse::Page(empty_library()));
+    // With no playlists the pinned row is all the Playlists window has
+    // (spec 0028): it never says "No playlists yet".
+    let text = draw(&state, 50, 20);
+    assert!(!text.contains("No playlists yet"), "{text}");
     for message in [
-        "No playlists yet",
-        "No favorite albums yet",
-        "No favorite artists yet",
+        "Collected Tracks",
+        "No albums in your collection yet",
+        "No artists in your collection yet",
     ] {
         let text = draw(&state, 50, 20);
         assert_contains(&text, &[message]);
@@ -1553,6 +1560,11 @@ fn ac17_no_panic_any_size() {
         name_popup(),
         roles_popup(),
         login,
+        // 0028 AC10: the pinned row with a count, `0` and none; the
+        // popup on it.
+        library_with_count(Some(0)),
+        library_with_count(None),
+        collected_row_popup(),
     ];
     let sizes = (0..=120)
         .step_by(7)
@@ -2553,7 +2565,7 @@ fn help_states() -> Vec<State> {
     vec![
         with_help(state_of(playing()), &[]),
         with_help(library_albums(), &[]),
-        filtered("fav"),
+        filtered("coll"),
         filtered("xyz"),
         with_help(actions_popup(), &[]),
         with_help(custom_keymap(), &[]),
@@ -2623,9 +2635,9 @@ fn ac14_help_80x24() {
     );
     insta::assert_snapshot!("ac14_help_library_albums", text);
 
-    // Filtered by `fav`: only the matching rows, the filter shown.
-    let text = draw(&filtered("fav"), 80, 24);
-    assert_contains(&text, &["┌Keys", "/fav", "favorite tracks", "g y"]);
+    // Filtered by `coll`: only the matching rows, the filter shown.
+    let text = draw(&filtered("coll"), 80, 24);
+    assert_contains(&text, &["┌Keys", "/coll", "Collected Tracks", "g y"]);
     assert!(!text.contains("play / pause"), "{text}");
     insta::assert_snapshot!("ac14_help_filtered", text);
 
@@ -2868,7 +2880,7 @@ fn g_entries() -> Vec<HintEntry> {
         hint("a", "actions on the selected row"),
         hint("g", "move to the top"),
         hint("l", "the library"),
-        hint("y", "favorite tracks"),
+        hint("y", "Collected Tracks"),
         hint("s", "the search page (on one: its input)"),
         hint("m", "your mixes"),
     ]
@@ -2901,7 +2913,7 @@ fn ac6_key_hints_layout() {
                 vec![
                     vec![
                         cell("a  actions on the selected row"),
-                        cell("y  favorite tracks"),
+                        cell("y  Collected Tracks"),
                     ],
                     vec![
                         cell("g  move to the top"),
@@ -2926,7 +2938,7 @@ fn ac6_key_hints_layout() {
                     ],
                     vec![
                         cell("g  move to the top"),
-                        cell("y  favorite tracks"),
+                        cell("y  Collected Tracks"),
                         cell("m  your mixes"),
                     ],
                 ],
@@ -3083,7 +3095,7 @@ fn ac6_key_hints() {
             "a  actions on the selected row     m  your mixes",
             "g  move to the top                 b  browse what Tidal picks",
             "l  the library                     L  lyrics of the playing track",
-            "y  favorite tracks                 o  open the logs page",
+            "y  Collected Tracks                o  open the logs page",
             "s  the search page (on one: its…",
         ],
     );
@@ -3121,7 +3133,7 @@ fn ac6_key_hints() {
         &text,
         &[
             "┌g …",
-            "a  actions on the selected row     y  favorite tracks",
+            "a  actions on the selected row     y  Collected Tracks",
         ],
     );
     insta::assert_snapshot!("ac6_key_hints_120x30", text);
@@ -3131,8 +3143,11 @@ fn ac6_key_hints() {
     assert_contains(&text, &["┌s …", "q  the queue page", "l  +2"]);
     insta::assert_snapshot!("ac6_key_hints_nested", text);
 
-    // Dim: no row selected, so `a` does nothing; `l` does.
-    let state = pending(library_empty(), &g);
+    // Dim: no row selected (the empty Albums; the Playlists always have
+    // the pinned row, spec 0028), so `a` does nothing; `l` does.
+    let mut empty = library_empty();
+    press(&mut empty, &[Key::Tab]);
+    let state = pending(empty, &g);
     let text = draw(&state, 80, 24);
     let terminal = draw_terminal(&state, 80, 24);
     let at = |part: &str| {
@@ -3339,27 +3354,27 @@ fn ac9_filter_titles() {
         (
             "kept",
             with_filter(favorites(), "song", true),
-            "Favorite tracks (362 · /song · 2 matches)",
+            "Collected Tracks (362 · /song · 2 matches)",
         ),
         (
             "typing",
             with_filter(favorites(), "so", false),
-            "Favorite tracks (362 · /so▏ · 2 matches)",
+            "Collected Tracks (362 · /so▏ · 2 matches)",
         ),
         (
             "typing, empty",
             with_filter(favorites(), "", false),
-            "Favorite tracks (362 · /▏)",
+            "Collected Tracks (362 · /▏)",
         ),
         (
             "one match",
             with_filter(favorites(), "here", true),
-            "Favorite tracks (362 · /here · 1 match)",
+            "Collected Tracks (362 · /here · 1 match)",
         ),
         (
             "no match",
             with_filter(favorites(), "xyz", true),
-            "Favorite tracks (362 · /xyz · 0 matches)",
+            "Collected Tracks (362 · /xyz · 0 matches)",
         ),
         (
             "the queue",
@@ -3405,7 +3420,7 @@ fn ac9_filter_80x24() {
     assert_contains(
         &text,
         &[
-            "Favorite tracks (362 · /song · 2 matches)",
+            "Collected Tracks (362 · /song · 2 matches)",
             "Song 1",
             "Song 2",
             "Loading more…",
@@ -3489,7 +3504,7 @@ fn ac9_filter_40x12() {
     let text = draw(&with_filter(favorites(), &long, true), 40, 12);
     assert_contains(&text, &["No rows match \"pierce", "…"]);
     assert!(
-        line_with(&text, "Favorite tracks (").contains('…'),
+        line_with(&text, "Collected Tracks (").contains('…'),
         "{text}"
     );
 }
@@ -3663,7 +3678,13 @@ fn ac9_theme_components() {
         ("unfocused title", &library, 6, "Playlists (22)", BlockTitle),
         ("unfocused border", &library, 6, "┌", Border),
         ("heart", &library, 6, "♥", Like),
-        ("unfocused cursor", &library, 6, "Running", Selection),
+        (
+            "unfocused cursor",
+            &library,
+            6,
+            "Collected Tracks",
+            Selection,
+        ),
         ("active tab", &artist, 6, "Top tracks (91)", Selection),
         ("other tab", &artist, 6, "All tracks", BlockTitle),
         (
@@ -3699,13 +3720,14 @@ fn ac9_theme_components() {
             buffer_text(terminal)
         );
     }
-    // The second row of a list: `secondary_row`; the third: the screen.
-    let cell = find_cell(&library, 6, "Late night");
+    // The second row of a list: `secondary_row`; the third: the screen
+    // (the first is the pinned *Collected Tracks*, spec 0028).
+    let cell = find_cell(&library, 6, "Running");
     assert_eq!(
         (cell.fg, cell.bg),
         (fg_of(SecondaryRow), bg_of(SecondaryRow))
     );
-    let cell = find_cell(&library, 6, "Gym mix");
+    let cell = find_cell(&library, 6, "Late night");
     assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
     let cell = find_cell(&queue, 5, "Bulls In The Bronx");
     assert_eq!((cell.fg, cell.bg), (SCREEN_FG, SCREEN_BG), "{cell:?}");
@@ -3915,7 +3937,7 @@ fn ac10_cues_on_top() {
             "unfocused cursor",
             &albums,
             6,
-            "Running",
+            "Collected Tracks",
             Some(Component::Selection),
             dim,
             Mod::empty(),
@@ -4333,7 +4355,7 @@ fn ac12_selection_no_panic_any_size() {
 /// A playlist page holding `description`, public or not (spec 0022).
 fn described_page(description: Option<&str>, public: bool) -> State {
     let mut state = library();
-    let id = ask(&mut state, &[Key::Enter]);
+    let id = ask(&mut state, &[Key::Char('j'), Key::Enter]);
     answer(
         &mut state,
         id,
@@ -4999,4 +5021,105 @@ fn ac11_logs_colours() {
         find_cell(&terminal, 0, "13:04:09 WARN").fg,
         Tc::Rgb(0x12, 0x34, 0x56)
     );
+}
+
+// --- spec 0028: Collected Tracks ------------------------------------------------
+
+/// The library page with `count` favorite tracks, loaded.
+fn library_with_count(count: Option<u32>) -> State {
+    let mut state = state_of(playing());
+    let id = ask(&mut state, &[Key::Char('g'), Key::Char('l')]);
+    let PageData::Library {
+        playlists,
+        albums,
+        artists,
+        ..
+    } = library_data()
+    else {
+        unreachable!("the library fixture");
+    };
+    let data = PageData::Library {
+        playlists,
+        albums,
+        artists,
+        collected_tracks: count,
+    };
+    answer(&mut state, id, LibraryResponse::Page(data));
+    state
+}
+
+/// The actions popup over the pinned row.
+fn collected_row_popup() -> State {
+    let mut state = library();
+    press(&mut state, &[Key::Ctrl(' ')]);
+    state
+}
+
+/// 0028 AC10: the library with the pinned *Collected Tracks* row (the
+/// count, `0`, none; no `♥`; the cursor on it), and narrow.
+#[test]
+fn ac10_library_collected_tracks() {
+    let cases = [
+        ("count", Some(362), "  Collected Tracks"),
+        ("zero", Some(0), "  Collected Tracks"),
+        ("none", None, "  Collected Tracks"),
+    ];
+    for (name, count, row_text) in cases {
+        let text = draw(&library_with_count(count), 80, 24);
+        let line = line_with(&text, "Collected Tracks");
+        assert!(line.contains(row_text), "{name}: {line:?}\n{text}");
+        assert!(!line.contains('♥'), "{name}: no heart: {line:?}");
+        // The pinned row is the Playlists' first, then the playlists.
+        assert!(
+            row_of(&text, "Collected Tracks") < row_of(&text, "Running"),
+            "{name}:\n{text}"
+        );
+        // The count is right-aligned in the window's last column.
+        let want = match count {
+            Some(n) => format!("Collected Tracks{n:>11}"),
+            None => format!("Collected Tracks{:>11}", ""),
+        };
+        assert!(line.contains(&want), "{name}: {line:?}");
+        // The window title still counts playlists.
+        assert_contains(&text, &["Playlists (22)"]);
+        insta::assert_snapshot!(format!("ac10_library_collected_tracks_{name}"), text);
+    }
+    // The cursor on it: its row is reversed.
+    let state = library();
+    let text = draw(&state, 80, 24);
+    let y = row_of(&text, "Collected Tracks");
+    let terminal = draw_terminal(&state, 80, 24);
+    let x = line_with(&text, "Collected Tracks")
+        .find("Collected")
+        .map(|byte| line_with(&text, "Collected Tracks")[..byte].chars().count())
+        .unwrap();
+    let cell = &terminal.backend().buffer()[(x as u16, y as u16)];
+    assert!(cell.modifier.contains(Mod::REVERSED), "{cell:?}\n{text}");
+    // Narrow.
+    let text = draw(&library(), 50, 20);
+    assert_contains(&text, &["Collected Tracks"]);
+    insta::assert_snapshot!("ac10_library_collected_tracks_50x20", text);
+}
+
+/// 0028 AC10: the Collected Tracks page.
+#[test]
+fn ac10_collected_tracks_page() {
+    let text = draw(&favorites(), 80, 24);
+    assert_contains(&text, &["Collected Tracks · 362 tracks", "Song 1"]);
+    assert!(!text.to_lowercase().contains("favorite"), "{text}");
+    insta::assert_snapshot!("ac10_collected_tracks_page", text);
+}
+
+/// 0028 AC10: the actions popup on the pinned row.
+#[test]
+fn ac10_collected_tracks_row_actions() {
+    let text = draw(&collected_row_popup(), 80, 24);
+    assert_contains(
+        &text,
+        &["Open", "Add to queue", "Play next", "Add to playlist…"],
+    );
+    for absent in ["Rename", "Delete", "Make public", "collection", "favorite"] {
+        assert!(!text.contains(absent), "{absent}:\n{text}");
+    }
+    insta::assert_snapshot!("ac10_collected_tracks_row_actions", text);
 }

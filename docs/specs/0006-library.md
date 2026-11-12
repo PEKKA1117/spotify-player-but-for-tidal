@@ -2,6 +2,7 @@
 
 - **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
+- **Amended by**: [0028](0028-collected-tracks.md) (2026-11-12): the favorite tracks page is *Collected Tracks*, pinned first in the library's Playlists, and every favorites text says *Collected Tracks* or *collection*
 - **Depends on**: 0002 (implemented: the session's `user_id` and `country_code`), 0004 (implemented: the queue, `LoadQueue`/`AddToQueue`, the TUI), 0005 (implemented: the socket, the client/player split, `Open`)
 - **User docs**: [`docs/tui.md`](../tui.md) gains "Pages", "The library", "Album, playlist and artist pages" and "Actions" sections and the new keys; [`docs/playback.md`](../playback.md) "Settings" gains two settings (AC20)
 

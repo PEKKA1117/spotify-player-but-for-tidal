@@ -307,8 +307,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `SelectionActions`* | `s a` | 清單、佇列 | actions on the selected rows（對選取的列執行動作） |
 | `ChooseSelected` | `enter` | 清單、彈出視窗 | play the track with its list / open / run（播放曲目並連同其清單／開啟／執行） |
 | `AddSelectedItemToQueue` | `Z`、`C-z` | 清單 | add to the end of the queue（加到佇列末端） |
-| `RemoveSelectedItem`* | `d d` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove from the list（從清單移除；先詢問 `y/n`；[移除什麼](tui.md#confirming-removals)） |
-| `RemoveSelection`* | `d s` | 佇列、你的播放清單的曲目、收藏的曲目、音樂庫的清單 | remove the selected rows from the list（把選取的列從清單移除；先詢問 `y/n` 並逐列列出；[移除什麼](tui.md#confirming-removals)） |
+| `RemoveSelectedItem`* | `d d` | 佇列、你的播放清單的曲目、Collected Tracks、音樂庫的清單 | remove from the list（從清單移除；先詢問 `y/n`；[移除什麼](tui.md#confirming-removals)） |
+| `RemoveSelection`* | `d s` | 佇列、你的播放清單的曲目、Collected Tracks、音樂庫的清單 | remove the selected rows from the list（把選取的列從清單移除；先詢問 `y/n` 並逐列列出；[移除什麼](tui.md#confirming-removals)） |
 | `RemoveFromQueue` | | 佇列 | remove from the queue（從佇列移除；先詢問 `y/n`；沒有預設按鍵，由 `RemoveSelectedItem` 執行） |
 | `ShowActionsOnSelectedItem` | `g a`、`C-space` | 清單 | actions on the selected row（對選取列的動作） |
 | `ShowActionsOnCurrentTrack` | `a` | 所有地方 | actions on the playing track（對正在播放曲目的動作） |
@@ -322,7 +322,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `MovePlaylistItemDown` | `C-j` | 你自己的播放清單頁 | 將曲目下移 |
 | `Queue` | `z` | 所有地方 | the queue page（佇列頁面） |
 | `LibraryPage` | `g l` | 所有地方 | the library（音樂庫） |
-| `LikedTrackPage` | `g y` | 所有地方 | favorite tracks（收藏的曲目） |
+| `LikedTrackPage` | `g y` | 所有地方 | Collected Tracks |
 | `SearchPage` | `g s` | 所有地方 | the search page (on one: its input)（搜尋頁面；已在搜尋頁面時：其輸入框） |
 | `MixesPage` | `g m` | 所有地方 | your mixes（你的 mix） |
 | `BrowsePage` | `g b` | 所有地方 | browse what Tidal picks（瀏覽 Tidal 精選的內容，見[瀏覽](tui.md#browse)） |
@@ -351,8 +351,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `GoToRadio` | 前往電台（一個頁面；按 `Enter` 前不會播放任何東西） | 曲目、藝人 |
 | `AddToQueue` | 加到佇列末端 | 曲目、專輯、播放清單 |
 | `PlayNext` | 下一首播放 | 曲目（正在播放的除外）、專輯、播放清單 |
-| `AddToLiked` | 加入收藏 | 曲目、專輯、藝人、你追蹤的播放清單 |
-| `DeleteFromLiked` | 從收藏移除（先詢問 `y/n`） | 曲目、專輯、藝人、你追蹤的播放清單 |
+| `AddToLiked` | add to collection（加入收藏） | 曲目、專輯、藝人、你追蹤的播放清單 |
+| `DeleteFromLiked` | remove from collection（從收藏移除，先詢問 `y/n`） | 曲目、專輯、藝人、你追蹤的播放清單 |
 | `AddToPlaylist` | 加到播放清單…（開啟播放清單選擇器） | 曲目、專輯 |
 | `DeleteFromPlaylist` | 從此播放清單移除（先詢問 `y/n`） | 你自己的播放清單頁面上的曲目 |
 | `RemoveFromQueue` | 從佇列移除（先詢問 `y/n`） | 佇列項目、正在播放的曲目 |

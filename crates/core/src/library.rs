@@ -250,6 +250,11 @@ pub enum PageData {
         playlists: ListPage<PlaylistSummary>,
         albums: ListPage<AlbumSummary>,
         artists: ListPage<ArtistRef>,
+        /// Tidal's total of favorite tracks (spec 0028): the count of the
+        /// pinned *Collected Tracks* row; `None` from a player that sends
+        /// none.
+        #[serde(default)]
+        collected_tracks: Option<u32>,
     },
     FavoriteTracks {
         tracks: ListPage<Track>,

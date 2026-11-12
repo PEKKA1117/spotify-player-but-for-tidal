@@ -1,6 +1,5 @@
 ---
 source: crates/app/src/tui/render/tests.rs
-assertion_line: 3185
 expression: end
 ---
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -10,10 +9,10 @@ expression: end
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Runni┌Keys────────────────────────────────────────────────────────┐The Ve…││
-││♥ Late │   _               mute / unmute                            │g With…││
-││  Gym m│   o               add a link or ID to the end of the queue │e The… ││
-││       │   O               add a link or ID to play next            │       ││
+││  Colle┌Keys────────────────────────────────────────────────────────┐The Ve…││
+││  Runni│   _               mute / unmute                            │g With…││
+││♥ Late │   o               add a link or ID to the end of the queue │e The… ││
+││  Gym m│   O               add a link or ID to play next            │       ││
 ││       │   a               actions on the playing track             │       ││
 ││       │ Actions                                                    │       ││
 ││       │   r               the radio of the selected track or artist│       ││

@@ -246,6 +246,7 @@ fn library_data() -> PageData {
             2,
         ),
         artists: list(vec![artist(7, "Pierce The Veil")], 0, 1),
+        collected_tracks: Some(362),
     }
 }
 
@@ -689,7 +690,7 @@ fn ac3_kept_filter() {
     let at = actions
         .iter()
         .position(|a| matches!(a, MenuAction::RemoveFavorite(..)))
-        .expect("Remove from favorites");
+        .expect("Remove from Collected Tracks");
     press(&mut state, &vec![Char('j'); at]);
     // The removal asks first (spec 0019).
     assert_eq!(press(&mut state, &[Enter]), vec![]);
@@ -965,7 +966,7 @@ fn ac5_acting_on_matches() {
     open(&mut state, &GL, library_data());
     open(
         &mut state,
-        &[Enter],
+        &[Char('j'), Enter],
         PageData::Playlist {
             playlist: playlist("p1", "Running", true),
             etag: Some("e1".into()),
@@ -1195,13 +1196,13 @@ fn ac7_search_page() {
 #[test]
 fn ac9_titles_in_model() {
     let mut state = favorites();
-    assert_eq!(window(&state).title(), "Favorite tracks (4)");
+    assert_eq!(window(&state).title(), "Collected Tracks (4)");
     press(&mut state, &[Key::Char('/')]);
-    assert_eq!(window(&state).title(), "Favorite tracks (4 · /▏)");
+    assert_eq!(window(&state).title(), "Collected Tracks (4 · /▏)");
     press(&mut state, &typed("love"));
     assert_eq!(
         window(&state).title(),
-        "Favorite tracks (4 · /love▏ · 2 matches)"
+        "Collected Tracks (4 · /love▏ · 2 matches)"
     );
     press(
         &mut state,
@@ -1210,13 +1211,13 @@ fn ac9_titles_in_model() {
     press(&mut state, &typed("ther"));
     assert_eq!(
         window(&state).title(),
-        "Favorite tracks (4 · /lther▏ · 0 matches)"
+        "Collected Tracks (4 · /lther▏ · 0 matches)"
     );
     press(&mut state, &[Key::Ctrl('u')]);
     press(&mut state, &[typed("other"), vec![Key::Enter]].concat());
     assert_eq!(
         window(&state).title(),
-        "Favorite tracks (4 · /other · 1 match)"
+        "Collected Tracks (4 · /other · 1 match)"
     );
     let mut empty = Window::new(WindowKind::AlbumTracks, ListRef::AlbumTracks(1));
     empty.filter.text = "love".into();
@@ -1243,7 +1244,7 @@ fn ac10_remove_selected_item_filtered() {
         matches!(
             &state.popup,
             Some(Popup::Confirm { question, .. })
-                if question == "Remove Lovely from favorites? (y/n)"
+                if question == "Remove Lovely from Collected Tracks? (y/n)"
         ),
         "{:?}",
         state.popup
@@ -1268,11 +1269,12 @@ fn ac10_remove_selected_item_filtered() {
             playlists: list(vec![playlist("p1", "Running", true)], 0, 1),
             albums: list(vec![], 0, 0),
             artists: list(vec![], 0, 0),
+            collected_tracks: Some(362),
         },
     );
     open(
         &mut state,
-        &[Key::Enter],
+        &[Key::Char('j'), Key::Enter],
         PageData::Playlist {
             playlist: playlist("p1", "Running", true),
             etag: Some("e1".into()),
@@ -1345,7 +1347,7 @@ fn ac6_selection_through_filter() {
         Some(Popup::Confirm {
             question, on_yes, ..
         }) => {
-            assert_eq!(question, "Remove 2 tracks from favorites? (y/n)");
+            assert_eq!(question, "Remove 2 tracks from Collected Tracks? (y/n)");
             let titles: Vec<String> = super::super::target_lines(on_yes)
                 .into_iter()
                 .map(|l| l.text)
@@ -1488,4 +1490,79 @@ fn ac11_browse_filter() {
         "{:?}",
         asked[0].1
     );
+}
+
+// --- spec 0028: Collected Tracks ----------------------------------------------
+
+/// The titles of the Playlists rows shown (the pinned row by its name).
+fn playlist_rows(state: &State) -> Vec<String> {
+    let w = &state.page().windows[0];
+    (0..w.len())
+        .filter_map(|i| match w.row(i)? {
+            super::super::Row::Collected(_) => Some("Collected Tracks".to_owned()),
+            super::super::Row::Playlist(p) => Some(p.title.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 0028 AC7: the pinned row is matched by its name: `/coll` keeps it (and
+/// counts it), `/run` hides it, `Enter` keeps the filter and `Esc` clears
+/// it with the row back first.
+#[test]
+fn ac7_filter_collected_tracks_row() {
+    let mut state = State::default();
+    open(&mut state, &GL, library_data());
+    assert_eq!(
+        playlist_rows(&state),
+        ["Collected Tracks", "Running", "Late night"]
+    );
+    // `/coll`: the pinned row only (no playlist's title has it), counted.
+    press(&mut state, &slash("coll"));
+    assert_eq!(playlist_rows(&state), ["Collected Tracks"]);
+    assert_eq!(window(&state).title(), "Playlists (2 · /coll▏ · 1 match)");
+    press(&mut state, &[Key::Enter]);
+    assert_eq!(playlist_rows(&state), ["Collected Tracks"]);
+    assert_eq!(window(&state).title(), "Playlists (2 · /coll · 1 match)");
+    // `Enter` on the only match opens the page.
+    let (_, request) = requests(&press(&mut state, &[Key::Enter]))[0].clone();
+    assert_eq!(request, LibraryRequest::Page(PageRequest::FavoriteTracks));
+    press(&mut state, &[Key::Backspace]);
+    // `Esc` clears it: the row is back first.
+    press(&mut state, &[Key::Esc]);
+    assert_eq!(
+        playlist_rows(&state),
+        ["Collected Tracks", "Running", "Late night"]
+    );
+    assert_eq!(window(&state).cursor, 0);
+
+    // A playlist whose title has `coll` stays with it.
+    let mut state = State::default();
+    open(
+        &mut state,
+        &GL,
+        PageData::Library {
+            playlists: list(
+                vec![
+                    playlist("p1", "Running", true),
+                    playlist("p2", "My collection", true),
+                ],
+                0,
+                2,
+            ),
+            albums: list(vec![], 0, 0),
+            artists: list(vec![], 0, 0),
+            collected_tracks: Some(0),
+        },
+    );
+    press(&mut state, &kept("coll"));
+    assert_eq!(playlist_rows(&state), ["Collected Tracks", "My collection"]);
+    assert_eq!(window(&state).title(), "Playlists (2 · /coll · 2 matches)");
+
+    // `/run` hides it.
+    let mut state = State::default();
+    open(&mut state, &GL, library_data());
+    press(&mut state, &kept("run"));
+    assert_eq!(playlist_rows(&state), ["Running"]);
+    assert_eq!(window(&state).title(), "Playlists (2 · /run · 1 match)");
 }

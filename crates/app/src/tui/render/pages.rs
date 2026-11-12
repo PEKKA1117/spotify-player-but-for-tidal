@@ -15,9 +15,9 @@ use ratatui::{
 use tidal_player_core::library::{AlbumKind, MixSummary, TopHit};
 use tidal_player_core::log::LogLevel;
 use tidal_player_core::ui::{
-    Header, HelpSection, Hints, LibraryLayout, Load, LyricsContent, LyricsView, NEW_PLAYLIST,
-    PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search, SearchFocus, State, Theme,
-    Window, WindowKind, device_rows,
+    COLLECTED_TRACKS, Header, HelpSection, Hints, LibraryLayout, Load, LyricsContent, LyricsView,
+    NEW_PLAYLIST, PLAYLIST_NAME, Page, PageKind, Popup, ROLE_CATEGORIES, Row, Search, SearchFocus,
+    State, Theme, Window, WindowKind, device_rows,
     logs::{self, LogsContent},
     popup::{self, DESCRIPTION, NEW_DESCRIPTION, PlaylistField},
     select,
@@ -946,6 +946,21 @@ fn window_lines(
                         playlist_row(playlist, width, hearts)
                     }
                 }
+                // Drawn as a playlist of the user's own, no heart (spec
+                // 0028).
+                Row::Collected(count) => playlist_row(
+                    &tidal_player_core::library::PlaylistSummary {
+                        uuid: String::new(),
+                        title: COLLECTED_TRACKS.to_owned(),
+                        tracks: count,
+                        duration: None,
+                        own: true,
+                        description: None,
+                        public: false,
+                    },
+                    width,
+                    false,
+                ),
                 Row::Artist(artist) => fit(&artist.name, width),
                 Row::Link(link) => fit(&link.title, width),
                 // `title  subtitle` (spec 0011 "Rendering").

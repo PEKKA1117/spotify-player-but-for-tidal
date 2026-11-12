@@ -112,7 +112,7 @@
 | `d s` | `RemoveSelection`* | 在列出這些列的 [`y/n` 詢問](#confirming-removals)之後，把選取的列從所在清單移除 |
 | `z` | `Queue` | 開啟佇列頁面 |
 | `g l` | `LibraryPage` | 開啟音樂庫 |
-| `g y` | `LikedTrackPage` | 開啟收藏的曲目 |
+| `g y` | `LikedTrackPage` | 開啟 [Collected Tracks](#the-library-and-collected-tracks) |
 | `g s` | `SearchPage` | 開啟[搜尋](#search)頁面（在搜尋頁面上：回到輸入框） |
 | `g m` | `MixesPage` | 開啟你的 [mix](#mixes-and-radio) |
 | `g b` | `BrowsePage` | 開啟[瀏覽](#browse)頁面：Tidal 精選的內容（首頁、曲風、心情、年代） |
@@ -169,7 +169,7 @@
 
 ```
 │┌g …─────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     y  favorite tracks                       ││
+││a  actions on the selected row     y  Collected Tracks                       ││
 ││g  move to the top                 s  the search page (on one: its…         ││
 ││l  the library                     m  your mixes                            ││
 │└────────────────────────────────────────────────────────────────────────────┘│
@@ -189,7 +189,7 @@
 |---|---|---|
 | 佇列 | `z`；啟動時在音樂庫按 `Backspace` | 佇列 |
 | 音樂庫 | `g l`；啟動時的頁面 | Playlists、Albums、Artists |
-| 收藏的曲目 | `g y` | 曲目 |
+| Collected Tracks | `g y`；在音樂庫 Playlists 的釘選列上按 `Enter` | 曲目 |
 | 搜尋 | `g s` | 輸入框、最佳結果、Tracks、Albums、Artists、Playlists（見[搜尋](#search)） |
 | Mixes | `g m` | 你的 mix（見 [Mix 與電台](#mixes-and-radio)） |
 | 瀏覽 | `g b`；在連結上按 `Enter` | Tidal 精選的內容，以及它通往的頁面（見[瀏覽](#browse)） |
@@ -201,7 +201,7 @@
 | 播放清單 | 在播放清單上按 `Enter` | 播放清單的曲目 |
 | 藝人 | 在藝人上按 `Enter`；*Go to artist* | 兩個窗格，各有兩個分頁：Top tracks \| All tracks，以及 Albums \| Appears on（`[` `]` 切換窗格的分頁） |
 
-每個頁面在視窗上方都有一列標題：`Library`、`Favorite tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`、`Mixes · 7 mixes`、`<mix> · 10 tracks`、`<track> Radio · <artists>`、`<artist> Radio`、`Lyrics · <track> · <artists>`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
+每個頁面在視窗上方都有一列標題：`Library`、`Collected Tracks · 362 tracks`、`<album> · <artists> · <year> · 17 tracks · 1:02:15`、`<playlist> · 39 tracks · 2:41:07`、`Mixes · 7 mixes`、`<mix> · 10 tracks`、`<track> Radio · <artists>`、`<artist> Radio`、`Lyrics · <track> · <artists>`，或藝人名稱。數量是 Tidal 提供的總數，第一批列一抵達就會顯示。
 
 ```
 ┌tidal-player──────────────────────────────────────────────────────────────────┐
@@ -211,9 +211,9 @@
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────────  1:23 / 3:32│
 │Library                                                                       │
 │┌Playlists (22)───────────────┐┌Albums (14)──────────────────┐┌Artists (196)─┐│
-││  Running                  42││Collide With Th…  Pierce The…││Pierce The Ve…││
-││♥ Late night               17││Misadventures     Pierce The…││Sleeping With…││
-││  Gym mix                   8││Hold On Till May  Pierce The…││Bring Me The… ││
+││  Collected Tracks        362││Collide With Th…  Pierce The…││Pierce The Ve…││
+││  Running                  42││Misadventures     Pierce The…││Sleeping With…││
+││♥ Late night               17││Hold On Till May  Pierce The…││Bring Me The… ││
 │…                                                                             │
 ```
 
@@ -227,14 +227,46 @@
 
 不足 60 欄時只顯示焦點視窗，其標題後面接 `‹Tab›`（在藝人頁面上，先顯示分頁清單與 `[ ]`，再顯示代表另一個窗格的 `‹Tab›`）。`Tab` 將焦點移到下一個窗格，`Shift-Tab` 移到上一個，到底會循環，且每個窗格停在它上次顯示的分頁；`[` 與 `]` 切換焦點窗格的分頁（*All tracks* 在第一次顯示時才抓取）；在窗格只有一個分頁的頁面上沒有作用。每個視窗都有自己的游標；焦點視窗的游標反白，其他視窗的游標以淡色顯示。播放清單列顯示曲目數量，你追蹤的播放清單會加上 `♥`；專輯列顯示藝人與年份（視窗夠寬時還有 `EP` 或 `Single`）；Tidal 在你所在國家不提供串流的曲目以淡色顯示，因為播放器會略過它們。
 
+<a id="the-library-and-collected-tracks"></a>
+### 音樂庫與 Collected Tracks
+
+你在 Tidal 上收藏的內容就是你的**收藏（collection）**，播放器的用語與 Tidal 一致：曲目加入 *Collected Tracks*，專輯、藝人與播放清單加入你的 *collection*（命令仍沿用 spotify-player 的名稱 `AddToLiked`、`DeleteFromLiked`、`LikedTrackPage`）。
+
+音樂庫的 Playlists 視窗第一列是一個**釘選（pinned）列** *Collected Tracks*，顯示你收藏的曲目數，其後才是你的播放清單。它畫成你自己的播放清單（沒有 `♥`），不論播放清單的排序為何都固定在第一列，游標一開始也停在它上面：
+
+```
+┌Playlists (22)───────────────┐
+│  Collected Tracks        362│
+│  Running                  42│
+│♥ Late night               17│
+```
+
+視窗標題的數字只算播放清單。播放器沒有送出總數時（較舊的 daemon），數字不顯示。
+
+| 按鍵／動作 | 在釘選列上 |
+|---|---|
+| `Enter` | 開啟 Collected Tracks 頁面（同 `g y`） |
+| `Z`、`C-z`、*Add to queue* | 把所有收藏的曲目加到佇列尾端 |
+| *Play next* | 把所有收藏的曲目加到正在播放的曲目之後 |
+| *Add to playlist…* | 把所有收藏的曲目加到選擇的播放清單，與專輯相同 |
+| `g a`、`C-space`（動作選單） | *Open*、*Add to queue*、*Play next*、*Add to playlist…*：沒有收藏、改名、描述、公開或刪除的動作 |
+| `/` | 以名稱 `Collected Tracks` 比對，如同播放清單的標題，並計入符合數 |
+| `s c`、`s <N> j`/`k`、`s m` | 無法被選取：在它上面按 `s c` 沒有作用，涵蓋到它的數量或動作模式只會選取播放清單 |
+| `d d`、`d s` | 對它沒有作用 |
+| `r`、*Go to radio* | 沒有作用 |
+
+*Add to queue*、`Z`、*Play next* 與 *Add to playlist…* 需要所有曲目，因此會先抓取剩餘的頁面（`Loading 300 of 1 234…`，`Esc` 取消且不送出任何內容；超過 40 000 首則拒絕，同[從頁面播放與加入佇列](#playing-and-queueing-from-a-page)）。沒有收藏的曲目時不會送出任何內容，訊息列顯示 `Collected Tracks is empty`。
+
+Collected Tracks 頁面（`g y`，或在釘選列上按 `Enter`）像其他曲目清單一樣列出你收藏的曲目。從任何地方加入或移除曲目的收藏後，只要音樂庫在歷史紀錄中就會重新抓取，釘選列的數字因此保持最新。
+
 <a id="lists-load-as-you-scroll"></a>
 ### 清單隨捲動載入
 
-每個清單都是一次抓取一頁：開啟頁面時抓第一頁，之後當游標接近最後一個已載入的列、距離不到一個視窗高度時，抓取下一頁。抓取期間，最後一列顯示 `Loading more…`；若抓取失敗，該列改為顯示錯誤訊息，下次游標移近清單尾端時會再試一次。視窗標題中的總數來自 Tidal，一開始就已知道，所以 `Favorite tracks (362)` 在所有列載入前就會顯示總數。`G` 會移到目前已載入的最後一列（因此會載入下一頁）。視窗的列在音樂播放時於背景載入，絕不會延遲按鍵反應。
+每個清單都是一次抓取一頁：開啟頁面時抓第一頁，之後當游標接近最後一個已載入的列、距離不到一個視窗高度時，抓取下一頁。抓取期間，最後一列顯示 `Loading more…`；若抓取失敗，該列改為顯示錯誤訊息，下次游標移近清單尾端時會再試一次。視窗標題中的總數來自 Tidal，一開始就已知道，所以 `Collected Tracks (362)` 在所有列載入前就會顯示總數。`G` 會移到目前已載入的最後一列（因此會載入下一頁）。視窗的列在音樂播放時於背景載入，絕不會延遲按鍵反應。
 
 每頁大小為 `app.toml` 中的 `page_size` 或環境變數 `TIDAL_PLAYER_PAGE_SIZE`（1–10 000，預設 100；播放清單與參與作品（credits）清單每頁最多抓取 50 筆）；見[設定項目](playback.md#settings)。
 
-頁面抓取期間，其視窗顯示 `Loading…`。抓取失敗時，頁面中會顯示錯誤訊息（`Could not load the library: Could not reach Tidal: …`、`Album 123 was not found`、登入已過期的訊息）；`Backspace` 可返回，重新開啟該頁面會再試一次。清單為空時會明確說明：`No playlists yet`、`No favorite albums yet`、`No favorite artists yet`、`No favorite tracks yet`、`This album has no tracks`、`This playlist has no tracks`、`No top tracks`、`No albums`、`No credits`（篩選後沒有剩下任何項目時為 `No credits (37 hidden)`）。
+頁面抓取期間，其視窗顯示 `Loading…`。抓取失敗時，頁面中會顯示錯誤訊息（`Could not load the library: Could not reach Tidal: …`、`Could not load Collected Tracks: <reason>`、`Album 123 was not found`、登入已過期的訊息）；`Backspace` 可返回，重新開啟該頁面會再試一次。清單為空時會明確說明：`No playlists yet`、`No albums in your collection yet`、`No artists in your collection yet`、`No collected tracks yet`、`This album has no tracks`、`This playlist has no tracks`、`No top tracks`、`No albums`、`No credits`（篩選後沒有剩下任何項目時為 `No credits (37 hidden)`）。
 
 無法連上播放器時（連上播放器的 TUI，而播放器已離線），仍可瀏覽已載入的頁面並使用歷史紀錄，但不會抓取任何新內容：此時開啟的頁面會顯示 `Disconnected from the player: reconnecting…`，並在播放器恢復後重新抓取。
 
@@ -253,10 +285,10 @@
 <a id="filtering-a-list"></a>
 ## 篩選清單
 
-`/` 會篩選焦點視窗或佇列：開始輸入，視窗就只保留包含輸入內容的列，不分大小寫。所有清單都適用：音樂庫的視窗、收藏的曲目、專輯或播放清單的曲目、藝人頁面的四個視窗、搜尋頁面的結果、mix 列表、單一 mix 與電台。
+`/` 會篩選焦點視窗或佇列：開始輸入，視窗就只保留包含輸入內容的列，不分大小寫。所有清單都適用：音樂庫的視窗、Collected Tracks、專輯或播放清單的曲目、藝人頁面的四個視窗、搜尋頁面的結果、mix 列表、單一 mix 與電台。
 
 ```
-│┌Favorite tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
+│┌Collected Tracks (548 · /love▏ · 12 matches)───────────────────────────────┐│
 ││  1    Love Song               The Cure           Disintegration      3:29││
 ││  2    Lovely                  Billie Eilish      Lovely              3:20││
 │…                                                                           │
@@ -278,7 +310,7 @@
 
 **保留的篩選。** 按 `enter` 後，按鍵照常作用於顯示的列：在曲目上按 `enter` 會從該曲開始播放**符合的曲目**（清單尚未完整載入時，會像沒有篩選時一樣先載入整份清單）；`Z`、`g a`、`r`、佇列與你自己清單上的 `d d`，以及動作，都作用於選取的列。`esc` 清除篩選（只清篩選：[選取](#selecting-rows)保留），`/` 編輯篩選。每個視窗有自己的篩選，切換視窗、透過歷史紀錄返回或頁面重新載入時都會保留；新開啟的頁面與新的搜尋則沒有篩選。在 *All tracks* 中，角色篩選與文字篩選會同時套用。
 
-**標題**會顯示篩選與符合的列數：`Favorite tracks (548 · /love · 12 matches)`、`Queue (40 · /veil · 9 matches)`；輸入時，文字後面會有游標。沒有符合的列時，視窗會顯示 `No rows match "xyz"`。在佇列上，項目保留它們在佇列中的位置編號，且只有在有推薦項目符合時才會顯示 `Suggested`。
+**標題**會顯示篩選與符合的列數：`Collected Tracks (548 · /love · 12 matches)`、`Queue (40 · /veil · 9 matches)`；輸入時，文字後面會有游標。沒有符合的列時，視窗會顯示 `No rows match "xyz"`。在佇列上，項目保留它們在佇列中的位置編號，且只有在有推薦項目符合時才會顯示 `Suggested`。
 
 **隨捲動載入的清單。** 篩選只比對目前已載入的列，但會自動載入更多：只要游標下方符合的列少於一個視窗的高度，就會一次一頁地載入下一頁，直到符合的列足夠或清單已完整（期間符合的列下方會顯示 `Loading more…`）。`esc` 會停止載入。
 
@@ -294,7 +326,7 @@
 ││    3  A Match Into Water        Pierce The Veil    Collide With The Sky 4:22││
 ```
 
-被選取的列前面有 `+ `（其他列是兩個空格，欄位因此不會移動；選取為空的視窗不畫標記欄，寬度不到 10 欄的視窗只用樣式表示選取），並使用佈景主題的 `selected_row`（見[元件](config.md#components)；預設為 `Bold`）繪製，疊在游標所在列自己的 `selection` 樣式之下。視窗標題會在篩選的項目之後列出數量：`Tracks (12 · 2 selected)`、`Favorite tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`，動作模式（motion）開啟時再加上 `· motion`。把焦點移到另一個視窗時，每個視窗各自保留自己的選取。
+被選取的列前面有 `+ `（其他列是兩個空格，欄位因此不會移動；選取為空的視窗不畫標記欄，寬度不到 10 欄的視窗只用樣式表示選取），並使用佈景主題的 `selected_row`（見[元件](config.md#components)；預設為 `Bold`）繪製，疊在游標所在列自己的 `selection` 樣式之下。視窗標題會在篩選的項目之後列出數量：`Tracks (12 · 2 selected)`、`Collected Tracks (548 · /love · 12 matches · 3 selected, 1 hidden)`，動作模式（motion）開啟時再加上 `· motion`。把焦點移到另一個視窗時，每個視窗各自保留自己的選取。
 
 | 按鍵 | 命令 | 作用 |
 |---|---|---|
@@ -324,8 +356,10 @@
 | *Play next* | `N` | 一律列出（藝人除外） |
 | *Add to queue* | `a` | 一律列出（藝人除外） |
 | *Add to playlist…* | | 這些列是曲目 |
-| *Add to favorites* | | 依清單所知，至少有一個選取的列還不是收藏 |
-| *Remove from favorites* | | `d s` 會從收藏移除的地方 |
+| *Add to Collected Tracks* | | 選取的列全是曲目，且依清單所知至少有一首還不在 Collected Tracks |
+| *Remove from Collected Tracks* | | 選取的列全是曲目，`d s` 會從 Collected Tracks 移除的地方 |
+| *Add to collection* | | 其他的選取（專輯、藝人、播放清單），依清單所知至少有一列還不在你的收藏中 |
+| *Remove from collection* | | 其他的選取，`d s` 會從你的收藏移除的地方 |
 | *Remove from this playlist* | | 你的播放清單的曲目 |
 | *Remove from queue* | | 佇列 |
 
@@ -481,19 +515,20 @@
 
 | 對象 | 動作（依此順序） |
 |---|---|
-| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Go to radio*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist* |
-| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Go to radio*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to favorites*、*Remove from favorites*、*Add to playlist…* |
-| 專輯 | *Open*、*Go to artist: …*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*、*Add to playlist…* |
-| 播放清單 | *Open*、*Add to queue*、*Play next*、*Add to favorites*、*Remove from favorites*（你自己的播放清單沒有這兩項）、*Delete playlist*（僅限你自己的） |
-| 藝人 | *Open*、*Go to radio*、*Add to favorites*、*Remove from favorites* |
+| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Go to radio*、*Add to queue*、*Play next*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist* |
+| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Go to radio*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…* |
+| 專輯 | *Open*、*Go to artist: …*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*、*Add to playlist…* |
+| 播放清單 | *Open*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*（你自己的播放清單沒有這兩項）、*Delete playlist*（僅限你自己的） |
+| 藝人 | *Open*、*Go to radio*、*Add to collection*、*Remove from collection* |
 | Mix | *Open* |
+| 音樂庫 Playlists 中釘選的 *Collected Tracks* 列 | *Open*、*Add to queue*、*Play next*、*Add to playlist…*（後三項會先載入所有收藏的曲目） |
 
-沒有專輯的曲目不會出現 *Go to album*。Tidal 目前無法查詢單一項目是否已收藏，因此 *Add to favorites* 與 *Remove from favorites* 都會列出；不適用的那一項執行了也無妨。
+沒有專輯的曲目不會出現 *Go to album*。曲目加入 *Collected Tracks*，專輯、藝人或播放清單加入你的 *collection*（[原因](#the-library-and-collected-tracks)）。Tidal 目前無法查詢單一項目是否已收藏，因此 *Add to Collected Tracks* 與 *Remove from Collected Tracks*（或 *Add to collection* 與 *Remove from collection*）都會列出；不適用的那一項執行了也無妨。
 
-<a id="favorites-and-playlists"></a>
+<a id="collection-and-playlists"></a>
 ### 收藏與播放清單
 
-結果會顯示在播放視窗的訊息列：`Added to favorites`、`Removed from favorites`、`Added 12 tracks to <playlist>`、`Removed from <playlist>`、`Created <playlist>`、`Deleted <playlist>`，或錯誤訊息。顯示變動內容的頁面（收藏、音樂庫、播放清單）在變動後會重新抓取。
+結果會顯示在播放視窗的訊息列：`Added to Collected Tracks`、`Removed from Collected Tracks`（專輯、藝人或播放清單則是 `Added to collection`、`Removed from collection`）、`Added 12 tracks to <playlist>`、`Removed from <playlist>`、`Created <playlist>`、`Deleted <playlist>`，或錯誤訊息。顯示變動內容的頁面（Collected Tracks、音樂庫、播放清單）在變動後會重新抓取。
 
 - **Add to playlist…** 會開啟第二個選單，在 *New playlist…* 之下列出你自己的播放清單（最新的在前）；`Enter` 將該曲目，或專輯的所有曲目，加到播放清單尾端。若曲目已在播放清單中（依已載入的內容判斷），會詢問 `Already in <playlist>: add again? (y/n)`
 - **New playlist…** 會在頁面頂端那一列依序詢問 `Playlist name: ` 和 `Description (optional): `；`Enter` 進到下一步，接著建立私人播放清單並將曲目加入；`Esc` 取消；名稱為空時沒有作用
@@ -520,7 +555,7 @@ Tidal 不會比對這三項在其他地方的變更：以最後儲存的為準�
 <a id="confirming-removals"></a>
 ### 移除前的確認
 
-*Remove from favorites*、*Remove from this playlist* 與 *Remove from queue* 在執行前會先詢問，方式與 *Delete playlist* 相同：`Remove <title> from favorites? (y/n)`、`Remove <title> from <playlist>? (y/n)` 與 `Remove <title> from the queue? (y/n)`。按 `y` 執行；按 `n` 或 `Esc` 關閉詢問，不會送出任何內容。詢問針對的是你選的那一列，即使詢問開啟期間清單有變動也一樣。
+*Remove from Collected Tracks*、*Remove from collection*、*Remove from this playlist* 與 *Remove from queue* 在執行前會先詢問，方式與 *Delete playlist* 相同：`Remove <title> from Collected Tracks? (y/n)`、`Remove <title> from your collection? (y/n)`、`Remove <title> from <playlist>? (y/n)` 與 `Remove <title> from the queue? (y/n)`。按 `y` 執行；按 `n` 或 `Esc` 關閉詢問，不會送出任何內容。詢問針對的是你選的那一列，即使詢問開啟期間清單有變動也一樣。
 
 `d d`（`RemoveSelectedItem`）會透過同一個詢問，把游標所在的列（設定了篩選時為篩選後的列）從它所在的清單移除：
 
@@ -528,9 +563,10 @@ Tidal 不會比對這三項在其他地方的變更：以最後儲存的為準�
 |---|---|
 | 佇列 | *Remove from queue* |
 | 你的播放清單的曲目 | *Remove from this playlist* |
-| 收藏的曲目（`g y`） | *Remove from favorites* |
-| 音樂庫的 Albums 與 Artists | *Remove from favorites* |
-| 音樂庫的 Playlists：你追蹤的 | *Remove from favorites* |
+| Collected Tracks（`g y`） | *Remove from Collected Tracks* |
+| 音樂庫的 Albums 與 Artists | *Remove from collection* |
+| 音樂庫的 Playlists：你追蹤的 | *Remove from collection* |
+| 音樂庫的 Playlists：釘選的 *Collected Tracks* 列 | 沒有作用 |
 | 音樂庫的 Playlists：你自己的 | *Delete playlist*：`Delete <playlist>? (y/n)`，即使 `confirm_removals` 關閉也會詢問 |
 | 其他任何清單（專輯或你追蹤的播放清單的曲目、藝人頁面、搜尋結果、mix、電台） | 沒有作用：該清單不屬於你 |
 
@@ -543,7 +579,7 @@ Tidal 不會比對這三項在其他地方的變更：以最後儲存的為準�
     Holocene
   ```
 
-  按 `y` 移除（從你的播放清單是一次寫入），訊息會說明數量：`Removed 3 tracks from Road trip`；若多次寫入中有些失敗，訊息會說明（`Removed 2 albums from favorites; 1 failed`），失敗的列仍保持選取，清單重新取得之後也是，所以再按一次 `d s` 就會重試。在音樂庫的 Playlists 中，選取的你自己的播放清單會被刪除、你追蹤的會從收藏移除，合併在同一個詢問中（`Delete 2 playlists and remove 1 from favorites? (y/n)`，兩份清單分別列在 `Delete:` 與 `Remove from favorites:` 之下），即使 `confirm_removals` 關閉也會詢問。沒有選取，或在其他視窗中，`d s` 沒有作用
+  按 `y` 移除（從你的播放清單是一次寫入），訊息會說明數量：`Removed 3 tracks from Road trip`；若多次寫入中有些失敗，訊息會說明（`Removed 2 albums from collection; 1 failed`），失敗的列仍保持選取，清單重新取得之後也是，所以再按一次 `d s` 就會重試。在音樂庫的 Playlists 中，選取的你自己的播放清單會被刪除、你追蹤的會從收藏移除，合併在同一個詢問中（`Delete 2 playlists and remove 1 from your collection? (y/n)`，兩份清單分別列在 `Delete:` 與 `Remove from your collection:` 之下），即使 `confirm_removals` 關閉也會詢問。沒有選取，或在其他視窗中，`d s` 沒有作用
 - 從動作選單、從 [`[[actions]]` 綁定](config.md#actions)（`DeleteFromLiked`、`DeleteFromPlaylist`、`RemoveFromQueue`）以及從 `d d` 執行時，詢問都相同
 - 單獨按 `d` 沒有作用；啟用[按鍵提示](#key-hints)時，在佇列頁面按住 `d` 超過等待時間，會顯示 `d …` 提示框，列出 `d  remove from the list`
 - 在 `app.toml` 中設定 `confirm_removals = false`（或 `TIDAL_PLAYER_CONFIRM_REMOVALS=off`）會讓這三個動作立即執行；*Delete playlist* 與 *add again?* 的詢問仍會出現。這不會改變按鍵：`RemoveSelectedItem` 仍是 `d d`。連上播放器的 TUI 使用自己的設定；見 [`app.toml`](config.md#apptoml)

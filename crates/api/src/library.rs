@@ -261,15 +261,19 @@ impl LibraryClient {
     async fn page(&self, request: PageRequest, size: u32) -> Result<PageData> {
         match request {
             PageRequest::Library => {
-                let (playlists, albums, artists) = tokio::try_join!(
+                // The favorite tracks' total (spec 0028): one row is enough
+                // for Tidal's `totalNumberOfItems`.
+                let (playlists, albums, artists, collected) = tokio::try_join!(
                     self.playlists(0, size),
                     self.favorite_albums(0, size),
                     self.favorite_artists(0, size),
+                    self.favorite_tracks(0, 1),
                 )?;
                 Ok(PageData::Library {
                     playlists,
                     albums,
                     artists,
+                    collected_tracks: Some(collected.total),
                 })
             }
             PageRequest::FavoriteTracks => Ok(PageData::FavoriteTracks {
@@ -589,7 +593,7 @@ impl LibraryClient {
                 offset,
                 limit.clamp(1, LARGEST),
                 None,
-                "favorite tracks",
+                "collected tracks",
             )
             .await?;
         Ok(page.map(|e| Some(Track::from(e.item)), offset))
@@ -625,7 +629,7 @@ impl LibraryClient {
                 offset,
                 limit.clamp(1, LARGEST),
                 None,
-                "favorite albums",
+                "collection albums",
             )
             .await?;
         Ok(page.map(|e| Some(e.item.into()), offset))
@@ -640,7 +644,7 @@ impl LibraryClient {
                 offset,
                 limit.clamp(1, LARGEST),
                 None,
-                "favorite artists",
+                "collection artists",
             )
             .await?;
         Ok(page.map(
@@ -990,7 +994,7 @@ impl LibraryClient {
                 &format!("users/{user}/favorites/ids"),
                 &[],
                 None,
-                "favorites",
+                "collection",
             )
             .await?;
         let key = match kind {
