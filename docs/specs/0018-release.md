@@ -1,5 +1,7 @@
 # 0018 — The release workflow
 
+English | [正體中文](zh-TW/0018-release.md)
+
 - **Status**: implemented (2026-10-24; Bug 4, AC10 and AC11 added 2026-11-11)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#50](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/50), [#73](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/73) (Bug 3)

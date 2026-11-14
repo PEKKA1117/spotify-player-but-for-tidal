@@ -1,5 +1,7 @@
 # 0005 — Daemon & client mode
 
+English | [正體中文](zh-TW/0005-daemon-and-clients.md)
+
 - **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Depends on**: 0001 (implemented: run modes, the `Command`/`Event` boundary), 0002 (implemented: the daemon's passphrase sources, `LoginRequired`/`LoginRestored`), 0003 (implemented: the engine and the reservation), 0004 (implemented: the player runtime, the TUI)

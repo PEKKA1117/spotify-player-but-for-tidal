@@ -1,5 +1,7 @@
 # 0028 — Collected Tracks: favorite tracks as a pinned playlist
 
+English | [正體中文](zh-TW/0028-collected-tracks.md)
+
 - **Status**: implemented (2026-11-12; approved 2026-11-12)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#103](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/103)

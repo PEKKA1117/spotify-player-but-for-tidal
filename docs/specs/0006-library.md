@@ -1,5 +1,7 @@
 # 0006 — Library: favorites, playlists, album and artist pages
 
+English | [正體中文](zh-TW/0006-library.md)
+
 - **Status**: implemented (2026-10-07; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Amended by**: [0028](0028-collected-tracks.md) (2026-11-12): the favorite tracks page is *Collected Tracks*, pinned first in the library's Playlists, and every favorites text says *Collected Tracks* or *collection*

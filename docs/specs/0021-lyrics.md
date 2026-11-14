@@ -1,5 +1,7 @@
 # 0021 — Lyrics
 
+English | [正體中文](zh-TW/0021-lyrics.md)
+
 - **Status**: implemented (2026-11-03; approved 2026-11-03; the manual checks under "Test plan" are run on the user's machine); API shapes verified by the live probe (2026-11-03, "Facts")
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#54](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/54)

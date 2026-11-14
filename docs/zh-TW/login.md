@@ -3,7 +3,7 @@
 <a id="logging-in"></a>
 # 登入
 
-`tidal-player` 以 OAuth2 裝置流程（device flow）登入 Tidal：你在 Tidal 網頁上核准一組短代碼，播放器從不會看到你的密碼。設計：[spec 0002](../specs/0002-auth.md)。
+`tidal-player` 以 OAuth2 裝置流程（device flow）登入 Tidal：你在 Tidal 網頁上核准一組短代碼，播放器從不會看到你的密碼。設計：[spec 0002](../specs/zh-TW/0002-auth.md)。
 
 <a id="commands"></a>
 ## 指令
@@ -27,7 +27,7 @@ Waiting for approval… (Ctrl-C to cancel)
 - 代碼會在幾分鐘後過期：`Login code expired, run "tidal-player login" again`（結束代碼 1）
 - 你在 Tidal 頁面上拒絕：`Login was denied`（結束代碼 1）
 - Ctrl-C 取消：不會儲存任何東西，結束代碼 130
-- `Warning: Could not switch this session to the PKCE client: CD-quality tracks will stream as AAC instead of FLAC`：登入成功，但把工作階段切換到能取得 16-bit FLAC 的用戶端失敗了（Tidal 拒絕，或無法連線），因此保留登入本身的權杖；Hi-Res 曲目不受影響。重新登入可能會解決
+- `Warning: Could not switch this session to the PKCE client: CD-quality tracks will stream as AAC instead of FLAC`：登入成功，但把工作階段切換到能取得 16-bit FLAC 的客戶端失敗了（Tidal 拒絕，或無法連線），因此保留登入本身的權杖；Hi-Res 曲目不受影響。重新登入可能會解決
 
 在沒有已儲存工作階段的情況下直接執行 `tidal-player`，會印出 `Not logged in.`，並在 TUI 啟動前執行相同的流程。
 
@@ -38,12 +38,12 @@ Waiting for approval… (Ctrl-C to cancel)
 
 `logout` 也會刪除記住的播放狀態（`playback.json`，見[接續上次的工作階段](playback.md#resuming-the-last-session)），因此下一個帳號不會沿用上一個帳號的佇列。正在執行的播放器會保留它的佇列，並在下次儲存時重新寫入該檔案。
 
-`logout` 無法在 Tidal 端撤銷登入：Tidal 拒絕為此用戶端撤銷。登入在伺服器端仍然有效，直到 Tidal 讓它過期，但這台機器上不會留下任何副本。
+`logout` 無法在 Tidal 端撤銷登入：Tidal 拒絕為此客戶端撤銷。登入在伺服器端仍然有效，直到 Tidal 讓它過期，但這台機器上不會留下任何副本。
 
 <a id="tidal-player-daemon"></a>
 ### `tidal-player daemon`
 
-從不啟動登入。沒有已儲存的工作階段時，以結束代碼 1 退出並顯示 `Not logged in: run "tidal-player login"`。如何執行它，以及作為 systemd 使用者服務執行：見[常駐程式與用戶端](daemon.md)。執行中播放器的用戶端（`tidal-player playback …`、連接上的 TUI）不需要自己登入。
+從不啟動登入。沒有已儲存的工作階段時，以結束代碼 1 退出並顯示 `Not logged in: run "tidal-player login"`。如何執行它，以及作為 systemd 使用者服務執行：見[常駐程式與客戶端](daemon.md)。執行中播放器的客戶端（`tidal-player playback …`、連接上的 TUI）不需要自己登入。
 
 <a id="where-the-session-is-stored"></a>
 ## 工作階段儲存在哪裡

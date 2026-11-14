@@ -1,5 +1,7 @@
 # 0013 — Key-sequence hints
 
+English | [正體中文](zh-TW/0013-key-hints.md)
+
 - **Status**: implemented (2026-10-09; the manual checks under "Test plan" are run on the user's machine)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#17](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/17)

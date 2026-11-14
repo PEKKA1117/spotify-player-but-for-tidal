@@ -1,5 +1,7 @@
 # 0020 — Selecting several rows
 
+English | [正體中文](zh-TW/0020-multi-select.md)
+
 - **Status**: implemented (2026-11-02; approved 2026-10-26, amended 2026-11-02: `Esc` clears a kept filter before the selection)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#71](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/71)

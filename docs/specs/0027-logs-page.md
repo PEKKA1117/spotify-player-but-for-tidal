@@ -1,5 +1,7 @@
 # 0027 — Logs: a log file and the logs page
 
+English | [正體中文](zh-TW/0027-logs-page.md)
+
 - **Status**: implemented (2026-11-11; approved 2026-11-10, AC16–AC19 approved 2026-11-11)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#64](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/64)
