@@ -52,13 +52,13 @@ Press `g` and wait: a hint lists the keys that can follow.
 
 - Linux with ALSA. MPRIS needs a D-Bus session bus, and the session is kept in the system keyring when there is one (otherwise in an encrypted file)
 - A paid Tidal subscription; hi-res streams need a plan that includes them
-- To build: Rust 1.97 or newer, `pkg-config` and the ALSA headers
+- To build: Rust 1.97 or newer, a C compiler and `cmake` (libFLAC is built in), `pkg-config` and the ALSA headers
 
 | Distribution | Build dependencies |
 |---|---|
-| Debian, Ubuntu | `sudo apt install pkg-config libasound2-dev` |
-| Arch | `sudo pacman -S pkgconf alsa-lib` |
-| Fedora | `sudo dnf install pkgconf-pkg-config alsa-lib-devel` |
+| Debian, Ubuntu | `sudo apt install build-essential cmake pkg-config libasound2-dev` |
+| Arch | `sudo pacman -S base-devel cmake alsa-lib` |
+| Fedora | `sudo dnf install gcc cmake pkgconf-pkg-config alsa-lib-devel` |
 
 ## Installation
 

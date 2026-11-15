@@ -16,7 +16,7 @@ The binary links the system ALSA library (`libasound.so.2`, package `libasound2`
 
 ### From crates.io
 
-Needs Rust 1.97 or newer, `pkg-config` and the ALSA headers ([build dependencies](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/README.md#requirements)):
+Needs Rust 1.97 or newer, a C compiler, `cmake`, `pkg-config` and the ALSA headers ([build dependencies](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/README.md#requirements)):
 
 ```sh
 cargo install tidal-player --version ${VERSION}
