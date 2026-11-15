@@ -20,7 +20,7 @@ use tidal_player_core::player::{Failure, FailureKind};
 use tidal_player_core::protocol::{
     Command, Event as PlayerEvent, PlaybackState, PlayerSnapshot, RepeatMode,
 };
-use tidal_player_core::{AudioQuality, Item, Track};
+use tidal_player_core::{AudioQuality, Item, Track, TrackId};
 
 use crate::logging::events::{self, Shutdown};
 use crate::player::runtime::{
@@ -345,19 +345,29 @@ pub async fn play_tracks(
     options: &PlayOptions,
     metadata: TrackMetadata,
 ) -> Result<Vec<Track>, ExpandError> {
+    let nameless = |id: TrackId| Track {
+        id,
+        title: String::new(),
+        version: None,
+        artists: Vec::new(),
+        album: None,
+        duration: None,
+        streamable: true,
+    };
     if let [Item::Track(id)] = items
         && !options.has_new_flag()
-        && metadata == TrackMetadata::Skip
     {
-        return Ok(vec![Track {
-            id: *id,
-            title: String::new(),
-            version: None,
-            artists: Vec::new(),
-            album: None,
-            duration: None,
-            streamable: true,
-        }]);
+        match metadata {
+            TrackMetadata::Skip => return Ok(vec![nameless(*id)]),
+            // Only a notification wants the title: without it the track is
+            // queued as 0003 queues it, and not notified (spec 0029).
+            TrackMetadata::Wanted => {
+                return Ok(expand_items(meta, items)
+                    .await
+                    .unwrap_or_else(|_| vec![nameless(*id)]));
+            }
+            TrackMetadata::Needed => {}
+        }
     }
     expand_items(meta, items).await
 }

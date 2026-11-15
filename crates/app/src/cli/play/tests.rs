@@ -510,7 +510,8 @@ fn ac13_play_asks_for_the_notifications_metadata() {
         .unwrap();
     // Notifications, a hook, the track ID, the title queued (or the error),
     // the requests made. Track 99's request fails.
-    let rows: [(&str, bool, u64, Result<&str, ()>, &[&str]); 5] = [
+    type Row<'a> = (&'a str, bool, u64, Result<&'a str, ()>, &'a [&'a str]);
+    let rows: [Row; 5] = [
         ("off", false, 1, Ok(""), &[]),
         ("on", false, 1, Ok("Title 1"), &["track 1"]),
         // A notification only wants the title: 0003's nameless track, no
