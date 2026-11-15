@@ -1,7 +1,7 @@
 # Audio test fixtures (spec 0003)
 
-Small files generated from sines with `ffmpeg` (6.1 here) and post-processed by
-`fixture_tool.py` (python3). Tests only read them; they never call ffmpeg.
+Small files generated from sines with `ffmpeg` (6.1 here; the 32-bit ones with
+`flac` 1.5.0 and ffmpeg 9.0) and post-processed by `fixture_tool.py` (python3). Tests only read them; they never call ffmpeg.
 `generate.sh` holds the exact commands; run it from this directory to
 regenerate everything (`sh generate.sh`).
 
@@ -15,6 +15,9 @@ regenerate everything (`sh generate.sh`).
 | `flac24_96.s24le` | ffmpeg's decode of its first 1024 frames, raw `s24le` | AC7 |
 | `flac24_96_dash-init.mp4`, `flac24_96_dash-{1,2,3}.m4s` | the same FLAC stream (stream copy) in fragmented MP4, split into an init segment and media segments | AC7 (init + segments joined, non-seekable), AC19 segmented row |
 | `flac24_96_dash-segments.txt` | the segments' timeline: `timescale 96000`, then `N start duration` in ticks | the fake segmented source |
+| `flac32_48.s32le` | 32-bit 48 kHz stereo PCM, 2400 frames (50 ms), raw `S32_LE`, from `fixture_tool.py pcm32`: the channels are nearly in antiphase near full scale, so their difference needs 33 bits | AC32: what the FLAC must decode to |
+| `flac32_48.flac` | that PCM as FLAC (`flac --best -b 512`): five frames, all mid/side | AC32 |
+| `flac32_48_dash-init.mp4`, `flac32_48_dash-{1,2,3}.m4s`, `flac32_48_dash-segments.txt` | the same FLAC stream (stream copy) in fragmented MP4, ~20 ms fragments, split like the 24/96 one | AC32 |
 | `aac_lc.m4a` | AAC-LC 128 kb/s stereo 44.1 kHz in MP4, `moov` first (faststart), 0.6 s | AC8 |
 | `he_aac.m4a` | `aac_lc.m4a` with its AudioSpecificConfig patched to signal SBR (HE-AAC) | AC8 |
 
@@ -43,4 +46,4 @@ the decoder must refuse the stream from its configuration, before decoding a
 frame (symphonia: "aac: aac too complex"). A recording of a real `mp4a.40.5`
 stream would test the same path.
 
-Total size is about 125 KiB (the cap is 200 KiB).
+Total size is about 165 KiB (the cap is 200 KiB).

@@ -18,7 +18,12 @@
       SBR object type, sbrPresentFlag 0) into explicit backward-compatible
       HE-AAC signalling: sbrPresentFlag 1 and an extension sampling frequency
       index, in the padding bits of the same 5 bytes (no size change).
+  fixture_tool.py pcm32 OUT.s32le
+      Write 2400 frames of 32-bit stereo PCM (raw S32_LE) whose channels are
+      nearly in antiphase near full scale, so that their difference (FLAC's
+      side channel) needs 33 bits (spec 0003 AC32).
 """
+import math
 import struct
 import sys
 
@@ -182,6 +187,23 @@ def he_aac(src, dst):
     open(dst, "wb").write(data)
 
 
+def pcm32(dst):
+    full = 2**31 - 1
+    out = bytearray()
+    for i in range(2400):
+        t = i / 48000
+        a = math.sin(2 * math.pi * 441 * t)
+        b = math.sin(2 * math.pi * 663 * t + 0.4)
+        if i < 1024:
+            left, right = 0.97 * a, -0.97 * a + 0.02 * b
+        elif i < 1536:
+            left, right = 0.97 * a, -0.9 * a - 0.07 * b
+        else:
+            left, right = -0.9 * b + 0.07 * a, 0.97 * b
+        out += struct.pack("<ii", round(left * full), round(right * full))
+    open(dst, "wb").write(out)
+
+
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:]
-    {"seektable": lambda a, b, c: seektable(a, b, int(c)), "strip-padding": strip_padding, "split-fmp4": split_fmp4, "he-aac": he_aac}[cmd](*args)
+    {"seektable": lambda a, b, c: seektable(a, b, int(c)), "strip-padding": strip_padding, "split-fmp4": split_fmp4, "he-aac": he_aac, "pcm32": pcm32}[cmd](*args)

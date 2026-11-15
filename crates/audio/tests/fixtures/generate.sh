@@ -1,6 +1,6 @@
 #!/bin/sh
 # Regenerates the audio fixtures (spec 0003 test plan). Tests never run this.
-# Needs ffmpeg and python3. Run from this directory.
+# Needs ffmpeg, flac (1.4 or newer, for 32-bit) and python3. Run from this directory.
 set -eu
 T=$(mktemp -d)
 trap 'rm -r "$T"' EXIT
@@ -26,6 +26,14 @@ ffmpeg -nostdin -y -loglevel error -i flac24_96.flac -f s24le -ac 2 "$T/pcm24" &
 # fragments, split into an init segment and media segments like Tidal's DASH.
 ffmpeg -nostdin -y -loglevel error -i flac24_96.flac -c:a copy -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 250000 -strict -2 "$T/flac24_96.mp4"
 python3 fixture_tool.py split-fmp4 "$T/flac24_96.mp4" flac24_96_dash
+
+# 32-bit 48 kHz stereo FLAC, 50 ms, 512-frame blocks, every frame mid/side
+# with a 33-bit side channel (AC32), encoded from flac32_48.s32le; and the
+# same stream in fragmented MP4, ~20 ms fragments.
+python3 fixture_tool.py pcm32 flac32_48.s32le
+flac -s -f --best -b 512 --no-padding --force-raw-format --endian=little --sign=signed --channels=2 --bps=32 --sample-rate=48000 -o flac32_48.flac flac32_48.s32le
+ffmpeg -nostdin -y -loglevel error -i flac32_48.flac -c:a copy -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 20000 -strict -2 "$T/flac32_48.mp4"
+python3 fixture_tool.py split-fmp4 "$T/flac32_48.mp4" flac32_48_dash
 
 # AAC-LC in MP4 (moov first, like Tidal's BTS streams), 0.6 s.
 ffmpeg -nostdin -y -loglevel error -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=0.6" -f lavfi -i "sine=frequency=660:sample_rate=44100:duration=0.6" -filter_complex amerge -c:a aac -b:a 128k -movflags +faststart aac_lc.m4a

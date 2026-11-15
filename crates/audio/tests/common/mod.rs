@@ -40,7 +40,12 @@ pub fn flac24() -> FakeSource {
 
 /// The segments listed in `flac24_96_dash-segments.txt`: (timescale, spans).
 pub fn dash24_spans() -> (u32, Vec<SegmentSpan>) {
-    let text = String::from_utf8(fixture("flac24_96_dash-segments.txt")).unwrap();
+    dash_spans("flac24_96_dash")
+}
+
+/// The segments listed in `<prefix>-segments.txt`: (timescale, spans).
+fn dash_spans(prefix: &str) -> (u32, Vec<SegmentSpan>) {
+    let text = String::from_utf8(fixture(&format!("{prefix}-segments.txt"))).unwrap();
     let mut lines = text.lines();
     let timescale = lines
         .next()
@@ -62,13 +67,29 @@ pub fn dash24_spans() -> (u32, Vec<SegmentSpan>) {
 
 /// The 24/96 FLAC in fragmented MP4: init segment + media segments.
 pub fn dash24() -> FakeSource {
-    let (timescale, spans) = dash24_spans();
+    dash("flac24_96_dash")
+}
+
+/// A fragmented MP4 fixture: `<prefix>-init.mp4` + `<prefix>-N.m4s`.
+fn dash(prefix: &str) -> FakeSource {
+    let (timescale, spans) = dash_spans(prefix);
     let segments = spans
         .into_iter()
         .enumerate()
-        .map(|(i, span)| (fixture(&format!("flac24_96_dash-{}.m4s", i + 1)), span))
+        .map(|(i, span)| (fixture(&format!("{prefix}-{}.m4s", i + 1)), span))
         .collect();
-    FakeSource::segmented(fixture("flac24_96_dash-init.mp4"), segments, timescale)
+    FakeSource::segmented(fixture(&format!("{prefix}-init.mp4")), segments, timescale)
+}
+
+/// 32-bit 48 kHz stereo FLAC, 50 ms, mid/side frames with a 33-bit side
+/// channel, single file (AC32).
+pub fn flac32() -> FakeSource {
+    FakeSource::file(fixture("flac32_48.flac"), "flac")
+}
+
+/// The same stream in fragmented MP4: init segment + media segments.
+pub fn dash32() -> FakeSource {
+    dash("flac32_48_dash")
 }
 
 /// The reference decode of a source: format and interleaved stereo samples.
