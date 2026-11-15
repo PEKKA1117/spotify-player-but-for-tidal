@@ -39,7 +39,7 @@ use tidal_player::{
     },
     panic_hook::install_panic_hook,
     player::{
-        hook, mpris,
+        hook, mpris, notify,
         persist::Persister,
         playback::{
             HAS_ALSA, HttpOpener, NO_ALSA, PlayRequest, PlayerSocket, play_items, spawn_output,
@@ -511,6 +511,10 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
         player_settings.hook.as_ref(),
         results.clone(),
         hook::Stderr::Inherit,
+    ))
+    .with_notifier(notify::start(
+        &notify::Settings::from_env(&player_settings),
+        mpris::tracing_log(),
     ));
     let player_runtime = match logs {
         Some(logs) => player_runtime.with_logs(logs),
@@ -829,6 +833,10 @@ fn standalone(
         player_settings.hook.as_ref(),
         results.clone(),
         hook::Stderr::Drop,
+    ))
+    .with_notifier(notify::start(
+        &notify::Settings::from_env(&player_settings),
+        mpris::tracing_log(),
     ));
     let player_runtime = match logs {
         Some(logs) => player_runtime.with_logs(logs),
@@ -1033,6 +1041,8 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
         Err(code) => return code,
     };
     let mpris_settings = mpris::Settings::from_env(&player);
+    let notify_settings = notify::Settings::from_env(&player);
+    let needs_metadata = tidal_player::cli::play::needs_metadata(&player);
     play_items(
         auth,
         PlayerSocket {
@@ -1047,6 +1057,8 @@ fn play(plan: &StorePlan, app: &AppConfig, args: &PlayArgs) -> ExitCode {
             release_paused: player.release_paused,
             mpris: mpris_settings,
             hook: player.hook,
+            notify: notify_settings,
+            needs_metadata,
             logs,
             options: PlayOptions {
                 shuffle: args.shuffle,

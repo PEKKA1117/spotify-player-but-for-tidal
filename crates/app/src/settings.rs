@@ -399,6 +399,15 @@ fn resolve_with(
             message: format!("expected off, error, warn, info, debug or trace, got \"{value}\""),
         })?;
     }
+    if let Some(on) = on_off(get(ENABLE_NOTIFY_VAR), ENABLE_NOTIFY_VAR)? {
+        settings.notify.enabled = on;
+    }
+    if let Some(value) = get(NOTIFY_TIMEOUT_VAR) {
+        settings.notify.timeout_secs = int_in(&value, NOTIFY_TIMEOUT_VAR, 0, 3600)? as u16;
+    }
+    if let Some(on) = on_off(get(NOTIFY_TRANSIENT_VAR), NOTIFY_TRANSIENT_VAR)? {
+        settings.notify.transient = on;
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -470,6 +479,18 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(max) = file.max_cover_arts {
         settings.max_cover_arts = max;
+    }
+    if let Some(on) = file.enable_notify {
+        settings.notify.enabled = on;
+    }
+    if let Some(format) = &file.notify_format {
+        settings.notify.format = format.clone();
+    }
+    if let Some(secs) = file.notify_timeout_in_secs {
+        settings.notify.timeout_secs = secs;
+    }
+    if let Some(on) = file.notify_transient {
+        settings.notify.transient = on;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;

@@ -807,7 +807,35 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             self.track_change(&before, seek, &mut handled);
             self.hook_input(&before, moved_by_hand, &handled);
         }
+        if !handled.shutdown && handled.started.is_some() {
+            self.notify_started();
+        }
         handled
+    }
+
+    /// Hands the notifier the track that started, unless it is the one that
+    /// started before it or nothing is known about it (spec 0029).
+    fn notify_started(&mut self) {
+        let Some(notifier) = self.notifier.as_mut() else {
+            return;
+        };
+        let snapshot = self.state.snapshot();
+        let Some(track) = snapshot.current.and_then(|current| {
+            snapshot
+                .queue
+                .into_iter()
+                .find(|entry| entry.id == current)
+                .map(|entry| entry.track)
+        }) else {
+            return;
+        };
+        // `play` of a track ID without its metadata: nothing to show.
+        if track.title.is_empty() {
+            return;
+        }
+        if notifier.tracker.started(&track) {
+            notifier.sink.send(track);
+        }
     }
 
     /// Hands the hook what an input did (spec 0025).

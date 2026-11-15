@@ -1606,7 +1606,11 @@ fn ac1_notify_settings() {
 fn ac1_notify_precedence() {
     use crate::settings::{ENABLE_NOTIFY_VAR, NOTIFY_TIMEOUT_VAR, NOTIFY_TRANSIENT_VAR};
     type Get = fn(&tidal_player_core::notify::NotifySettings) -> String;
-    let rows: &[(&str, &str, &[(&str, &str)], Get, Result<&str, &str>)] = &[
+    type Env<'a> = &'a [(&'a str, &'a str)];
+    /// Name, `app.toml`, environment, the value looked at, and what it is
+    /// (or the variable an error names).
+    type Row<'a> = (&'a str, &'a str, Env<'a>, Get, Result<&'a str, &'a str>);
+    let rows: &[Row] = &[
         (
             "enable default",
             "",

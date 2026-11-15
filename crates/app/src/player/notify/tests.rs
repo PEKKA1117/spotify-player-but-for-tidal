@@ -50,12 +50,15 @@ struct FakeState {
     next_id: u32,
 }
 
+/// Where a held call says it entered, and what lets it go.
+type Gate = (Sender<()>, Receiver<()>);
+
 /// A recording server; with a gate, each `Notify` says it entered and
 /// waits to be let go.
 #[derive(Clone, Default)]
 struct Fake {
     state: Arc<Mutex<FakeState>>,
-    gate: Option<Arc<Mutex<(Sender<()>, Receiver<()>)>>>,
+    gate: Option<Arc<Mutex<Gate>>>,
 }
 
 impl Fake {
@@ -133,7 +136,8 @@ impl Server for Fake {
     }
 }
 
-type Lines = Arc<Mutex<Vec<(Level, String)>>>;
+type Line = (Level, String);
+type Lines = Arc<Mutex<Vec<Line>>>;
 
 fn recording_log() -> (Log, Lines) {
     let lines: Lines = Arc::default();
@@ -163,22 +167,40 @@ struct Driver {
     sends: Sender<Vec<Track>>,
     /// How long each batch of sends took.
     took: Receiver<Duration>,
+    /// How many sends have returned.
+    returned: Arc<AtomicUsize>,
 }
 
 impl Driver {
     fn new(mut notifier: Notifier) -> Self {
         let (sends, batches) = mpsc::channel::<Vec<Track>>();
         let (took_tx, took) = mpsc::channel();
+        let returned = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&returned);
         std::thread::spawn(move || {
             for batch in batches {
                 let started = Instant::now();
                 for track in batch {
                     notifier.send(track);
+                    count.fetch_add(1, Ordering::SeqCst);
                 }
                 let _ = took_tx.send(started.elapsed());
             }
         });
-        Self { sends, took }
+        Self {
+            sends,
+            took,
+            returned,
+        }
+    }
+
+    /// Waits a bounded time for `n` sends to have returned (a send that
+    /// waits is for the test's assertions to find).
+    fn settle(&self, n: usize) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while self.returned.load(Ordering::SeqCst) < n && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     /// Has the thread send `tracks`, without waiting for it.
@@ -332,6 +354,7 @@ fn ac9_latest_wins() {
     driver.post(vec![track(1, None)]);
     entered.recv_timeout(Duration::from_secs(10)).unwrap();
     driver.post(vec![track(2, None), track(3, None), track(4, None)]);
+    driver.settle(4);
     release.send(()).unwrap();
     entered.recv_timeout(Duration::from_secs(10)).unwrap();
     release.send(()).unwrap();
@@ -391,7 +414,7 @@ fn ac11_failures() {
     let (mut notifier, lines) = new_notifier(&fake, None);
     let warn = |text: &str| (Level::Warn, format!("Desktop notification failed: {text}"));
     // Each track, the calls made so far, and the lines it adds.
-    let steps: [(u64, usize, Vec<(Level, String)>); 6] = [
+    let steps: [(u64, usize, Vec<Line>); 6] = [
         (
             1,
             2,

@@ -91,6 +91,15 @@ pub struct AppConfig {
     pub theme: Option<String>,
     /// Spec 0027: the lowest level the log keeps.
     pub log_level: Option<tidal_player_core::log::LogSetting>,
+    /// Spec 0029: desktop notifications on track change.
+    pub enable_notify: Option<bool>,
+    /// Spec 0029: the notification's summary and body.
+    pub notify_format: Option<tidal_player_core::notify::NotifyFormat>,
+    /// Spec 0029: how long a notification stays; `0`: the server's time.
+    pub notify_timeout_in_secs: Option<u16>,
+    /// Spec 0029: whether the server keeps notifications out of its
+    /// history.
+    pub notify_transient: Option<bool>,
 }
 
 /// The config directory: `--config-folder`, else `$TIDAL_PLAYER_CONFIG_DIR`,
@@ -298,6 +307,23 @@ pub fn parse_app_toml(path: &Path, text: &str) -> Result<AppConfig, ConfigError>
             "player_event_hook_command" => {
                 config.player_event_hook_command = Some(hook_command(path, key, value)?);
             }
+            "enable_notify" | "notify_transient" => {
+                let Some(on) = value.as_bool() else {
+                    return Err(invalid(
+                        key,
+                        format!("expected true or false, got {}", describe(value)),
+                    ));
+                };
+                if key == "enable_notify" {
+                    config.enable_notify = Some(on);
+                } else {
+                    config.notify_transient = Some(on);
+                }
+            }
+            "notify_timeout_in_secs" => {
+                config.notify_timeout_in_secs = Some(int_in(path, key, value, 0, 3600)? as u16);
+            }
+            "notify_format" => config.notify_format = Some(notify_format(path, key, value)?),
             "log_level" => match value
                 .as_str()
                 .and_then(|text| text.parse::<tidal_player_core::log::LogSetting>().ok())
@@ -485,6 +511,56 @@ fn hook_command(path: &Path, key: &str, value: &toml::Value) -> Result<HookComma
     Ok(HookCommand {
         command: name.to_owned(),
         args,
+    })
+}
+
+/// `notify_format` (spec 0029 AC1, AC3): a missing field keeps its
+/// default.
+fn notify_format(
+    path: &Path,
+    key: &str,
+    value: &toml::Value,
+) -> Result<tidal_player_core::notify::NotifyFormat, ConfigError> {
+    use tidal_player_core::notify::{DEFAULT_BODY, DEFAULT_SUMMARY, FormatError, NotifyFormat};
+    let Some(table) = value.as_table() else {
+        return Err(ConfigError::at(
+            path,
+            format!(
+                "invalid {key}: expected a table with summary and body, got {}",
+                describe(value)
+            ),
+        ));
+    };
+    if let Some(field) = table
+        .keys()
+        .find(|k| !matches!(k.as_str(), "summary" | "body"))
+    {
+        return Err(unknown(path, &format!("{key}.{field}")));
+    }
+    let text = |field: &str, default: &'static str| match table.get(field) {
+        None => Ok(default),
+        Some(value) => value.as_str().ok_or_else(|| {
+            ConfigError::at(
+                path,
+                format!(
+                    "invalid {key}.{field}: expected a string, got {}",
+                    describe(value)
+                ),
+            )
+        }),
+    };
+    let summary = text("summary", DEFAULT_SUMMARY)?;
+    let body = text("body", DEFAULT_BODY)?;
+    NotifyFormat::new(summary, body).map_err(|e| {
+        let field = match e {
+            FormatError::Body(_) => "body",
+            FormatError::Summary(_) | FormatError::EmptySummary => "summary",
+        };
+        let what = match e {
+            FormatError::EmptySummary => "expected a non-empty string, got \"\"".to_owned(),
+            other => other.to_string(),
+        };
+        ConfigError::at(path, format!("invalid {key}.{field}: {what}"))
     })
 }
 
