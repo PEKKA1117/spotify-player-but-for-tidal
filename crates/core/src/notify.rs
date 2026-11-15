@@ -60,19 +60,53 @@ impl Template {
     /// Parses `text`; `Err` holds the first unknown placeholder, braces
     /// included.
     pub fn parse(text: &str) -> Result<Self, String> {
-        Ok(Self {
-            parts: vec![Part::Text(text.to_owned())],
-        })
+        let mut parts = Vec::new();
+        let mut literal = String::new();
+        let mut rest = text;
+        while let Some(open) = rest.find('{') {
+            literal.push_str(&rest[..open]);
+            let after = &rest[open + 1..];
+            // A `{` with no `}` before the next `{` (or the end) is text.
+            let Some(close) = after
+                .find(['{', '}'])
+                .filter(|&i| after[i..].starts_with('}'))
+            else {
+                literal.push('{');
+                rest = after;
+                continue;
+            };
+            let part = match &after[..close] {
+                "track" => Part::Track,
+                "artists" => Part::Artists,
+                "album" => Part::Album,
+                name => return Err(format!("{{{name}}}")),
+            };
+            if !literal.is_empty() {
+                parts.push(Part::Text(std::mem::take(&mut literal)));
+            }
+            parts.push(part);
+            rest = &after[close + 1..];
+        }
+        literal.push_str(rest);
+        if !literal.is_empty() {
+            parts.push(Part::Text(literal));
+        }
+        Ok(Self { parts })
+    }
+
+    fn is_empty(&self) -> bool {
+        self.parts.is_empty()
     }
 
     /// The text with the placeholders filled from `track`.
     pub fn render(&self, track: &Track) -> String {
-        let _ = track;
         self.parts
             .iter()
             .map(|part| match part {
                 Part::Text(text) => text.clone(),
-                Part::Track | Part::Artists | Part::Album => String::new(),
+                Part::Track => track.display_title(),
+                Part::Artists => track.artist_names(),
+                Part::Album => track.album_title().unwrap_or_default().to_owned(),
             })
             .collect()
     }
@@ -89,10 +123,12 @@ impl NotifyFormat {
     /// Checks both texts: no unknown placeholder, a summary that is not
     /// empty.
     pub fn new(summary: &str, body: &str) -> Result<Self, FormatError> {
-        Ok(Self {
-            summary: Template::parse(summary).map_err(FormatError::Summary)?,
-            body: Template::parse(body).map_err(FormatError::Body)?,
-        })
+        let summary = Template::parse(summary).map_err(FormatError::Summary)?;
+        let body = Template::parse(body).map_err(FormatError::Body)?;
+        if summary.is_empty() {
+            return Err(FormatError::EmptySummary);
+        }
+        Ok(Self { summary, body })
     }
 
     /// The summary and the body for `track`.
@@ -141,14 +177,22 @@ pub struct NotifyTracker {
 impl NotifyTracker {
     /// `track` started: whether it notifies.
     pub fn started(&mut self, track: &Track) -> bool {
-        self.last = Some(track.id);
-        true
+        self.last.replace(track.id) != Some(track.id)
     }
 }
 
 /// `&`, `<` and `>` as markup entities.
 pub fn escape_markup(text: &str) -> String {
-    text.to_owned()
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 /// Whether a server with `capabilities` reads the body as markup.
@@ -189,8 +233,22 @@ impl Request {
         replaces_id: u32,
         markup: bool,
     ) -> Self {
-        let _ = (cover, markup);
         let (summary, body) = settings.format.render(track);
+        let body = if markup { escape_markup(&body) } else { body };
+        let mut hints = Vec::new();
+        if let Some(cover) = cover {
+            hints.push((
+                "image-path".to_owned(),
+                Hint::Str(cover.display().to_string()),
+            ));
+        }
+        if settings.transient {
+            hints.push(("transient".to_owned(), Hint::Bool(true)));
+        }
+        let expire_timeout = match settings.timeout_secs {
+            0 => -1,
+            secs => i32::from(secs) * 1000,
+        };
         Self {
             app_name: APP_NAME.to_owned(),
             replaces_id,
@@ -198,8 +256,8 @@ impl Request {
             summary,
             body,
             actions: Vec::new(),
-            hints: Vec::new(),
-            expire_timeout: 0,
+            hints,
+            expire_timeout,
         }
     }
 }

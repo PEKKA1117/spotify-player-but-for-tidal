@@ -45,6 +45,15 @@ impl Track {
             .join(", ")
     }
 
+    /// The title with its version in parentheses (`Song (Live)`), as the
+    /// event hook (spec 0025) and notifications (spec 0029) show it.
+    pub fn display_title(&self) -> String {
+        match &self.version {
+            Some(version) => format!("{} ({version})", self.title),
+            None => self.title.clone(),
+        }
+    }
+
     /// The album title, when the track has an album.
     pub fn album_title(&self) -> Option<&str> {
         self.album.as_ref().map(|a| a.title.as_str())

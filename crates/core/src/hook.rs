@@ -157,14 +157,9 @@ impl HookEvent {
             | Self::Seeked(track, _) => track,
             Self::VolumeChanged(_) | Self::DeviceChanged(_) => return Vec::new(),
         };
-        let title = match &track.version {
-            Some(version) => format!("{} ({version})", track.title),
-            None => track.title.clone(),
-        };
-        let artists: Vec<&str> = track.artists.iter().map(|a| a.name.as_str()).collect();
         let mut environment = vec![
-            ("TIDAL_PLAYER_TRACK_TITLE", title),
-            ("TIDAL_PLAYER_TRACK_ARTISTS", artists.join(", ")),
+            ("TIDAL_PLAYER_TRACK_TITLE", track.display_title()),
+            ("TIDAL_PLAYER_TRACK_ARTISTS", track.artist_names()),
         ];
         if let Some(album) = track.album_title() {
             environment.push(("TIDAL_PLAYER_TRACK_ALBUM", album.to_owned()));
