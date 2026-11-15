@@ -4559,7 +4559,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "age",
  "anyhow",
@@ -4612,7 +4612,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-audio"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alsa",
  "libflac-sys",
