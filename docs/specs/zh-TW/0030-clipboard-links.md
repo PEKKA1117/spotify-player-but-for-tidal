@@ -3,7 +3,7 @@
 <a id="0030--copy-a-link-open-a-link-from-the-clipboard"></a>
 # 0030 — 複製連結、從剪貼簿開啟連結
 
-- **狀態**：approved（2026-11-16；使用者事先核准所有規格，並要求把 PR 留給他審閱）
+- **狀態**：implemented（2026-11-16）；approved 2026-11-16（使用者事先核准所有規格，並要求把 PR 留給他審閱）
 - **負責人**：tech-lead（主要工作階段）
 - **Issue**：[#57](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/57)
 - **相依於**：0004（implemented：連結與曲目 ID、`Open`）、0006（implemented：動作彈出視窗、頁面）、0007（implemented：`o`／`O` 輸入提示）、0008（implemented：按鍵對應、`[[actions]]`、略過的名稱）、0011（implemented：mix 頁面）、0020（implemented：選取的動作）
@@ -159,3 +159,14 @@ TUI 使用它繪製所在機器的剪貼簿，每次都依環境選擇：
 - 從前後有其他文字的內容中讀出連結
 - `app.toml` 中的 `clipboard` 設定，或自訂的複製／貼上指令（spotify-player 的 `copy_command`／`paste_command`）
 - 處理連結的 `tidal-player playback` 一次性指令（#67）
+
+<a id="implementation-notes"></a>
+## 實作備註
+
+- 複製或讀取失敗時，也會透過 `events::clipboard_failed` 在 TUI 的記錄檔寫入一行 `clipboard failed`（0027 的規則：記錄使用者看到的失敗），對應 `crates/app/src/logging/events/tests.rs` :: `ac17_tui_rows` 的一列
+- 被訊號終止的工具顯示 `<tool> was stopped by a signal`；因程式不存在以外的原因無法啟動的工具顯示 `<tool>: <reason>`
+- 擷取輸出時，若工具結束後它的子行程仍開著管線，讀取會像工具沒有結束一樣逾時
+- 整份清單的載入（0006）和彈出視窗一樣算是蓋在頁面之上：指令不作用，回應會被丟棄
+- 為了 OSC 52，`base64` 從執行檔的 dev-dependencies 移到 dependencies；沒有新增 crate
+- `item.rs` 與 `tui/clipboard.rs` 的測試模組放在 `item/tests.rs` 與 `tui/clipboard/tests.rs`（兩個模組都超過 200 行）
+- `ac6_late_answer_dropped` 對紅燈階段的存根也會通過，因為存根忽略所有回應；AC6 的紅燈失敗是 `ac6_clipboard_text` 的

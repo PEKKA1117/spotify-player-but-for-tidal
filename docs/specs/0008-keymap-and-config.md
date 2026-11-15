@@ -156,7 +156,7 @@ The defaults are exactly the keys of 0004–0007, plus spotify-player's defaults
 | `OpenCommandHelp` | `?`, `C-h` | everywhere | this help |
 | `Quit` | `q`, `C-c` | everywhere | quit (an attached TUI detaches) |
 
-Actions for `[[actions]]` (0006's popup entries; spotify-player's names, ours marked *): `GoToAlbum`, `GoToArtist` (the first artist; the popup lists each), `AddToQueue`, `PlayNext`*, `AddToLiked`, `DeleteFromLiked`, `AddToPlaylist` (opens the playlist picker), `DeleteFromPlaylist` (own playlist pages), `RemoveFromQueue`* (queue entries), `DeletePlaylist`* (own playlists, still asks `y/n`). spotify-player actions without a counterpart (`GoToRadio`, `CopyLink`, `ToggleLiked`, `Follow`, …) are skipped like unsupported commands.
+Actions for `[[actions]]` (0006's popup entries; spotify-player's names, ours marked *): `GoToAlbum`, `GoToArtist` (the first artist; the popup lists each), `AddToQueue`, `PlayNext`*, `AddToLiked`, `DeleteFromLiked`, `AddToPlaylist` (opens the playlist picker), `DeleteFromPlaylist` (own playlist pages), `RemoveFromQueue`* (queue entries), `DeletePlaylist`* (own playlists, still asks `y/n`). spotify-player actions without a counterpart (`ToggleLiked`, `Follow`, …; `GoToRadio` left the list with [0011](0011-mixes-and-radio.md), `CopyLink` with [0030](0030-clipboard-links.md)) are skipped like unsupported commands.
 
 ### Key sequences and where keys act
 

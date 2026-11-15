@@ -15,6 +15,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 - **Bit-perfect playback**: streams the best quality Tidal offers (up to `HI_RES_LOSSLESS` FLAC) and plays it on an ALSA `hw:` device at the track's own rate, taking the card from PipeWire while it plays. Gapless, with the next track preloaded. [Playback](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback)
 - **Your library**: playlists, albums and artists, with *Collected Tracks* (your tracks in Tidal's collection) pinned first in the Playlists window, and album, playlist and artist pages; add to or remove from your collection from the actions popup; create, rename, describe and reorder your playlists, with a `y/n` question before anything is removed, or manage them from a shell with `tidal-player playlist`. [The TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI)
 - **Search, mixes and radio**: search tracks, albums, artists and playlists (`g s`), open your daily mixes (`g m`) or the radio of a track or artist (`r`), and filter any list as you type (`/`)
+- **Links**: copy the Tidal link of a track, album, artist, playlist or mix from its actions popup (*Copy link*), and open a link you copied elsewhere with `g p`: its page opens, or a track joins the queue. Uses `wl-clipboard` on Wayland, `xclip` or `xsel` on X11, and the terminal's own clipboard (OSC 52) over SSH. [Links and the clipboard](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#links-and-the-clipboard)
 - **Browse**: `g b` opens what Tidal picks, as tabs you page through with `[` and `]`: the personal home, staff picks, genres, moods and decades, each leading to pages of albums, playlists, artists, mixes and tracks that open and play like any other. `hide_browse_pages` hides the pages with nothing to show. [Browse](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#browse)
 - **Lyrics**: `l` shows the playing track's lyrics; synced lyrics follow the singing with the current line highlighted, and scroll by hand with the list keys. [Lyrics](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#lyrics)
 - **Logs**: every player writes `tidal-player.log` in its state directory, and `g o` shows the player's log lines (and the TUI's own) in a page that follows the newest, filters with `/` and exports with `e`; `log_level` in `app.toml` sets how much is kept. [Logs](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#logs)
@@ -52,6 +53,7 @@ Press `g` and wait: a hint lists the keys that can follow.
 ## Requirements
 
 - Linux with ALSA. MPRIS and desktop notifications need a D-Bus session bus, and the session is kept in the system keyring when there is one (otherwise in an encrypted file)
+- Optional, for copying and opening links: `wl-clipboard` on Wayland, `xclip` or `xsel` on X11
 - A paid Tidal subscription; hi-res streams need a plan that includes them
 - To build: Rust 1.97 or newer, a C compiler and `cmake` (libFLAC is built in), `pkg-config` and the ALSA headers
 

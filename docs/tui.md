@@ -113,6 +113,7 @@ The default keys, with the command each one runs. Every key can be changed in `k
 | `l`, `g L` | `LyricsPage` | open the [lyrics](#lyrics) of the playing track |
 | `g o` | `OpenLogs` | open the [logs](#logs) page |
 | `e` | `ExportLogs` | on the logs page: [export](#logs) the lines it holds to a file |
+| `g p` | `OpenSpotifyLinkFromClipboard` | open the Tidal link in the [clipboard](#links-and-the-clipboard) |
 | `r` | `GoToRadio` (an `[[actions]]` entry) | open the [radio](#mixes-and-radio) of the selected track or artist |
 | `/` | `Search` | [filter](#filtering-a-list) the rows of the focused window or the queue |
 | `backspace`, `C-q` | `PreviousPage` | back to the previous page |
@@ -490,12 +491,12 @@ What the log holds, by group (the text after the message is `name=value` fields)
 
 | On | Actions, in this order |
 |---|---|
-| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Go to radio*, *Add to queue*, *Play next*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist* |
-| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Go to radio*, *Play next* (not for the playing track), *Remove from queue*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…* |
-| An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection*, *Add to playlist…* |
-| A playlist | *Open*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection* (not your own playlists), *Delete playlist* (your own only) |
-| An artist | *Open*, *Go to radio*, *Add to collection*, *Remove from collection* |
-| A mix | *Open* |
+| A track on a page | *Go to album*, *Go to artist: <name>* (one per artist), *Go to radio*, *Add to queue*, *Play next*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…*, and on a page of your own playlist *Remove from this playlist*, *Copy link* |
+| A queue entry, or the playing track | *Go to album*, *Go to artist: …*, *Go to radio*, *Play next* (not for the playing track), *Remove from queue*, *Add to Collected Tracks*, *Remove from Collected Tracks*, *Add to playlist…*, *Copy link* |
+| An album | *Open*, *Go to artist: …*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection*, *Add to playlist…*, *Copy link* |
+| A playlist | *Open*, *Add to queue*, *Play next*, *Add to collection*, *Remove from collection* (not your own playlists), *Delete playlist* (your own only), *Copy link* |
+| An artist | *Open*, *Go to radio*, *Add to collection*, *Remove from collection*, *Copy link* |
+| A mix | *Open*, *Copy link* |
 | The pinned *Collected Tracks* row of the library's Playlists | *Open*, *Add to queue*, *Play next*, *Add to playlist…* (the last three load every collected track first) |
 
 *Go to album* is left out for a track without an album. A track goes to *Collected Tracks*, an album, an artist or a playlist to your *collection* ([why](#the-library-and-collected-tracks)). Tidal's collection cannot be queried for one item yet, so both *Add to Collected Tracks* and *Remove from Collected Tracks* (or *Add to collection* and *Remove from collection*) are offered; the one that does not apply is harmless.
@@ -564,6 +565,26 @@ A public playlist says `public` in the page's title, and a description shows on 
 - `Backspace` deletes the last character; `Esc` closes the prompt without adding anything (`Esc` otherwise does nothing: `q` quits)
 
 While the prompt is open every key types into it: `Space`, `q` and the other keys do not reach the player. An invalid item (`Not a Tidal track, album or playlist: …`) or a failed fetch (`Album 123 was not found`) closes the prompt and shows the message in the playback window; the queue is unchanged.
+
+## Links and the clipboard
+
+*Copy link*, the last entry of the [actions popup](#actions) on a track, an album, an artist, a playlist or a mix, puts its Tidal link on the clipboard (`https://tidal.com/browse/album/10`) and says `Link copied: …`. In `keymap.toml` it is the `CopyLink` action, with no key by default (see [Actions](config.md#actions)).
+
+`g p` (`OpenSpotifyLinkFromClipboard`, spotify-player's name) opens the Tidal link in the clipboard, as the [prompts](#adding-tracks) read links, artist and mix links too:
+
+- an album, playlist, artist or mix link opens its page; nothing plays until `Enter` on a track
+- a track link or a track ID goes to the end of the queue, as `o` would
+- anything else says `Not a Tidal link: …`, and an empty clipboard `The clipboard is empty`
+
+The TUI uses the clipboard of the machine it runs on, attached to a daemon or not:
+
+| Session | Copies with | Reads with |
+|---|---|---|
+| Wayland (`WAYLAND_DISPLAY` set) | `wl-copy` | `wl-paste` (both in `wl-clipboard`) |
+| X11 (`DISPLAY` set) | `xclip`, or `xsel` | `xclip`, or `xsel` |
+| neither (a console, SSH) | OSC 52: the terminal's clipboard escape, which kitty, foot, WezTerm, iTerm2 and xterm (with `allowWindowOps`) honour; in tmux, `set -g set-clipboard on` | nothing: `g p` says what it needs |
+
+A missing tool is named in the message row (`Copying the link needs wl-copy: install wl-clipboard`); a tool that takes longer than 2 seconds is stopped.
 
 ## Playback
 

@@ -165,7 +165,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `OpenCommandHelp` | `?`、`C-h` | 所有地方 | this help |
 | `Quit` | `q`、`C-c` | 所有地方 | quit (an attached TUI detaches) |
 
-給 `[[actions]]` 用的動作（0006 的彈出視窗項目；沿用 spotify-player 的名稱，本專案新增的標 *）：`GoToAlbum`、`GoToArtist`（第一位藝人；彈出視窗會逐一列出）、`AddToQueue`、`PlayNext`*、`AddToLiked`、`DeleteFromLiked`、`AddToPlaylist`（開啟播放清單選擇器）、`DeleteFromPlaylist`（自己的播放清單頁）、`RemoveFromQueue`*（佇列項目）、`DeletePlaylist`*（自己的播放清單，仍然會問 `y/n`）。spotify-player 沒有對應項目的動作（`GoToRadio`、`CopyLink`、`ToggleLiked`、`Follow`……）會像不支援的指令一樣被略過。
+給 `[[actions]]` 用的動作（0006 的彈出視窗項目；沿用 spotify-player 的名稱，本專案新增的標 *）：`GoToAlbum`、`GoToArtist`（第一位藝人；彈出視窗會逐一列出）、`AddToQueue`、`PlayNext`*、`AddToLiked`、`DeleteFromLiked`、`AddToPlaylist`（開啟播放清單選擇器）、`DeleteFromPlaylist`（自己的播放清單頁）、`RemoveFromQueue`*（佇列項目）、`DeletePlaylist`*（自己的播放清單，仍然會問 `y/n`）。spotify-player 沒有對應項目的動作（`ToggleLiked`、`Follow`……；`GoToRadio` 隨 [0011](0011-mixes-and-radio.md)、`CopyLink` 隨 [0030](0030-clipboard-links.md) 移出此清單）會像不支援的指令一樣被略過。
 
 <a id="key-sequences-and-where-keys-act"></a>
 ### 按鍵序列與按鍵在哪裡有作用

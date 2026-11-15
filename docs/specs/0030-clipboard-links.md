@@ -2,7 +2,7 @@
 
 English | [正體中文](zh-TW/0030-clipboard-links.md)
 
-- **Status**: approved (2026-11-16; the user approved every spec in advance and asked for the PR to be left for review)
+- **Status**: implemented (2026-11-16); approved 2026-11-16 (the user approved every spec in advance and asked for the PR to be left for review)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#57](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/57)
 - **Depends on**: 0004 (implemented: links and track IDs, `Open`), 0006 (implemented: the actions popup, pages), 0007 (implemented: the `o`/`O` prompts), 0008 (implemented: the keymap, `[[actions]]`, the skipped names), 0011 (implemented: mix pages), 0020 (implemented: the selection actions)
@@ -146,3 +146,13 @@ Assumed until the hands-on check:
 - Reading a link out of surrounding text
 - A `clipboard` setting in `app.toml`, or a custom copy/paste command (spotify-player's `copy_command`/`paste_command`)
 - `tidal-player playback` one-shot commands for links (#67)
+
+## Implementation notes
+
+- A failed copy or read is also a `clipboard failed` line in the TUI's log (0027's rule: what the user was shown fails), through `events::clipboard_failed`, a row of `crates/app/src/logging/events/tests.rs` :: `ac17_tui_rows`
+- A tool ended by a signal says `<tool> was stopped by a signal`; one that cannot be started for another reason than a missing program says `<tool>: <reason>`
+- When the output is captured and a child of the tool keeps the pipe open after the tool exits, the read times out like a tool that does not finish
+- A whole-list load (0006) counts as something over the page, like a popup: the command does nothing and an answer is dropped
+- `base64` moved from the binary's dev-dependencies to its dependencies, for OSC 52; no new crate
+- The test modules of `item.rs` and `tui/clipboard.rs` live in `item/tests.rs` and `tui/clipboard/tests.rs` (both modules passed 200 lines)
+- `ac6_late_answer_dropped` also passes against the red step's stub, which ignored every answer; AC6's red failure is `ac6_clipboard_text`'s
