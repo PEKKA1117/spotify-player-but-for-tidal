@@ -101,10 +101,10 @@ Only the TUI touches the clipboard: copying and reading never reach the player, 
 |---|---|---|---|
 | AC1 | `crates/core/src/item.rs` :: `ac1_link_round_trip` (table) + `crates/core/src/item.rs` :: `ac1_artist_and_mix_links` (table) + `crates/core/src/item.rs` :: `ac1_parse_item_refuses_artist_and_mix` | kind → link → kind; each variant of an artist and a mix link; `parse_item` unchanged | the stub `parse_link` reads nothing |
 | AC2 | `crates/core/src/ui/popup/tests.rs` :: `ac2_copy_link_entries` (table) | the last entry of each row kind's actions, and its absence on *Collected Tracks* and the selection | no *Copy link* entry |
-| AC3 | `crates/core/src/ui/tests.rs` :: `ac3_copy_link_from_popup` + `crates/core/src/ui/tests.rs` :: `ac3_copied_message` (table) | the popup closes and `Effect::Copy` carries the link; each result's message | the entry does nothing |
-| AC4 | `crates/core/src/ui/keymap/tests.rs` :: `ac4_copy_link_action` + `crates/core/src/ui/tests.rs` :: `ac4_copy_link_binding` (table) | the name parses with both targets and gives no notice; both targets' effects, nothing on *Collected Tracks* | `CopyLink` is skipped with a notice |
-| AC5 | `crates/core/src/ui/keymap/tests.rs` :: `ac5_open_link_from_clipboard_command` + `crates/core/src/ui/tests.rs` :: `ac5_reads_the_clipboard_on_a_page` (table) | default `g p`, no notice, help text; `Effect::ReadClipboard` on a page and nothing over a popup, a prompt or the help | the command is skipped with a notice |
-| AC6 | `crates/core/src/ui/tests.rs` :: `ac6_clipboard_text` (table) + `crates/core/src/ui/tests.rs` :: `ac6_late_answer_dropped` | per text: the page pushed and asked for, `Open` at the end, or the message; the answer dropped under a popup, a prompt or the help | the answer is ignored |
+| AC3 | `crates/core/src/ui/clipboard.rs` :: `ac3_copy_link_from_popup` + `crates/core/src/ui/clipboard.rs` :: `ac3_copied_message` (table) | the popup closes and `Effect::Copy` carries the link; each result's message | the entry does nothing |
+| AC4 | `crates/core/src/ui/keymap/tests.rs` :: `ac4_copy_link_action` + `crates/core/src/ui/clipboard.rs` :: `ac4_copy_link_binding` (table) | the name parses with both targets and gives no notice; both targets' effects, nothing on *Collected Tracks* | `CopyLink` is skipped with a notice |
+| AC5 | `crates/core/src/ui/keymap/tests.rs` :: `ac5_open_link_from_clipboard_command` + `crates/core/src/ui/clipboard.rs` :: `ac5_reads_the_clipboard_on_a_page` (table) | default `g p`, no notice, help text; `Effect::ReadClipboard` on a page and nothing over a popup, a prompt or the help | the command is skipped with a notice |
+| AC6 | `crates/core/src/ui/clipboard.rs` :: `ac6_clipboard_text` (table) + `crates/core/src/ui/clipboard.rs` :: `ac6_late_answer_dropped` | per text: the page pushed and asked for, `Open` at the end, or the message; the answer dropped under a popup, a prompt or the help | the answer is ignored |
 | AC7 | `crates/app/src/tui/clipboard.rs` :: `ac7_provider` (table) | environment → provider | the stub always picks OSC 52 |
 | AC8 | `crates/app/src/tui/clipboard.rs` :: `ac8_copy` (table, fake runner) | programs and arguments run, the input given, the result per runner outcome | the stub runs nothing and fails |
 | AC9 | `crates/app/src/tui/clipboard.rs` :: `ac9_read` (table, fake runner) + `crates/app/src/tui/clipboard.rs` :: `ac9_runner_cuts_and_times_out` (real `sh`) | programs run and the result per outcome; 64 KiB cut and the 2-second kill with a real process | the stub runs nothing and fails |
@@ -116,7 +116,7 @@ Manual checks (hands-on, live Tidal, tmux 150 × 42, Wayland): *Copy link* on an
 ## Crate placement
 
 - `tidal-player-core::item`: `Link` (the five kinds), `Link::url`, `parse_link`, sharing `parse_item`'s reading
-- `tidal-player-core::ui`: `MenuAction::CopyLink` and the popups' lists (`popup`), `ActionKind::CopyLink` and `UiCommand::OpenSpotifyLinkFromClipboard` (`keymap`), the help texts (`help`), `Effect::Copy` / `Effect::ReadClipboard` and `Action::Copied` / `Action::ClipboardRead` (`mod`), what the answers do (`browse`)
+- `tidal-player-core::ui`: `MenuAction::CopyLink` and the popups' lists (`popup`), `ActionKind::CopyLink` and `UiCommand::OpenSpotifyLinkFromClipboard` (`keymap`), the help texts (`help`), `Effect::Copy` / `Effect::ReadClipboard` and `Action::Copied` / `Action::ClipboardRead` (`mod`), what they do (a new `clipboard` module)
 - `tidal-player` binary, `tui::clipboard`: the provider choice, the commands per provider, the messages, OSC 52 (pure), and the process runner behind a `Runner` trait with a fake; `main.rs` runs the effects in the TUI's loop and feeds the results back as the next frame's actions
 
 ## Facts vs. assumptions

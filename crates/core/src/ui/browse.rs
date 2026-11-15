@@ -1385,6 +1385,7 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
                 Write::Edit { uuid, done },
             )
         }
+        MenuAction::CopyLink(_) => Vec::new(),
         MenuAction::DeletePlaylist { uuid, title } => {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),

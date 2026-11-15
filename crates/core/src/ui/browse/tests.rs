@@ -210,6 +210,8 @@ enum Out {
     Devices,
     Logs,
     Export,
+    /// Spec 0030: the TUI's clipboard.
+    Clipboard,
 }
 
 fn outs(effects: &[Effect]) -> Vec<Out> {
@@ -222,6 +224,7 @@ fn outs(effects: &[Effect]) -> Vec<Out> {
             Effect::Devices { .. } => Out::Devices,
             Effect::Logs { .. } => Out::Logs,
             Effect::ExportLogs { .. } => Out::Export,
+            Effect::Copy(_) | Effect::ReadClipboard => Out::Clipboard,
         })
         .collect()
 }

@@ -294,6 +294,7 @@ fn run<C: Connector>(
                         exported.push(Action::LogsExported(result));
                     }
                     Effect::Envy(envy) => return Ok(Some(envy)),
+                    Effect::Copy(_) | Effect::ReadClipboard => {}
                 }
             }
         }

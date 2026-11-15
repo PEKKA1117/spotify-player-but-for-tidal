@@ -319,6 +319,8 @@ pub enum UiCommand {
     ClosePopup,
     /// The Themes popup (spec 0017).
     SwitchTheme,
+    /// Opens the Tidal link in the clipboard (spec 0030).
+    OpenSpotifyLinkFromClipboard,
     OpenCommandHelp,
     Quit,
 }
@@ -443,6 +445,7 @@ impl UiCommand {
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
             Self::SwitchTheme => "SwitchTheme",
+            Self::OpenSpotifyLinkFromClipboard => "OpenSpotifyLinkFromClipboard",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
         }
@@ -544,6 +547,8 @@ pub enum ActionKind {
     DeleteFromPlaylist,
     RemoveFromQueue,
     DeletePlaylist,
+    /// Copies the item's Tidal link (spec 0030).
+    CopyLink,
 }
 
 /// Every action, in the spec's order.
@@ -576,6 +581,7 @@ impl ActionKind {
             Self::DeleteFromPlaylist => "DeleteFromPlaylist",
             Self::RemoveFromQueue => "RemoveFromQueue",
             Self::DeletePlaylist => "DeletePlaylist",
+            Self::CopyLink => "CopyLink",
         }
     }
 

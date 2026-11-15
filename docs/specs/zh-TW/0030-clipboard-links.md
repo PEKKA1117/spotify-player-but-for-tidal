@@ -110,10 +110,10 @@ TUI 使用它繪製所在機器的剪貼簿，每次都依環境選擇：
 |---|---|---|---|
 | AC1 | `crates/core/src/item.rs` :: `ac1_link_round_trip`（表格）+ `crates/core/src/item.rs` :: `ac1_artist_and_mix_links`（表格）+ `crates/core/src/item.rs` :: `ac1_parse_item_refuses_artist_and_mix` | 類型 → 連結 → 類型；藝人與 mix 連結的每種變化；`parse_item` 不變 | 存根 `parse_link` 什麼都讀不出來 |
 | AC2 | `crates/core/src/ui/popup/tests.rs` :: `ac2_copy_link_entries`（表格） | 各種列的動作的最後一項，以及在 *Collected Tracks* 與選取上沒有它 | 沒有 *Copy link* 項目 |
-| AC3 | `crates/core/src/ui/tests.rs` :: `ac3_copy_link_from_popup` + `crates/core/src/ui/tests.rs` :: `ac3_copied_message`（表格） | 彈出視窗關閉且 `Effect::Copy` 帶著連結；每種結果的訊息 | 該項目什麼都不做 |
-| AC4 | `crates/core/src/ui/keymap/tests.rs` :: `ac4_copy_link_action` + `crates/core/src/ui/tests.rs` :: `ac4_copy_link_binding`（表格） | 名稱以兩種 target 解析且不產生提示；兩種 target 的 effect，在 *Collected Tracks* 上沒有 | `CopyLink` 被略過並出現提示 |
-| AC5 | `crates/core/src/ui/keymap/tests.rs` :: `ac5_open_link_from_clipboard_command` + `crates/core/src/ui/tests.rs` :: `ac5_reads_the_clipboard_on_a_page`（表格） | 預設 `g p`、沒有提示、說明文字；頁面上產生 `Effect::ReadClipboard`，在彈出視窗、輸入提示或說明之上沒有 | 指令被略過並出現提示 |
-| AC6 | `crates/core/src/ui/tests.rs` :: `ac6_clipboard_text`（表格）+ `crates/core/src/ui/tests.rs` :: `ac6_late_answer_dropped` | 每段文字：推入並請求的頁面、加到尾端的 `Open`，或訊息；在彈出視窗、輸入提示或說明之下丟棄回應 | 回應被忽略 |
+| AC3 | `crates/core/src/ui/clipboard.rs` :: `ac3_copy_link_from_popup` + `crates/core/src/ui/clipboard.rs` :: `ac3_copied_message`（表格） | 彈出視窗關閉且 `Effect::Copy` 帶著連結；每種結果的訊息 | 該項目什麼都不做 |
+| AC4 | `crates/core/src/ui/keymap/tests.rs` :: `ac4_copy_link_action` + `crates/core/src/ui/clipboard.rs` :: `ac4_copy_link_binding`（表格） | 名稱以兩種 target 解析且不產生提示；兩種 target 的 effect，在 *Collected Tracks* 上沒有 | `CopyLink` 被略過並出現提示 |
+| AC5 | `crates/core/src/ui/keymap/tests.rs` :: `ac5_open_link_from_clipboard_command` + `crates/core/src/ui/clipboard.rs` :: `ac5_reads_the_clipboard_on_a_page`（表格） | 預設 `g p`、沒有提示、說明文字；頁面上產生 `Effect::ReadClipboard`，在彈出視窗、輸入提示或說明之上沒有 | 指令被略過並出現提示 |
+| AC6 | `crates/core/src/ui/clipboard.rs` :: `ac6_clipboard_text`（表格）+ `crates/core/src/ui/clipboard.rs` :: `ac6_late_answer_dropped` | 每段文字：推入並請求的頁面、加到尾端的 `Open`，或訊息；在彈出視窗、輸入提示或說明之下丟棄回應 | 回應被忽略 |
 | AC7 | `crates/app/src/tui/clipboard.rs` :: `ac7_provider`（表格） | 環境 → 提供者 | 存根一律選 OSC 52 |
 | AC8 | `crates/app/src/tui/clipboard.rs` :: `ac8_copy`（表格、假實作 runner） | 執行的程式與參數、給的輸入、每種 runner 結果對應的結果 | 存根什麼都不執行並失敗 |
 | AC9 | `crates/app/src/tui/clipboard.rs` :: `ac9_read`（表格、假實作 runner）+ `crates/app/src/tui/clipboard.rs` :: `ac9_runner_cuts_and_times_out`（真的 `sh`） | 執行的程式與每種結果；以真實行程驗證 64 KiB 截斷與 2 秒終止 | 存根什麼都不執行並失敗 |
@@ -126,7 +126,7 @@ TUI 使用它繪製所在機器的剪貼簿，每次都依環境選擇：
 ## Crate 配置
 
 - `tidal-player-core::item`：`Link`（五種類型）、`Link::url`、`parse_link`，與 `parse_item` 共用讀取邏輯
-- `tidal-player-core::ui`：`MenuAction::CopyLink` 與彈出視窗的清單（`popup`）、`ActionKind::CopyLink` 與 `UiCommand::OpenSpotifyLinkFromClipboard`（`keymap`）、說明文字（`help`）、`Effect::Copy`／`Effect::ReadClipboard` 與 `Action::Copied`／`Action::ClipboardRead`（`mod`）、回應的處理（`browse`）
+- `tidal-player-core::ui`：`MenuAction::CopyLink` 與彈出視窗的清單（`popup`）、`ActionKind::CopyLink` 與 `UiCommand::OpenSpotifyLinkFromClipboard`（`keymap`）、說明文字（`help`）、`Effect::Copy`／`Effect::ReadClipboard` 與 `Action::Copied`／`Action::ClipboardRead`（`mod`）、它們的處理（新的 `clipboard` 模組）
 - `tidal-player` 執行檔，`tui::clipboard`：提供者的選擇、各提供者的指令、訊息、OSC 52（純函式），以及位於 `Runner` trait 後、有假實作的行程執行器；`main.rs` 在 TUI 的迴圈中執行這些 effect，並把結果當成下一個畫面的動作送回
 
 <a id="facts-vs-assumptions"></a>

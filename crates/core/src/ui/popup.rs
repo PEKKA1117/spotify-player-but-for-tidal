@@ -3,7 +3,7 @@
 //! question and the role filter; the devices (spec 0014) and the themes
 //! (spec 0017). Pure data and the actions per item.
 
-use crate::item::Item;
+use crate::item::{Item, Link};
 use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
 use crate::protocol::{DeviceEntry, InsertAt};
 use crate::track::{ArtistRef, EntryId, Track};
@@ -91,6 +91,8 @@ pub enum MenuAction {
         title: String,
         public: bool,
     },
+    /// *Copy link* (spec 0030): the row's Tidal link.
+    CopyLink(Link),
 }
 
 impl MenuAction {
@@ -115,6 +117,7 @@ impl MenuAction {
             Self::EditDescription { .. } => "Edit description…".into(),
             Self::SetPublic { public: true, .. } => "Make public".into(),
             Self::SetPublic { public: false, .. } => "Make private".into(),
+            Self::CopyLink(_) => "Copy link".into(),
         }
     }
 }

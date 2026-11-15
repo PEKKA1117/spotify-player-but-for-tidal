@@ -30,6 +30,29 @@ impl std::fmt::Display for Item {
     }
 }
 
+/// What a Tidal link names (spec 0030): an item the queue takes, or an
+/// artist or a mix, which only open a page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Link {
+    Item(Item),
+    Artist(u64),
+    /// A mix ID, as written.
+    Mix(String),
+}
+
+impl Link {
+    /// The link *Copy link* copies: `https://tidal.com/browse/<kind>/<id>`.
+    pub fn url(&self) -> String {
+        String::new()
+    }
+}
+
+/// Reads a link (or a bare track ID) with [`parse_item`]'s rules, artist
+/// and mix links too (spec 0030 AC1).
+pub fn parse_link(_input: &str) -> Option<Link> {
+    None
+}
+
 /// Hosts whose links are accepted (compared in lower case).
 const HOSTS: [&str; 3] = ["tidal.com", "www.tidal.com", "listen.tidal.com"];
 
@@ -248,6 +271,98 @@ mod tests {
                 Ok(item) => assert_eq!(got, Ok(item), "{input:?}"),
                 Err(()) => assert_eq!(got, Err(ItemError(input.clone())), "{input:?}"),
             }
+        }
+    }
+
+    const MIX: &str = "0016bd04834072e9da423a4f4d911d";
+
+    #[test]
+    fn ac1_link_round_trip() {
+        let table = [
+            (
+                Link::Item(Item::Track(TrackId(77640617))),
+                "https://tidal.com/browse/track/77640617",
+            ),
+            (
+                Link::Item(Item::Album(123)),
+                "https://tidal.com/browse/album/123",
+            ),
+            (Link::Artist(7804), "https://tidal.com/browse/artist/7804"),
+            (
+                Link::Item(Item::Playlist(UUID.into())),
+                "https://tidal.com/browse/playlist/0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+            ),
+            (
+                Link::Mix(MIX.into()),
+                "https://tidal.com/browse/mix/0016bd04834072e9da423a4f4d911d",
+            ),
+        ];
+        for (link, url) in table {
+            assert_eq!(link.url(), url, "{link:?}");
+            assert_eq!(parse_link(url), Some(link.clone()), "{url}");
+        }
+    }
+
+    #[test]
+    fn ac1_artist_and_mix_links() {
+        let artist = Some(Link::Artist(7804));
+        let mix = Some(Link::Mix(MIX.into()));
+        let table: Vec<(&str, Option<Link>)> = vec![
+            ("https://tidal.com/artist/7804", artist.clone()),
+            ("https://listen.tidal.com/artist/7804", artist.clone()),
+            ("https://www.tidal.com/browse/artist/7804/", artist.clone()),
+            ("https://tidal.com/browse/artist/7804/u", artist.clone()),
+            ("https://tidal.com/browse/artist/7804?u#x", artist.clone()),
+            ("tidal://artist/7804", artist.clone()),
+            ("  https://TIDAL.com/Artist/7804\n", artist.clone()),
+            (
+                "https://tidal.com/browse/mix/0016bd04834072e9da423a4f4d911d",
+                mix.clone(),
+            ),
+            (
+                "https://listen.tidal.com/mix/0016bd04834072e9da423a4f4d911d/",
+                mix.clone(),
+            ),
+            ("tidal://mix/0016bd04834072e9da423a4f4d911d?u", mix.clone()),
+            (
+                "https://tidal.com/mix/0016bd04834072e9da423a4f4d911d/u",
+                mix.clone(),
+            ),
+            (
+                "https://tidal.com/mix/00ABcd",
+                Some(Link::Mix("00ABcd".into())),
+            ),
+            // A track ID and the queue's links are links too.
+            ("77640617", Some(Link::Item(Item::Track(TrackId(77640617))))),
+            (
+                "https://tidal.com/album/123/u",
+                Some(Link::Item(Item::Album(123))),
+            ),
+            // Refused.
+            ("https://tidal.com/browse/artist/abc", None),
+            ("https://tidal.com/browse/artist/", None),
+            ("https://tidal.com/browse/mix/", None),
+            ("https://tidal.com/browse/mix/a-b", None),
+            ("https://tidal.com/browse/mix/a b", None),
+            ("https://example.com/artist/7804", None),
+            ("https://tidal.com/browse/video/123", None),
+            ("Listen: https://tidal.com/artist/7804", None),
+            ("", None),
+            ("hello", None),
+        ];
+        for (input, want) in table {
+            assert_eq!(parse_link(input), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn ac1_parse_item_refuses_artist_and_mix() {
+        for input in [
+            "https://tidal.com/browse/artist/7804",
+            "https://tidal.com/browse/mix/0016bd04834072e9da423a4f4d911d",
+        ] {
+            assert_eq!(parse_item(input), Err(ItemError(input.into())), "{input}");
+            assert!(parse_link(input).is_some(), "{input}");
         }
     }
 
