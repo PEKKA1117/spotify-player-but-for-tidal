@@ -12,6 +12,15 @@ use tidal_player_core::notify::{NotifySettings, Request, supports_markup};
 
 pub use crate::player::mpris::{Level, Log};
 
+/// Log lines through `tracing`, under this module's name: the player's log
+/// (spec 0027), a daemon's stderr included.
+pub fn tracing_log() -> Log {
+    Arc::new(|level, line| match level {
+        Level::Info => tracing::info!("{line}"),
+        Level::Warn => tracing::warn!("{line}"),
+    })
+}
+
 /// How long a notification waits for its cover.
 pub const COVER_WAIT: Duration = Duration::from_secs(2);
 /// How long one call to the server may take.

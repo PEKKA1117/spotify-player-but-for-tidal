@@ -55,9 +55,13 @@ Flat keys, every one optional.
 | `hide_versions` | array of strings (`[]` hides nothing) | the sixteen words of [Settings](playback.md#settings) | `TIDAL_PLAYER_HIDE_VERSIONS` | player |
 | `hide_browse_pages` | array of strings (`[]` hides nothing) | `["videos", "tidal_magazine"]` | `TIDAL_PLAYER_HIDE_BROWSE_PAGES` (comma-separated; empty hides nothing) | TUI |
 | `player_event_hook_command` | a table: `command`, and optional `args` (see [below](#running-a-command-on-player-events)) | none | | player |
+| `enable_notify` | `true`, `false` | `true` | `TIDAL_PLAYER_ENABLE_NOTIFY` (`on`, `off`) | player |
+| `notify_format` | a table: optional `summary` and `body` strings (see [below](#desktop-notifications)) | `{ summary = "{track} • {artists}", body = "{album}" }` | | player |
+| `notify_timeout_in_secs` | integer 0–3600 (`0`: the notification server's own time) | `0` | `TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS` | player |
+| `notify_transient` | `true`, `false` (`true`: the server keeps no history of them) | `false` | `TIDAL_PLAYER_NOTIFY_TRANSIENT` (`on`, `off`) | player |
 | `[layout] library = { playlist_percent, album_percent }` | integers 1–98 each, sum at most 99; *Artists* takes the rest | `40`, `40` | | TUI |
 
-What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `hide_browse_pages` in [Browse](tui.md#browse) (the names are the part of a page's path after `pages/`, matched exactly, and only links are hidden); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md); `log_level` in [Logs](tui.md#what-is-logged-and-where) (the lowest level kept from this program's crates; each process reads its own, an attached TUI for its own lines only); `theme` names one of the themes in [`theme.toml`](#themetoml) (`default` when there is none), and `T` switches it while the TUI runs (see [Themes](tui.md#themes)). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
+What each setting does is described in [Settings](playback.md#settings); `output_device` is the device a player starts on: one chosen while it runs (`D`, `tidal-player playback device`) lasts for that run only, so set `output_device` to keep it (see [Choosing the output device](playback.md#choosing-the-output-device)); the library layout in [Windows](tui.md#windows); `key_hints` and `key_hints_delay_ms` in [Key hints](tui.md#key-hints); `hide_browse_pages` in [Browse](tui.md#browse) (the names are the part of a page's path after `pages/`, matched exactly, and only links are hidden); `cover_img`, `cover_img_rows` and `cover_img_protocol` in [Album cover](tui.md#album-cover); `mpris` and `max_cover_arts` in [Desktop controls and media keys](mpris.md); `enable_notify`, `notify_format`, `notify_timeout_in_secs` and `notify_transient` in [Desktop notifications](#desktop-notifications); `log_level` in [Logs](tui.md#what-is-logged-and-where) (the lowest level kept from this program's crates; each process reads its own, an attached TUI for its own lines only); `theme` names one of the themes in [`theme.toml`](#themetoml) (`default` when there is none), and `T` switches it while the TUI runs (see [Themes](tui.md#themes)). The album covers are kept in the **cache directory**: `$TIDAL_PLAYER_CACHE_DIR`, else `$XDG_CACHE_HOME/tidal-player`, else `~/.cache/tidal-player` (see [Album covers](mpris.md#album-covers)).
 
 ```toml
 # ~/.config/tidal-player/app.toml
@@ -132,6 +136,42 @@ Player event hook is too slow: events were dropped
 ```
 
 When the player shuts down with a track playing or paused it sends `Stopped`, and gives the command up to 2 s to finish what is waiting. `app.toml` is read once, at start.
+
+## Desktop notifications
+
+When a track starts, the desktop shows a notification with the track's album cover, a summary and a body:
+
+```
+[cover]  Song (Live) • First Artist, Second Artist
+         The Album
+```
+
+The settings are spotify-player's, with the same names, defaults and meaning:
+
+```toml
+enable_notify = true
+notify_format = { summary = "{track} • {artists}", body = "{album}" }
+notify_timeout_in_secs = 0
+notify_transient = false
+```
+
+`summary` and `body` are texts with three placeholders; everything else, `\n` included, is kept as written. Leaving one out keeps its default; `summary` must not be empty, `body` may be (`body = ""` shows the summary only).
+
+| Placeholder | Value |
+|---|---|
+| `{track}` | The title, with its version in parentheses when it has one (`Song (Live)`) |
+| `{artists}` | The artists, joined with `, ` |
+| `{album}` | The album's title; empty when the track has no album |
+
+Any other `{name}` is an error in `app.toml`, so a typo shows at start; a `{` with no `}` is plain text.
+
+- **Which tracks**: a notification follows a track that starts, so skipping quickly through a queue notifies only the track that really plays, and each new notification replaces the previous one instead of stacking up. The same track again (repeat-one, the same track twice in a row, playing it again after a stop) does not notify again. Pausing, seeking, the volume and the device notify nothing
+- **Who sends it**: the player, whichever kind it is (standalone, the daemon or `play`), so with a daemon a track gives one notification however many TUIs are attached. `tidal-player play` of one track ID asks Tidal for the track's title when notifications are on
+- **The cover**: the file in the cover cache (see [Album covers](mpris.md#album-covers)), given to the server by its absolute path. A cover that is not cached yet is waited for up to 2 s; then the notification goes out without one, and is not sent again. With `max_cover_arts = 0` there is no cache, and notifications have no cover
+- **Markup**: for a notification server that reads the body as markup, `&`, `<` and `>` in the body are escaped, so a title like `Rock & Roll` shows whole
+- **`notify_timeout_in_secs`**: how long the notification stays; `0` leaves it to the notification server. **`notify_transient`**: the server does not keep the notifications in its history
+
+Without a notification server nothing goes wrong and no client says anything: playback never waits for the bus. With no session bus at all (over SSH, on a bare console) the player's [log](tui.md#logs) has one `info` line and the player tries nothing more. With a bus but no notification server, or a server that fails or does not answer within 5 s, the log has one `warn` line, and nothing more until a notification succeeds; each new track tries again, so a notification server that starts after the daemon works from then on. Notifications have their own connection to the bus, so they work with `mpris = false`. `enable_notify = false` (or `TIDAL_PLAYER_ENABLE_NOTIFY=off`) turns them off: nothing connects for them.
 
 ## `theme.toml`
 

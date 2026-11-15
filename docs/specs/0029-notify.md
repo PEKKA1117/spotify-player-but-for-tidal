@@ -207,3 +207,16 @@ Assumptions, to confirm while implementing; a wrong one comes back to this spec:
 - Closing the notification when the player stops or shuts down
 - macOS and Windows notification systems
 - Making the 2 s cover wait or the 5 s call limit configurable
+
+## Implementation notes
+
+- **The title helper**: `Track::display_title()` (`tidal-player-core::track`) is the title with its version, used by `{track}` and by the event hook's `TIDAL_PLAYER_TRACK_TITLE`
+- **Parsing the format**: a placeholder is a `{` followed by a `}` with no `{` between; its name must be exactly `track`, `artists` or `album` (`{ track }` and `{Track}` are unknown, `{}` too). A `{` followed by another `{` or the end is text. The `app.toml` errors are `invalid notify_format.summary: unknown placeholder {title}: expected {track}, {artists} or {album}`, `invalid notify_format.summary: expected a non-empty string, got ""`, `invalid notify_format.body: expected a string, got 1` and `unknown setting "notify_format.icon"`
+- **Escaping**: with `body-markup`, the whole rendered body is escaped, the format's own text included, so a body cannot carry markup of its own
+- **Unknown metadata**: a started track whose title is empty (`play` of one track ID without its metadata request) is not handed to the notifier and does not count as the last notified track
+- **The 5 s limit** is zbus's method timeout on the notifier's own connection (`Builder::method_timeout`); a timed-out call is `CallError::TimedOut`. When `GetCapabilities` fails, that track's `Notify` is not sent: the failure counts as the notification's, is logged as one, and the next track asks again
+- **The log**: the lines are `No session bus, desktop notifications are off: <zbus error>` (`info`) and `Desktop notification failed: <server error>` or `… : no answer within 5 s` (`warn`), through `tracing` under `tidal_player::player::notify`
+- **The cover's path** is made absolute with `std::path::absolute` (no symlinks resolved), so a relative `TIDAL_PLAYER_CACHE_DIR` still gives an absolute `image-path`
+- **The connection** is opened on the worker's thread, so a slow bus delays no player start. Shutting down drops a waiting notification; a call in flight ends on its own
+- **Tests outside this spec**: `tests/mpris.rs` sets `TIDAL_PLAYER_ENABLE_NOTIFY=off` (it counts MPRIS's connections to the bus), and the two `tests/cli.rs` tests of `play` of one track ID without a metadata request (0003's errors) set it too, since notifications on make `play` fetch the track first (AC13)
+- **End to end**: `tests/notify.rs` plays a one-second FLAC from the mock API to ALSA's `null` PCM (silent, no card), with a recording `org.freedesktop.Notifications` served by the test on a private `dbus-daemon`

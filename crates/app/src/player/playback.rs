@@ -312,7 +312,7 @@ mod alsa_play {
             crate::player::hook::Stderr::Inherit,
         );
         let notifier =
-            crate::player::notify::start(&request.notify, crate::player::mpris::tracing_log());
+            crate::player::notify::start(&request.notify, crate::player::notify::tracing_log());
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);

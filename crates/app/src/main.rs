@@ -514,7 +514,7 @@ fn daemon(plan: &StorePlan, app: &AppConfig) -> Result<ExitCode> {
     ))
     .with_notifier(notify::start(
         &notify::Settings::from_env(&player_settings),
-        mpris::tracing_log(),
+        notify::tracing_log(),
     ));
     let player_runtime = match logs {
         Some(logs) => player_runtime.with_logs(logs),
@@ -836,7 +836,7 @@ fn standalone(
     ))
     .with_notifier(notify::start(
         &notify::Settings::from_env(&player_settings),
-        mpris::tracing_log(),
+        notify::tracing_log(),
     ));
     let player_runtime = match logs {
         Some(logs) => player_runtime.with_logs(logs),

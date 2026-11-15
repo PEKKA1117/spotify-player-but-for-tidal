@@ -116,6 +116,20 @@ hide_versions = [
 # (TIDAL_PLAYER_HIDE_BROWSE_PAGES, comma-separated)
 hide_browse_pages = ["videos", "tidal_magazine"]
 
+# A desktop notification when a track starts, with the album cover; each
+# one replaces the previous. true or false. (TIDAL_PLAYER_ENABLE_NOTIFY,
+# on/off) See docs/config.md, "Desktop notifications".
+enable_notify = true
+# The notification's text: {track} (the title, with its version), {artists}
+# and {album}; any other {name} is an error. body = "" shows the summary only.
+notify_format = { summary = "{track} • {artists}", body = "{album}" }
+# How long a notification stays: 0 to 3600 s; 0 leaves it to the
+# notification server. (TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS)
+notify_timeout_in_secs = 0
+# true: the notification server keeps no history of them.
+# (TIDAL_PLAYER_NOTIFY_TRANSIENT, on/off)
+notify_transient = false
+
 # A command run on each player event, for status bars or scrobbling: its
 # args, then the event's name and arguments. Not set by default. See
 # docs/config.md, "Running a command on player events".
