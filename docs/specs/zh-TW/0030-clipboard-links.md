@@ -138,9 +138,11 @@ TUI 使用它繪製所在機器的剪貼簿，每次都依環境選擇：
 - `wl-copy` 與 `xclip` 預設會 fork，並在背景提供剪貼簿內容（見它們的 man page：`--foreground`、`-quiet` 可關閉），所以啟動的行程很快就結束，而子行程仍開著繼承來的標準輸出與標準錯誤
 - spotify-player 的原始碼（`spotify_player/src/command.rs`、`event/mod.rs`、它的 README）：`CopyLink` 是曲目、專輯、藝人與播放清單上的動作；`OpenSpotifyLinkFromClipboard` 是綁定 `O` 的指令，曲目連結會直接播放，播放清單、藝人或專輯連結則開啟其頁面。兩者目前都在本按鍵對應的略過清單中（`crates/core/src/ui/keymap.rs`）
 
-在手動檢查前的假設：
+手動檢查時確認（2026-11-16，live Tidal、Wayland）：在專輯、藝人、mix 與曲目上 *Copy link* 後，`wl-paste` 印出該連結；`g p` 從 `https://listen.tidal.com/artist/<id>/u` 開啟藝人頁面、從複製的連結開啟 mix 頁面、把單純的曲目 ID 加入佇列，並拒絕前後有其他文字的連結。
 
-- mix 連結的形式是 `https://tidal.com/browse/mix/<id>`（0011 的 mix ID 與 Tidal 分享選單使用的形式）；手動檢查會開啟一個
+仍是假設：
+
+- Tidal 自己的分享選單給出的 mix 連結形式是 `https://tidal.com/browse/mix/<id>`；手動檢查開啟的是本播放器複製的連結，而不是 Tidal 分享選單的連結
 
 <a id="decisions"></a>
 ## 決策

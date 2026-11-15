@@ -127,9 +127,11 @@ Verified (2026-11-16, on the maintainer's machine, Sway, wl-clipboard 2.3.0, xcl
 - `wl-copy` and `xclip` fork by default and serve the clipboard in the background (their man pages: `--foreground`, `-quiet` turn it off), so the process started exits soon while a child keeps the inherited standard output and error open
 - spotify-player's source (`spotify_player/src/command.rs`, `event/mod.rs`, its README): `CopyLink` is an action on tracks, albums, artists and playlists; `OpenSpotifyLinkFromClipboard` is a command bound to `O`, which plays a track link and opens the page of a playlist, artist or album link. Both are in this keymap's skipped lists today (`crates/core/src/ui/keymap.rs`)
 
-Assumed until the hands-on check:
+Checked at the hands-on run (2026-11-16, live Tidal, Wayland): *Copy link* on an album, an artist, a mix and a track puts the link `wl-paste` then prints; `g p` opens an artist page from `https://listen.tidal.com/artist/<id>/u`, a mix page from its copied link, queues a bare track ID, and refuses text around a link.
 
-- Mix links have the form `https://tidal.com/browse/mix/<id>` (the form 0011's mix IDs and Tidal's share menu use); the hands-on check opens one
+Still assumed:
+
+- Tidal's own share menu gives mix links as `https://tidal.com/browse/mix/<id>`; the run opened a mix from the link this player copies, not from Tidal's share menu
 
 ## Decisions
 
