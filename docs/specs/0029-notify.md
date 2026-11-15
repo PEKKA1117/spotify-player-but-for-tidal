@@ -2,7 +2,7 @@
 
 English | [正體中文](zh-TW/0029-notify.md)
 
-- **Status**: approved (2026-11-16)
+- **Status**: implemented (2026-11-16; approved 2026-11-16)
 - **Owner**: tech-lead (primary session)
 - **Issue**: [#55](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/55)
 - **Depends on**: 0004 (implemented: the player's states and started tracks), 0005 (implemented: the daemon), 0008 (implemented: `app.toml`), 0010 and 0016 (implemented: the cover cache), 0025 (implemented: what the runtime knows about a started track), 0027 (implemented: the log)

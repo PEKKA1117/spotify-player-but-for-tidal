@@ -3,7 +3,7 @@
 <a id="0029--desktop-notification-on-track-change"></a>
 # 0029 — 換曲目時的桌面通知
 
-- **狀態**：approved（2026-11-16）
+- **狀態**：implemented（2026-11-16；approved 2026-11-16）
 - **負責人**：tech-lead（主要工作階段）
 - **Issue**：[#55](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/55)
 - **相依於**：0004（implemented：播放器的狀態與已開始的曲目）、0005（implemented：常駐程式）、0008（implemented：`app.toml`）、0010 與 0016（implemented：封面快取）、0025（implemented：runtime 對已開始曲目所知的資訊）、0027（implemented：記錄檔）
