@@ -20,7 +20,7 @@ use tidal_player_core::player::{Failure, FailureKind};
 use tidal_player_core::protocol::{
     Command, Event as PlayerEvent, PlaybackState, PlayerSnapshot, RepeatMode,
 };
-use tidal_player_core::{AudioQuality, Item, Track};
+use tidal_player_core::{AudioQuality, Item, Track, TrackId};
 
 use crate::logging::events::{self, Shutdown};
 use crate::player::runtime::{
@@ -311,29 +311,63 @@ impl PlayOptions {
     }
 }
 
+/// Whether `play` of one track ID asks for its metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackMetadata {
+    /// No: queued nameless, as 0003 played it.
+    Skip,
+    /// For a notification (spec 0029): a failed request falls back to the
+    /// nameless track, which is then not notified.
+    Wanted,
+    /// For a hook (spec 0025): a failed request is `play`'s error.
+    Needed,
+}
+
+/// What `play` of one track ID asks for: a hook (spec 0025) needs the
+/// track's title, a notification (spec 0029) wants it.
+pub fn needs_metadata(settings: &crate::settings::PlayerSettings) -> TrackMetadata {
+    if settings.hook.is_some() {
+        TrackMetadata::Needed
+    } else if settings.notify.enabled {
+        TrackMetadata::Wanted
+    } else {
+        TrackMetadata::Skip
+    }
+}
+
 /// The queue `play` loads: the items expanded in order. One track ID with
-/// no new flag and no hook is queued as 0003 played it, without a metadata
-/// request (its errors are 0003's, from the stream resolution); a hook needs
-/// the track's title (spec 0025).
+/// no new flag is queued as 0003 played it, without a metadata request
+/// (its errors are 0003's, from the stream resolution), unless `metadata`
+/// ([`needs_metadata`]) asks for one.
 pub async fn play_tracks(
     meta: &dyn Metadata,
     items: &[Item],
     options: &PlayOptions,
-    hooked: bool,
+    metadata: TrackMetadata,
 ) -> Result<Vec<Track>, ExpandError> {
+    let nameless = |id: TrackId| Track {
+        id,
+        title: String::new(),
+        version: None,
+        artists: Vec::new(),
+        album: None,
+        duration: None,
+        streamable: true,
+    };
     if let [Item::Track(id)] = items
         && !options.has_new_flag()
-        && !hooked
     {
-        return Ok(vec![Track {
-            id: *id,
-            title: String::new(),
-            version: None,
-            artists: Vec::new(),
-            album: None,
-            duration: None,
-            streamable: true,
-        }]);
+        match metadata {
+            TrackMetadata::Skip => return Ok(vec![nameless(*id)]),
+            // Only a notification wants the title: without it the track is
+            // queued as 0003 queues it, and not notified (spec 0029).
+            TrackMetadata::Wanted => {
+                return Ok(expand_items(meta, items)
+                    .await
+                    .unwrap_or_else(|_| vec![nameless(*id)]));
+            }
+            TrackMetadata::Needed => {}
+        }
     }
     expand_items(meta, items).await
 }

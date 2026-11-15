@@ -5,6 +5,7 @@ pub mod item;
 pub mod library;
 pub mod log;
 pub mod lyrics;
+pub mod notify;
 pub mod player;
 pub mod protocol;
 pub mod quality;

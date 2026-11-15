@@ -389,6 +389,9 @@ impl Machine {
             .env("TIDAL_PLAYER_API_BASE", &self.api)
             .env("TIDAL_PLAYER_IMAGES_BASE", &self.api)
             .env("DBUS_SESSION_BUS_ADDRESS", &self.bus)
+            // Notifications have a connection of their own (spec 0029):
+            // these tests count MPRIS's.
+            .env("TIDAL_PLAYER_ENABLE_NOTIFY", "off")
             .env_remove("TIDAL_PLAYER_MPRIS")
             .env_remove("TIDAL_PLAYER_MAX_COVER_ARTS")
             .env_remove("CREDENTIALS_DIRECTORY")

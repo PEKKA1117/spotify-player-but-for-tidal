@@ -39,6 +39,10 @@ pub struct PlayRequest {
     pub mpris: crate::player::mpris::Settings,
     /// The command run on each player event (spec 0025).
     pub hook: Option<crate::config::HookCommand>,
+    /// Desktop notifications on track change (spec 0029).
+    pub notify: crate::player::notify::Settings,
+    /// One track ID is fetched for its title ([`crate::cli::play::needs_metadata`]).
+    pub needs_metadata: crate::cli::play::TrackMetadata,
     /// The process's log buffer, which `Logs` requests are answered from
     /// (spec 0027).
     pub logs: Option<crate::logging::LogHandle>,
@@ -264,7 +268,7 @@ mod alsa_play {
                     metadata.as_ref(),
                     &request.items,
                     &request.options,
-                    request.hook.is_some(),
+                    request.needs_metadata,
                 )
                 .await;
                 (country, tracks)
@@ -307,6 +311,8 @@ mod alsa_play {
             results.clone(),
             crate::player::hook::Stderr::Inherit,
         );
+        let notifier =
+            crate::player::notify::start(&request.notify, crate::player::notify::tracing_log());
         let jobs = TokioJobs::new(runtime.handle().clone(), opener, metadata, results);
         let mut config = request.player.clone();
         config.country = Some(country);
@@ -314,7 +320,8 @@ mod alsa_play {
         let engine = spawn_output(&config.device, request.release_paused);
         let mut player = PlayerRuntime::new(config, time_seed(), engine, jobs)
             .with_requested(request.settings.quality)
-            .with_hook(hook);
+            .with_hook(hook)
+            .with_notifier(notifier);
         if let Some(logs) = request.logs.clone() {
             player = player.with_logs(logs);
         }

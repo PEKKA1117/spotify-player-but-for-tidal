@@ -22,6 +22,7 @@ A terminal player for [Tidal](https://tidal.com) on Linux, in the spirit of [spo
 - **A real queue**: shuffle, repeat, autoplay with Tidal's suggestions when the queue runs out, and the last session (queue, position, modes, volume) restored when you start again
 - **Daemon and clients**: run the player headless as a systemd user service, attach any number of TUIs, and control it with one-shot `tidal-player playback …` commands. The audio device is released while paused. [Daemon](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon)
 - **Desktop controls**: media keys, Bluetooth headsets, GNOME/KDE media controls and `playerctl` over MPRIS, album cover included. [MPRIS](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS)
+- **Desktop notifications**: a notification with the cover, title, artists and album when a track starts, replacing the previous one; its text is set with `notify_format`, and `enable_notify = false` turns it off. Without a notification server nothing happens and nothing complains. [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration#desktop-notifications)
 - **Player events**: run your own command when a track changes, pauses, stops or ends, with the track's title, artists and album in its environment, for status bars and scrobbling. [Configuration](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration#running-a-command-on-player-events)
 - **Album cover**: the current track's cover beside the playback window in terminals that draw images (kitty, Ghostty, foot, WezTerm, iTerm2, and through tmux), or as coloured blocks anywhere; `cover_img = false` turns it off. [Album cover](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI#album-cover)
 - **Output devices**: switch the output device while a track plays (`D` in the TUI, `tidal-player playback device` from a shell), without losing your place
@@ -50,7 +51,7 @@ Press `g` and wait: a hint lists the keys that can follow.
 
 ## Requirements
 
-- Linux with ALSA. MPRIS needs a D-Bus session bus, and the session is kept in the system keyring when there is one (otherwise in an encrypted file)
+- Linux with ALSA. MPRIS and desktop notifications need a D-Bus session bus, and the session is kept in the system keyring when there is one (otherwise in an encrypted file)
 - A paid Tidal subscription; hi-res streams need a plan that includes them
 - To build: Rust 1.97 or newer, a C compiler and `cmake` (libFLAC is built in), `pkg-config` and the ALSA headers
 

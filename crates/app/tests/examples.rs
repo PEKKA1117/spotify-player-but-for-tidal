@@ -56,6 +56,14 @@ fn ac18_example_app_toml_is_the_defaults() {
         ("cover_img", file.cover_img.is_none()),
         ("cover_img_rows", file.cover_img_rows.is_none()),
         ("cover_img_protocol", file.cover_img_protocol.is_none()),
+        // Spec 0029 AC16.
+        ("enable_notify", file.enable_notify.is_none()),
+        ("notify_format", file.notify_format.is_none()),
+        (
+            "notify_timeout_in_secs",
+            file.notify_timeout_in_secs.is_none(),
+        ),
+        ("notify_transient", file.notify_transient.is_none()),
     ]
     .into_iter()
     .filter_map(|(key, missing)| missing.then_some(key))

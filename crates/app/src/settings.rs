@@ -141,6 +141,14 @@ pub const COVER_IMG_VAR: &str = "TIDAL_PLAYER_COVER_IMG";
 pub const COVER_IMG_ROWS_VAR: &str = "TIDAL_PLAYER_COVER_IMG_ROWS";
 /// The cover's graphics protocol (spec 0016).
 pub const COVER_IMG_PROTOCOL_VAR: &str = "TIDAL_PLAYER_COVER_IMG_PROTOCOL";
+/// `on` or `off`: desktop notifications on track change (spec 0029).
+pub const ENABLE_NOTIFY_VAR: &str = "TIDAL_PLAYER_ENABLE_NOTIFY";
+/// How long a notification stays, 0 to 3600 s (`0`: the server's own
+/// time; spec 0029).
+pub const NOTIFY_TIMEOUT_VAR: &str = "TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS";
+/// `on` or `off`: whether the server keeps notifications out of its history
+/// (spec 0029).
+pub const NOTIFY_TRANSIENT_VAR: &str = "TIDAL_PLAYER_NOTIFY_TRANSIENT";
 /// The lowest level the log keeps, over `log_level` in `app.toml` (spec
 /// 0027).
 pub const LOG_LEVEL_VAR: &str = "TIDAL_PLAYER_LOG_LEVEL";
@@ -222,6 +230,8 @@ pub struct PlayerSettings {
     pub hook: Option<crate::config::HookCommand>,
     /// The lowest level the log keeps (spec 0027).
     pub log_level: tidal_player_core::log::LogSetting,
+    /// Desktop notifications on track change (spec 0029).
+    pub notify: tidal_player_core::notify::NotifySettings,
 }
 
 impl Default for PlayerSettings {
@@ -248,6 +258,7 @@ impl Default for PlayerSettings {
             cover_img_protocol: crate::tui::cover::ProtocolSetting::Auto,
             hook: None,
             log_level: tidal_player_core::log::LogSetting::default(),
+            notify: tidal_player_core::notify::NotifySettings::default(),
         }
     }
 }
@@ -388,6 +399,15 @@ fn resolve_with(
             message: format!("expected off, error, warn, info, debug or trace, got \"{value}\""),
         })?;
     }
+    if let Some(on) = on_off(get(ENABLE_NOTIFY_VAR), ENABLE_NOTIFY_VAR)? {
+        settings.notify.enabled = on;
+    }
+    if let Some(value) = get(NOTIFY_TIMEOUT_VAR) {
+        settings.notify.timeout_secs = int_in(&value, NOTIFY_TIMEOUT_VAR, 0, 3600)? as u16;
+    }
+    if let Some(on) = on_off(get(NOTIFY_TRANSIENT_VAR), NOTIFY_TRANSIENT_VAR)? {
+        settings.notify.transient = on;
+    }
     if let Some(value) = get(MAX_COVER_ARTS_VAR) {
         settings.max_cover_arts = int_in(&value, MAX_COVER_ARTS_VAR, 0, 1000)? as u16;
     }
@@ -459,6 +479,18 @@ fn apply_file(settings: &mut PlayerSettings, file: &AppConfig) {
     }
     if let Some(max) = file.max_cover_arts {
         settings.max_cover_arts = max;
+    }
+    if let Some(on) = file.enable_notify {
+        settings.notify.enabled = on;
+    }
+    if let Some(format) = &file.notify_format {
+        settings.notify.format = format.clone();
+    }
+    if let Some(secs) = file.notify_timeout_in_secs {
+        settings.notify.timeout_secs = secs;
+    }
+    if let Some(on) = file.notify_transient {
+        settings.notify.transient = on;
     }
     if let Some(release) = file.release_paused {
         settings.release_paused = release;
