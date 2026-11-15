@@ -56,7 +56,11 @@
 | link | 連結 |
 | log / logs page | 記錄檔／記錄頁 |
 | login / log in | 登入 |
+| end to end (test) | 端對端 |
+| timeout | 逾時 |
 | lyrics | 歌詞 |
+| markup (notification body) | 標記語言 |
+| metadata | 中繼資料 |
 | message row | 訊息列 |
 | notification / notification server | 通知／通知伺服器 |
 | notification summary / body | 摘要／內文 |

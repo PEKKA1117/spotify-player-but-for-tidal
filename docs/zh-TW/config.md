@@ -58,9 +58,13 @@ cp examples/app.toml examples/keymap.toml examples/theme.toml ~/.config/tidal-pl
 | `hide_versions` | 字串陣列（`[]` 表示不隱藏任何東西） | [設定](playback.md#settings)中列出的十六個詞 | `TIDAL_PLAYER_HIDE_VERSIONS` | 播放器 |
 | `hide_browse_pages` | 字串陣列（`[]` 表示不隱藏任何東西） | `["videos", "tidal_magazine"]` | `TIDAL_PLAYER_HIDE_BROWSE_PAGES`（以逗號分隔；空值表示不隱藏任何東西） | TUI |
 | `player_event_hook_command` | 一個表格：`command`，以及選用的 `args`（見[下方](#running-a-command-on-player-events)） | 無 | | player |
+| `enable_notify` | `true`、`false` | `true` | `TIDAL_PLAYER_ENABLE_NOTIFY`（`on`、`off`） | player |
+| `notify_format` | 一個表格：選用的 `summary` 與 `body` 字串（見[下方](#desktop-notifications)） | `{ summary = "{track} • {artists}", body = "{album}" }` | | player |
+| `notify_timeout_in_secs` | 整數 0–3600（`0`：由通知伺服器自行決定時間） | `0` | `TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS` | player |
+| `notify_transient` | `true`、`false`（`true`：伺服器不保留這些通知的歷史紀錄） | `false` | `TIDAL_PLAYER_NOTIFY_TRANSIENT`（`on`、`off`） | player |
 | `[layout] library = { playlist_percent, album_percent }` | 各為整數 1–98，總和最多 99；*Artists*（藝人）佔用其餘部分 | `40`、`40` | | TUI |
 
-各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`hide_browse_pages` 說明於[瀏覽](tui.md#browse)（名稱是頁面路徑中 `pages/` 之後的部分，須完全相符，且只隱藏連結）；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)；`log_level` 見[記錄](tui.md#what-is-logged-and-where)（本程式各 crate 保留的最低等級；每個行程讀取自己的設定，連上播放器的 TUI 只用於它自己的記錄行）；`theme` 指定 [`theme.toml`](#themetoml) 中的一個佈景主題（沒有檔案時為 `default`），TUI 執行期間可按 `T` 切換（見[佈景主題](tui.md#themes)）。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
+各項設定的作用說明於[設定](playback.md#settings)；`output_device` 是播放器啟動時使用的裝置：執行期間選擇的裝置（`D`、`tidal-player playback device`）只在該次執行有效，要保留請設定 `output_device`（見[選擇輸出裝置](playback.md#choosing-the-output-device)）；音樂庫的版面配置說明於[視窗](tui.md#windows)；`key_hints` 與 `key_hints_delay_ms` 說明於[按鍵提示](tui.md#key-hints)；`hide_browse_pages` 說明於[瀏覽](tui.md#browse)（名稱是頁面路徑中 `pages/` 之後的部分，須完全相符，且只隱藏連結）；`cover_img`、`cover_img_rows` 與 `cover_img_protocol` 說明於[專輯封面](tui.md#album-cover)；`mpris` 與 `max_cover_arts` 說明於[桌面控制與多媒體鍵](mpris.md)；`enable_notify`、`notify_format`、`notify_timeout_in_secs` 與 `notify_transient` 說明於[桌面通知](#desktop-notifications)；`log_level` 見[記錄](tui.md#what-is-logged-and-where)（本程式各 crate 保留的最低等級；每個行程讀取自己的設定，連上播放器的 TUI 只用於它自己的記錄行）；`theme` 指定 [`theme.toml`](#themetoml) 中的一個佈景主題（沒有檔案時為 `default`），TUI 執行期間可按 `T` 切換（見[佈景主題](tui.md#themes)）。專輯封面存放在**快取目錄**：`$TIDAL_PLAYER_CACHE_DIR`，否則 `$XDG_CACHE_HOME/tidal-player`，否則 `~/.cache/tidal-player`（見[專輯封面](mpris.md#album-covers)）。
 
 ```toml
 # ~/.config/tidal-player/app.toml
@@ -136,6 +140,43 @@ Player event hook is too slow: events were dropped
 ```
 
 播放器在播放或暫停中關閉時會送出 `Stopped`，並最多給指令 2 秒處理排隊中的事件。`app.toml` 只在啟動時讀取一次。
+
+<a id="desktop-notifications"></a>
+## 桌面通知
+
+曲目開始時，桌面會顯示一則通知，內含該曲目的專輯封面、摘要與內文：
+
+```
+[cover]  Song (Live) • First Artist, Second Artist
+         The Album
+```
+
+這些設定沿用 spotify-player 的，名稱、預設值與意義都相同：
+
+```toml
+enable_notify = true
+notify_format = { summary = "{track} • {artists}", body = "{album}" }
+notify_timeout_in_secs = 0
+notify_transient = false
+```
+
+`summary` 與 `body` 是含三個預留位置的文字；其餘內容（包括 `\n`）照寫的原樣保留。省略其中一個就沿用其預設值；`summary` 不可為空，`body` 可以為空（`body = ""` 只顯示摘要）。
+
+| 預留位置 | 值 |
+|---|---|
+| `{track}` | 標題；有版本時在括號中附上版本（`Song (Live)`） |
+| `{artists}` | 藝人，以 `, ` 連接 |
+| `{album}` | 專輯標題；曲目沒有專輯時為空 |
+
+其他任何 `{name}` 都會在 `app.toml` 中報錯，因此打錯字在啟動時就會看到；沒有 `}` 的 `{` 視為一般文字。
+
+- **哪些曲目**：通知跟隨開始播放的曲目，因此在佇列中快速跳過時，只有真正播放的那首會通知，而且每則新通知都會取代前一則，而不是堆疊起來。同一首曲目再次開始（單曲重複、同一首連續出現兩次、停止後再播放）不會再次通知。暫停、跳轉、音量與裝置都不會通知
+- **誰來送出**：播放器，不論是哪一種（獨立執行、daemon 或 `play`），因此使用 daemon 時，不論連了多少個 TUI，一首曲目都只有一則通知。開啟通知時，對單一曲目 ID 執行 `tidal-player play` 會向 Tidal 查詢該曲目的標題
+- **封面**：封面快取中的檔案（見[專輯封面](mpris.md#album-covers)），以絕對路徑交給伺服器。尚未快取的封面最多等待 2 秒；之後通知會不帶封面送出，且不會再重送。`max_cover_arts = 0` 時沒有快取，通知也沒有封面
+- **標記語言**：對於把內文當作標記語言讀取的通知伺服器，內文中的 `&`、`<` 與 `>` 會被跳脫，因此像 `Rock & Roll` 這樣的標題能完整顯示
+- **`notify_timeout_in_secs`**：通知停留多久；`0` 表示交由通知伺服器決定。**`notify_transient`**：伺服器不在其歷史紀錄中保留這些通知
+
+沒有通知伺服器時不會出任何問題，任何用戶端也不會說什麼：播放從不等待匯流排。完全沒有工作階段匯流排時（透過 SSH、在純主控台上），播放器的[記錄](tui.md#logs)會有一行 `info`，播放器之後不再嘗試。有匯流排但沒有通知伺服器，或伺服器失敗或 5 秒內沒有回應時，記錄會有一行 `warn`，在通知成功之前不再有其他記錄；每首新曲目都會再試一次，因此在 daemon 之後才啟動的通知伺服器，從那時起就能運作。通知有自己的匯流排連線，所以在 `mpris = false` 時也能運作。`enable_notify = false`（或 `TIDAL_PLAYER_ENABLE_NOTIFY=off`）會關閉通知：不會為它們建立任何連線。
 
 <a id="themetoml"></a>
 ## `theme.toml`

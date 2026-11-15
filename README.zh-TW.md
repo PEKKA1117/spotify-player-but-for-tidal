@@ -24,6 +24,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **記錄**：每個播放器都會在其狀態目錄寫入 `tidal-player.log`，`g o` 在一個會跟隨最新行的頁面顯示播放器（與 TUI 自己）的記錄行，可用 `/` 篩選、用 `e` 匯出；`app.toml` 的 `log_level` 設定保留的量。[記錄](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#logs)
 - **常駐程式與客戶端**：以 systemd 使用者服務在背景執行播放器，可連上任意數量的 TUI，並以單次的 `tidal-player playback …` 指令控制。暫停時會釋放音訊裝置。[常駐程式](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Daemon-zh-TW)
 - **桌面控制**：透過 MPRIS 支援多媒體鍵、藍牙耳機、GNOME/KDE 媒體控制與 `playerctl`，含專輯封面。[桌面控制與多媒體鍵](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/MPRIS-zh-TW)
+- **桌面通知**：曲目開始時顯示一則通知，帶有封面、曲名、藝人與專輯，並取代前一則通知；文字以 `notify_format` 設定，`enable_notify = false` 可關閉。沒有通知伺服器時什麼都不會發生，也不會有任何抱怨。[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW#desktop-notifications)
 - **播放器事件**：在換曲、暫停、停止或播完時執行你自己的指令，環境變數會帶上曲名、藝人與專輯，可用於狀態列和 scrobble。[設定](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Configuration-zh-TW#running-a-command-on-player-events)
 - **專輯封面**：在能繪製圖片的終端機（kitty、Ghostty、foot、WezTerm、iTerm2，也可透過 tmux）中，播放視窗旁會顯示目前曲目的封面，或在任何終端機中以彩色字元繪製；`cover_img = false` 可關閉。[專輯封面](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#album-cover)
 - **輸出裝置**：播放中即可切換輸出裝置（TUI 中的 `D`，或在 shell 中用 `tidal-player playback device`），不會中斷播放位置
@@ -54,7 +55,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 <a id="requirements"></a>
 ## 需求
 
-- 有 ALSA 的 Linux。MPRIS 需要 D-Bus 工作階段匯流排；有系統金鑰圈（keyring）時登入工作階段存放在其中，否則存放在加密檔案
+- 有 ALSA 的 Linux。MPRIS 與桌面通知需要 D-Bus 工作階段匯流排；有系統金鑰圈（keyring）時登入工作階段存放在其中，否則存放在加密檔案
 - 付費的 Tidal 訂閱；hi-res 串流需要包含它的方案
 - 建置需要：Rust 1.97 以上、C 編譯器與 `cmake`（libFLAC 會一併建置進去）、`pkg-config` 與 ALSA 標頭檔
 

@@ -224,3 +224,18 @@ notify_transient = false
 - 播放器停止或關閉時關閉通知
 - macOS 與 Windows 的通知系統
 - 讓 2 秒的封面等待或 5 秒的呼叫限制可設定
+
+<a id="implementation-notes"></a>
+## 實作備註
+
+- **標題輔助函式**：`Track::display_title()`（`tidal-player-core::track`）是帶版本的標題，供 `{track}` 與事件 hook 的 `TIDAL_PLAYER_TRACK_TITLE` 使用
+- **解析格式**：預留位置是一個 `{` 後面接著 `}`，兩者之間沒有 `{`；其名稱必須恰為 `track`、`artists` 或 `album`（`{ track }` 與 `{Track}` 是未知的，`{}` 也是）。`{` 後面接著另一個 `{` 或字串結尾時視為一般文字。`app.toml` 的錯誤為 `invalid notify_format.summary: unknown placeholder {title}: expected {track}, {artists} or {album}`、`invalid notify_format.summary: expected a non-empty string, got ""`、`invalid notify_format.body: expected a string, got 1` 與 `unknown setting "notify_format.icon"`
+- **跳脫**：有 `body-markup` 時，整個轉譯後的內文都會跳脫，格式本身的文字也包含在內，所以內文無法帶有自己的標記語言
+- **未知的中繼資料**：標題為空的已開始曲目（`play` 單一曲目 ID 而沒有其中繼資料請求）不會交給通知器，也不算作最後通知的曲目
+- **5 秒限制**是 zbus 在通知器自己的連線上的方法逾時（`Builder::method_timeout`）；逾時的呼叫是 `CallError::TimedOut`。`GetCapabilities` 失敗時，該曲目的 `Notify` 不會送出：此失敗算作該通知的失敗，記錄為通知的失敗，下一首曲目會再問一次
+- **記錄檔的行**：各行為 `No session bus, desktop notifications are off: <zbus error>`（`info`）以及 `Desktop notification failed: <server error>` 或 `… : no answer within 5 s`（`warn`），透過 `tracing`，位於 `tidal_player::player::notify` 之下
+- **封面的路徑**以 `std::path::absolute` 轉成絕對路徑（不解析符號連結），因此相對的 `TIDAL_PLAYER_CACHE_DIR` 仍會給出絕對的 `image-path`
+- **連線**在工作執行緒上開啟，所以緩慢的 bus 不會拖慢任何播放器的啟動。關閉時會丟棄等待中的通知；進行中的呼叫會自行結束
+- **`play` 單一曲目 ID** 時，有 hook 就以 `TrackMetadata::Needed` 請求其中繼資料（請求失敗是 `play` 的錯誤，如 0025），只有通知時則用 `TrackMetadata::Wanted`：請求失敗會退回 0003 排入佇列的無名曲目，使用者看到的是 0003 自己從串流解析得到的錯誤，而該曲目不會被通知
+- **本規格以外的測試**：`tests/mpris.rs` 設定 `TIDAL_PLAYER_ENABLE_NOTIFY=off`，因為它要計算 MPRIS 與 bus 的連線數
+- **端對端**：`tests/notify.rs` 從模擬 API 播放一段一秒的 FLAC 到 ALSA 的 `null` PCM（靜音，不用音效卡），並由測試在私有的 `dbus-daemon` 上提供一個會記錄的 `org.freedesktop.Notifications`
