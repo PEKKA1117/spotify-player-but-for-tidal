@@ -744,6 +744,14 @@ fn connected(state: &State) -> bool {
     state.connection == Connection::Connected
 }
 
+/// The selected rows' tracks as they are loaded, in list order; `None`
+/// when a row is not a track (an album, a playlist).
+fn selected_tracks(state: &State, origin: Origin) -> Option<Vec<Track>> {
+    let (rows, _) = picked(state, origin);
+    let tracks: Option<Vec<Track>> = rows.iter().map(|r| r.row().track().cloned()).collect();
+    tracks.filter(|t| !t.is_empty())
+}
+
 /// Runs a selection action (the popup closed by the caller) on the
 /// selection at `origin`.
 pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) -> Vec<Effect> {
@@ -753,8 +761,19 @@ pub(super) fn run(state: &mut State, origin: Origin, action: SelectionAction) ->
         if !connected(state) {
             return Vec::new();
         }
+        let tracks = selected_tracks(state, origin);
         clear(state, origin);
-        vec![Effect::Send(Command::Open { items, at })]
+        let Some(tracks) = tracks else {
+            // An album or a playlist among them: the player expands it.
+            return vec![Effect::Send(Command::Open { items, at })];
+        };
+        // The loaded tracks, not their IDs: the player resolves none, so
+        // one that is gone from Tidal fails nothing (spec 0020 Bugs).
+        let Some(at) = at else {
+            return vec![Effect::Send(Command::LoadQueue { tracks, start: 0 })];
+        };
+        // Alone: an idle player is not started (as spec 0028's pinned row).
+        vec![Effect::Send(Command::AddToQueue { tracks, at })]
     };
     match action {
         SelectionAction::Play(items) => open(state, items, None),
