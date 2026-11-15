@@ -33,6 +33,8 @@ insta = "1.49.0"
 # Local time for the log (spec 0027): the system zone, read from TZ or /etc/localtime.
 jiff = { version = "0.2.42", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 keyring = "4.2.0"
+# FLAC decoding (spec 0003 AC32): libFLAC built from the bundled source, static, no Ogg.
+libflac-sys = { version = "0.3.4", default-features = false, features = ["build-flac"] }
 predicates = "3.1.4"
 quick-xml = "0.42.0"
 ratatui = "0.30.2"

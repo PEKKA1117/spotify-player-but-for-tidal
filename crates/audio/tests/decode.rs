@@ -155,7 +155,8 @@ fn ac9_mono_to_stereo() {
 fn ac32_flac_32_bit() {
     let pcm = pcm_left_justified(&fixture("flac32_48.s32le"), 4);
     assert_eq!(pcm.len(), 2400 * 2, "reference PCM");
-    let rows: [(&str, fn() -> FakeSource); 2] = [("raw FLAC", flac32), ("fMP4 segments", dash32)];
+    type Row = (&'static str, fn() -> FakeSource);
+    let rows: [Row; 2] = [("raw FLAC", flac32), ("fMP4 segments", dash32)];
     for (name, source) in rows {
         let (format, samples) = decode_all(Box::new(source())).expect(name);
         assert_eq!(

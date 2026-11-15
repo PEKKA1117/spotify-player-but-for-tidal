@@ -15,6 +15,7 @@ alsa = ["dep:alsa"]
 
 [dependencies]
 alsa = { workspace = true, optional = true }
+libflac-sys = { workspace = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
