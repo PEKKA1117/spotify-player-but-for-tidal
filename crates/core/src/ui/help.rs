@@ -375,6 +375,7 @@ fn in_pages(page: &Page, command: UiCommand) -> bool {
         | C::BrowsePage
         | C::LyricsPage
         | C::OpenLogs
+        | C::OpenSpotifyLinkFromClipboard
         | C::PreviousPage => true,
         C::FocusNextWindow | C::FocusPreviousWindow => {
             page.panes.len() > 1 || page.search.is_some()

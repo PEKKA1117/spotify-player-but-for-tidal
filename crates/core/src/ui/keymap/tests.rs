@@ -1692,7 +1692,7 @@ fn ac9_file_beats_conflicting_defaults() {
             file(vec![entry("g", "LibraryPage")], vec![]),
             vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
             Some(
-                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage), "g o" (OpenLogs)"#,
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage), "g o" (OpenLogs), "g p" (OpenSpotifyLinkFromClipboard)"#,
             ),
         ),
         (

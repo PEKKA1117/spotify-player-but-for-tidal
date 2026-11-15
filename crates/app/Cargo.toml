@@ -18,6 +18,8 @@ alsa = ["tidal-player-audio/alsa"]
 [dependencies]
 age = { workspace = true }
 anyhow = { workspace = true }
+# Spec 0030: OSC 52.
+base64 = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
 directories = { workspace = true }
@@ -43,7 +45,6 @@ zbus = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-base64 = { workspace = true }
 assert_cmd = { workspace = true }
 insta = { workspace = true }
 predicates = { workspace = true }

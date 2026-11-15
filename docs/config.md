@@ -357,6 +357,7 @@ Some keys are **fixed**, not in the keymap: text inputs (the `o`/`O` prompt, the
 | `LyricsPage` | `l`, `g L` | everywhere | lyrics of the playing track |
 | `OpenLogs` | `g o` | everywhere | open the logs page (see [Logs](tui.md#logs)) |
 | `ExportLogs` | `e` | the logs page | export the shown log lines to a file |
+| `OpenSpotifyLinkFromClipboard` | `g p` | pages | open the Tidal link in the clipboard: an album, playlist, artist or mix opens its page, a track goes to the end of the queue (see [Links and the clipboard](tui.md#links-and-the-clipboard); spotify-player's key, `O`, is `PlayNextPrompt` here) |
 | `Search` | `/` | lists | filter the rows (see [Filtering a list](tui.md#filtering-a-list)) |
 | `PreviousPage` | `backspace`, `C-q` | everywhere | back |
 | `ClosePopup` | `esc` | popups, prompts, loads, filters | close / cancel (on a page: clear the focused window's filter; on the lyrics page: follow the current line again; on the logs page: follow the newest line again) |
@@ -384,6 +385,7 @@ For `[[actions]]`; only `GoToRadio` has a default key (`r`, on the selected row)
 | `DeleteFromPlaylist` | remove from this playlist (asks `y/n` first) | tracks on your own playlist's page |
 | `RemoveFromQueue` | remove from the queue (asks `y/n` first) | queue entries, the playing track |
 | `DeletePlaylist` | delete the playlist (still asks `y/n`) | your own playlists |
+| `CopyLink` | copy the item's Tidal link (see [Links and the clipboard](tui.md#links-and-the-clipboard)) | tracks, albums, artists, playlists, mixes |
 
 The three removals ask `y/n` the way the actions popup does, a bound key being no reason to skip it, unless `confirm_removals` is `false`; see [Confirming removals](tui.md#confirming-removals). *Delete playlist* asks whatever it says.
 
@@ -391,8 +393,8 @@ The three removals ask `y/n` the way the actions popup does, a bound key being n
 
 These are skipped, not errors, so a spotify-player `keymap.toml` can be copied as is. The TUI's message row says once at start which ones it skipped: `keymap.toml: 3 spotify-player commands not supported here: PlayRandom, TopTrackPage, SortTrackByTitle`.
 
-- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `OpenSpotifyLinkFromClipboard`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`
-- Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `CopyLink`, `Follow`, `Unfollow`
+- Commands: `PlayRandom`, `RefreshPlayback`, `RestartIntegratedClient`, `ShowActionsOnCurrentContext`, `JumpToHighlightTrackInContext`, `JumpToCurrentTrackInContext`, `BrowseUserPlaylists`, `BrowseUserFollowedArtists`, `BrowseUserSavedAlbums`, `CurrentlyPlayingContextPage`, `TopTrackPage`, `RecentlyPlayedTrackPage`, `SortTrackByTitle`, `SortTrackByArtists`, `SortTrackByAlbum`, `SortTrackByDuration`, `SortTrackByAddedDate`, `ReverseTrackOrder`, `SortLibraryAlphabetically`, `SortLibraryByRecent`
+- Actions: `GoToShow`, `AddToLibrary`, `DeleteFromLibrary`, `ShowActionsOnAlbum`, `ShowActionsOnArtist`, `ShowActionsOnShow`, `ToggleLiked`, `Follow`, `Unfollow`
 
 A misspelt name (`NxtTrack`) is still an error.
 

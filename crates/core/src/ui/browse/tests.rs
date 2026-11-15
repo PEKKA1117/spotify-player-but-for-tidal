@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use crate::item::Item;
+use crate::item::{Item, Link};
 use crate::library::{
     AlbumKind, AlbumSummary, BrowseMore, BrowseRef, BrowseSection, CreditedTrack, FavoriteKind,
     LibraryRequest, LibraryResponse, ListItems, ListPage, ListRef, MixSummary, MixedRow, PageData,
@@ -1044,6 +1044,7 @@ fn ac13_actions_popup() {
     one.artists.push(artist(21));
     let mut two = track(2);
     two.album = None;
+    let copy = |item| M::CopyLink(Link::Item(item));
     let browse_track = |t: &Track| {
         let id = t.id.to_string();
         let mut actions: Vec<M> = t.album.iter().map(|a| M::GoToAlbum(a.id)).collect();
@@ -1055,16 +1056,21 @@ fn ac13_actions_popup() {
             fav_track(id.clone()),
             unfav_track(id),
             M::AddToPlaylist(TrackSource::Tracks(vec![t.clone()])),
+            // Spec 0030: *Copy link* last.
+            copy(Item::Track(t.id)),
         ]);
         actions
     };
     let mut own_playlist_track = browse_track(&track(6));
-    own_playlist_track.push(M::RemoveFromPlaylist {
-        uuid: "p1".into(),
-        title: "Mine".into(),
-        index: 1,
-        etag: Some("e1".into()),
-    });
+    own_playlist_track.insert(
+        own_playlist_track.len() - 1,
+        M::RemoveFromPlaylist {
+            uuid: "p1".into(),
+            title: "Mine".into(),
+            index: 1,
+            etag: Some("e1".into()),
+        },
+    );
     let entry = track(103);
     let queue_entry = vec![
         M::GoToAlbum(10),
@@ -1075,6 +1081,7 @@ fn ac13_actions_popup() {
         fav_track("103".into()),
         unfav_track("103".into()),
         M::AddToPlaylist(TrackSource::Tracks(vec![entry.clone()])),
+        copy(Item::Track(TrackId(103))),
     ];
     let mut playing = queue_entry.clone();
     playing.remove(3);
@@ -1087,6 +1094,7 @@ fn ac13_actions_popup() {
         M::AddFavorite(FavoriteKind::Album, "10".into()),
         M::RemoveFavorite(FavoriteKind::Album, "10".into()),
         M::AddToPlaylist(TrackSource::Album(10)),
+        copy(Item::Album(10)),
     ];
     let p1 = Item::Playlist("p1".into());
     let p2 = Item::Playlist("p2".into());
@@ -1172,6 +1180,7 @@ fn ac13_actions_popup() {
                         uuid: "p1".into(),
                         title: "Mine".into(),
                     },
+                    copy(Item::Playlist("p1".into())),
                 ],
             )),
         ),
@@ -1187,6 +1196,7 @@ fn ac13_actions_popup() {
                     M::PlayNext(p2),
                     M::AddFavorite(FavoriteKind::Playlist, "p2".into()),
                     M::RemoveFavorite(FavoriteKind::Playlist, "p2".into()),
+                    copy(Item::Playlist("p2".into())),
                 ],
             )),
         ),
@@ -1201,6 +1211,7 @@ fn ac13_actions_popup() {
                     M::GoToRadio(PageKind::ArtistRadio(20)),
                     M::AddFavorite(FavoriteKind::Artist, "20".into()),
                     M::RemoveFavorite(FavoriteKind::Artist, "20".into()),
+                    M::CopyLink(Link::Artist(20)),
                 ],
             )),
         ),
@@ -1345,7 +1356,8 @@ fn ac13_actions_popup() {
     assert_eq!(press(&mut state, &[Char('k')]), vec![]);
     assert_eq!(cursor(&state), 0);
     press(&mut state, &[Char('j'); 20]);
-    assert_eq!(cursor(&state), 8);
+    // Ten entries, *Copy link* the last (spec 0030).
+    assert_eq!(cursor(&state), 9);
     let before = state.clone();
     assert_eq!(
         press(
@@ -2070,7 +2082,10 @@ fn ac7_mix_rows() {
     assert_eq!(state.history.len(), 2);
     assert_eq!(state.popup, None);
     assert_eq!(press(&mut state, &GA), vec![]);
-    assert_eq!(labels(&state), vec!["Open".to_owned()]);
+    assert_eq!(
+        labels(&state),
+        vec!["Open".to_owned(), "Copy link".to_owned()]
+    );
     assert_eq!(press(&mut state, &[Key::Esc]), vec![]);
     let effects = run_action(&mut state, &GA, "Open");
     assert_eq!(
@@ -3683,6 +3698,7 @@ fn ac6_actions_of_a_playlist() {
             "Edit description…",
             public,
             "Delete playlist",
+            "Copy link",
         ]
     };
     assert_eq!(labels(&own(false)), edit("Make public"));
@@ -3694,7 +3710,8 @@ fn ac6_actions_of_a_playlist() {
             "Add to queue",
             "Play next",
             "Add to collection",
-            "Remove from collection"
+            "Remove from collection",
+            "Copy link"
         ]
     );
 }

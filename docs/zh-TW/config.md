@@ -370,6 +370,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `LyricsPage` | `l`、`g L` | 所有地方 | lyrics of the playing track（正在播放曲目的歌詞） |
 | `OpenLogs` | `g o` | 所有地方 | open the logs page（開啟記錄頁，見[記錄](tui.md#logs)） |
 | `ExportLogs` | `e` | 記錄頁 | export the shown log lines to a file（把顯示的記錄行匯出到檔案） |
+| `OpenSpotifyLinkFromClipboard` | `g p` | 頁面 | open the Tidal link in the clipboard（開啟剪貼簿中的 Tidal 連結：專輯、播放清單、藝人或 mix 會開啟其頁面，曲目則加到佇列尾端；見[連結與剪貼簿](tui.md#links-and-the-clipboard)。spotify-player 的按鍵 `O` 在這裡是 `PlayNextPrompt`） |
 | `Search` | `/` | 清單 | filter the rows（篩選列；見[篩選清單](tui.md#filtering-a-list)） |
 | `PreviousPage` | `backspace`、`C-q` | 所有地方 | back（返回） |
 | `ClosePopup` | `esc` | 彈出視窗、提示、載入中、篩選 | close / cancel（關閉／取消；在頁面上：清除焦點視窗的篩選；在歌詞頁：重新跟隨目前這一行；在記錄頁：重新跟隨最新的一行） |
@@ -398,6 +399,7 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 | `DeleteFromPlaylist` | 從此播放清單移除（先詢問 `y/n`） | 你自己的播放清單頁面上的曲目 |
 | `RemoveFromQueue` | 從佇列移除（先詢問 `y/n`） | 佇列項目、正在播放的曲目 |
 | `DeletePlaylist` | 刪除播放清單（仍會詢問 `y/n`） | 你自己的播放清單 |
+| `CopyLink` | 複製項目的 Tidal 連結（見[連結與剪貼簿](tui.md#links-and-the-clipboard)） | 曲目、專輯、藝人、播放清單、mix |
 
 除非 `confirm_removals` 為 `false`，這三個移除動作都會像動作選單一樣先詢問 `y/n`，不會因為是綁定的按鍵就略過；見[移除前的確認](tui.md#confirming-removals)。*Delete playlist* 不論設定為何都會詢問。
 
@@ -406,8 +408,8 @@ target = "PlayingTrack"       # or "SelectedItem" (the default)
 
 這些名稱會被略過而不視為錯誤，因此 spotify-player 的 `keymap.toml` 可以原封不動複製過來。TUI 的訊息列會在啟動時說明一次略過了哪些：`keymap.toml: 3 spotify-player commands not supported here: PlayRandom, TopTrackPage, SortTrackByTitle`。
 
-- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`OpenSpotifyLinkFromClipboard`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`
-- 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`CopyLink`、`Follow`、`Unfollow`
+- 命令：`PlayRandom`、`RefreshPlayback`、`RestartIntegratedClient`、`ShowActionsOnCurrentContext`、`JumpToHighlightTrackInContext`、`JumpToCurrentTrackInContext`、`BrowseUserPlaylists`、`BrowseUserFollowedArtists`、`BrowseUserSavedAlbums`、`CurrentlyPlayingContextPage`、`TopTrackPage`、`RecentlyPlayedTrackPage`、`SortTrackByTitle`、`SortTrackByArtists`、`SortTrackByAlbum`、`SortTrackByDuration`、`SortTrackByAddedDate`、`ReverseTrackOrder`、`SortLibraryAlphabetically`、`SortLibraryByRecent`
+- 動作：`GoToShow`、`AddToLibrary`、`DeleteFromLibrary`、`ShowActionsOnAlbum`、`ShowActionsOnArtist`、`ShowActionsOnShow`、`ToggleLiked`、`Follow`、`Unfollow`
 
 拼錯的名稱（`NxtTrack`）仍然是錯誤。
 

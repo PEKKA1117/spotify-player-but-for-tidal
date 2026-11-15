@@ -507,26 +507,31 @@ pub fn apply_themes(state: &mut State, themes: Themes, active: usize) {
     state.themes = themes;
 }
 
+/// `effects` without what would reach the player while it is not there
+/// (spec 0005).
+fn connected_only(state: &State, mut effects: Vec<Effect>) -> Vec<Effect> {
+    if state.connection != Connection::Connected {
+        effects.retain(|e| {
+            !matches!(
+                e,
+                Effect::Send(_)
+                    | Effect::Library { .. }
+                    | Effect::Devices { .. }
+                    | Effect::Logs { .. }
+            )
+        });
+    }
+    effects
+}
+
 /// Applies `action` to `state` and returns the effects the caller must run.
 pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
         Action::Key(key) => {
-            let mut effects = dispatch::key(state, key);
-            // Nothing reaches a player that is not there (spec 0005).
-            if state.connection != Connection::Connected {
-                effects.retain(|e| {
-                    !matches!(
-                        e,
-                        Effect::Send(_)
-                            | Effect::Library { .. }
-                            | Effect::Devices { .. }
-                            | Effect::Logs { .. }
-                    )
-                });
-            }
-            effects
+            let effects = dispatch::key(state, key);
+            connected_only(state, effects)
         }
         Action::Paste(text) => {
             // The help takes pasted text into its filter, and nothing else.
@@ -589,7 +594,10 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
             clipboard::copied(state, &link, result);
             Vec::new()
         }
-        Action::ClipboardRead(result) => clipboard::read(state, result),
+        Action::ClipboardRead(result) => {
+            let effects = clipboard::read(state, result);
+            connected_only(state, effects)
+        }
         Action::Clock(now) => logs::clock(state, now),
         Action::OwnLogs(lines) => {
             logs::own_lines(state, lines);

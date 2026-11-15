@@ -2,7 +2,14 @@
 //! the environment, the tools run for it, and the messages. The decisions
 //! are pure; processes are run behind [`Runner`], faked in the tests.
 
-use std::time::Duration;
+use std::io::{self, Read, Write};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 
 /// How long a clipboard tool may take before it is killed.
 pub const TIMEOUT: Duration = Duration::from_secs(2);
@@ -21,9 +28,16 @@ pub enum Provider {
 }
 
 /// The provider for the environment's `WAYLAND_DISPLAY` and `DISPLAY` (an
-/// empty value counts as unset).
-pub fn provider(_wayland_display: Option<&str>, _display: Option<&str>) -> Provider {
-    Provider::Terminal
+/// empty value counts as unset): Wayland first, as XWayland sets both.
+pub fn provider(wayland_display: Option<&str>, display: Option<&str>) -> Provider {
+    let set = |v: Option<&str>| v.is_some_and(|v| !v.is_empty());
+    if set(wayland_display) {
+        Provider::Wayland
+    } else if set(display) {
+        Provider::X11
+    } else {
+        Provider::Terminal
+    }
 }
 
 /// The provider for this process's environment.
@@ -36,7 +50,7 @@ pub fn from_env() -> Provider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// It exited (`status`: `None` when a signal ended it), having written
-    /// `stdout` (when it was captured, at most [`MAX_OUTPUT`] bytes).
+    /// `stdout` (when it was captured, at most the runner's limit).
     Exited {
         status: Option<i32>,
         stdout: Vec<u8>,
@@ -65,20 +79,117 @@ pub enum Copied {
     Osc52(String),
 }
 
+/// A tool and its arguments.
+type Tool = (&'static str, &'static [&'static str]);
+
+const COPY_WAYLAND: [Tool; 1] = [("wl-copy", &[])];
+const COPY_X11: [Tool; 2] = [
+    ("xclip", &["-selection", "clipboard"]),
+    ("xsel", &["--clipboard", "--input"]),
+];
+const READ_WAYLAND: [Tool; 1] = [("wl-paste", &["--no-newline"])];
+const READ_X11: [Tool; 2] = [
+    ("xclip", &["-selection", "clipboard", "-o"]),
+    ("xsel", &["--clipboard", "--output"]),
+];
+
+/// Runs the first of `tools` that is installed: its name and how it
+/// ended, or `None` when none is.
+fn first_installed(
+    runner: &dyn Runner,
+    tools: &[Tool],
+    input: Option<&[u8]>,
+    capture: bool,
+) -> Option<(&'static str, Outcome)> {
+    tools.iter().find_map(
+        |(tool, args)| match runner.run(tool, args, input, capture) {
+            Outcome::NotFound => None,
+            outcome => Some((*tool, outcome)),
+        },
+    )
+}
+
+/// What `what` needs when none of `provider`'s tools is installed.
+fn missing(what: &str, provider: Provider, wayland_tool: &str) -> String {
+    match provider {
+        Provider::Wayland => format!("{what} needs {wayland_tool}: install wl-clipboard"),
+        _ => format!("{what} needs xclip or xsel: install one of them"),
+    }
+}
+
+/// Why a tool that ran did not do it.
+fn failure(tool: &str, outcome: Outcome) -> String {
+    match outcome {
+        Outcome::Exited {
+            status: Some(n), ..
+        } => format!("{tool} exited with status {n}"),
+        Outcome::Exited { status: None, .. } => format!("{tool} was stopped by a signal"),
+        Outcome::TimedOut => format!("{tool} did not answer"),
+        Outcome::Failed(reason) => format!("{tool}: {reason}"),
+        Outcome::NotFound => format!("{tool} is not installed"),
+    }
+}
+
 /// Copies `link` with `provider`'s tool; the error is the message row's.
-pub fn copy(_runner: &dyn Runner, _provider: Provider, _link: &str) -> Result<Copied, String> {
-    Err(String::new())
+pub fn copy(runner: &dyn Runner, provider: Provider, link: &str) -> Result<Copied, String> {
+    let tools: &[Tool] = match provider {
+        Provider::Wayland => &COPY_WAYLAND,
+        Provider::X11 => &COPY_X11,
+        Provider::Terminal => return Ok(Copied::Osc52(osc52(link))),
+    };
+    match first_installed(runner, tools, Some(link.as_bytes()), false) {
+        None => Err(missing("Copying the link", provider, "wl-copy")),
+        Some((
+            _,
+            Outcome::Exited {
+                status: Some(0), ..
+            },
+        )) => Ok(Copied::Tool),
+        Some((tool, outcome)) => Err(format!(
+            "Could not copy the link: {}",
+            failure(tool, outcome)
+        )),
+    }
 }
 
 /// Reads the clipboard with `provider`'s tool; the error is the message
-/// row's.
-pub fn read(_runner: &dyn Runner, _provider: Provider) -> Result<String, String> {
-    Err(String::new())
+/// row's. A tool that exits with an error found nothing it could give as
+/// text (spec 0030 "Facts").
+pub fn read(runner: &dyn Runner, provider: Provider) -> Result<String, String> {
+    let tools: &[Tool] = match provider {
+        Provider::Wayland => &READ_WAYLAND,
+        Provider::X11 => &READ_X11,
+        Provider::Terminal => {
+            return Err(
+                "Reading the clipboard needs wl-paste (Wayland), xclip or xsel (X11)".into(),
+            );
+        }
+    };
+    match first_installed(runner, tools, None, true) {
+        None => Err(missing("Reading the clipboard", provider, "wl-paste")),
+        Some((
+            _,
+            Outcome::Exited {
+                status: Some(0),
+                stdout,
+            },
+        )) => Ok(String::from_utf8_lossy(&stdout).into_owned()),
+        Some((
+            _,
+            Outcome::Exited {
+                status: Some(_), ..
+            },
+        )) => Err("The clipboard holds no text".into()),
+        Some((tool, outcome)) => Err(format!(
+            "Could not read the clipboard: {}",
+            failure(tool, outcome)
+        )),
+    }
 }
 
 /// The OSC 52 sequence that puts `text` on the terminal's clipboard.
-pub fn osc52(_text: &str) -> String {
-    String::new()
+pub fn osc52(text: &str) -> String {
+    format!("\x1b]52;c;{}\x07", BASE64.encode(text))
 }
 
 /// Runs real processes, killed after `timeout`, reading at most
@@ -99,360 +210,76 @@ impl Default for Processes {
 }
 
 impl Runner for Processes {
-    fn run(
-        &self,
-        _program: &str,
-        _args: &[&str],
-        _input: Option<&[u8]>,
-        _capture: bool,
-    ) -> Outcome {
-        Outcome::Failed("not implemented".into())
+    fn run(&self, program: &str, args: &[&str], input: Option<&[u8]>, capture: bool) -> Outcome {
+        let pipe = |yes: bool| if yes { Stdio::piped() } else { Stdio::null() };
+        let mut child = match Command::new(program)
+            .args(args)
+            .stdin(pipe(input.is_some()))
+            .stdout(pipe(capture))
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Outcome::NotFound,
+            Err(e) => return Outcome::Failed(e.to_string()),
+        };
+        let deadline = Instant::now() + self.timeout;
+        // A link is far below a pipe's buffer, so this does not block; a
+        // tool that exits without reading it fails below by its status.
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take())
+            && let Err(e) = stdin.write_all(input)
+            && e.kind() != io::ErrorKind::BrokenPipe
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Outcome::Failed(e.to_string());
+        }
+        // The output is read on its own thread, up to the limit; dropping
+        // the pipe there ends a tool that writes more.
+        let output = child.stdout.take().map(|stdout| {
+            let (send, receive) = mpsc::channel();
+            let limit = u64::try_from(self.max_output).unwrap_or(u64::MAX);
+            thread::spawn(move || {
+                let mut out = Vec::new();
+                let read = stdout.take(limit).read_to_end(&mut out).map(|_| out);
+                let _ = send.send(read);
+            });
+            receive
+        });
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Outcome::TimedOut;
+                }
+                Ok(None) => thread::sleep(Duration::from_millis(5)),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Outcome::Failed(e.to_string());
+                }
+            }
+        };
+        let stdout = match output {
+            None => Vec::new(),
+            // A child of the tool may still hold the pipe: the deadline
+            // holds for the output too.
+            Some(receive) => {
+                match receive.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(Ok(out)) => out,
+                    Ok(Err(e)) => return Outcome::Failed(e.to_string()),
+                    Err(_) => return Outcome::TimedOut,
+                }
+            }
+        };
+        Outcome::Exited {
+            status: status.code(),
+            stdout,
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::cell::RefCell;
-    use std::time::Instant;
-
-    use super::*;
-
-    const LINK: &str = "https://tidal.com/browse/album/10";
-
-    /// A runner that answers each program with a scripted outcome
-    /// (`NotFound` when it has none) and records what it was asked.
-    struct Fake {
-        answers: Vec<(&'static str, Outcome)>,
-        calls: RefCell<Vec<(String, Vec<String>, Option<Vec<u8>>, bool)>>,
-    }
-
-    impl Fake {
-        fn new(answers: Vec<(&'static str, Outcome)>) -> Self {
-            Self {
-                answers,
-                calls: RefCell::new(Vec::new()),
-            }
-        }
-
-        fn calls(&self) -> Vec<(String, Vec<String>, Option<Vec<u8>>, bool)> {
-            self.calls.borrow().clone()
-        }
-    }
-
-    impl Runner for Fake {
-        fn run(
-            &self,
-            program: &str,
-            args: &[&str],
-            input: Option<&[u8]>,
-            capture: bool,
-        ) -> Outcome {
-            self.calls.borrow_mut().push((
-                program.to_owned(),
-                args.iter().map(|a| (*a).to_owned()).collect(),
-                input.map(<[u8]>::to_vec),
-                capture,
-            ));
-            self.answers
-                .iter()
-                .find(|(p, _)| *p == program)
-                .map_or(Outcome::NotFound, |(_, o)| o.clone())
-        }
-    }
-
-    fn exited(status: i32, stdout: &str) -> Outcome {
-        Outcome::Exited {
-            status: Some(status),
-            stdout: stdout.as_bytes().to_vec(),
-        }
-    }
-
-    fn call(
-        program: &str,
-        args: &[&str],
-        input: Option<&str>,
-        capture: bool,
-    ) -> (String, Vec<String>, Option<Vec<u8>>, bool) {
-        (
-            program.to_owned(),
-            args.iter().map(|a| (*a).to_owned()).collect(),
-            input.map(|i| i.as_bytes().to_vec()),
-            capture,
-        )
-    }
-
-    /// AC7: Wayland first, then X11, else the terminal.
-    #[test]
-    fn ac7_provider() {
-        let cases = [
-            (Some("wayland-1"), Some(":0"), Provider::Wayland),
-            (Some("wayland-1"), None, Provider::Wayland),
-            (None, Some(":0"), Provider::X11),
-            (Some(""), Some(":0"), Provider::X11),
-            (None, None, Provider::Terminal),
-            (Some(""), Some(""), Provider::Terminal),
-        ];
-        for (wayland, display, want) in cases {
-            assert_eq!(provider(wayland, display), want, "{wayland:?} {display:?}");
-        }
-    }
-
-    /// AC8: the tool run per provider, with the link on its input, and the
-    /// result per outcome.
-    #[test]
-    fn ac8_copy() {
-        let wl = || call("wl-copy", &[], Some(LINK), false);
-        let xclip = || call("xclip", &["-selection", "clipboard"], Some(LINK), false);
-        let xsel = || call("xsel", &["--clipboard", "--input"], Some(LINK), false);
-        type Case = (
-            Provider,
-            Vec<(&'static str, Outcome)>,
-            Vec<(String, Vec<String>, Option<Vec<u8>>, bool)>,
-            Result<Copied, String>,
-        );
-        let cases: Vec<Case> = vec![
-            (
-                Provider::Wayland,
-                vec![("wl-copy", exited(0, ""))],
-                vec![wl()],
-                Ok(Copied::Tool),
-            ),
-            (
-                Provider::Wayland,
-                vec![],
-                vec![wl()],
-                Err("Copying the link needs wl-copy: install wl-clipboard".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-copy", exited(1, ""))],
-                vec![wl()],
-                Err("Could not copy the link: wl-copy exited with status 1".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-copy", Outcome::TimedOut)],
-                vec![wl()],
-                Err("Could not copy the link: wl-copy did not answer".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![(
-                    "wl-copy",
-                    Outcome::Exited {
-                        status: None,
-                        stdout: Vec::new(),
-                    },
-                )],
-                vec![wl()],
-                Err("Could not copy the link: wl-copy was stopped by a signal".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-copy", Outcome::Failed("Permission denied".into()))],
-                vec![wl()],
-                Err("Could not copy the link: wl-copy: Permission denied".into()),
-            ),
-            (
-                Provider::X11,
-                vec![("xclip", exited(0, ""))],
-                vec![xclip()],
-                Ok(Copied::Tool),
-            ),
-            (
-                Provider::X11,
-                vec![("xsel", exited(0, ""))],
-                vec![xclip(), xsel()],
-                Ok(Copied::Tool),
-            ),
-            (
-                Provider::X11,
-                vec![("xclip", exited(1, "")), ("xsel", exited(0, ""))],
-                vec![xclip()],
-                Err("Could not copy the link: xclip exited with status 1".into()),
-            ),
-            (
-                Provider::X11,
-                vec![],
-                vec![xclip(), xsel()],
-                Err("Copying the link needs xclip or xsel: install one of them".into()),
-            ),
-            (
-                Provider::Terminal,
-                vec![],
-                vec![],
-                Ok(Copied::Osc52(osc52(LINK))),
-            ),
-        ];
-        for (provider, answers, want_calls, want) in cases {
-            let fake = Fake::new(answers);
-            assert_eq!(copy(&fake, provider, LINK), want, "{provider:?}");
-            assert_eq!(fake.calls(), want_calls, "{provider:?}: {want:?}");
-        }
-    }
-
-    /// AC9: the tool run per provider, and the result per outcome.
-    #[test]
-    fn ac9_read() {
-        let wl = || call("wl-paste", &["--no-newline"], None, true);
-        let xclip = || call("xclip", &["-selection", "clipboard", "-o"], None, true);
-        let xsel = || call("xsel", &["--clipboard", "--output"], None, true);
-        type Case = (
-            Provider,
-            Vec<(&'static str, Outcome)>,
-            Vec<(String, Vec<String>, Option<Vec<u8>>, bool)>,
-            Result<String, String>,
-        );
-        let no_text = || Err("The clipboard holds no text".to_owned());
-        let cases: Vec<Case> = vec![
-            (
-                Provider::Wayland,
-                vec![("wl-paste", exited(0, LINK))],
-                vec![wl()],
-                Ok(LINK.into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-paste", exited(1, ""))],
-                vec![wl()],
-                no_text(),
-            ),
-            (
-                Provider::Wayland,
-                vec![],
-                vec![wl()],
-                Err("Reading the clipboard needs wl-paste: install wl-clipboard".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-paste", Outcome::TimedOut)],
-                vec![wl()],
-                Err("Could not read the clipboard: wl-paste did not answer".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![("wl-paste", Outcome::Failed("Permission denied".into()))],
-                vec![wl()],
-                Err("Could not read the clipboard: wl-paste: Permission denied".into()),
-            ),
-            (
-                Provider::Wayland,
-                vec![(
-                    "wl-paste",
-                    Outcome::Exited {
-                        status: Some(0),
-                        stdout: vec![b'a', 0xff, b'b'],
-                    },
-                )],
-                vec![wl()],
-                Ok("a\u{fffd}b".into()),
-            ),
-            (
-                Provider::X11,
-                vec![("xclip", exited(0, LINK))],
-                vec![xclip()],
-                Ok(LINK.into()),
-            ),
-            (
-                Provider::X11,
-                vec![("xsel", exited(0, LINK))],
-                vec![xclip(), xsel()],
-                Ok(LINK.into()),
-            ),
-            (
-                Provider::X11,
-                vec![("xclip", exited(1, ""))],
-                vec![xclip()],
-                no_text(),
-            ),
-            (
-                Provider::X11,
-                vec![],
-                vec![xclip(), xsel()],
-                Err("Reading the clipboard needs xclip or xsel: install one of them".into()),
-            ),
-            (
-                Provider::Terminal,
-                vec![],
-                vec![],
-                Err("Reading the clipboard needs wl-paste (Wayland), xclip or xsel (X11)".into()),
-            ),
-        ];
-        for (provider, answers, want_calls, want) in cases {
-            let fake = Fake::new(answers);
-            assert_eq!(read(&fake, provider), want, "{provider:?}");
-            assert_eq!(fake.calls(), want_calls, "{provider:?}: {want:?}");
-        }
-    }
-
-    /// AC9: the real runner gives the input, cuts the output, kills what
-    /// does not finish and knows a missing program.
-    #[test]
-    fn ac9_runner_cuts_and_times_out() {
-        let runner = Processes {
-            timeout: Duration::from_millis(300),
-            max_output: 1000,
-        };
-        assert_eq!(
-            runner.run("sh", &["-c", "cat"], Some(b"abc"), true),
-            Outcome::Exited {
-                status: Some(0),
-                stdout: b"abc".to_vec(),
-            }
-        );
-        match runner.run("sh", &["-c", "head -c 100000 /dev/zero"], None, true) {
-            Outcome::Exited { stdout, .. } => assert_eq!(stdout.len(), 1000),
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(
-            runner.run("sh", &["-c", "exit 3"], None, false),
-            Outcome::Exited {
-                status: Some(3),
-                stdout: Vec::new(),
-            }
-        );
-        // A child that keeps the output open (as `wl-copy` does) is not
-        // waited for when the output is not captured.
-        let started = Instant::now();
-        assert_eq!(
-            runner.run("sh", &["-c", "sleep 5 & exit 0"], None, false),
-            Outcome::Exited {
-                status: Some(0),
-                stdout: Vec::new(),
-            }
-        );
-        assert!(started.elapsed() < Duration::from_secs(2));
-        let started = Instant::now();
-        assert_eq!(
-            runner.run("sh", &["-c", "sleep 5"], None, false),
-            Outcome::TimedOut
-        );
-        assert!(started.elapsed() < Duration::from_secs(2));
-        let started = Instant::now();
-        assert_eq!(
-            runner.run("sh", &["-c", "sleep 5 & echo hi"], None, true),
-            Outcome::TimedOut
-        );
-        assert!(started.elapsed() < Duration::from_secs(2));
-        assert_eq!(
-            runner.run("tidal-player-no-such-tool", &[], None, false),
-            Outcome::NotFound
-        );
-    }
-
-    /// AC10: `ESC ] 52 ; c ; <base64> BEL`.
-    #[test]
-    fn ac10_osc52() {
-        let cases = [
-            ("a", "\x1b]52;c;YQ==\x07"),
-            (
-                LINK,
-                "\x1b]52;c;aHR0cHM6Ly90aWRhbC5jb20vYnJvd3NlL2FsYnVtLzEw\x07",
-            ),
-            ("", "\x1b]52;c;\x07"),
-        ];
-        for (text, want) in cases {
-            assert_eq!(osc52(text), want, "{text:?}");
-        }
-    }
-}
+mod tests;

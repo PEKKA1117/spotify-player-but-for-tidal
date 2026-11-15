@@ -189,6 +189,11 @@ pub fn export_failed(reason: &str) {
     tracing::warn!(target: TUI, reason = %safe(reason), "export failed");
 }
 
+/// Copying a link or reading the clipboard failed (spec 0030).
+pub fn clipboard_failed(reason: &str) {
+    tracing::warn!(target: TUI, reason = %safe(reason), "clipboard failed");
+}
+
 /// The track an engine start event is about.
 #[derive(Debug, Clone, Copy)]
 pub struct Playing<'a> {

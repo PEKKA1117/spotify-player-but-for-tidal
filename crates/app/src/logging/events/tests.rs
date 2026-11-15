@@ -448,6 +448,14 @@ fn ac17_tui_rows() {
             info(|| export_failed("Permission denied (os error 13)")),
             (Warn, "export failed reason=Permission denied (os error 13)"),
         ),
+        (
+            "the clipboard fails (spec 0030)",
+            info(|| clipboard_failed("Copying the link needs wl-copy: install wl-clipboard")),
+            (
+                Warn,
+                "clipboard failed reason=Copying the link needs wl-copy: install wl-clipboard",
+            ),
+        ),
     ];
     for (name, got, (level, text)) in rows {
         assert_eq!(got, [(level, text.to_owned())], "{name}");

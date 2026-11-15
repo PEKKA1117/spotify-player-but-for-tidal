@@ -772,6 +772,7 @@ fn names(kind: ActionKind, action: &MenuAction) -> bool {
                 ActionKind::DeletePlaylist,
                 MenuAction::DeletePlaylist { .. }
             )
+            | (ActionKind::CopyLink, MenuAction::CopyLink(_))
     )
 }
 
@@ -1385,7 +1386,7 @@ fn run(state: &mut State, title: &str, action: MenuAction) -> Vec<Effect> {
                 Write::Edit { uuid, done },
             )
         }
-        MenuAction::CopyLink(_) => Vec::new(),
+        MenuAction::CopyLink(link) => vec![Effect::Copy(link.url())],
         MenuAction::DeletePlaylist { uuid, title } => {
             state.popup = Some(Popup::Confirm {
                 question: format!("Delete {title}? (y/n)"),

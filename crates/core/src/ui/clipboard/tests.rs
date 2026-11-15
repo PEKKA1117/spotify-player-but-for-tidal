@@ -155,9 +155,10 @@ fn ac3_copy_link_from_popup() {
     // (state, the keys opening the popup, the link)
     let cases: Vec<(State, Vec<Key>, String)> = vec![
         (queue(), vec![Key::Char('a')], link("track/102")),
+        // The cursor starts on the playing entry.
         (
             queue(),
-            vec![Key::Char('g'), Key::Char('a')],
+            vec![Key::Char('k'), Key::Char('g'), Key::Char('a')],
             link("track/101"),
         ),
         (
@@ -239,7 +240,11 @@ fn ac4_copy_link_binding() {
     let cases: Vec<(&str, State, Key, Vec<Effect>)> = vec![
         (
             "queue entry",
-            with(queue()),
+            {
+                let mut state = with(queue());
+                press(&mut state, &[Key::Char('k')]);
+                state
+            },
             Key::Char('x'),
             vec![Effect::Copy(link("track/101"))],
         ),

@@ -3123,17 +3123,18 @@ fn ac6_key_hints() {
     let text = draw(&pending(library(), &g), 40, 12);
     assert_contains(
         &text,
-        &["┌g …", "a  actions on the selected row", "… +7 more"],
+        &["┌g …", "a  actions on the selected row", "… +8 more"],
     );
     insta::assert_snapshot!("ac6_key_hints_40x12", text);
 
-    // 120 × 30: three columns.
+    // 120 × 30: three columns (of four rows since `g p`, spec 0030).
     let text = draw(&pending(library(), &g), 120, 30);
     assert_contains(
         &text,
         &[
             "┌g …",
-            "a  actions on the selected row     y  Collected Tracks",
+            "a  actions on the selected row     s  the search page",
+            "y  Collected Tracks                L  lyrics of the playing track",
         ],
     );
     insta::assert_snapshot!("ac6_key_hints_120x30", text);

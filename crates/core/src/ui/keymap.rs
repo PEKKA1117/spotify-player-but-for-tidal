@@ -326,7 +326,7 @@ pub enum UiCommand {
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 57] = [
+pub const COMMANDS: [UiCommand; 58] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -378,6 +378,7 @@ pub const COMMANDS: [UiCommand; 57] = [
     UiCommand::LyricsPage,
     UiCommand::OpenLogs,
     UiCommand::ExportLogs,
+    UiCommand::OpenSpotifyLinkFromClipboard,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -552,7 +553,7 @@ pub enum ActionKind {
 }
 
 /// Every action, in the spec's order.
-pub const ACTIONS: [ActionKind; 11] = [
+pub const ACTIONS: [ActionKind; 12] = [
     ActionKind::GoToAlbum,
     ActionKind::GoToArtist,
     ActionKind::GoToRadio,
@@ -564,6 +565,7 @@ pub const ACTIONS: [ActionKind; 11] = [
     ActionKind::DeleteFromPlaylist,
     ActionKind::RemoveFromQueue,
     ActionKind::DeletePlaylist,
+    ActionKind::CopyLink,
 ];
 
 impl ActionKind {
@@ -649,7 +651,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 20] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -662,7 +664,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
     "CurrentlyPlayingContextPage",
     "TopTrackPage",
     "RecentlyPlayedTrackPage",
-    "OpenSpotifyLinkFromClipboard",
     "SortTrackByTitle",
     "SortTrackByArtists",
     "SortTrackByAlbum",
@@ -675,7 +676,7 @@ pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
 
 /// spotify-player actions without a counterpart here: skipped with a
 /// notice.
-pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
+pub const UNSUPPORTED_ACTIONS: [&str; 9] = [
     "GoToShow",
     "AddToLibrary",
     "DeleteFromLibrary",
@@ -683,7 +684,6 @@ pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
     "ShowActionsOnArtist",
     "ShowActionsOnShow",
     "ToggleLiked",
-    "CopyLink",
     "Follow",
     "Unfollow",
 ];
@@ -1097,6 +1097,8 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Char('l')), g('L')], C::LyricsPage),
         (vec![g('o')], C::OpenLogs),
         (vec![one(Char('e'))], C::ExportLogs),
+        // Spec 0030: spotify-player's `O` is `PlayNextPrompt` here.
+        (vec![g('p')], C::OpenSpotifyLinkFromClipboard),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),
