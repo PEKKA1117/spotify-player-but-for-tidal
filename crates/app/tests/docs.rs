@@ -64,6 +64,52 @@ fn ac17_every_command_documented() {
     }
 }
 
+/// 0029 AC16: the four settings in `docs/config.md`'s table (with their
+/// variables), and its "Desktop notifications" section with the
+/// placeholders, the cover and what happens without a server.
+#[test]
+fn ac16_notify_documented() {
+    let config = config_md();
+    for (key, var) in [
+        ("enable_notify", Some("TIDAL_PLAYER_ENABLE_NOTIFY")),
+        ("notify_format", None),
+        (
+            "notify_timeout_in_secs",
+            Some("TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS"),
+        ),
+        ("notify_transient", Some("TIDAL_PLAYER_NOTIFY_TRANSIENT")),
+    ] {
+        let found = rows(&config, key);
+        assert!(!found.is_empty(), "{key}: no table row");
+        if let Some(var) = var {
+            assert!(
+                found.iter().any(|row| row.contains(var)),
+                "{key}: no table row naming {var}: {found:?}"
+            );
+        }
+    }
+    let section = config
+        .split("\n## ")
+        .find(|s| s.starts_with("Desktop notifications"))
+        .expect("docs/config.md: a \"Desktop notifications\" section");
+    for needed in [
+        "{track}",
+        "{artists}",
+        "{album}",
+        "max_cover_arts",
+        "notification server",
+        "enable_notify = false",
+    ] {
+        assert!(section.contains(needed), "Desktop notifications: {needed}");
+    }
+    let readme = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../README.md");
+    let readme = std::fs::read_to_string(readme).expect("README.md");
+    assert!(
+        readme.contains("enable_notify"),
+        "README.md: desktop notifications"
+    );
+}
+
 /// 0010 AC17: `mpris` and `max_cover_arts` in the `app.toml` table (with
 /// their variables) and the cache directory; the new one-shot setters in
 /// `docs/daemon.md`'s table; `docs/mpris.md` and its zh-TW copy.
