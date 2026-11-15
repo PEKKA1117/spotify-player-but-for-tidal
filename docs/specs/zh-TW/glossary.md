@@ -58,7 +58,10 @@
 | login / log in | 登入 |
 | lyrics | 歌詞 |
 | message row | 訊息列 |
+| notification / notification server | 通知／通知伺服器 |
+| notification summary / body | 摘要／內文 |
 | page / window / popup / tab | 頁面／視窗／彈出視窗／分頁 |
+| placeholder | 預留位置 |
 | player | 播放器 |
 | preload | 預先載入 |
 | process | 行程 |
