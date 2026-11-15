@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake pkg-config libasound2-dev
       - name: Install toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2

@@ -119,7 +119,9 @@ Output: hw:1,0 (exclusive) S32_LE 96 kHz 2 ch, bit-perfect
 <a id="decode"></a>
 ### 解碼
 
-symphonia 0.6，純 Rust。解碼器的輸出是交錯的 `i32`，靠左對齊（16 位元取樣 `s` 變成 `s << 16`），這是 0001 的 `Sink` 契約。來源格式（取樣率、聲道、每取樣位元數；有損沒有位元數）來自 codec 參數。單聲道來源會逐取樣複製到兩個聲道，所以輸出一律是立體聲（Tidal 的單聲道曲目因此在拒絕單聲道的 DAC 上仍保持位元完美）。
+symphonia 0.6（純 Rust）讀取兩種容器並解碼 AAC；FLAC frame 由 libFLAC 解碼（見下）。解碼器的輸出是交錯的 `i32`，靠左對齊（16 位元取樣 `s` 變成 `s << 16`），這是 0001 的 `Sink` 契約。來源格式（取樣率、聲道、每取樣位元數；有損沒有位元數）來自 codec 參數。單聲道來源會逐取樣複製到兩個聲道，所以輸出一律是立體聲（Tidal 的單聲道曲目因此在拒絕單聲道的 DAC 上仍保持位元完美）。
+
+每個 FLAC 串流，不論位元深度，都由 libFLAC 解碼（AC32，見「錯誤」）：symphonia 仍是原始 FLAC 與 MP4 的 demuxer，把每個 FLAC frame 連同串流的 `STREAMINFO` 交給 libFLAC。解碼器的其他部分（輸出配置、來源格式、跳轉、錯誤）都和以前一樣。libFLAC 1.5.0 由 `libflac-sys` crate 內含的原始碼編譯並靜態連結，不含 Ogg，所以執行檔在執行期不需要更多東西；建置需要 `cmake` 與 C 編譯器。
 
 <a id="output-alsa"></a>
 ### 輸出（ALSA）
@@ -300,6 +302,7 @@ symphonia 0.6，純 Rust。解碼器的輸出是交錯的 `i32`，靠左對齊�
 - `tidal-player-audio`：引擎執行緒、引擎讀取的 `ByteSource`/`TrackSource` trait、解碼（symphonia，新使用：features `flac`、`isomp4`、`aac`）、格式選擇與封裝、`PcmBackend` + 決策邏輯 + ALSA 實作（feature `alsa`）、裝置清單解析器、ReserveDevice1 用的 `Reserver` trait（D-Bus 實作位於執行檔中，所以 audio crate 不會增加 D-Bus 相依）。仍然沒有 `tokio`、沒有 `core`、沒有 `api`（0001 的分層）
 - `tidal-player`（執行檔）：`play` 與 `devices` 子指令、`HttpSource`（reqwest，在自己的擷取執行緒上）、以 `zbus` 實作的 `Reserver`（blocking API；新的 workspace 相依套件，已為 MPRIS 規劃）、把 `resolve_stream` 接到來源的重新解析回呼
 - `xtask layering`：沒有變更（audio crate 的新相依是允許的；`core` 一個也不會得到）
+- AC32：`tidal-player-audio::decode` 在曲目開啟時與每次重新開啟後建立 frame 解碼器：FLAC 用 libFLAC，AAC 用 symphonia 的。libFLAC 的那個位於 `decode/libflac.rs`，是這個 crate 唯一可以使用 `unsafe` 的模組（FFI 呼叫與讀取回呼），包在一個小的安全型別後面（`new(streaminfo)`、`decode(frame) -> samples`、`reset()`）。`libflac-sys` 是新的 workspace 相依（`default-features = false`、feature `build-flac`），只有這個 crate 使用；symphonia 保留它的 `flac` feature 給原始 FLAC 的 reader
 
 <a id="facts-vs-assumptions"></a>
 ## 事實與假設
@@ -351,6 +354,19 @@ symphonia 0.6，純 Rust。解碼器的輸出是交錯的 `i32`，靠左對齊�
 - PipeWire（WirePlumber）仍實作 `org.freedesktop.ReserveDevice1` 並在請求時釋放音效卡
 - `zbus` 5 的 blocking API 能在引擎執行緒上運作，而不需要它上面有 tokio runtime
 
+2026-11-15 在維護者的機器上驗證（issue #109；針對 `symphonia` 0.6.1 的暫時 crate、`flac` 1.5.0、已安裝的播放器 1.5.1）：
+
+- Tidal 會提供 32 位元 FLAC：曲目 446028847 在 `HI_RES_LOSSLESS` 被回報為 `FLAC 32-bit 48 kHz stereo`，而且它的低 8 位元有被使用（只有 5.5 % 的取樣為零）
+- symphonia 0.6.1 在 frame 使用立體聲去相關時會把 32 位元 FLAC 解錯，獨立聲道時解對；libFLAC 1.5.0 兩者都逐取樣正確（數字在該錯誤的條目中）
+- `libflac-sys` 0.3.4（BSD-3-Clause）內含 libFLAC 1.5.0，搭配 `default-features = false, features = ["build-flac"]` 時用 `cmake` 把它建置成不含 Ogg 的靜態函式庫；沒有 `build-flac` 時它連結系統的 `libFLAC`，且不檢查版本
+- 系統函式庫的檔名跟著它的版本走（這裡 1.5.0 是 `libFLAC.so.14`），不像 `libasound.so.2`
+
+撰寫 AC32 時為假設，2026-11-15 由 `ac32_flac_32_bit` 以及 AC7、AC9、AC16、AC17 與 AC19 的測試在 libFLAC 上通過而驗證：
+
+- symphonia 對 FLAC 曲目給出的一個 packet 剛好是一個 FLAC frame，不論來自它的 FLAC reader 或 MP4 reader，且 codec 參數的 extra data 就是 `STREAMINFO` 區塊，所以可以透過讀取回呼餵給 libFLAC 的串流解碼器 `fLaC` + `STREAMINFO`，之後每個 packet 一個 frame
+- 從不是串流第一個 frame 的地方開始，或在那之前被 flush（`FLAC__stream_decoder_flush`）的解碼器，能解碼該 frame。libFLAC 1.5 會把沒有接在上一個之後的 frame 編號回報為 `MISSING_FRAME`，解碼器忽略它：frame 之間有缺口的曲目，`Decoder` 本來就會讓它失敗（AC16）
+- 修正後，在真實 API 上：曲目 446028847 透過 ALSA 的 `file` PCM 沒有超過 1.2 × 滿刻度的相鄰取樣跳變（最大的是 0.94）；一首 16 位元曲目（1609055）與一首 24 位元曲目（176556194）在 1.5.1 與修正後的建置上輸出逐位元組相同。發行的執行檔沒有動態連結任何 `libFLAC`（`ldd`）
+
 <a id="decisions-answered-by-the-user-2026-10-07"></a>
 ## 決策（由使用者回答，2026-10-07）
 
@@ -360,6 +376,7 @@ symphonia 0.6，純 Rust。解碼器的輸出是交錯的 `i32`，靠左對齊�
 4. **`LOW` 是 HE-AAC**（probe）：拒絕 `low` 作為設定，而不是加入帶有 SBR 的 AAC 解碼器（目前純 Rust 沒有；FFmpeg 正是 0001 移除的）。*提議：拒絕它*
 5. **其他 tidalt 的錯誤**：播放方面除了「背景」之外沒有；最痛的那些是在常駐程式與客戶端的通訊中。它們會在起草 spec 0005 時從 tidalt 的歷史中收集
 6. **CD 音質作為 FLAC**：*由 probe 2 定案*。在 PKCE client 下更新（spec 0002 AC19，與本規格一起實作）會透過 DASH 給出 16/44.1 FLAC 並保留 hi-res。因此 `LOSSLESS` 一律以 DASH 到達；BTS 路徑保留給 `HIGH`（AAC）以及 Tidal 可能仍會送出的任何 BTS FLAC
+7. **32 位元 FLAC**（issue #109，2026-11-15 回答）：用 libFLAC 解碼 FLAC，保留 32 位元 hi-res，儘管這會帶回一個原生函式庫（0001 連同 FFmpeg 移除的東西）。落選的：在 symphonia 修好之前把這類曲目降到 `LOSSLESS`（沒有原生程式碼，但它們沒有 hi-res），以及在這個儲存庫中維護一份修正過的 symphonia FLAC 解碼器。**每個** FLAC 串流都交給 libFLAC，不只是超過 24 位元的：一條路徑，而不是依位元深度切換；只有少數曲目會走的路徑壞了也不會被發現，而這一條每首曲目以及既有的解碼、無縫播放與跳轉測試都會執行。libFLAC 用**內含、靜態**的，不用系統的：發行的執行檔在 Ubuntu 上建置，動態的 `libFLAC` 會把它綁在那個版本的函式庫檔名上（檔名隨 libFLAC 的版本改變），而且 1.4 之前的 libFLAC 連結得上卻無法解碼 32 位元。代價是建置需要 `cmake` 與 C 編譯器，以及安全性更新要跟著播放器的發行版，而不是發行版套件
 
 <a id="out-of-scope"></a>
 ## 不在範圍內
@@ -383,3 +400,4 @@ symphonia 0.6，純 Rust。解碼器的輸出是交錯的 `i32`，靠左對齊�
 - **`ac5_one_request` 在機器負載下失敗（由使用者回報，2026-10-08：在完整的 `cargo test --workspace` 旁邊有另一個大型建置時失敗一次；單獨執行 3/3 為綠）。** 預期（AC5 測試計畫）：不論機器在做什麼，表格都證明每一列只有一個 `playbackinfopostpaywall` 請求。實際：`503: playbackinfo requests`，左 `0`，右 `1`。根本原因：每一列都以 200 ms 的請求逾時執行，它只為了 `timeout` 那一列而存在。reqwest 的逾時也涵蓋連線與送出，所以在被餓死的 CPU 上，與時間無關的某一列會在請求到達 mock 伺服器之前就逾時（0 個請求，得到的是傳輸錯誤，而不是該列的回答）。已重現：把測試執行檔釘在一個核心上以 `nice 19` 執行，旁邊在同一個核心上跑 8 個忙碌迴圈（`taskset -c 0 nice -n 19 <stream test binary> ac5_one_request`），5 次執行有 5 次在第一列失敗。測試的新規則（AC5 不變）：每一列帶有自己的逾時；與時間無關的列使用正式環境的 `RESOLVE_TIMEOUT`（10 秒），而 `timeout` 那一列對延遲 60 秒的回應使用 5 秒，所以一列的結果絕不取決於機器有多快。在相同的重現條件下，修正後的測試 4 次執行有 4 次通過（`timeout` 那一列的 2 秒預算在那裡仍會失敗一次，所以是 5 秒；該列的請求必須在它自己的逾時內到達本機伺服器，這是剩下的唯一時間假設）。測試：`crates/api/tests/stream.rs` :: `ac5_one_request`（紅燈：上述的負載重現）
 - **獨占輸出會有規律的嗶聲，shared 輸出則沒有（issue #6，由使用者回報，2026-10-10）。** 預期（Output (ALSA)、AC13）：`hw:` 上的獨占播放是乾淨的，就像透過 PipeWire 的 shared 播放。實際：在 MOONDROP MOONRIVER 3（`35d8:43da`，USB，非同步回饋）上，`hw:3,0` 上的 44.1 kHz 曲目，只要裝置保持開啟，就每隔不到一秒出現一次嗶聲。根本原因：承襲自 tidalt 的 200 ms 穩定等待對這個 DAC 太短。當 PipeWire 剛放開音效卡、而裝置在那個視窗內就被開啟時，DAC 的時脈回饋迴圈永遠鎖不住：它要求的取樣率（`/proc/asound/cardN/stream0` 中的 `Momentary freq`）以鋸齒狀在 43.5 到 44.8 kHz 之間擺盪，約每 0.6 秒一次，而每次回繞就是一聲嗶。ALSA 看不到任何問題：沒有 underrun，緩衝區從未低於 3,373 frame（76 ms），所以 issue 中最先被懷疑的緩衝區大小並沒有關係。在使用者的機器上，以一支像引擎那樣寫入的 C 程式量測（`hw:3,0`、`S32_LE`、44.1 kHz、1024 frame 的 period、4 個 period）：在前面沒有釋放的情況下開啟，20 次中有 0 次出現鋸齒；在 WirePlumber 釋放音效卡之後 200 ms 開啟，12 次中有 11 次；在之後 0.4、0.6、0.8、1、3 與 6 秒開啟，48 次中有 0 次。穩定等待設為 1 秒的播放器：4 次中有 0 次，而被它取代的建置是 4 次中有 4 次。在這個 DAC 上，門檻位於 200 到 400 ms 之間；1 秒為較慢的裝置留有餘裕，而且只花在另一個應用程式佔用過音效卡之後的第一次開啟。新條件：**AC30** — 當音效卡名稱的擁有者對 `RequestRelease` 回覆 `true` 時，引擎在取得該名稱並開啟裝置之前等待 1 秒（`SETTLE`）（AC13 的表格，「擁有者回覆 `true`」那一列）。測試：`crates/audio/src/output/reserve.rs` :: `ac30_settle_after_release`（紅燈：假時鐘記錄到 200 ms 的 sleep），且 `ac13_reservation` 的「owner replies true」那一列依新的長度
 - **播放器在 PipeWire 的 ALSA 外掛上換曲目時卡住（issue #84，由使用者回報，2026-11-03）。** 預期（曲目結束、AC15、AC17）：當曲目結束時有不同格式的預先載入在等待，裝置會被 drain 並重新開啟，下一首曲目播放；當最後一首曲目結束時，接著是 `TrackEnded`。`Stop` 與 `Shutdown` 總是生效。實際：在使用 PipeWire 1.6.10（第一次卡住的前一晚才從 1.6.9 升級）的 shared `default` 裝置上，播放在那一點永遠停止：下一首曲目顯示為載入中、位置 0:00，沒有任何指令有作用，且常駐程式忽略 `SIGTERM`，直到 systemd 把它殺掉。根本原因：sink 在引擎執行緒上以 blocking 模式的 `snd_pcm_drain` 做 drain。PipeWire 的 ALSA 外掛在這個版本上從不從它返回：debug 建置停在 `snd_pcm_drain` → `libasound_module_pcm_pipewire.so` → `pthread_cond_wait`，由 `EngineThread::open_output`（格式改變）呼叫，而 `aplay -D default` 在任何輸入結束時都卡在同一個呼叫，不論 period 與緩衝區大小，在耳機的 sink 與 S/PDIF 的上都一樣。在那裡被阻塞的引擎執行緒不接收任何指令，所以下一首曲目與 `Shutdown` 都永遠不會執行。Draining 不得依賴一個可能永不返回的函式庫呼叫。新條件：**AC31** — `PcmSink::drain` 絕不呼叫後端的 `snd_pcm_drain`（`PcmBackend` 接縫（seam）不再有 drain）：它透過注入的時鐘輪詢後端的延遲，直到延遲為 0 或以下，或後端回報 underrun 或 suspend，最多等待在開啟取樣率下該延遲的長度（上限 2 秒）再加 500 ms（最後一次 sleep 會被截短為預算中剩下的部分），然後丟棄並準備（prepare）裝置。自上次 prepare 以來從未被寫入的 PCM 不持有任何東西，會立即返回，不等待。輪詢期間，underrun 或 suspend 以外的裝置錯誤會如前被回傳（裝置消失時為 `Lost`）。測試：`crates/audio/src/output/pcm_sink.rs` :: `ac31_drain_is_bounded`（表格涵蓋假後端的腳本化延遲：播放到 0；結尾的 underrun；永不下降的延遲（卡住的裝置）在預算用完時返回，不早也不晚一個輪詢，包含預算不是輪詢間隔倍數的情況；沒有寫入；等待時裝置消失；紅燈：sink 呼叫後端的 drain，假實作記錄了它，且從不輪詢），且 `pause_discard_drain_delay` 預期接在丟棄之後的 drain 不產生任何呼叫（沒有持有任何東西）
+- **32 位元 FLAC 曲目播放時有很大的雜音（issue #109，由使用者回報，2026-11-15）。** 預期（解碼、AC7）：無損曲目的取樣原樣到達裝置，不論位元深度。實際：Tidal 以 32 位元 FLAC 提供的 `HI_RES_LOSSLESS` 曲目（曲目 446028847，`FLAC 32-bit 48 kHz`）在每種輸出上都有很大的爆音，shared 與獨占皆然，在獨占輸出上甚至被回報為位元完美；16 位元與 24 位元的曲目沒有問題。根本原因：symphonia 0.6.1 的 FLAC 解碼器無法解碼使用立體聲去相關（left/side、right/side、mid/side）的 32 位元 frame。這種 frame 的 side 聲道有 33 位元，而 symphonia 把它讀進 `i32`，並在 `i32` 中做預測與去相關，所以取樣是錯的。播放器對該曲目的輸出，透過 ALSA 的 `file` PCM 擷取下來，左聲道有 7750 處相鄰取樣的跳變超過 1.2 × 滿刻度，右聲道有 1 處。不經過播放器：2 秒的 32 位元 48 kHz 立體聲（兩個反相的正弦波加上雜訊）以 `flac` 1.5.0 `--best` 編碼（每個 frame 都是 mid/side），libFLAC 解碼逐取樣正確，symphonia 0.6.1 則 96000 個 frame 全錯；同一份 PCM 以 `--no-mid-side --no-adaptive-mid-side`（獨立聲道）編碼，兩者都解對。0.6.1 是最新的 symphonia，所以沒有版本可以升級。修正方式是把 FLAC 解碼交給 libFLAC（「解碼」、決策 7）。新的驗收條件：**AC32** — 每個 FLAC 串流都由 libFLAC 解碼，且 32 位元的串流逐取樣正確：一個 frame 使用立體聲去相關的 32 位元 48 kHz 立體聲測試資料（fixture），作為原始 FLAC 檔案，以及在分段 MP4 中以 init + 分段讀取，解碼結果與它編碼前的 PCM（以 `S32_LE` 放在旁邊）完全相同，回報 `FLAC`、48 kHz、2 聲道、32 位元，且跳轉到某個 FLAC frame 內部的 frame 之後，會從 PCM 的那個 frame 精確地繼續。libFLAC 拒絕的 frame（CRC 錯誤、失去同步）會讓曲目以 `EngineError::Decode` 失敗。AC7、AC9、AC16、AC17 與 AC19 不變，它們的測試現在在 libFLAC 上執行；AAC 仍由 symphonia 解碼（AC8）。測試：`crates/audio/tests/decode.rs` :: `ac32_flac_32_bit`（表格：原始 FLAC、fMP4 分段；整首解碼等於 `S32_LE` 參考、格式、各做一次跳轉、損壞的 frame 給出 `Decode`；紅燈：取樣與參考不同，因為是 symphonia 在解碼；debug 建置則是在 symphonia 的 bit reader 讀 33 位元時 panic）。驗收時手動檢查：曲目 446028847 透過 ALSA 的 `file` PCM 沒有超過 1.2 × 滿刻度的相鄰取樣跳變，並由維護者用耳朵確認

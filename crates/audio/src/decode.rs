@@ -17,7 +17,10 @@ use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
+use symphonia::core::packet::Packet;
 use symphonia::core::units::{TimeBase, Timestamp};
+
+mod libflac;
 
 use crate::engine::EngineError;
 use crate::sink::{Codec, SourceFormat};
@@ -210,7 +213,7 @@ pub struct Decoder {
     /// The single-file stream's head, as the first probe read it.
     head: Arc<[u8]>,
     reader: Box<dyn FormatReader>,
-    decoder: Box<dyn AudioDecoder>,
+    decoder: FrameDecoder,
     track_id: u32,
     time_base: Option<TimeBase>,
     format: SourceFormat,
@@ -236,10 +239,49 @@ impl std::fmt::Debug for Decoder {
     }
 }
 
+/// Turns a track's packets into samples: libFLAC for FLAC frames (spec 0003
+/// AC32), symphonia's decoder for AAC.
+enum FrameDecoder {
+    Flac(libflac::FlacDecoder),
+    Symphonia(Box<dyn AudioDecoder>),
+}
+
+impl FrameDecoder {
+    /// Decode one packet into `out` (replaced, interleaved); returns the
+    /// channel count.
+    fn decode(
+        &mut self,
+        packet: &Packet,
+        out: &mut Vec<i32>,
+        signals: &Signals,
+    ) -> Result<usize, EngineError> {
+        match self {
+            Self::Flac(decoder) => decoder
+                .decode(&packet.data, out)
+                .map_err(EngineError::Decode),
+            Self::Symphonia(decoder) => {
+                let decoded = decoder
+                    .decode(packet)
+                    .map_err(|e| map_symphonia(e, signals))?;
+                out.clear();
+                decoded.copy_to_vec_interleaved(out);
+                Ok(decoded.spec().channels().count())
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        match self {
+            Self::Flac(decoder) => decoder.reset(),
+            Self::Symphonia(decoder) => decoder.reset(),
+        }
+    }
+}
+
 /// What a probe found.
 struct Opened {
     reader: Box<dyn FormatReader>,
-    decoder: Box<dyn AudioDecoder>,
+    decoder: FrameDecoder,
     track_id: u32,
     time_base: Option<TimeBase>,
     format: SourceFormat,
@@ -323,13 +365,9 @@ impl Decoder {
                     self.time_base,
                     self.format.sample_rate,
                 );
-            let decoded = self
+            let channels = self
                 .decoder
-                .decode(&packet)
-                .map_err(|e| map_symphonia(e, &self.signals))?;
-            let channels = decoded.spec().channels().count();
-            self.scratch.clear();
-            decoded.copy_to_vec_interleaved(&mut self.scratch);
+                .decode(&packet, &mut self.scratch, &self.signals)?;
             let frames = self.scratch.len() / channels.max(1);
             if let Some(expected) = self.next_frame
                 && first > expected
@@ -465,19 +503,33 @@ fn probe(
     if codec == Codec::AacLc && params.extra_data.as_deref().is_some_and(aac_signals_sbr) {
         return Err(EngineError::Unsupported("HE-AAC (SBR)".into()));
     }
-    let decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(params, &AudioDecoderOptions::default())
-        .map_err(|e| map_symphonia(e, signals))?;
-    // The decoder's parameters are amended from the codec configuration
-    // (AAC's AudioSpecificConfig), so read the format from them.
-    let decoded = decoder.codec_params();
+    let decoder = match codec {
+        Codec::Flac => {
+            let streaminfo = params
+                .extra_data
+                .as_deref()
+                .ok_or_else(|| EngineError::Unsupported("FLAC without STREAMINFO".into()))?;
+            FrameDecoder::Flac(libflac::FlacDecoder::new(streaminfo).map_err(EngineError::Decode)?)
+        }
+        Codec::AacLc => FrameDecoder::Symphonia(
+            symphonia::default::get_codecs()
+                .make_audio_decoder(params, &AudioDecoderOptions::default())
+                .map_err(|e| map_symphonia(e, signals))?,
+        ),
+    };
+    // symphonia's decoder amends its parameters from the codec
+    // configuration (AAC's AudioSpecificConfig), so read the format from
+    // them where there is one.
+    let decoded = match &decoder {
+        FrameDecoder::Symphonia(decoder) => Some(decoder.codec_params()),
+        FrameDecoder::Flac(_) => None,
+    };
     let sample_rate = decoded
-        .sample_rate
+        .and_then(|d| d.sample_rate)
         .or(params.sample_rate)
         .ok_or_else(|| EngineError::Unsupported("unknown sample rate".into()))?;
     let channels = decoded
-        .channels
-        .as_ref()
+        .and_then(|d| d.channels.as_ref())
         .or(params.channels.as_ref())
         .map(|c| c.count())
         .ok_or_else(|| EngineError::Unsupported("unknown channel count".into()))?;

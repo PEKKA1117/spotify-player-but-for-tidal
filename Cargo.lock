@@ -2416,6 +2416,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
+name = "libflac-sys"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fc5cbb957a914952ee9b8667e82b984c6dc280087df01497fc5b4776d303582"
+dependencies = [
+ "cmake",
+ "libc",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4549,7 +4559,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-player"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "age",
  "anyhow",
@@ -4602,9 +4612,10 @@ dependencies = [
 
 [[package]]
 name = "tidal-player-audio"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alsa",
+ "libflac-sys",
  "symphonia",
  "thiserror 2.0.21",
  "tracing",

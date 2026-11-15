@@ -56,13 +56,13 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 
 - 有 ALSA 的 Linux。MPRIS 需要 D-Bus 工作階段匯流排；有系統金鑰圈（keyring）時登入工作階段存放在其中，否則存放在加密檔案
 - 付費的 Tidal 訂閱；hi-res 串流需要包含它的方案
-- 建置需要：Rust 1.97 以上、`pkg-config` 與 ALSA 標頭檔
+- 建置需要：Rust 1.97 以上、C 編譯器與 `cmake`（libFLAC 會一併建置進去）、`pkg-config` 與 ALSA 標頭檔
 
 | 發行版 | 建置相依套件 |
 |---|---|
-| Debian、Ubuntu | `sudo apt install pkg-config libasound2-dev` |
-| Arch | `sudo pacman -S pkgconf alsa-lib` |
-| Fedora | `sudo dnf install pkgconf-pkg-config alsa-lib-devel` |
+| Debian、Ubuntu | `sudo apt install build-essential cmake pkg-config libasound2-dev` |
+| Arch | `sudo pacman -S base-devel cmake alsa-lib` |
+| Fedora | `sudo dnf install gcc cmake pkgconf-pkg-config alsa-lib-devel` |
 
 <a id="installation"></a>
 ## 安裝

@@ -1,9 +1,9 @@
-//! Decode tests (spec 0003 AC7–AC9).
+//! Decode tests (spec 0003 AC7–AC9, AC32).
 
 mod common;
 
 use common::*;
-use tidal_player_audio::decode::{Decoder, decode_all};
+use tidal_player_audio::decode::{Decoder, SeekOutcome, decode_all};
 use tidal_player_audio::testing::FakeSource;
 use tidal_player_audio::{Codec, EngineError, Event, SinkCall, SinkScript, SourceFormat};
 
@@ -145,4 +145,63 @@ fn ac9_mono_to_stereo() {
         assert_eq!((samples[2 * i], samples[2 * i + 1]), (s, s), "frame {i}");
     }
     assert!(samples.chunks(2).all(|f| f[0] == f[1]), "L == R everywhere");
+}
+
+/// AC32: a 32-bit FLAC whose frames use stereo decorrelation (a 33-bit side
+/// channel) decodes to exactly the PCM it was encoded from, as a raw FLAC
+/// file and in fMP4 segments, also after a seek; a corrupted frame fails
+/// the track with `Decode`.
+#[test]
+fn ac32_flac_32_bit() {
+    let pcm = pcm_left_justified(&fixture("flac32_48.s32le"), 4);
+    assert_eq!(pcm.len(), 2400 * 2, "reference PCM");
+    type Row = (&'static str, fn() -> FakeSource);
+    let rows: [Row; 2] = [("raw FLAC", flac32), ("fMP4 segments", dash32)];
+    for (name, source) in rows {
+        let (format, samples) = decode_all(Box::new(source())).expect(name);
+        assert_eq!(
+            format,
+            SourceFormat {
+                codec: Codec::Flac,
+                sample_rate: 48_000,
+                channels: 2,
+                bits_per_sample: Some(32),
+            },
+            "{name}: format"
+        );
+        assert_eq!(samples.len(), pcm.len(), "{name}: sample count");
+        let wrong = samples.iter().zip(&pcm).filter(|(a, b)| a != b).count();
+        assert_eq!(wrong, 0, "{name}: samples that differ from the PCM");
+
+        // Frames inside a FLAC frame (512-frame blocks), in two segments.
+        for frame in [700usize, 1900] {
+            let mut decoder = Decoder::open(Box::new(source())).expect(name);
+            assert_eq!(
+                decoder.seek(frame as u64).expect(name),
+                SeekOutcome::Seeked,
+                "{name}: seek to {frame}"
+            );
+            let mut rest = Vec::new();
+            let mut first = None;
+            while let Some(chunk) = decoder.next_chunk().expect(name) {
+                first.get_or_insert(chunk.first_frame);
+                rest.extend_from_slice(&chunk.samples);
+            }
+            assert_eq!(first, Some(frame as u64), "{name}: first frame");
+            assert!(rest == pcm[frame * 2..], "{name}: after a seek to {frame}");
+        }
+    }
+
+    // A frame damaged in the middle of the file never reaches the output.
+    let mut bytes = fixture("flac32_48.flac");
+    let mid = bytes.len() / 2;
+    for b in &mut bytes[mid..mid + 64] {
+        *b ^= 0x5A;
+    }
+    let corrupt = decode_all(Box::new(FakeSource::file(bytes, "flac")));
+    assert!(
+        matches!(corrupt, Err(EngineError::Decode(_))),
+        "corrupt frame: {:?}",
+        corrupt.map(|(format, samples)| (format, samples.len()))
+    );
 }
