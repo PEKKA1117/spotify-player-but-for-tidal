@@ -17,8 +17,8 @@ use crate::track::{AlbumRef, ArtistRef, EntryId, Track, TrackId};
 
 use super::super::keymap::{ActionEntry, KeymapFile, Target, build};
 use super::super::{
-    Action, BaseKey, Effect, Key, PLAYLIST_CHANGED, Popup, SelectionAction, State, TrackSource,
-    Window, apply_keymap, help, update,
+    Action, BaseKey, Effect, Key, PLAYLIST_CHANGED, Popup, Rows, SelectionAction, State,
+    TrackSource, Window, apply_keymap, help, update,
 };
 use super::{queue_entries, queue_marks, window_marks, window_rows};
 
@@ -363,8 +363,20 @@ fn open_items(items: Vec<Item>, at: Option<InsertAt>) -> Vec<Out> {
     vec![Out::Send(Command::Open { items, at })]
 }
 
-fn track_items(ids: &[u64]) -> Vec<Item> {
-    ids.iter().map(|id| Item::Track(TrackId(*id))).collect()
+/// `LoadQueue` of tracks `ids` as loaded, from the first.
+fn load_tracks(ids: &[u64]) -> Vec<Out> {
+    vec![Out::Send(Command::LoadQueue {
+        tracks: tracks(ids.iter().copied()),
+        start: 0,
+    })]
+}
+
+/// `AddToQueue` of tracks `ids` as loaded.
+fn add_tracks(ids: &[u64], at: InsertAt) -> Vec<Out> {
+    vec![Out::Send(Command::AddToQueue {
+        tracks: tracks(ids.iter().copied()),
+        at,
+    })]
 }
 
 // --- AC1 -----------------------------------------------------------------------
@@ -1023,31 +1035,19 @@ fn ac8_selection_actions_send() {
     let select = keys("scjjsc");
     // (name, keys after `s a`, what is sent)
     let cases: Vec<(&str, Vec<Key>, Vec<Out>)> = vec![
-        ("p", keys("p"), open_items(track_items(&[1, 3]), None)),
-        (
-            "N",
-            keys("N"),
-            open_items(track_items(&[1, 3]), Some(InsertAt::Next)),
-        ),
-        (
-            "a",
-            keys("a"),
-            open_items(track_items(&[1, 3]), Some(InsertAt::End)),
-        ),
-        (
-            "Enter on Play",
-            vec![Enter],
-            open_items(track_items(&[1, 3]), None),
-        ),
+        ("p", keys("p"), load_tracks(&[1, 3])),
+        ("N", keys("N"), add_tracks(&[1, 3], InsertAt::Next)),
+        ("a", keys("a"), add_tracks(&[1, 3], InsertAt::End)),
+        ("Enter on Play", vec![Enter], load_tracks(&[1, 3])),
         (
             "Enter on Play next",
             vec![Char('j'), Enter],
-            open_items(track_items(&[1, 3]), Some(InsertAt::Next)),
+            add_tracks(&[1, 3], InsertAt::Next),
         ),
         (
             "Enter on Add to queue",
             vec![Char('j'), Char('j'), Enter],
-            open_items(track_items(&[1, 3]), Some(InsertAt::End)),
+            add_tracks(&[1, 3], InsertAt::End),
         ),
         (
             "Add to Collected Tracks",
@@ -1090,8 +1090,69 @@ fn ac8_selection_actions_send() {
     press(&mut state, &keys("sa"));
     assert_eq!(
         outs(&press(&mut state, &keys("N"))),
-        open_items(track_items(&[107, 109]), Some(InsertAt::Next))
+        add_tracks(&[107, 109], InsertAt::Next)
     );
+
+    // Bug #105: the tracks go as they are loaded, so one the player could
+    // not resolve (gone from Tidal) fails nothing: no `Open`, no track ID.
+    let gone = |state: &mut State| {
+        let window = &mut state.history.last_mut().unwrap().windows[0];
+        let Rows::Tracks(tracks) = &mut window.rows else {
+            panic!("the album's tracks");
+        };
+        tracks[2].streamable = false;
+        tracks.clone()
+    };
+    for (key, at) in [
+        ("p", None),
+        ("N", Some(InsertAt::Next)),
+        ("a", Some(InsertAt::End)),
+    ] {
+        let mut state = album_page();
+        let loaded = gone(&mut state);
+        let picked = vec![loaded[0].clone(), loaded[2].clone()];
+        press(&mut state, &select);
+        let sent = outs(&press(&mut state, &keys(&format!("sa{key}"))));
+        let expected = match at {
+            None => Command::LoadQueue {
+                tracks: picked,
+                start: 0,
+            },
+            Some(at) => Command::AddToQueue { tracks: picked, at },
+        };
+        assert_eq!(sent, vec![Out::Send(expected)], "gone track, {key}");
+    }
+
+    // Nothing current (an empty queue, a queue that ended, no snapshot
+    // yet): `AddToQueue` alone, the idle player is not started (as 0028's
+    // pinned row).
+    type Idle = (&'static str, fn(&mut State));
+    let idle: [Idle; 3] = [
+        ("empty queue", |s| apply(s, &[], None)),
+        ("ended queue", |s| apply(s, &[1, 2, 3], None)),
+        ("no snapshot", |s| s.player = None),
+    ];
+    for (name, make) in idle {
+        for at in [InsertAt::Next, InsertAt::End] {
+            let mut state = album_page();
+            make(&mut state);
+            press(&mut state, &select);
+            let key = if at == InsertAt::Next { "N" } else { "a" };
+            assert_eq!(
+                outs(&press(&mut state, &keys(&format!("sa{key}")))),
+                add_tracks(&[1, 3], at),
+                "{name}, {key}"
+            );
+        }
+        let mut state = album_page();
+        make(&mut state);
+        press(&mut state, &select);
+        assert_eq!(
+            outs(&press(&mut state, &keys("sap"))),
+            load_tracks(&[1, 3]),
+            "{name}, p"
+        );
+    }
 
     // *Add to playlist…*: the picker with the tracks in order.
     let picker = || {

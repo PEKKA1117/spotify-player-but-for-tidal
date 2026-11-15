@@ -3,9 +3,9 @@
 <a id="0020--selecting-several-rows"></a>
 # 0020 — 選取多列
 
-- **狀態**：implemented（2026-11-02；approved 2026-10-26，2026-11-02 修訂：`Esc` 先清除保留的篩選，再清除選取）
+- **狀態**：implemented（2026-11-02；approved 2026-10-26，2026-11-02 修訂：`Esc` 先清除保留的篩選，再清除選取；2026-11-15 修訂：曲目的選取以曲目送出，見「錯誤」）
 - **負責人**：tech-lead（主要 session）
-- **Issue**：[#71](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/71)
+- **Issue**：[#71](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/71)；錯誤 [#105](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/105)
 - **相依於**：0004（implemented：佇列）、0006（implemented：清單、動作彈出視窗、收藏與播放清單的寫入）、0008（implemented：按鍵對應、按鍵序列）、0012（implemented：篩選）、0013（implemented：按鍵提示）、0017（implemented：佈景主題）、0019（implemented：移除詢問、`d d`）
 - **使用者文件**：[`docs/tui.md`](../../zh-TW/tui.md)（新的「Selecting rows」一節、按鍵表）與 [`docs/config.md`](../../zh-TW/config.md)（新的指令、`selected_row`），以及它們的 zh-TW 版本（AC13）
 
@@ -68,16 +68,16 @@
 
 | 動作 | 按鍵 | 列出的條件 | 送出 |
 |---|---|---|---|
-| *Play* | `p` | 一律 | `Open { items, at: None }`：選取的列取代佇列，並播放第一個 |
-| *Play next* | `N` | 一律 | `Open { items, at: Some(Next) }` |
-| *Add to queue* | `a` | 一律 | `Open { items, at: Some(End) }` |
+| *Play* | `p` | 一律 | 曲目：`LoadQueue { tracks, start: 0 }`；否則 `Open { items, at: None }`。選取的列取代佇列，並播放第一個 |
+| *Play next* | `N` | 一律 | 曲目：`AddToQueue { tracks, at: Next }`；否則 `Open { items, at: Some(Next) }` |
+| *Add to queue* | `a` | 一律 | 曲目：`AddToQueue { tracks, at: End }`；否則 `Open { items, at: Some(End) }` |
 | *Add to playlist…* | | 這些列是曲目（或佇列項目） | 為這些曲目依序開啟 0006 的播放清單選擇器 |
 | *Add to favorites* | | 就清單所知（0006），某個選取的列不是收藏 | 對每個這樣的列送出一個 `AddFavorite` |
 | *Remove from favorites* | | 在 `d d` 會從收藏移除的視窗中（0019 的表格） | 如該處的 `d s` |
 | *Remove from this playlist* | | 自己的播放清單的曲目 | 如該處的 `d s` |
 | *Remove from queue* | | 佇列 | 如該處的 `d s` |
 
-`items` 是依清單順序的選取列（佇列用佇列的順序；其他用已載入清單的順序，包含被隱藏的列），每個都是它那一列的 `Enter` 或 `a` 目前送出的 `Item`（曲目、專輯或播放清單）。藝人不是 `Item`，所以在藝人視窗中不列出 *Play*、*Play next* 與 *Add to queue*。導覽動作（*Open*、*Go to album*、*Go to artist*、*Go to radio*）永遠不列出：它們只作用於一列。
+`items` 是依清單順序的選取列（佇列用佇列的順序；其他用已載入清單的順序，包含被隱藏的列），每個都是它那一列的 `Enter` 或 `a` 目前送出的 `Item`（曲目、專輯或播放清單）。當每一個選取的列都是曲目（曲目列、credit 的曲目、佇列項目）時，這三個動作送出 `tracks`，也就是這些列已載入的曲目，順序相同：播放器不需要查詢任何東西，所以 Tidal 上已經沒有的曲目不會讓其他曲目失敗（它會被加入佇列，並像任何無法播放的曲目一樣被跳過，0004 AC7）。`AddToQueue` 不會開始播放：`Open` 會在閒置的播放器上開始播放第一首加入的曲目（0005 AC7），而曲目的選取只會被加入並等待播放，如同 0028 的釘選列。選取中有專輯或播放清單時仍然送出 `Open`，由播放器展開。藝人不是 `Item`，所以在藝人視窗中不列出 *Play*、*Play next* 與 *Add to queue*。導覽動作（*Open*、*Go to album*、*Go to artist*、*Go to radio*）永遠不列出：它們只作用於一列。
 
 彈出視窗接受 0006 的彈出視窗按鍵（`j`/`k`、游標所在列的 `Enter`、`Esc`）以及表格的固定按鍵：緊接在 `s a` 之後輸入（`s a p`），固定按鍵會執行它的動作，沒有可見的停頓，然後彈出視窗關閉。彈出視窗中的 `p`、`N` 與 `a` 是彈出視窗自己的按鍵（像詢問的 `y`/`n`），不是按鍵對應的綁定，所以不會與 0008 前綴規則下的 `s a` 衝突（決策 8）。
 
@@ -132,7 +132,7 @@ Remove 3 tracks from Road trip? (y/n)
 - **AC5** — 清除（表格測試）：失敗的寫入的列在清單重新載入之後仍維持選取，不論重新載入與最後一個回應哪個先到，並且在其他寫入要求的每一次之後的重新載入中也是如此，依它們是什麼來找到（之後因捲動才載入的列也是），而成功的列不會回來；選取一旦被手動改變，重新載入就會失去它；沒有彈出視窗或輸入開啟時的 `Esc` 只清除焦點視窗的選取；有保留的篩選時，它清除篩選並保留選取（以及動作模式），下一次 `Esc` 才清除選取；關閉彈出視窗或篩選輸入的 `Esc` 什麼都不清除；換頁會清除離開的頁面的每個視窗，回到該頁不會還原它；在其頁面被離開之後才到達的寫入回應不會改變任何選取，現在取代該位置的頁面也一樣；成功的動作會清除；失敗的會保留選取；重新載入的視窗會失去它；離開佇列的佇列項目會離開選取；換焦點會保留每個視窗的選取
 - **AC6** — 篩選：被篩選隱藏的已選取列維持選取並被動作作用；清除篩選會顯示它們仍然被選取；透過篩選選取只會選取看得見的列
 - **AC7** — 選取動作彈出視窗：沒有選取時 `s a` 不開啟任何東西；有選取時，它以標題 `N selected` 開啟，並依視窗列出表格中的動作（針對各視窗的表格測試：專輯的曲目、自己的播放清單、佇列、收藏的曲目、音樂庫的 Albums、Artists、Playlists、搜尋視窗、mix）；絕不列出任何導覽動作
-- **AC8** — 選取動作送出（表格測試）：*Play*（`s a p`）、*Play next*（`s a N`）、*Add to queue*（`s a a`）送出 `Open`，帶有依清單順序的選取項目（包含被隱藏的列）與表格中的 `at`，然後清除選取；彈出視窗列上的 `Enter` 做與它的按鍵相同的事；*Add to playlist…* 以依序的曲目開啟選擇器，選取在加入後清除，在 `Esc` 時保留；*Add to favorites* 對每個不確定為收藏的列送出一個 `AddFavorite`
+- **AC8** — 選取動作送出（表格測試）：*Play*（`s a p`）、*Play next*（`s a N`）、*Add to queue*（`s a a`）送出表格中的指令，帶有依清單順序的選取列（包含被隱藏的列），然後清除選取：選取的是曲目時，送出 `LoadQueue { tracks, start: 0 }` 或 `AddToQueue { tracks, at }`，帶有已載入的曲目（其中一首已不在 Tidal 上也不會改變任何事：沒有 `Open`，也沒有要播放器解析的曲目 ID），`AddToQueue` 之後不接任何東西，不論有沒有目前項目：閒置的播放器不會被啟動；選取的是專輯或播放清單時，送出 `Open { items, at }`；彈出視窗列上的 `Enter` 做與它的按鍵相同的事；*Add to playlist…* 以依序的曲目開啟選擇器，選取在加入後清除，在 `Esc` 時保留；*Add to favorites* 對每個不確定為收藏的列送出一個 `AddFavorite`
 - **AC9** — 游標列的按鍵忽略選取：有列被選取時，`Enter`、`a`、`d d` 與 `[[actions]]` 綁定作用於游標所在的列，與沒有選取時完全相同，並讓選取維持原樣
 - **AC10** — 各視窗的 `d s`（0019 AC10 的表格，選取 3 個）：佇列、自己的播放清單的曲目、收藏的曲目、Albums、Artists、追蹤的播放清單 → 詢問帶有 0019 對多個項目的第一行，並依清單順序列出三個標題，包含被隱藏的列；`y` 送出表格中的寫入（一個帶有三個位置，並在被要求時帶有頁面 ETag 的 `RemoveFromPlaylist`）；`n`/`Esc` 什麼都不送並保留選取；其他視窗與空的選取什麼都不做；一個目標給出 0019 的單一項目文字；`confirm_removals = false` 立即送出
 - **AC11** — 音樂庫 Playlists 中同時有自己的與追蹤的播放清單時的 `d s`：帶有兩份清單的 `Delete N playlists and remove M from favorites? (y/n)` 詢問，即使 `confirm_removals = false` 也會詢問；`y` 對每個自己的播放清單送出一個 `DeletePlaylist`，對每個追蹤的播放清單送出一個 `RemoveFavorite`；全部成功與部分失敗（`…; 1 failed`）的訊息，失敗的列維持選取
@@ -145,13 +145,14 @@ Remove 3 tracks from Road trip? (y/n)
 
 - **0 個可見列的選取**（每個已選取的列都被篩選隱藏）：`s a` 與 `d s` 仍然對它們動作；標題顯示 `· 3 selected, 3 hidden`
 - **佇列在底下改變**（自動前進、另一個客戶端）：離開的項目會從選取中掉出；對在此期間已不在的項目執行 *Remove from queue*，播放器會忽略它，如現在一樣（0019）
-- **很長的選取**（數百列）：`Open` 以一個指令接受它們；從收藏與佇列移除時每個送出一個請求，如 0019 的多個項目說明；詢問的清單會捲動
+- **很長的選取**（數百列）：`LoadQueue`、`AddToQueue` 與 `Open` 以一個指令接受它們；從收藏與佇列移除時每個送出一個請求，如 0019 的多個項目說明；詢問的清單會捲動
 - **已中斷連線**（連上的 TUI，常駐程式不見了）：選取可以運作（它是 UI 狀態）；動作做的是單列動作在中斷連線時目前所做的事，而選取保留，因為沒有任何東西成功
 - **進行中的整份清單載入**（0006）：只有 `Esc`/`q` 有作用，所以沒有任何選取按鍵會作用
 - **佇列中正在播放的列**：可以被選取與移除，如同 `d d` 可以
 - **很小的終端機**：視窗寬度低於 10 欄時捨棄標記欄（只靠樣式顯示選取）；不會 panic
 - **在文字輸入框中輸入的按鍵**（搜尋、篩選、輸入提示）：`s` 在那裡是文字，如同每個按鍵一樣（0008）
 - **無法播放的列**（變淡，0006）：與其他列一樣被選取與移除；*Play* 會送出它們，播放器像現在一樣跳過它們
+- **選取的曲目已不在 Tidal 上**：與其他曲目一起送出、加入佇列，輪到它時被跳過（0004 AC7）。選取中有專輯或播放清單時，`Open` 仍然解析每個曲目 ID，遇到找不到的就整個失敗（0005 AC7），選取保留
 
 <a id="test-plan"></a>
 ## 測試計畫
@@ -167,7 +168,7 @@ Remove 3 tracks from Road trip? (y/n)
 | AC5 | `crates/core/src/ui/select/tests.rs` :: `ac5_clearing`（表格） | 每種清除與保留的情形 | 存根的選取從未設定，所以「保留」的列失敗 |
 | AC6 | `crates/core/src/ui/filter/tests.rs` :: `ac6_selection_through_filter` | 被隱藏的列保留並被動作作用 | 選取為空 |
 | AC7 | `crates/core/src/ui/select/tests.rs` :: `ac7_selection_actions_listed`（針對各視窗的表格） | 彈出視窗標題與動作 | 彈出視窗沒有開啟 |
-| AC8 | `crates/core/src/ui/select/tests.rs` :: `ac8_selection_actions_send`（表格） | `Open` 指令、選擇器、收藏、清除 | 什麼都沒送出 |
+| AC8 | `crates/core/src/ui/select/tests.rs` :: `ac8_selection_actions_send`（表格） | 曲目的 `LoadQueue`/`AddToQueue` 指令（單獨送出，閒置的播放器也一樣）、專輯的 `Open`、選擇器、收藏、清除 | 什麼都沒送出（2026-11-15：預期送出帶有曲目的 `LoadQueue`/`AddToQueue`，卻送出帶有曲目 ID 的 `Open`） |
 | AC9 | `crates/core/src/ui/select/tests.rs` :: `ac9_cursor_keys_ignore_selection`（表格） | `Enter`、`a`、`d d`、一個綁定作用於游標所在的列 | 存根的選取為空，所以「選取保留」的斷言失敗 |
 | AC10 | `crates/core/src/ui/browse/tests.rs` :: `ac10_remove_selection`（針對各視窗的表格） | 詢問文字與清單、`y` 送出什麼、`n`/`Esc`、關閉的開關 | 沒有詢問 |
 | AC11 | `crates/core/src/ui/browse/tests.rs` :: `ac11_remove_selected_playlists` | 混合的詢問、一律詢問、寫入、訊息 | 沒有詢問 |
@@ -256,3 +257,4 @@ Remove 3 tracks from Road trip? (y/n)
 - **沒有移動任何東西的 `Tab` 結束了動作模式（於 PR 審查時發現，2026-11-02）。**預期：只有焦點變更會結束動作模式。實際：在只有一個窗格的頁面上，`Tab` 結束了它，並加入了範圍。根本原因：動作範圍在循環焦點之前就結束了，不論焦點是否移動。AC4 新增案例
 - **遲到的寫入回應作用於另一個頁面的選取（於 PR 審查時發現，2026-11-02）。**預期：在選取所屬的頁面被離開之後才到達的回應，不改變任何選取（該頁面的選取在離開時已被清除）。實際：批次以它在歷史中的索引來指名它的頁面，所以回到上一頁再開啟另一個頁面（它佔用同一個索引）之後，或在已滿的歷史中最舊的頁面被丟掉之後，回應會清除或取消選取現在位於該索引的頁面的列。根本原因：歷史索引會被重複使用。離開頁面現在會讓它的批次與等待中的 *Add to playlist…* 脫離：它們的回應仍然給出自己的訊息，但不碰任何選取。AC5 新增案例
 - **按鍵說明在 `s a` 什麼都不做的地方提供它（於 PR 審查時發現，2026-11-02）。**預期：按鍵說明把什麼都不做的按鍵變淡。實際：選取了 mix 時，`s a` 什麼都不開啟（沒有任何動作適用於 mix），但說明沒有把它變淡。AC13 新增案例
+- **其中一首選取的曲目不見時，播放或加入佇列整個失敗（[#105](https://github.com/PEKKA1117/spotify-player-but-for-tidal/issues/105)，於檢查 #103 時發現，2026-11-12）。**預期：對選取的曲目執行 *Play*、*Play next* 與 *Add to queue* 會播放或加入其中每一首；已不在 Tidal 上的曲目在輪到它時被跳過，如同任何清單上那樣（0004 AC7）。實際：什麼都沒有播放或加入佇列，訊息列顯示 `Track <id> was not found`。根本原因：這些動作送出 `Open`，每一列帶一個 `Item::Track(id)`，播放器一次解析一個 ID，遇到第一個找不到的就整個失敗（0005 AC7），儘管這些列已經持有佇列需要的一切。錯的是規格，不是程式碼：表格與 AC8 寫的是 `Open`。曲目的選取現在送出已載入的曲目（`LoadQueue` / `AddToQueue`，如同 0006 的 `Enter` 與 0028 的釘選列）。`AddToQueue` 單獨送出，所以閒置的播放器不再像先前透過 `Open` 那樣開始播放第一首加入的曲目：曲目被加入並等待，如同 0028 的釘選列（維護者的選擇，2026-11-15，而不是在它之後送出 `Play`）。AC8 已修訂；它的測試各列現在斷言這些指令，選取的曲目中有一首是播放器無法解析的

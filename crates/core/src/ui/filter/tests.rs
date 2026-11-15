@@ -1336,9 +1336,9 @@ fn ac6_selection_through_filter() {
     let mut state = hidden();
     assert_eq!(
         press(&mut state, &s("sap")),
-        vec![Effect::Send(Command::Open {
-            items: vec![Item::Track(TrackId(1)), Item::Track(TrackId(2))],
-            at: None,
+        vec![Effect::Send(Command::LoadQueue {
+            tracks: four()[..2].to_vec(),
+            start: 0,
         })]
     );
     let mut state = hidden();
