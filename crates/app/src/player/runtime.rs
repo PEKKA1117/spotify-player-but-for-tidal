@@ -36,6 +36,7 @@ use tidal_player_core::library::{
     DEFAULT_HIDDEN_VERSIONS, LibraryRequest, LibraryResponse, PageData, PageRequest,
 };
 use tidal_player_core::lyrics::Lyrics;
+use tidal_player_core::notify::NotifyTracker;
 use tidal_player_core::player::{
     self, EngineEvent, Failure, PlayerConfig, PlayerEffect, PlayerInput, PlayerState, Purpose,
     TrackDetails,
@@ -50,6 +51,7 @@ use crate::ipc::server::{ClientId, ClientInput, Hub};
 use crate::logging::LogHandle;
 use crate::logging::events::{self, PlayerLog, Playing, Shutdown};
 use crate::player::hook::HookSink;
+use crate::player::notify::NotifySink;
 use crate::player::persist::{Loaded, Persister, SaveResult, SaveSchedule};
 use crate::settings::{DEFAULT_QUALITY, PlayerSettings, start_autoplay};
 
@@ -514,6 +516,8 @@ pub struct PlayerRuntime<E, J> {
     devices: Box<dyn DeviceLister>,
     /// The player event hook (spec 0025), when `app.toml` sets one.
     hook: Option<PlayerHook>,
+    /// Desktop notifications (spec 0029), when they are on.
+    notifier: Option<PlayerNotifier>,
     /// The log buffer `Logs` is answered from (spec 0027); `None`: the
     /// process keeps no log.
     logs: Option<LogHandle>,
@@ -528,6 +532,12 @@ pub struct PlayerRuntime<E, J> {
 struct PlayerHook {
     sink: Box<dyn HookSink>,
     tracker: HookTracker,
+}
+
+/// The notifier and which tracks it has been handed.
+struct PlayerNotifier {
+    sink: Box<dyn NotifySink>,
+    tracker: NotifyTracker,
 }
 
 /// The playback file and when to write it (spec 0009 "Saving").
@@ -692,6 +702,7 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
             persistence: None,
             devices: Box::new(AsoundDevices::from_env()),
             hook: None,
+            notifier: None,
             logs: None,
             plog: PlayerLog::new(DEFAULT_QUALITY, state_now),
             running: HashMap::new(),
@@ -704,6 +715,16 @@ impl<E: EngineControl, J: Jobs> PlayerRuntime<E, J> {
         self.hook = hook.map(|sink| PlayerHook {
             sink,
             tracker: HookTracker::default(),
+        });
+        self
+    }
+
+    /// Hands the tracks that start to `notifier` from now on (spec 0029).
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: Option<Box<dyn NotifySink>>) -> Self {
+        self.notifier = notifier.map(|sink| PlayerNotifier {
+            sink,
+            tracker: NotifyTracker::default(),
         });
         self
     }

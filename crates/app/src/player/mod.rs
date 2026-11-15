@@ -7,6 +7,7 @@ pub mod cover_cache;
 pub mod hook;
 pub mod http_source;
 pub mod mpris;
+pub mod notify;
 pub mod persist;
 pub mod playback;
 pub mod reserve;

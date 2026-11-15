@@ -1907,6 +1907,139 @@ fn ac14_shutdown_sends_stopped() {
     assert_eq!(shutdown(&mut h), None);
 }
 
+/// Records the tracks the runtime hands its notifier (spec 0029).
+#[derive(Clone, Default)]
+struct Notified(Arc<Mutex<Vec<Track>>>);
+
+impl crate::player::notify::NotifySink for Notified {
+    fn send(&mut self, track: Track) {
+        self.0.lock().unwrap().push(track);
+    }
+}
+
+/// A runtime with a notifier, on `engine`.
+fn notified(
+    engine: FakeEngine,
+    log: Log,
+    tx: &Sender<RuntimeInput>,
+    rx: Receiver<RuntimeInput>,
+) -> (Hooked, Notified) {
+    let notified = Notified::default();
+    let jobs = FakeJobs::new(&log, tx, true);
+    let rt = PlayerRuntime::new(PlayerConfig::default(), 7, engine, jobs)
+        .with_notifier(Some(Box::new(notified.clone())));
+    let hooked = Hooked {
+        rt,
+        log,
+        rx,
+        recorder: Recorder::default(),
+    };
+    (hooked, notified)
+}
+
+/// Spec 0029 AC10: the notifier gets the tracks that start, with their
+/// metadata, and nothing else.
+#[test]
+fn ac10_notifier_gets_started_tracks() {
+    type Drive = fn(&mut Hooked);
+    let rows: &[(&str, Script, Drive, &[u64])] = &[
+        (
+            "a started track",
+            Script::Plays,
+            |h| h.input(load(&[1])),
+            &[1],
+        ),
+        (
+            "a skip",
+            Script::Plays,
+            |h| {
+                h.input(load(&[1, 2]));
+                h.command(Command::Next);
+            },
+            &[1, 2],
+        ),
+        (
+            "an end that is not gapless",
+            Script::Ends,
+            |h| h.input(load(&[1, 2])),
+            &[1, 2],
+        ),
+        (
+            "skipping past tracks that never start",
+            Script::Plays,
+            |h| {
+                // The resolutions wait in the channel until the skips are in.
+                h.rt.handle(load(&[1, 2, 3]));
+                h.rt.handle(RuntimeInput::Command(Command::Next));
+                h.rt.handle(RuntimeInput::Command(Command::Next));
+                h.input(RuntimeInput::Command(Command::Play));
+            },
+            &[3],
+        ),
+        (
+            "pause, resume, seek, volume and a device move",
+            Script::Plays,
+            |h| {
+                h.input(load(&[1]));
+                h.command(Command::TogglePause);
+                h.command(Command::TogglePause);
+                h.command(Command::SeekTo(Duration::from_secs(20)));
+                h.command(Command::ChangeVolume(-10));
+                h.command(Command::SetDevice("hw:9".into()));
+                h.input(RuntimeInput::Engine(audio::Event::OutputChanged(output())));
+            },
+            &[1],
+        ),
+        (
+            "the same track twice in a row",
+            Script::Plays,
+            |h| {
+                h.input(load(&[1, 1]));
+                h.command(Command::Next);
+            },
+            &[1],
+        ),
+    ];
+    for (name, script, drive, want) in rows {
+        let log: Log = Arc::default();
+        let (tx, rx) = mpsc::channel();
+        let engine = FakeEngine::new(&log, script.clone());
+        let (mut h, notified) = notified(engine, log, &tx, rx);
+        drive(&mut h);
+        let got = notified.0.lock().unwrap().clone();
+        let ids: Vec<u64> = got.iter().map(|t| t.id.0).collect();
+        assert_eq!(&ids, want, "{name}");
+        for track in &got {
+            assert_eq!(
+                track.title,
+                format!("Title {}", track.id),
+                "{name}: metadata"
+            );
+        }
+    }
+
+    // Gapless: the preload armed near the end, then the transition.
+    let log: Log = Arc::default();
+    let (tx, rx) = mpsc::channel();
+    let (mut h, notified) = notified(FakeEngine::new(&log, Script::Plays), log, &tx, rx);
+    h.input(load(&[1, 2]));
+    h.position(190);
+    let tag = take(&h.log)
+        .iter()
+        .find_map(|call| match call {
+            Call::Preload { tag, track: 2 } => Some(*tag),
+            _ => None,
+        })
+        .expect("the next track was preloaded");
+    h.input(RuntimeInput::Engine(audio::Event::Transitioned {
+        tag,
+        source: SOURCE,
+        output: output(),
+    }));
+    let ids: Vec<u64> = notified.0.lock().unwrap().iter().map(|t| t.id.0).collect();
+    assert_eq!(ids, [1, 2], "gapless");
+}
+
 /// 0027 AC5: `Logs` is answered once, to the asking client, with the
 /// buffer's lines after `after` and the player's `off`; another subscriber
 /// receives nothing; answering adds no line to the buffer; a player that

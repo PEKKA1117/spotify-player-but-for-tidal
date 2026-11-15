@@ -1470,3 +1470,313 @@ fn ac13_hook_reaches_the_settings() {
         .expect("the settings resolve");
     assert_eq!(none.hook, None);
 }
+
+/// The notification settings `text` resolves to, with `env`.
+fn notify_of(
+    text: &str,
+    env: &[(&str, &str)],
+) -> Result<tidal_player_core::notify::NotifySettings, String> {
+    let file = parse_app_toml(Path::new(PATH), text).map_err(|e| e.0)?;
+    let env = |key: &str| {
+        env.iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| (*v).to_owned())
+    };
+    resolve_player_config_with(&file, env)
+        .map(|s| s.notify)
+        .map_err(|e| e.to_string())
+}
+
+/// Spec 0029 AC1: the four settings in `app.toml`, their defaults, and
+/// everything they refuse.
+#[test]
+fn ac1_notify_settings() {
+    use tidal_player_core::notify::{NotifyFormat, NotifySettings};
+    let format = |summary: &str, body: &str| NotifyFormat::new(summary, body).unwrap();
+    let good: Vec<(&str, NotifySettings)> = vec![
+        ("", NotifySettings::default()),
+        (
+            "enable_notify = false",
+            NotifySettings {
+                enabled: false,
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "notify_timeout_in_secs = 7\nnotify_transient = true",
+            NotifySettings {
+                timeout_secs: 7,
+                transient: true,
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "notify_timeout_in_secs = 3600",
+            NotifySettings {
+                timeout_secs: 3600,
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "notify_format = { summary = \"{track}\", body = \"by {artists}\" }",
+            NotifySettings {
+                format: format("{track}", "by {artists}"),
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "notify_format = { summary = \"{track}\" }",
+            NotifySettings {
+                format: format("{track}", "{album}"),
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "notify_format = { body = \"\" }",
+            NotifySettings {
+                format: format("{track} • {artists}", ""),
+                ..NotifySettings::default()
+            },
+        ),
+        (
+            "[notify_format]\nbody = \"on {album}\\n{artists}\"",
+            NotifySettings {
+                format: format("{track} • {artists}", "on {album}\n{artists}"),
+                ..NotifySettings::default()
+            },
+        ),
+    ];
+    for (text, want) in good {
+        assert_eq!(notify_of(text, &[]), Ok(want), "{text}");
+    }
+    let bad = [
+        (
+            "enable_notify = \"yes\"",
+            "invalid enable_notify: expected true or false, got \"yes\"",
+        ),
+        (
+            "notify_transient = 1",
+            "invalid notify_transient: expected true or false, got 1",
+        ),
+        (
+            "notify_timeout_in_secs = 3601",
+            "invalid notify_timeout_in_secs: expected an integer from 0 to 3600, got 3601",
+        ),
+        (
+            "notify_timeout_in_secs = -1",
+            "invalid notify_timeout_in_secs: expected an integer from 0 to 3600, got -1",
+        ),
+        (
+            "notify_timeout_in_secs = \"5\"",
+            "invalid notify_timeout_in_secs: expected an integer from 0 to 3600, got \"5\"",
+        ),
+        (
+            "notify_format = \"{track}\"",
+            "invalid notify_format: expected a table with summary and body, got \"{track}\"",
+        ),
+        (
+            "notify_format = { summary = 1 }",
+            "invalid notify_format.summary: expected a string, got 1",
+        ),
+        (
+            "notify_format = { body = [\"a\"] }",
+            "invalid notify_format.body: expected a string, got an array",
+        ),
+        (
+            "notify_format = { summary = \"\" }",
+            "invalid notify_format.summary: expected a non-empty string, got \"\"",
+        ),
+        (
+            "notify_format = { icon = \"x\" }",
+            "unknown setting \"notify_format.icon\"",
+        ),
+    ];
+    for (text, want) in bad {
+        assert_eq!(
+            notify_of(text, &[]),
+            Err(format!("{PATH}: {want}")),
+            "{text}"
+        );
+    }
+}
+
+/// Spec 0029 AC1: the variables over the file, an empty one falling
+/// through, an invalid one naming itself.
+#[test]
+fn ac1_notify_precedence() {
+    use crate::settings::{ENABLE_NOTIFY_VAR, NOTIFY_TIMEOUT_VAR, NOTIFY_TRANSIENT_VAR};
+    type Get = fn(&tidal_player_core::notify::NotifySettings) -> String;
+    let rows: &[(&str, &str, &[(&str, &str)], Get, Result<&str, &str>)] = &[
+        (
+            "enable default",
+            "",
+            &[],
+            |n| n.enabled.to_string(),
+            Ok("true"),
+        ),
+        (
+            "enable file",
+            "enable_notify = false",
+            &[],
+            |n| n.enabled.to_string(),
+            Ok("false"),
+        ),
+        (
+            "enable env over file",
+            "enable_notify = false",
+            &[(ENABLE_NOTIFY_VAR, "on")],
+            |n| n.enabled.to_string(),
+            Ok("true"),
+        ),
+        (
+            "enable env off",
+            "",
+            &[(ENABLE_NOTIFY_VAR, "OFF")],
+            |n| n.enabled.to_string(),
+            Ok("false"),
+        ),
+        (
+            "enable empty env falls through",
+            "enable_notify = false",
+            &[(ENABLE_NOTIFY_VAR, "")],
+            |n| n.enabled.to_string(),
+            Ok("false"),
+        ),
+        (
+            "enable invalid env",
+            "",
+            &[(ENABLE_NOTIFY_VAR, "yes")],
+            |n| n.enabled.to_string(),
+            Err(ENABLE_NOTIFY_VAR),
+        ),
+        (
+            "timeout default",
+            "",
+            &[],
+            |n| n.timeout_secs.to_string(),
+            Ok("0"),
+        ),
+        (
+            "timeout file",
+            "notify_timeout_in_secs = 10",
+            &[],
+            |n| n.timeout_secs.to_string(),
+            Ok("10"),
+        ),
+        (
+            "timeout env over file",
+            "notify_timeout_in_secs = 10",
+            &[(NOTIFY_TIMEOUT_VAR, "15")],
+            |n| n.timeout_secs.to_string(),
+            Ok("15"),
+        ),
+        (
+            "timeout empty env falls through",
+            "notify_timeout_in_secs = 10",
+            &[(NOTIFY_TIMEOUT_VAR, "")],
+            |n| n.timeout_secs.to_string(),
+            Ok("10"),
+        ),
+        (
+            "timeout env out of range",
+            "",
+            &[(NOTIFY_TIMEOUT_VAR, "3601")],
+            |n| n.timeout_secs.to_string(),
+            Err(NOTIFY_TIMEOUT_VAR),
+        ),
+        (
+            "transient default",
+            "",
+            &[],
+            |n| n.transient.to_string(),
+            Ok("false"),
+        ),
+        (
+            "transient file",
+            "notify_transient = true",
+            &[],
+            |n| n.transient.to_string(),
+            Ok("true"),
+        ),
+        (
+            "transient env over file",
+            "notify_transient = true",
+            &[(NOTIFY_TRANSIENT_VAR, "off")],
+            |n| n.transient.to_string(),
+            Ok("false"),
+        ),
+        (
+            "transient invalid env",
+            "",
+            &[(NOTIFY_TRANSIENT_VAR, "1")],
+            |n| n.transient.to_string(),
+            Err(NOTIFY_TRANSIENT_VAR),
+        ),
+    ];
+    for (name, text, env, get, want) in rows {
+        let got = notify_of(text, env);
+        match want {
+            Ok(want) => assert_eq!(got.map(|n| get(&n)).as_deref(), Ok(*want), "{name}"),
+            Err(var) => {
+                let err = got.expect_err(name);
+                assert!(err.contains(var), "{name}: {err}");
+            }
+        }
+    }
+    assert_eq!(ENABLE_NOTIFY_VAR, "TIDAL_PLAYER_ENABLE_NOTIFY");
+    assert_eq!(NOTIFY_TIMEOUT_VAR, "TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS");
+    assert_eq!(NOTIFY_TRANSIENT_VAR, "TIDAL_PLAYER_NOTIFY_TRANSIENT");
+}
+
+/// Spec 0029 AC3: an unknown placeholder is an `app.toml` error naming
+/// it.
+#[test]
+fn ac3_notify_format_errors() {
+    let rows = [
+        (
+            "notify_format = { summary = \"{title}\" }",
+            "invalid notify_format.summary: unknown placeholder {title}: expected {track}, {artists} or {album}",
+        ),
+        (
+            "notify_format = { body = \"{album} ({year})\" }",
+            "invalid notify_format.body: unknown placeholder {year}: expected {track}, {artists} or {album}",
+        ),
+    ];
+    for (text, want) in rows {
+        let got = parse_app_toml(Path::new(PATH), text)
+            .map(|_| ())
+            .map_err(|e| e.0);
+        assert_eq!(got, Err(format!("{PATH}: {want}")), "{text}");
+    }
+    // An unclosed `{` is text.
+    let got = notify_of("notify_format = { summary = \"{track} {\" }", &[]);
+    let want = tidal_player_core::notify::NotifyFormat::new("{track} {", "{album}").unwrap();
+    assert_eq!(got.map(|n| n.format), Ok(want));
+}
+
+/// Spec 0029 AC13: what `app.toml` says is in the settings every player
+/// starts from (the daemon and the standalone TUI from the player's, `play`
+/// from its own), and in the notifier's.
+#[test]
+fn ac13_notify_reaches_the_settings() {
+    let text = "enable_notify = false\nnotify_timeout_in_secs = 9\nnotify_transient = true\n\
+                notify_format = { summary = \"{track}\", body = \"\" }\nmax_cover_arts = 0";
+    let file = parse_app_toml(Path::new(PATH), text).expect("it parses");
+    let want = tidal_player_core::notify::NotifySettings {
+        enabled: false,
+        format: tidal_player_core::notify::NotifyFormat::new("{track}", "").unwrap(),
+        timeout_secs: 9,
+        transient: true,
+    };
+    let player = resolve_player_config_with(&file, |_| None).expect("the settings resolve");
+    let play = resolve_play_config_with(&file, false, |_| None).expect("the settings resolve");
+    assert_eq!(player.notify, want);
+    assert_eq!(play.notify, want);
+    let notifier = crate::player::notify::Settings::from_env(&player);
+    assert_eq!(notifier.notify, want);
+    assert_eq!(notifier.cover_dir, None, "no cover cache");
+    let cached = crate::player::notify::Settings::from_env(
+        &resolve_player_config_with(&AppConfig::default(), |_| None).unwrap(),
+    );
+    assert!(cached.cover_dir.is_some(), "the cover cache");
+}

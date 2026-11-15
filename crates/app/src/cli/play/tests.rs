@@ -486,6 +486,41 @@ fn ac13_play_asks_for_the_hooks_metadata() {
     }
 }
 
+/// Spec 0029 AC13: one track ID is fetched when notifications are on, as
+/// for a hook, so the notification has a title.
+#[test]
+fn ac13_play_asks_for_the_notifications_metadata() {
+    let tokio = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    for (notify, title, requests) in [
+        ("off", "", &[][..]),
+        ("on", "Title 1", &["track 1".to_owned()][..]),
+    ] {
+        let settings = resolve_play_config(false, |var| {
+            (var == crate::settings::ENABLE_NOTIFY_VAR).then(|| notify.to_owned())
+        })
+        .unwrap();
+        assert_eq!(settings.hook, None);
+        let meta = FakeMeta::default();
+        let items = [Item::Track(TrackId(1))];
+        let tracks = tokio
+            .block_on(play_tracks(
+                &meta,
+                &items,
+                &PlayOptions::default(),
+                needs_metadata(&settings),
+            ))
+            .unwrap();
+        assert_eq!(tracks[0].title, title, "notifications {notify}");
+        assert_eq!(
+            *meta.requests.lock().unwrap(),
+            requests,
+            "notifications {notify}"
+        );
+    }
+}
+
 /// AC18: several items expand in order into one queue played through
 /// the player; the status lines at each start; the exit codes.
 #[test]

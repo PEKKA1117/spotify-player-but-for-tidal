@@ -141,6 +141,14 @@ pub const COVER_IMG_VAR: &str = "TIDAL_PLAYER_COVER_IMG";
 pub const COVER_IMG_ROWS_VAR: &str = "TIDAL_PLAYER_COVER_IMG_ROWS";
 /// The cover's graphics protocol (spec 0016).
 pub const COVER_IMG_PROTOCOL_VAR: &str = "TIDAL_PLAYER_COVER_IMG_PROTOCOL";
+/// `on` or `off`: desktop notifications on track change (spec 0029).
+pub const ENABLE_NOTIFY_VAR: &str = "TIDAL_PLAYER_ENABLE_NOTIFY";
+/// How long a notification stays, 0 to 3600 s (`0`: the server's own
+/// time; spec 0029).
+pub const NOTIFY_TIMEOUT_VAR: &str = "TIDAL_PLAYER_NOTIFY_TIMEOUT_IN_SECS";
+/// `on` or `off`: whether the server keeps notifications out of its history
+/// (spec 0029).
+pub const NOTIFY_TRANSIENT_VAR: &str = "TIDAL_PLAYER_NOTIFY_TRANSIENT";
 /// The lowest level the log keeps, over `log_level` in `app.toml` (spec
 /// 0027).
 pub const LOG_LEVEL_VAR: &str = "TIDAL_PLAYER_LOG_LEVEL";
@@ -222,6 +230,8 @@ pub struct PlayerSettings {
     pub hook: Option<crate::config::HookCommand>,
     /// The lowest level the log keeps (spec 0027).
     pub log_level: tidal_player_core::log::LogSetting,
+    /// Desktop notifications on track change (spec 0029).
+    pub notify: tidal_player_core::notify::NotifySettings,
 }
 
 impl Default for PlayerSettings {
@@ -248,6 +258,7 @@ impl Default for PlayerSettings {
             cover_img_protocol: crate::tui::cover::ProtocolSetting::Auto,
             hook: None,
             log_level: tidal_player_core::log::LogSetting::default(),
+            notify: tidal_player_core::notify::NotifySettings::default(),
         }
     }
 }

@@ -311,6 +311,12 @@ impl PlayOptions {
     }
 }
 
+/// Whether `play` of one track ID asks for its metadata: a hook (spec 0025)
+/// and a notification (spec 0029) need the track's title.
+pub fn needs_metadata(settings: &crate::settings::PlayerSettings) -> bool {
+    settings.hook.is_some()
+}
+
 /// The queue `play` loads: the items expanded in order. One track ID with
 /// no new flag and no hook is queued as 0003 played it, without a metadata
 /// request (its errors are 0003's, from the stream resolution); a hook needs
