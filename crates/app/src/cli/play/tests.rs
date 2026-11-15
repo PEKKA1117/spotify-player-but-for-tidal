@@ -423,8 +423,14 @@ fn run_play(row: Row) -> (u8, String, String, Vec<String>) {
         .build()
         .unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let tracks = parse_items(&args)
-        .and_then(|items| tokio.block_on(play_tracks(&meta, &items, &row.options, false)));
+    let tracks = parse_items(&args).and_then(|items| {
+        tokio.block_on(play_tracks(
+            &meta,
+            &items,
+            &row.options,
+            TrackMetadata::Skip,
+        ))
+    });
     let code = match tracks {
         Err(e) => {
             writeln!(err, "{e}").unwrap();
@@ -479,7 +485,16 @@ fn ac13_play_asks_for_the_hooks_metadata() {
         let meta = FakeMeta::default();
         let items = [Item::Track(TrackId(1))];
         let tracks = tokio
-            .block_on(play_tracks(&meta, &items, &PlayOptions::default(), hooked))
+            .block_on(play_tracks(
+                &meta,
+                &items,
+                &PlayOptions::default(),
+                if hooked {
+                    TrackMetadata::Needed
+                } else {
+                    TrackMetadata::Skip
+                },
+            ))
             .unwrap();
         assert_eq!(tracks[0].title, title, "hooked: {hooked}");
         assert_eq!(*meta.requests.lock().unwrap(), requests, "hooked: {hooked}");
@@ -493,31 +508,47 @@ fn ac13_play_asks_for_the_notifications_metadata() {
     let tokio = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
-    for (notify, title, requests) in [
-        ("off", "", &[][..]),
-        ("on", "Title 1", &["track 1".to_owned()][..]),
-    ] {
-        let settings = resolve_play_config(false, |var| {
+    // Notifications, a hook, the track ID, the title queued (or the error),
+    // the requests made. Track 99's request fails.
+    let rows: [(&str, bool, u64, Result<&str, ()>, &[&str]); 5] = [
+        ("off", false, 1, Ok(""), &[]),
+        ("on", false, 1, Ok("Title 1"), &["track 1"]),
+        // A notification only wants the title: 0003's nameless track, no
+        // error (the stream resolution says what is wrong).
+        ("on", false, 99, Ok(""), &["track 99"]),
+        // A hook needs it: the error, as 0025 has it.
+        ("on", true, 99, Err(()), &["track 99"]),
+        ("off", true, 99, Err(()), &["track 99"]),
+    ];
+    for (notify, hooked, id, want, requests) in rows {
+        let name = format!("notifications {notify}, hook {hooked}, track {id}");
+        let mut settings = resolve_play_config(false, |var| {
             (var == crate::settings::ENABLE_NOTIFY_VAR).then(|| notify.to_owned())
         })
         .unwrap();
-        assert_eq!(settings.hook, None);
+        settings.hook = hooked.then(|| crate::config::HookCommand {
+            command: "a.sh".into(),
+            args: Vec::new(),
+        });
         let meta = FakeMeta::default();
-        let items = [Item::Track(TrackId(1))];
-        let tracks = tokio
-            .block_on(play_tracks(
-                &meta,
-                &items,
-                &PlayOptions::default(),
-                needs_metadata(&settings),
-            ))
-            .unwrap();
-        assert_eq!(tracks[0].title, title, "notifications {notify}");
-        assert_eq!(
-            *meta.requests.lock().unwrap(),
-            requests,
-            "notifications {notify}"
-        );
+        let items = [Item::Track(TrackId(id))];
+        let got = tokio.block_on(play_tracks(
+            &meta,
+            &items,
+            &PlayOptions::default(),
+            needs_metadata(&settings),
+        ));
+        match (got, want) {
+            (Ok(tracks), Ok(title)) => {
+                assert_eq!(tracks.len(), 1, "{name}");
+                assert_eq!(tracks[0].id, TrackId(id), "{name}");
+                assert_eq!(tracks[0].title, title, "{name}");
+            }
+            (Err(_), Err(())) => {}
+            (got, _) => panic!("{name}: got {got:?}, want {want:?}"),
+        }
+        let made: Vec<String> = requests.iter().map(|r| (*r).to_owned()).collect();
+        assert_eq!(*meta.requests.lock().unwrap(), made, "{name}");
     }
 }
 

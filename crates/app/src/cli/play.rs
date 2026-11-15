@@ -311,26 +311,43 @@ impl PlayOptions {
     }
 }
 
-/// Whether `play` of one track ID asks for its metadata: a hook (spec 0025)
-/// and a notification (spec 0029) need the track's title.
-pub fn needs_metadata(settings: &crate::settings::PlayerSettings) -> bool {
-    settings.hook.is_some() || settings.notify.enabled
+/// Whether `play` of one track ID asks for its metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackMetadata {
+    /// No: queued nameless, as 0003 played it.
+    Skip,
+    /// For a notification (spec 0029): a failed request falls back to the
+    /// nameless track, which is then not notified.
+    Wanted,
+    /// For a hook (spec 0025): a failed request is `play`'s error.
+    Needed,
+}
+
+/// What `play` of one track ID asks for: a hook (spec 0025) needs the
+/// track's title, a notification (spec 0029) wants it.
+pub fn needs_metadata(settings: &crate::settings::PlayerSettings) -> TrackMetadata {
+    if settings.hook.is_some() {
+        TrackMetadata::Needed
+    } else if settings.notify.enabled {
+        TrackMetadata::Wanted
+    } else {
+        TrackMetadata::Skip
+    }
 }
 
 /// The queue `play` loads: the items expanded in order. One track ID with
-/// no new flag and not `hooked` is queued as 0003 played it, without a
-/// metadata request (its errors are 0003's, from the stream resolution);
-/// `hooked` is [`needs_metadata`]: a hook (spec 0025) or a notification
-/// (spec 0029) needs the track's title.
+/// no new flag is queued as 0003 played it, without a metadata request
+/// (its errors are 0003's, from the stream resolution), unless `metadata`
+/// ([`needs_metadata`]) asks for one.
 pub async fn play_tracks(
     meta: &dyn Metadata,
     items: &[Item],
     options: &PlayOptions,
-    hooked: bool,
+    metadata: TrackMetadata,
 ) -> Result<Vec<Track>, ExpandError> {
     if let [Item::Track(id)] = items
         && !options.has_new_flag()
-        && !hooked
+        && metadata == TrackMetadata::Skip
     {
         return Ok(vec![Track {
             id: *id,

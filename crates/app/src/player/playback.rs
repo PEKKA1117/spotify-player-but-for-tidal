@@ -42,7 +42,7 @@ pub struct PlayRequest {
     /// Desktop notifications on track change (spec 0029).
     pub notify: crate::player::notify::Settings,
     /// One track ID is fetched for its title ([`crate::cli::play::needs_metadata`]).
-    pub needs_metadata: bool,
+    pub needs_metadata: crate::cli::play::TrackMetadata,
     /// The process's log buffer, which `Logs` requests are answered from
     /// (spec 0027).
     pub logs: Option<crate::logging::LogHandle>,

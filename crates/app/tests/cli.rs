@@ -336,9 +336,6 @@ fn ac26_play_end_to_end_errors() {
             .env("TIDAL_PLAYER_PASSPHRASE_FILE", &pass_file)
             .env("TIDAL_PLAYER_API_BASE", server.uri())
             .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
-            // One track ID without a metadata request, as 0003 plays it:
-            // notifications (spec 0029 AC13) would ask for its title.
-            .env("TIDAL_PLAYER_ENABLE_NOTIFY", "off")
             .env_remove("TIDAL_PLAYER_QUALITY")
             .env_remove("TIDAL_PLAYER_DEVICE")
             .timeout(Duration::from_secs(30));
@@ -449,8 +446,6 @@ fn ac9_play_leaves_state_alone() {
             .env("TIDAL_PLAYER_PASSPHRASE_FILE", &pass_file)
             .env("TIDAL_PLAYER_API_BASE", server.uri())
             .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
-            // As 0003 plays one track ID (see `ac26_play_end_to_end_errors`).
-            .env("TIDAL_PLAYER_ENABLE_NOTIFY", "off")
             .env_remove("TIDAL_PLAYER_QUALITY")
             .env_remove("TIDAL_PLAYER_DEVICE")
             .env_remove("TIDAL_PLAYER_REMEMBER_PLAYBACK")
