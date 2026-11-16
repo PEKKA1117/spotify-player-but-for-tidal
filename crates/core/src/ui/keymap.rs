@@ -319,12 +319,14 @@ pub enum UiCommand {
     ClosePopup,
     /// The Themes popup (spec 0017).
     SwitchTheme,
+    /// Opens the Tidal link in the clipboard (spec 0030).
+    OpenSpotifyLinkFromClipboard,
     OpenCommandHelp,
     Quit,
 }
 
 /// Every command, with its default parameters, in the table's order.
-pub const COMMANDS: [UiCommand; 57] = [
+pub const COMMANDS: [UiCommand; 58] = [
     UiCommand::ResumePause,
     UiCommand::NextTrack,
     UiCommand::PreviousTrack,
@@ -376,6 +378,7 @@ pub const COMMANDS: [UiCommand; 57] = [
     UiCommand::LyricsPage,
     UiCommand::OpenLogs,
     UiCommand::ExportLogs,
+    UiCommand::OpenSpotifyLinkFromClipboard,
     UiCommand::Search,
     UiCommand::PreviousPage,
     UiCommand::ClosePopup,
@@ -443,6 +446,7 @@ impl UiCommand {
             Self::PreviousPage => "PreviousPage",
             Self::ClosePopup => "ClosePopup",
             Self::SwitchTheme => "SwitchTheme",
+            Self::OpenSpotifyLinkFromClipboard => "OpenSpotifyLinkFromClipboard",
             Self::OpenCommandHelp => "OpenCommandHelp",
             Self::Quit => "Quit",
         }
@@ -544,10 +548,12 @@ pub enum ActionKind {
     DeleteFromPlaylist,
     RemoveFromQueue,
     DeletePlaylist,
+    /// Copies the item's Tidal link (spec 0030).
+    CopyLink,
 }
 
 /// Every action, in the spec's order.
-pub const ACTIONS: [ActionKind; 11] = [
+pub const ACTIONS: [ActionKind; 12] = [
     ActionKind::GoToAlbum,
     ActionKind::GoToArtist,
     ActionKind::GoToRadio,
@@ -559,6 +565,7 @@ pub const ACTIONS: [ActionKind; 11] = [
     ActionKind::DeleteFromPlaylist,
     ActionKind::RemoveFromQueue,
     ActionKind::DeletePlaylist,
+    ActionKind::CopyLink,
 ];
 
 impl ActionKind {
@@ -576,6 +583,7 @@ impl ActionKind {
             Self::DeleteFromPlaylist => "DeleteFromPlaylist",
             Self::RemoveFromQueue => "RemoveFromQueue",
             Self::DeletePlaylist => "DeletePlaylist",
+            Self::CopyLink => "CopyLink",
         }
     }
 
@@ -643,7 +651,7 @@ fn digit(key: Key) -> Option<usize> {
 
 /// spotify-player commands without a counterpart here: skipped with a
 /// notice (spec 0008 decision 3).
-pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
+pub const UNSUPPORTED_COMMANDS: [&str; 20] = [
     "PlayRandom",
     "RefreshPlayback",
     "RestartIntegratedClient",
@@ -656,7 +664,6 @@ pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
     "CurrentlyPlayingContextPage",
     "TopTrackPage",
     "RecentlyPlayedTrackPage",
-    "OpenSpotifyLinkFromClipboard",
     "SortTrackByTitle",
     "SortTrackByArtists",
     "SortTrackByAlbum",
@@ -669,7 +676,7 @@ pub const UNSUPPORTED_COMMANDS: [&str; 21] = [
 
 /// spotify-player actions without a counterpart here: skipped with a
 /// notice.
-pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
+pub const UNSUPPORTED_ACTIONS: [&str; 9] = [
     "GoToShow",
     "AddToLibrary",
     "DeleteFromLibrary",
@@ -677,7 +684,6 @@ pub const UNSUPPORTED_ACTIONS: [&str; 10] = [
     "ShowActionsOnArtist",
     "ShowActionsOnShow",
     "ToggleLiked",
-    "CopyLink",
     "Follow",
     "Unfollow",
 ];
@@ -1091,6 +1097,8 @@ pub fn defaults() -> Vec<(KeySequence, Binding)> {
         (vec![one(Char('l')), g('L')], C::LyricsPage),
         (vec![g('o')], C::OpenLogs),
         (vec![one(Char('e'))], C::ExportLogs),
+        // Spec 0030: spotify-player's `O` is `PlayNextPrompt` here.
+        (vec![g('p')], C::OpenSpotifyLinkFromClipboard),
         (vec![one(Char('/'))], C::Search),
         (vec![one(Key::Backspace), one(Ctrl('q'))], C::PreviousPage),
         (vec![one(Key::Esc)], C::ClosePopup),

@@ -37,6 +37,7 @@
 | browse | 瀏覽 |
 | cache | 快取 |
 | client | 客戶端 |
+| clipboard / clipboard provider | 剪貼簿／剪貼簿提供者 |
 | collection, favorites, Collected Tracks | 收藏（`Collected Tracks` 不譯） |
 | config / settings / config file | 設定／設定檔 |
 | cover / album cover | 封面／專輯封面 |
@@ -44,6 +45,7 @@
 | daemon | 常駐程式 |
 | device / output device | 裝置／輸出裝置 |
 | edge case | 邊界情況 |
+| escape sequence | 跳脫序列 |
 | event | 事件 |
 | fake (test double) | 假實作（fake） |
 | filter | 篩選 |

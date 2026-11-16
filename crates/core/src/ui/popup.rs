@@ -3,7 +3,7 @@
 //! question and the role filter; the devices (spec 0014) and the themes
 //! (spec 0017). Pure data and the actions per item.
 
-use crate::item::Item;
+use crate::item::{Item, Link};
 use crate::library::{AlbumSummary, FavoriteKind, MixSummary, PlaylistSummary};
 use crate::protocol::{DeviceEntry, InsertAt};
 use crate::track::{ArtistRef, EntryId, Track};
@@ -91,6 +91,8 @@ pub enum MenuAction {
         title: String,
         public: bool,
     },
+    /// *Copy link* (spec 0030): the row's Tidal link.
+    CopyLink(Link),
 }
 
 impl MenuAction {
@@ -115,6 +117,7 @@ impl MenuAction {
             Self::EditDescription { .. } => "Edit description…".into(),
             Self::SetPublic { public: true, .. } => "Make public".into(),
             Self::SetPublic { public: false, .. } => "Make private".into(),
+            Self::CopyLink(_) => "Copy link".into(),
         }
     }
 }
@@ -535,6 +538,7 @@ pub fn track_actions(
             etag: etag.map(Into::into),
         });
     }
+    actions.push(copy_link(Item::Track(track.id)));
     actions
 }
 
@@ -550,6 +554,7 @@ pub fn entry_actions(track: &Track, entry: EntryId, playing: bool) -> Vec<MenuAc
     actions.push(MenuAction::AddToPlaylist(TrackSource::Tracks(vec![
         track.clone(),
     ])));
+    actions.push(copy_link(Item::Track(track.id)));
     actions
 }
 
@@ -564,6 +569,7 @@ pub fn album_actions(album: &AlbumSummary) -> Vec<MenuAction> {
     ]);
     actions.extend(favorites(FavoriteKind::Album, album.id.to_string()));
     actions.push(MenuAction::AddToPlaylist(TrackSource::Album(album.id)));
+    actions.push(copy_link(Item::Album(album.id)));
     actions
 }
 
@@ -609,6 +615,7 @@ pub fn playlist_actions(playlist: &PlaylistSummary) -> Vec<MenuAction> {
     } else {
         actions.extend(favorites(FavoriteKind::Playlist, playlist.uuid.clone()));
     }
+    actions.push(copy_link(Item::Playlist(playlist.uuid.clone())));
     actions
 }
 
@@ -619,13 +626,22 @@ pub fn artist_actions(artist: &ArtistRef) -> Vec<MenuAction> {
         MenuAction::GoToRadio(PageKind::ArtistRadio(artist.id)),
     ];
     actions.extend(favorites(FavoriteKind::Artist, artist.id.to_string()));
+    actions.push(MenuAction::CopyLink(Link::Artist(artist.id)));
     actions
 }
 
 /// The actions on a mix row (spec 0011): a mix is not an item and is not
-/// favorited, so only *Open*.
+/// favorited, so *Open* and *Copy link* (spec 0030).
 pub fn mix_actions(mix: &MixSummary) -> Vec<MenuAction> {
-    vec![MenuAction::Open(PageKind::Mix(mix.id.clone()))]
+    vec![
+        MenuAction::Open(PageKind::Mix(mix.id.clone())),
+        MenuAction::CopyLink(Link::Mix(mix.id.clone())),
+    ]
+}
+
+/// *Copy link* of an item (spec 0030), the last entry of its actions.
+fn copy_link(item: Item) -> MenuAction {
+    MenuAction::CopyLink(Link::Item(item))
 }
 
 /// *Go to album* (when the track has one), *Go to artist* per artist and

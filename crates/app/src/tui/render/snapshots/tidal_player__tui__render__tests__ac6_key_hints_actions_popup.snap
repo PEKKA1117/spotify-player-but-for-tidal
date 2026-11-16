@@ -19,8 +19,8 @@ expression: text
 ││                     │ Add to collection             │      ││              ││
 ││                     │ Remove from collection        │      ││              ││
 ││                     │ Add to playlist…              │      ││              ││
+││                     │ Copy link                     │      ││              ││
 ││                     └───────────────────────────────┘      ││              ││
-││                             ││                             ││              ││
 ││                             ││                             ││              ││
 │┌g …─────────────────────────────────────────────────────────────────────────┐│
 ││g  move to the top                                                          ││

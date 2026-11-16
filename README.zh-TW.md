@@ -17,6 +17,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 - **位元完美播放**：串流 Tidal 提供的最佳音質（最高 `HI_RES_LOSSLESS` FLAC），以曲目原本的取樣率播放到 ALSA `hw:` 裝置，播放期間向 PipeWire 取得音效卡。無縫播放（gapless），會預先載入下一首。[播放曲目](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/Playback-zh-TW)
 - **你的收藏庫**：播放清單、專輯與藝人，其中 Playlists 視窗最上方釘選 *Collected Tracks*（你在 Tidal 收藏的曲目），以及專輯、播放清單與藝人頁面；可從動作選單加入或移除收藏；可建立、改名、描述並排序你的播放清單，移除任何內容前都會先詢問 `y/n`，也可以用 `tidal-player playlist` 從 shell 管理。[TUI](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW)
 - **搜尋、mix 與電台**：搜尋曲目、專輯、藝人與播放清單（`g s`），開啟你的每日 mix（`g m`）或曲目、藝人的電台（`r`），並可在輸入時篩選任何清單（`/`）
+- **連結**：從曲目、專輯、藝人、播放清單或 mix 的動作選單複製它的 Tidal 連結（*Copy link*），並用 `g p` 開啟在別處複製的連結：會開啟它的頁面，曲目則加入佇列。在 Wayland 上使用 `wl-clipboard`，在 X11 上使用 `xclip` 或 `xsel`，透過 SSH 時使用終端機自己的剪貼簿（OSC 52）。[連結與剪貼簿](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#links-and-the-clipboard)
 - **瀏覽**：`g b` 開啟 Tidal 精選的內容，以分頁呈現，用 `[` 與 `]` 切換：個人首頁、編輯精選、曲風、心情與年代，各自通往專輯、播放清單、藝人、mix 與曲目的頁面，開啟與播放方式和其他頁面相同。`hide_browse_pages` 可隱藏沒有內容可顯示的頁面。[瀏覽](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#browse)
 - **歌詞**：按 `l` 顯示正在播放曲目的歌詞；同步歌詞會隨演唱跟隨並高亮目前這一行，也可用清單按鍵手動捲動。[歌詞](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#lyrics)
 - **選取多列**：標記清單或佇列中的多列（`s c`、`s 5 j`，或按 `s m` 後移動游標），再一起播放、加入佇列、加入收藏或移除（`s a`、`d s`）。[選取多列](https://github.com/PEKKA1117/spotify-player-but-for-tidal/wiki/TUI-zh-TW#selecting-rows)
@@ -56,6 +57,7 @@ Linux 上的 [Tidal](https://tidal.com) 終端機播放器，以 [spotify-player
 ## 需求
 
 - 有 ALSA 的 Linux。MPRIS 與桌面通知需要 D-Bus 工作階段匯流排；有系統金鑰圈（keyring）時登入工作階段存放在其中，否則存放在加密檔案
+- 選用，複製與開啟連結時需要：Wayland 上的 `wl-clipboard`，X11 上的 `xclip` 或 `xsel`
 - 付費的 Tidal 訂閱；hi-res 串流需要包含它的方案
 - 建置需要：Rust 1.97 以上、C 編譯器與 `cmake`（libFLAC 會一併建置進去）、`pkg-config` 與 ALSA 標頭檔
 

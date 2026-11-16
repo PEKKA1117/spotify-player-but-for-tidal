@@ -375,6 +375,7 @@ fn in_pages(page: &Page, command: UiCommand) -> bool {
         | C::BrowsePage
         | C::LyricsPage
         | C::OpenLogs
+        | C::OpenSpotifyLinkFromClipboard
         | C::PreviousPage => true,
         C::FocusNextWindow | C::FocusPreviousWindow => {
             page.panes.len() > 1 || page.search.is_some()
@@ -687,6 +688,7 @@ fn action_text(action: ActionKind) -> &'static str {
         ActionKind::DeleteFromPlaylist => "remove from this playlist",
         ActionKind::RemoveFromQueue => "remove from the queue",
         ActionKind::DeletePlaylist => "delete the playlist",
+        ActionKind::CopyLink => "copy the item's Tidal link",
     }
 }
 
@@ -776,6 +778,7 @@ fn text(at: Where, command: UiCommand) -> String {
         C::LyricsPage => owned("lyrics of the playing track"),
         C::OpenLogs => owned("open the logs page"),
         C::ExportLogs => owned("export the shown log lines to a file"),
+        C::OpenSpotifyLinkFromClipboard => owned("open the Tidal link in the clipboard"),
         C::OpenCommandHelp => owned("this help"),
         C::Quit => owned("quit (an attached TUI detaches)"),
         C::SwitchDevice => owned("choose the output device"),

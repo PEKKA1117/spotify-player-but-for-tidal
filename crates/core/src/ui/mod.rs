@@ -41,6 +41,7 @@
 //! in [`theme`]; the TUI draws [`State::theme`].
 
 mod browse;
+pub mod clipboard;
 mod dispatch;
 pub mod filter;
 pub mod help;
@@ -63,6 +64,7 @@ use crate::protocol::{
 use crate::track::EntryId;
 
 pub use browse::{Moving, PLAYLIST_CHANGED, Purpose, WholeList, WholeListSource, Write};
+pub use clipboard::CopiedVia;
 pub use filter::{Filter, MAX_FILTER};
 pub use help::{
     Help, HelpRow, HelpSection, HintEntry, Hints, help, hints, locate, no_match, visible,
@@ -420,6 +422,15 @@ pub enum Action {
     /// The result of [`Effect::ExportLogs`] (spec 0027): how many lines
     /// were written and to which path, or why not.
     LogsExported(Result<(usize, String), String>),
+    /// The result of [`Effect::Copy`] of `link` (spec 0030): how it was
+    /// copied, or why not.
+    Copied {
+        link: String,
+        result: Result<CopiedVia, String>,
+    },
+    /// The result of [`Effect::ReadClipboard`] (spec 0030): the
+    /// clipboard's text, or why it could not be read.
+    ClipboardRead(Result<String, String>),
 }
 
 /// A side effect the caller must perform on behalf of the model.
@@ -444,6 +455,12 @@ pub enum Effect {
     ExportLogs { lines: Vec<LogLine> },
     /// Spec 0017 addendum 67055c40c1e2.
     Envy(theme::Envy),
+    /// Put `link` on the clipboard (spec 0030); the result comes back as
+    /// [`Action::Copied`]. The TUI's own, whatever the connection.
+    Copy(String),
+    /// Read the clipboard (spec 0030); the text comes back as
+    /// [`Action::ClipboardRead`]. The TUI's own, whatever the connection.
+    ReadClipboard,
 }
 
 /// Puts the library over the queue as the start page (spec 0006 "Pages"),
@@ -490,26 +507,31 @@ pub fn apply_themes(state: &mut State, themes: Themes, active: usize) {
     state.themes = themes;
 }
 
+/// `effects` without what would reach the player while it is not there
+/// (spec 0005).
+fn connected_only(state: &State, mut effects: Vec<Effect>) -> Vec<Effect> {
+    if state.connection != Connection::Connected {
+        effects.retain(|e| {
+            !matches!(
+                e,
+                Effect::Send(_)
+                    | Effect::Library { .. }
+                    | Effect::Devices { .. }
+                    | Effect::Logs { .. }
+            )
+        });
+    }
+    effects
+}
+
 /// Applies `action` to `state` and returns the effects the caller must run.
 pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
     match action {
         Action::Quit => vec![Effect::Quit],
         Action::Tick => Vec::new(),
         Action::Key(key) => {
-            let mut effects = dispatch::key(state, key);
-            // Nothing reaches a player that is not there (spec 0005).
-            if state.connection != Connection::Connected {
-                effects.retain(|e| {
-                    !matches!(
-                        e,
-                        Effect::Send(_)
-                            | Effect::Library { .. }
-                            | Effect::Devices { .. }
-                            | Effect::Logs { .. }
-                    )
-                });
-            }
-            effects
+            let effects = dispatch::key(state, key);
+            connected_only(state, effects)
         }
         Action::Paste(text) => {
             // The help takes pasted text into its filter, and nothing else.
@@ -567,6 +589,14 @@ pub fn update(state: &mut State, action: Action) -> Vec<Effect> {
         Action::LogsExported(result) => {
             logs::exported(state, result);
             Vec::new()
+        }
+        Action::Copied { link, result } => {
+            clipboard::copied(state, &link, result);
+            Vec::new()
+        }
+        Action::ClipboardRead(result) => {
+            let effects = clipboard::read(state, result);
+            connected_only(state, effects)
         }
         Action::Clock(now) => logs::clock(state, now),
         Action::OwnLogs(lines) => {

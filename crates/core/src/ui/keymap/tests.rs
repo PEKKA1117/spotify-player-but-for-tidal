@@ -348,7 +348,7 @@ fn ac1_key_syntax() {
 // --- AC2 ---------------------------------------------------------------------
 
 /// The table of spec 0008 "Commands and their default keys", in order.
-const DEFAULTS: [(&[&str], &str); 56] = [
+const DEFAULTS: [(&[&str], &str); 57] = [
     (&["space"], "ResumePause"),
     (&["n"], "NextTrack"),
     (&["p"], "PreviousTrack"),
@@ -403,6 +403,8 @@ const DEFAULTS: [(&[&str], &str); 56] = [
     (&["l", "g L"], "LyricsPage"),
     (&["g o"], "OpenLogs"),
     (&["e"], "ExportLogs"),
+    // Spec 0030: spotify-player's `O` is `PlayNextPrompt` here.
+    (&["g p"], "OpenSpotifyLinkFromClipboard"),
     (&["/"], "Search"),
     (&["backspace", "C-q"], "PreviousPage"),
     (&["esc"], "ClosePopup"),
@@ -1047,6 +1049,7 @@ fn label_of(action: ActionKind) -> &'static [&'static str] {
         ActionKind::DeleteFromPlaylist => &["Remove from this playlist"],
         ActionKind::RemoveFromQueue => &["Remove from queue"],
         ActionKind::DeletePlaylist => &["Delete playlist"],
+        ActionKind::CopyLink => &["Copy link"],
     }
 }
 
@@ -1344,8 +1347,10 @@ fn ac12_unsupported_notice() {
         ),
         (
             vec![entry("g n", "NextTrack")],
-            vec![action("x", "CopyLink", Target::SelectedItem)],
-            Some("keymap.toml: 1 spotify-player command not supported here: CopyLink"),
+            // Spec 0030: `CopyLink` is an action now; another skipped
+            // name takes its place.
+            vec![action("x", "ToggleLiked", Target::SelectedItem)],
+            Some("keymap.toml: 1 spotify-player command not supported here: ToggleLiked"),
         ),
         (vec![entry("g n", "NextTrack")], vec![], None),
     ];
@@ -1687,7 +1692,7 @@ fn ac9_file_beats_conflicting_defaults() {
             file(vec![entry("g", "LibraryPage")], vec![]),
             vec![("g", cmd(C::LibraryPage)), ("g g", None), ("g m", None)],
             Some(
-                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage), "g o" (OpenLogs)"#,
+                r#"keymap.toml: "g" replaces the defaults "g g" (SelectFirstOrScrollToTop), "g a" (ShowActionsOnSelectedItem), "g l" (LibraryPage), "g y" (LikedTrackPage), "g s" (SearchPage), "g m" (MixesPage), "g b" (BrowsePage), "g L" (LyricsPage), "g o" (OpenLogs), "g p" (OpenSpotifyLinkFromClipboard)"#,
             ),
         ),
         (
@@ -2068,4 +2073,43 @@ fn ac14_export_key() {
     assert_eq!(press(&mut state, &typed("e")), vec![]);
     let sent = press(&mut state, &[Key::Alt(BaseKey::Char('e'))]);
     assert!(matches!(sent.as_slice(), [Effect::ExportLogs { .. }]));
+}
+
+// --- spec 0030 ---------------------------------------------------------------
+
+/// Spec 0030 AC4: `CopyLink` is an `[[actions]]` action with both
+/// targets, no longer skipped, and has no default key.
+#[test]
+fn ac4_copy_link_action() {
+    for target in [Target::SelectedItem, Target::PlayingTrack] {
+        let built = keymap(vec![], vec![action("x", "CopyLink", target)]);
+        assert_eq!(built.notice(), None, "{target:?}");
+        assert_eq!(
+            bound(&built, "x"),
+            Some(Binding::Action(ActionBinding {
+                action: ActionKind::CopyLink,
+                target,
+            })),
+            "{target:?}"
+        );
+    }
+    assert!(!UNSUPPORTED_ACTIONS.contains(&"CopyLink"));
+    assert!(
+        !Keymap::default()
+            .bindings()
+            .iter()
+            .any(|(_, b)| b.name() == "CopyLink")
+    );
+}
+
+/// Spec 0030 AC5: `OpenSpotifyLinkFromClipboard` is a command bound to
+/// `g p`, no longer skipped.
+#[test]
+fn ac5_open_link_from_clipboard_command() {
+    let command = Binding::Command(UiCommand::OpenSpotifyLinkFromClipboard);
+    assert_eq!(bound(&Keymap::default(), "g p"), Some(command));
+    let built = keymap(vec![entry("x", "OpenSpotifyLinkFromClipboard")], vec![]);
+    assert_eq!(built.notice(), None);
+    assert_eq!(bound(&built, "x"), Some(command));
+    assert!(!UNSUPPORTED_COMMANDS.contains(&"OpenSpotifyLinkFromClipboard"));
 }

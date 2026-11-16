@@ -217,3 +217,107 @@ fn ac8_collection_texts() {
         assert!(!text.to_lowercase().contains("favorite"), "{text}");
     }
 }
+
+/// Spec 0030 AC2: *Copy link* is the last entry on every row with a link,
+/// and carries that row's link; *Collected Tracks* has none.
+#[test]
+fn ac2_copy_link_entries() {
+    use crate::library::{AlbumKind, AlbumSummary, MixSummary, PlaylistSummary};
+    use crate::track::{AlbumRef, ArtistRef, Track, TrackId};
+
+    let artist = ArtistRef {
+        id: 20,
+        name: "Ar".into(),
+    };
+    let track = Track {
+        id: TrackId(5),
+        title: "T5".into(),
+        version: None,
+        artists: vec![artist.clone()],
+        album: Some(AlbumRef {
+            id: 10,
+            title: "Al".into(),
+            cover: None,
+        }),
+        duration: None,
+        streamable: true,
+    };
+    let album = AlbumSummary {
+        id: 10,
+        title: "Al".into(),
+        artists: vec![artist.clone()],
+        year: None,
+        kind: AlbumKind::Album,
+        tracks: None,
+        duration: None,
+    };
+    let playlist = |own| PlaylistSummary {
+        uuid: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d".into(),
+        title: "P".into(),
+        tracks: None,
+        duration: None,
+        own,
+        description: None,
+        public: false,
+    };
+    let mix = MixSummary {
+        id: "0016bd04834072e9da423a4f4d911d".into(),
+        title: "Mix".into(),
+        subtitle: None,
+    };
+    let own_playlist = playlist(true);
+    let track_link = Link::Item(Item::Track(TrackId(5)));
+    let playlist_link = Link::Item(Item::Playlist(
+        "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d".into(),
+    ));
+    let cases: Vec<(&str, Vec<MenuAction>, Link)> = vec![
+        ("track", track_actions(&track, None), track_link.clone()),
+        (
+            "track in an own playlist",
+            track_actions(&track, Some((&own_playlist, 0, None))),
+            track_link.clone(),
+        ),
+        (
+            "queue entry",
+            entry_actions(&track, EntryId(1), false),
+            track_link.clone(),
+        ),
+        (
+            "playing track",
+            entry_actions(&track, EntryId(1), true),
+            track_link,
+        ),
+        ("album", album_actions(&album), Link::Item(Item::Album(10))),
+        ("artist", artist_actions(&artist), Link::Artist(20)),
+        (
+            "playlist of yours",
+            playlist_actions(&playlist(true)),
+            playlist_link.clone(),
+        ),
+        (
+            "playlist not yours",
+            playlist_actions(&playlist(false)),
+            playlist_link,
+        ),
+        (
+            "mix",
+            mix_actions(&mix),
+            Link::Mix("0016bd04834072e9da423a4f4d911d".into()),
+        ),
+    ];
+    for (row, actions, link) in cases {
+        let last = actions.last().cloned();
+        assert_eq!(last, Some(MenuAction::CopyLink(link)), "{row}");
+        assert_eq!(last.map(|a| a.label()).as_deref(), Some("Copy link"));
+        let copies = actions
+            .iter()
+            .filter(|a| matches!(a, MenuAction::CopyLink(_)))
+            .count();
+        assert_eq!(copies, 1, "{row}");
+    }
+    assert!(
+        !collected_actions()
+            .iter()
+            .any(|a| matches!(a, MenuAction::CopyLink(_)))
+    );
+}

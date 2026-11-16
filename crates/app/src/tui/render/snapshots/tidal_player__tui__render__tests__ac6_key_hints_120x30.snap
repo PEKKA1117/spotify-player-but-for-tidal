@@ -25,10 +25,10 @@ expression: text
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
 ││                                             ││                                             ││                      ││
-││                                             ││                                             ││                      ││
 │┌g …─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
-││a  actions on the selected row     y  Collected Tracks                b  browse what Tidal picks                    ││
-││g  move to the top                 s  the search page (on one: its…   L  lyrics of the playing track                ││
-││l  the library                     m  your mixes                      o  open the logs page                         ││
+││a  actions on the selected row     s  the search page (on one: its…   o  open the logs page                         ││
+││g  move to the top                 m  your mixes                      p  open the Tidal link in the c…              ││
+││l  the library                     b  browse what Tidal picks                                                       ││
+││y  Collected Tracks                L  lyrics of the playing track                                                   ││
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

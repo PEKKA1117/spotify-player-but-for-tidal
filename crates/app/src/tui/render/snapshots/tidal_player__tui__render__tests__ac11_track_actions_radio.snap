@@ -10,9 +10,8 @@ expression: text
 │Collected Tracks · 362 tracks                                                 │
 │┌Collected Tracks (362)──────────────────────────────────────────────────────┐│
 ││  1    Song 1                   Pierce The Veil    Album                3:01││
-││  2    Song 2                   Pierce The Veil    Album                3:02││
-││  3    Not Streamable┌Song 1─────────────────────────┐adventures        3:21││
-││                     │ Go to album                   │                      ││
+││  2    Song 2        ┌Song 1─────────────────────────┐um                3:02││
+││  3    Not Streamable│ Go to album                   │adventures        3:21││
 ││                     │ Go to artist: Pierce The Veil │                      ││
 ││                     │ Go to radio                   │                      ││
 ││                     │ Add to queue                  │                      ││
@@ -20,6 +19,7 @@ expression: text
 ││                     │ Add to Collected Tracks       │                      ││
 ││                     │ Remove from Collected Tracks  │                      ││
 ││                     │ Add to playlist…              │                      ││
+││                     │ Copy link                     │                      ││
 ││                     └───────────────────────────────┘                      ││
 ││                                                                            ││
 ││                                                                            ││

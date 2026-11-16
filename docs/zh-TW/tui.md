@@ -119,6 +119,7 @@
 | `l`、`g L` | `LyricsPage` | 開啟正在播放曲目的[歌詞](#lyrics) |
 | `g o` | `OpenLogs` | 開啟[記錄](#logs)頁 |
 | `e` | `ExportLogs` | 在記錄頁：把頁面持有的記錄行[匯出](#logs)到檔案 |
+| `g p` | `OpenSpotifyLinkFromClipboard` | 開啟[剪貼簿](#links-and-the-clipboard)中的 Tidal 連結 |
 | `r` | `GoToRadio`（`[[actions]]` 項目） | 開啟選取曲目或藝人的[電台](#mixes-and-radio) |
 | `/` | `Search` | [篩選](#filtering-a-list)焦點視窗或佇列的列 |
 | `backspace`, `C-q` | `PreviousPage` | 回到上一個頁面 |
@@ -515,12 +516,12 @@ Collected Tracks 頁面（`g y`，或在釘選列上按 `Enter`）像其他曲�
 
 | 對象 | 動作（依此順序） |
 |---|---|
-| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Go to radio*、*Add to queue*、*Play next*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist* |
-| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Go to radio*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…* |
-| 專輯 | *Open*、*Go to artist: …*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*、*Add to playlist…* |
-| 播放清單 | *Open*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*（你自己的播放清單沒有這兩項）、*Delete playlist*（僅限你自己的） |
-| 藝人 | *Open*、*Go to radio*、*Add to collection*、*Remove from collection* |
-| Mix | *Open* |
+| 頁面上的曲目 | *Go to album*、*Go to artist: <name>*（每位藝人一項）、*Go to radio*、*Add to queue*、*Play next*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…*，在你自己的播放清單頁面上還有 *Remove from this playlist*，最後是 *Copy link* |
+| 佇列中的項目，或正在播放的曲目 | *Go to album*、*Go to artist: …*、*Go to radio*、*Play next*（正在播放的曲目沒有此項）、*Remove from queue*、*Add to Collected Tracks*、*Remove from Collected Tracks*、*Add to playlist…*、*Copy link* |
+| 專輯 | *Open*、*Go to artist: …*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*、*Add to playlist…*、*Copy link* |
+| 播放清單 | *Open*、*Add to queue*、*Play next*、*Add to collection*、*Remove from collection*（你自己的播放清單沒有這兩項）、*Delete playlist*（僅限你自己的）、*Copy link* |
+| 藝人 | *Open*、*Go to radio*、*Add to collection*、*Remove from collection*、*Copy link* |
+| Mix | *Open*、*Copy link* |
 | 音樂庫 Playlists 中釘選的 *Collected Tracks* 列 | *Open*、*Add to queue*、*Play next*、*Add to playlist…*（後三項會先載入所有收藏的曲目） |
 
 沒有專輯的曲目不會出現 *Go to album*。曲目加入 *Collected Tracks*，專輯、藝人或播放清單加入你的 *collection*（[原因](#the-library-and-collected-tracks)）。Tidal 目前無法查詢單一項目是否已收藏，因此 *Add to Collected Tracks* 與 *Remove from Collected Tracks*（或 *Add to collection* 與 *Remove from collection*）都會列出；不適用的那一項執行了也無妨。
@@ -593,6 +594,27 @@ Tidal 不會比對這三項在其他地方的變更：以最後儲存的為準�
 - `Backspace` 刪除最後一個字元；`Esc` 關閉輸入提示，不加入任何內容（其他情況下 `Esc` 沒有作用：`q` 才是離開）
 
 輸入提示開啟期間，每個按鍵都會輸入到其中：`Space`、`q` 與其他按鍵不會傳到播放器。項目無效（`Not a Tidal track, album or playlist: …`）或抓取失敗（`Album 123 was not found`）時，會關閉輸入提示並在播放視窗中顯示訊息；佇列不變。
+
+<a id="links-and-the-clipboard"></a>
+## 連結與剪貼簿
+
+*Copy link* 是曲目、專輯、藝人、播放清單或 mix 的[動作選單](#actions)的最後一項，會把它的 Tidal 連結放到剪貼簿（`https://tidal.com/browse/album/10`），並顯示 `Link copied: …`。在 `keymap.toml` 中它是 `CopyLink` 動作，預設沒有按鍵（見[動作](config.md#actions)）。
+
+`g p`（`OpenSpotifyLinkFromClipboard`，spotify-player 的名稱）開啟剪貼簿中的 Tidal 連結，讀取方式與[輸入提示](#adding-tracks)讀連結相同，另外也接受藝人與 mix 連結：
+
+- 專輯、播放清單、藝人或 mix 連結會開啟它的頁面；在曲目上按 `Enter` 之前不會播放任何東西
+- 曲目連結或曲目 ID 會加到佇列尾端，和 `o` 一樣
+- 其他任何內容會顯示 `Not a Tidal link: …`，剪貼簿是空的則顯示 `The clipboard is empty`
+
+不論是否連上常駐程式，TUI 都使用它所執行的機器的剪貼簿：
+
+| 工作階段 | 複製用 | 讀取用 |
+|---|---|---|
+| Wayland（設定了 `WAYLAND_DISPLAY`） | `wl-copy` | `wl-paste`（兩者都在 `wl-clipboard` 中） |
+| X11（設定了 `DISPLAY`） | `xclip` 或 `xsel` | `xclip` 或 `xsel` |
+| 兩者皆無（主控台、SSH） | OSC 52：終端機的剪貼簿跳脫序列，kitty、foot、WezTerm、iTerm2 與 xterm（開啟 `allowWindowOps`）支援；在 tmux 中需要 `set -g set-clipboard on` | 無：`g p` 會說明需要什麼 |
+
+缺少的工具會在訊息列中指名（`Copying the link needs wl-copy: install wl-clipboard`）；超過 2 秒仍未完成的工具會被終止。
 
 <a id="playback"></a>
 ## 播放

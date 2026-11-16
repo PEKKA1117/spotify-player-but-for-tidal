@@ -2,7 +2,7 @@
 //! library (see docs/specs/0001-architecture.md).
 
 use std::hash::{BuildHasher, Hasher, RandomState};
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -55,6 +55,7 @@ use tidal_player::{
         resolve_settings_with, with_device,
     },
     tui::{
+        clipboard,
         cover::{self, Cover, Loader},
         input::event_to_action,
         render::{CoverFrame, CoverGeometry, CoverImage, HintTimer, render_with_cover},
@@ -69,7 +70,9 @@ use tidal_player_audio::devices::parse_devices;
 use tidal_player_core::Item;
 use tidal_player_core::protocol::{InsertAt, RepeatMode};
 use tidal_player_core::ui::theme::Envy;
-use tidal_player_core::ui::{self as tui_model, Action, Effect, Keymap, State, Themes, update};
+use tidal_player_core::ui::{
+    self as tui_model, Action, CopiedVia, Effect, Keymap, State, Themes, update,
+};
 
 /// Terminal Tidal player.
 #[derive(Debug, Parser)]
@@ -294,10 +297,44 @@ fn run<C: Connector>(
                         exported.push(Action::LogsExported(result));
                     }
                     Effect::Envy(envy) => return Ok(Some(envy)),
+                    // Spec 0030: the TUI's own clipboard, whatever the
+                    // player's machine.
+                    Effect::Copy(link) => {
+                        let result = clipboard::copy(
+                            &clipboard::Processes::default(),
+                            clipboard::from_env(),
+                            &link,
+                        )
+                        .and_then(|copied| match copied {
+                            clipboard::Copied::Tool => Ok(CopiedVia::Tool),
+                            clipboard::Copied::Osc52(sequence) => {
+                                let mut out = io::stdout();
+                                out.write_all(sequence.as_bytes())
+                                    .and_then(|()| out.flush())
+                                    .map(|()| CopiedVia::Osc52)
+                                    .map_err(|e| format!("Could not copy the link: {e}"))
+                            }
+                        });
+                        if let Err(reason) = &result {
+                            events::clipboard_failed(reason);
+                        }
+                        exported.push(Action::Copied { link, result });
+                    }
+                    Effect::ReadClipboard => {
+                        let result = clipboard::read(
+                            &clipboard::Processes::default(),
+                            clipboard::from_env(),
+                        );
+                        if let Err(reason) = &result {
+                            events::clipboard_failed(reason);
+                        }
+                        exported.push(Action::ClipboardRead(result));
+                    }
                 }
             }
         }
-        // The export's result is the next frame's first action.
+        // The export's and the clipboard's results are the next frame's
+        // first actions.
         actions.append(&mut exported);
         let hint = hint_timer.update(&state.pending, Instant::now());
         // Spec 0016: the loader follows the current cover and the cover

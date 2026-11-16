@@ -280,6 +280,8 @@ fn pages(focus: bool, tabs: bool) -> Vec<&'static str> {
         "BrowsePage",
         "LyricsPage",
         "OpenLogs",
+        // Spec 0030.
+        "OpenSpotifyLinkFromClipboard",
         "PreviousPage",
     ]);
     pages
@@ -1117,6 +1119,7 @@ fn ac1_hints_entries() {
             entry("b", "browse what Tidal picks", false),
             entry("L", "lyrics of the playing track", false),
             entry("o", "open the logs page", false),
+            entry("p", "open the Tidal link in the clipboard", false),
         ]
     };
     let rows: Vec<(&str, State, Vec<HintEntry>)> = vec![
@@ -1159,6 +1162,7 @@ fn ac1_hints_entries() {
                 entry("b", "browse what Tidal picks", false),
                 entry("L", "lyrics of the playing track", false),
                 entry("o", "open the logs page", false),
+                entry("p", "open the Tidal link in the clipboard", false),
                 entry("n", "next track", false),
                 entry("B", "go to the album (playing track)", false),
             ],

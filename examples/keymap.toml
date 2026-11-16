@@ -295,6 +295,11 @@ key_sequence = "g o"
 command = "ExportLogs"
 key_sequence = "e"
 
+# OpenSpotifyLinkFromClipboard: open the Tidal link in the clipboard (pages)
+[[keymaps]]
+command = "OpenSpotifyLinkFromClipboard"
+key_sequence = "g p"
+
 # Search: back to the search input (the search page)
 [[keymaps]]
 command = "Search"
@@ -347,3 +352,9 @@ target = "SelectedItem"
 # action = "GoToAlbum"
 # key_sequence = "g B"
 # target = "PlayingTrack"   # or "SelectedItem" (the default)
+
+# CopyLink copies an item's Tidal link (no key by default):
+# [[actions]]
+# action = "CopyLink"
+# key_sequence = "C-y"
+# target = "SelectedItem"

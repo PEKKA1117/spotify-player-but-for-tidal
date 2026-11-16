@@ -12,7 +12,8 @@ use crate::protocol::{Command, InsertAt};
 use super::keymap::{Binding, Lookup, UiCommand};
 use super::popup::{Removal, RemoveFrom, Removed, RemovedTarget};
 use super::{
-    Effect, Key, PageKind, Prompt, State, browse, filter, help, logs, lyrics, search, select, theme,
+    Effect, Key, PageKind, Prompt, State, browse, clipboard, filter, help, logs, lyrics, search,
+    select, theme,
 };
 
 /// A key press: what it does, wherever the UI is.
@@ -177,6 +178,7 @@ fn page_command(state: &mut State, command: UiCommand) -> Vec<Effect> {
         C::OpenCommandHelp => return Vec::new(),
         C::SwitchDevice => return browse::open_devices(state),
         C::SwitchTheme => return theme::open(state),
+        C::OpenSpotifyLinkFromClipboard => return clipboard::open(state),
         C::Queue => return browse::open(state, PageKind::Queue),
         C::LibraryPage => return browse::open(state, PageKind::Library),
         C::LikedTrackPage => return browse::open(state, PageKind::FavoriteTracks),
